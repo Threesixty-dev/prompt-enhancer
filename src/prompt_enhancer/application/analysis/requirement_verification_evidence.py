@@ -51,6 +51,7 @@ REQUIREMENT_VERIFICATION_PROJECTION_VERSION = (
 )
 MAX_REQUIREMENT_VERIFICATION_OPPORTUNITIES = 100
 MAX_REQUIREMENT_VERIFICATION_RECEIPTS_PER_RESULT = 16
+MAX_REQUIREMENT_VERIFICATION_OBSERVED_SEQUENCE = (2**63) - 1
 
 
 def _pseudonym(value: str) -> str:
@@ -179,7 +180,9 @@ class AppIssuedRequirementVerificationResult(StrictModel):
     opportunity_set_fingerprint: str
     opportunity_id: str
     requirement_id: str
-    observed_sequence: int = Field(ge=0)
+    observed_sequence: int = Field(
+        ge=0, le=MAX_REQUIREMENT_VERIFICATION_OBSERVED_SEQUENCE
+    )
     method: RequirementVerificationMethod
     outcome: RequirementVerificationOutcome
     receipt_reference_ids: tuple[str, ...] = Field(
@@ -602,6 +605,16 @@ def _validate_verification_result(
     return validated
 
 
+def validate_requirement_verification_result(
+    result: AppIssuedRequirementVerificationResult,
+    opportunities: AppIssuedRequirementVerificationOpportunitySet,
+    identifiers: RequirementVerificationIdFactory,
+) -> AppIssuedRequirementVerificationResult:
+    """Validate one result at an app-issued persistence boundary."""
+
+    return _validate_verification_result(result, opportunities, identifiers)
+
+
 def _validate_acceptance_authority(
     acceptance: ExplicitRequirementAcceptanceAuthority,
     opportunities: AppIssuedRequirementVerificationOpportunitySet,
@@ -623,6 +636,16 @@ def _validate_acceptance_authority(
     ):
         raise ValueError("acceptance lacks owned-native authority")
     return validated
+
+
+def validate_explicit_requirement_acceptance(
+    acceptance: ExplicitRequirementAcceptanceAuthority,
+    opportunities: AppIssuedRequirementVerificationOpportunitySet,
+    identifiers: RequirementVerificationIdFactory,
+) -> ExplicitRequirementAcceptanceAuthority:
+    """Validate one native acceptance at an append-only boundary."""
+
+    return _validate_acceptance_authority(acceptance, opportunities, identifiers)
 
 
 def _evidence_set_identity_values(
@@ -714,6 +737,7 @@ __all__ = (
     "AppIssuedRequirementVerificationResult",
     "ExplicitRequirementAcceptanceAuthority",
     "MAX_REQUIREMENT_VERIFICATION_OPPORTUNITIES",
+    "MAX_REQUIREMENT_VERIFICATION_OBSERVED_SEQUENCE",
     "MAX_REQUIREMENT_VERIFICATION_RECEIPTS_PER_RESULT",
     "REQUIREMENT_ACCEPTANCE_AUTHORITY_ISSUER_VERSION",
     "REQUIREMENT_VERIFICATION_EVIDENCE_POLICY_VERSION",
@@ -735,4 +759,6 @@ __all__ = (
     "issue_requirement_verification_result",
     "validate_requirement_verification_evidence_set",
     "validate_requirement_verification_opportunities",
+    "validate_requirement_verification_result",
+    "validate_explicit_requirement_acceptance",
 )

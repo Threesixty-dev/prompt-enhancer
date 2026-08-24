@@ -2263,6 +2263,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/requirement-verification-evidence/acceptances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append Acceptance */
+        post: operations["append_acceptance_v1_sessions__session_id__requirement_verification_evidence_acceptances_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-verification-evidence/objective-results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append Objective Result */
+        post: operations["append_objective_result_v1_sessions__session_id__requirement_verification_evidence_objective_results_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue Current Opportunities */
+        post: operations["issue_current_opportunities_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets_current_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Snapshot */
+        get: operations["snapshot_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/timeline": {
         parameters: {
             query?: never;
@@ -3541,6 +3609,154 @@ export interface components {
          * @enum {string}
          */
         AnalysisRunStatus: "running" | "completed" | "failed";
+        /** AppIssuedRequirementVerificationOpportunity */
+        AppIssuedRequirementVerificationOpportunity: {
+            coordinate: components["schemas"]["RequirementCoordinate"];
+            /** Opportunity Id */
+            opportunity_id: string;
+            /** Requirement Id */
+            requirement_id: string;
+            /** Requirement Index */
+            requirement_index: number;
+        };
+        /**
+         * AppIssuedRequirementVerificationOpportunitySet
+         * @description Exact app-issued copy of one native-reviewed r6 active set.
+         */
+        AppIssuedRequirementVerificationOpportunitySet: {
+            /**
+             * Complete Active Requirement Enumeration
+             * @default true
+             * @constant
+             */
+            complete_active_requirement_enumeration: true;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Evidence Policy Version
+             * @default app-issued-reviewed-requirement-verification-v1
+             * @constant
+             */
+            evidence_policy_version: "app-issued-reviewed-requirement-verification-v1";
+            /**
+             * Evidence Schema Version
+             * @default requirement-verification-evidence-v1
+             * @constant
+             */
+            evidence_schema_version: "requirement-verification-evidence-v1";
+            /**
+             * Issuer Version
+             * @default reviewed-r6-requirement-opportunity-issuer-v1
+             * @constant
+             */
+            issuer_version: "reviewed-r6-requirement-opportunity-issuer-v1";
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Opportunities */
+            opportunities: components["schemas"]["AppIssuedRequirementVerificationOpportunity"][];
+            /** Opportunity Set Fingerprint */
+            opportunity_set_fingerprint: string;
+            /** Requirement Plan Confirmation Id */
+            requirement_plan_confirmation_id: string;
+            /** Requirement Plan Evidence Fingerprint */
+            requirement_plan_evidence_fingerprint: string;
+            /**
+             * Requirement Plan Policy Version
+             * @default reviewed-requirement-plan-v1
+             * @constant
+             */
+            requirement_plan_policy_version: "reviewed-requirement-plan-v1";
+            /** Requirement Plan Proposal Id */
+            requirement_plan_proposal_id: string;
+            /**
+             * Requirement Plan Review Rubric Version
+             * @default active-requirement-plan-review-rubric-v1
+             * @constant
+             */
+            requirement_plan_review_rubric_version: "active-requirement-plan-review-rubric-v1";
+            /**
+             * Requirement Plan Schema Version
+             * @default requirement-plan-evidence-v1
+             * @constant
+             */
+            requirement_plan_schema_version: "requirement-plan-evidence-v1";
+            /** Session Id */
+            session_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /**
+         * AppIssuedRequirementVerificationResult
+         * @description One typed objective verifier result for one issued opportunity.
+         */
+        AppIssuedRequirementVerificationResult: {
+            /**
+             * App Issued
+             * @default true
+             * @constant
+             */
+            app_issued: true;
+            /**
+             * Authority Kind
+             * @default app_objective_verifier
+             * @constant
+             */
+            authority_kind: "app_objective_verifier";
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Evidence Policy Version
+             * @default app-issued-reviewed-requirement-verification-v1
+             * @constant
+             */
+            evidence_policy_version: "app-issued-reviewed-requirement-verification-v1";
+            /**
+             * Evidence Schema Version
+             * @default requirement-verification-evidence-v1
+             * @constant
+             */
+            evidence_schema_version: "requirement-verification-evidence-v1";
+            /**
+             * Issuer Version
+             * @default local-objective-verification-result-issuer-v1
+             * @constant
+             */
+            issuer_version: "local-objective-verification-result-issuer-v1";
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            method: components["schemas"]["RequirementVerificationMethod"];
+            /** Observed Sequence */
+            observed_sequence: number;
+            /** Opportunity Id */
+            opportunity_id: string;
+            /** Opportunity Set Fingerprint */
+            opportunity_set_fingerprint: string;
+            outcome: components["schemas"]["RequirementVerificationOutcome"];
+            /** Receipt Reference Ids */
+            receipt_reference_ids: string[];
+            /** Requirement Id */
+            requirement_id: string;
+            /** Result Fingerprint */
+            result_fingerprint: string;
+            /** Result Id */
+            result_id: string;
+        };
         /** ApprovalDecision */
         ApprovalDecision: {
             /** Approved */
@@ -4841,6 +5057,67 @@ export interface components {
             basis_coordinate?: components["schemas"]["RequirementCoordinate"] | null;
             coordinate: components["schemas"]["RequirementCoordinate"];
             reason: components["schemas"]["RequirementPlanExclusionReason"];
+        };
+        /**
+         * ExplicitRequirementAcceptanceAuthority
+         * @description Separate owned-native user authority; never a verification result.
+         */
+        ExplicitRequirementAcceptanceAuthority: {
+            /** Acceptance Fingerprint */
+            acceptance_fingerprint: string;
+            /** Acceptance Id */
+            acceptance_id: string;
+            /**
+             * Authority Kind
+             * @default native_user_acceptance
+             * @constant
+             */
+            authority_kind: "native_user_acceptance";
+            /** Confirmation Id */
+            confirmation_id: string;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Evidence Policy Version
+             * @default app-issued-reviewed-requirement-verification-v1
+             * @constant
+             */
+            evidence_policy_version: "app-issued-reviewed-requirement-verification-v1";
+            /**
+             * Evidence Schema Version
+             * @default requirement-verification-evidence-v1
+             * @constant
+             */
+            evidence_schema_version: "requirement-verification-evidence-v1";
+            /**
+             * Issuer Version
+             * @default native-explicit-requirement-acceptance-issuer-v1
+             * @constant
+             */
+            issuer_version: "native-explicit-requirement-acceptance-issuer-v1";
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Opportunity Id */
+            opportunity_id: string;
+            /** Opportunity Set Fingerprint */
+            opportunity_set_fingerprint: string;
+            outcome: components["schemas"]["RequirementAcceptanceOutcome"];
+            /**
+             * Owned Native Action
+             * @default true
+             * @constant
+             */
+            owned_native_action: true;
+            /** Requirement Id */
+            requirement_id: string;
         };
         /** FileContent */
         FileContent: {
@@ -8716,6 +8993,26 @@ export interface components {
             /** Submitted */
             submitted: number;
         };
+        /** RequirementAcceptanceAppendCommand */
+        RequirementAcceptanceAppendCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "record_explicit_native_requirement_acceptance";
+            /** Expected Predecessor Authority Id */
+            expected_predecessor_authority_id?: string | null;
+            /** Opportunity Id */
+            opportunity_id: string;
+            /** Opportunity Set Fingerprint */
+            opportunity_set_fingerprint: string;
+            outcome: components["schemas"]["RequirementAcceptanceOutcome"];
+        };
+        /**
+         * RequirementAcceptanceOutcome
+         * @enum {string}
+         */
+        RequirementAcceptanceOutcome: "accepted" | "rejected" | "unknown";
         /**
          * RequirementActionCandidate
          * @description One application-issued, content-free safe action receipt.
@@ -10358,6 +10655,147 @@ export interface components {
             /** Message Sequence */
             message_sequence: number;
             role: components["schemas"]["TextRole"];
+        };
+        /** RequirementVerificationAuthorityHead */
+        RequirementVerificationAuthorityHead: {
+            /** Authority Record Id */
+            authority_record_id: string;
+            kind: components["schemas"]["RequirementVerificationAuthorityRecordKind"];
+            /** Opportunity Id */
+            opportunity_id: string;
+            /** Revision */
+            revision: number;
+        };
+        /**
+         * RequirementVerificationAuthorityRecordKind
+         * @enum {string}
+         */
+        RequirementVerificationAuthorityRecordKind: "objective_result" | "native_acceptance";
+        /** RequirementVerificationEvidenceMutationDto */
+        RequirementVerificationEvidenceMutationDto: {
+            /** Applied */
+            applied: boolean;
+            snapshot: components["schemas"]["RequirementVerificationEvidenceSnapshotDto"];
+        };
+        /**
+         * RequirementVerificationEvidenceSet
+         * @description One bounded, versioned projection input for the objective metric.
+         */
+        RequirementVerificationEvidenceSet: {
+            /**
+             * Acceptance Authorities
+             * @default []
+             */
+            acceptance_authorities: components["schemas"]["ExplicitRequirementAcceptanceAuthority"][];
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Evidence Policy Version
+             * @default app-issued-reviewed-requirement-verification-v1
+             * @constant
+             */
+            evidence_policy_version: "app-issued-reviewed-requirement-verification-v1";
+            /**
+             * Evidence Schema Version
+             * @default requirement-verification-evidence-v1
+             * @constant
+             */
+            evidence_schema_version: "requirement-verification-evidence-v1";
+            /** Evidence Set Fingerprint */
+            evidence_set_fingerprint: string;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            opportunities: components["schemas"]["AppIssuedRequirementVerificationOpportunitySet"];
+            /**
+             * Projection Version
+             * @default reviewed-requirement-verification-objective-projection-v1
+             * @constant
+             */
+            projection_version: "reviewed-requirement-verification-objective-projection-v1";
+            /**
+             * Verification Results
+             * @default []
+             */
+            verification_results: components["schemas"]["AppIssuedRequirementVerificationResult"][];
+        };
+        /**
+         * RequirementVerificationEvidenceSnapshotDto
+         * @description Public snapshot with no persistence command or raw-content fields.
+         */
+        RequirementVerificationEvidenceSnapshotDto: {
+            /** Authority Heads */
+            authority_heads: components["schemas"]["RequirementVerificationAuthorityHead"][];
+            /**
+             * Content Persisted
+             * @constant
+             */
+            content_persisted: false;
+            evidence: components["schemas"]["RequirementVerificationEvidenceSet"];
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Persistence Schema Version
+             * @constant
+             */
+            persistence_schema_version: "requirement-verification-persistence-v1";
+            /** Revision */
+            revision: number;
+        };
+        /** RequirementVerificationMessageErrorDto */
+        RequirementVerificationMessageErrorDto: {
+            /**
+             * Detail
+             * @enum {string}
+             */
+            detail: "authentication required" | "browser session required" | "origin not allowed" | "owned native confirmation required" | "same-origin mutation required" | "same-origin confirmation required" | "CSRF validation failed" | "user-presence confirmation is unavailable" | "native user-presence confirmation required" | "request validation failed";
+        };
+        /**
+         * RequirementVerificationMethod
+         * @description Objective methods an app verifier may attest.
+         *
+         *     Human acceptance is deliberately absent.  It has a separate authority
+         *     contract so it cannot be smuggled in as an objective test receipt.
+         * @enum {string}
+         */
+        RequirementVerificationMethod: "test" | "static_check" | "build" | "artifact_inspection" | "other_documented";
+        /**
+         * RequirementVerificationOutcome
+         * @enum {string}
+         */
+        RequirementVerificationOutcome: "passed" | "failed" | "unknown";
+        /** RequirementVerificationResultAppendCommand */
+        RequirementVerificationResultAppendCommand: {
+            /** Expected Predecessor Authority Id */
+            expected_predecessor_authority_id?: string | null;
+            result: components["schemas"]["AppIssuedRequirementVerificationResult"];
+        };
+        /** RequirementVerificationServiceErrorDetailDto */
+        RequirementVerificationServiceErrorDetailDto: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "requirement_verification_evidence_definitions_out_of_date" | "invalid_requirement_verification_evidence" | "requirement_verification_evidence_not_found" | "requirement_verification_source_window_stale" | "requirement_verification_evidence_conflict" | "requirement_verification_evidence_persistence_failed";
+            /**
+             * Message
+             * @enum {string}
+             */
+            message: "requirement-verification definitions are out of date" | "requirement-verification evidence is invalid" | "requirement-verification evidence was not found" | "requirement-verification authority changed" | "requirement-verification evidence is unavailable";
+        };
+        /** RequirementVerificationServiceErrorDto */
+        RequirementVerificationServiceErrorDto: {
+            detail: components["schemas"]["RequirementVerificationServiceErrorDetailDto"];
         };
         /** ResearchSourceDto */
         ResearchSourceDto: {
@@ -17849,6 +18287,360 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    append_acceptance_v1_sessions__session_id__requirement_verification_evidence_acceptances_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                /** @description Exact same-origin browser mutation origin. */
+                Origin: string;
+                /** @description CSRF proof bound to the ephemeral browser session. */
+                "X-Prompt-Enhancer-CSRF": string;
+                /** @description One-shot native capability bound to this POST path and the exact request-body SHA-256. */
+                "X-Prompt-Enhancer-User-Presence": string;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie: {
+                /** @description Ephemeral same-origin browser session; API tokens and Bearer credentials are rejected. */
+                prompt_enhancer_session: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequirementAcceptanceAppendCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationEvidenceMutationDto"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationEvidenceMutationDto"];
+                };
+            };
+            /** @description An ephemeral browser session is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description Same-origin, CSRF, or body-bound native proof failed. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The exact evidence authority was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The definitions, source window, or authority changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The bounded request or evidence command is invalid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description Native user presence or local evidence is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+        };
+    };
+    append_objective_result_v1_sessions__session_id__requirement_verification_evidence_objective_results_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequirementVerificationResultAppendCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationEvidenceMutationDto"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationEvidenceMutationDto"];
+                };
+            };
+            /** @description Local authentication is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The browser mutation proof is invalid. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The exact evidence authority was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The definitions, source window, or authority changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The bounded request or evidence command is invalid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The local evidence authority is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+        };
+    };
+    issue_current_opportunities_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets_current_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationEvidenceMutationDto"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationEvidenceMutationDto"];
+                };
+            };
+            /** @description Local authentication is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The browser mutation proof is invalid. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The exact evidence authority was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The definitions, source window, or authority changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The bounded request or evidence command is invalid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The local evidence authority is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+        };
+    };
+    snapshot_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__get: {
+        parameters: {
+            query?: {
+                through_revision?: number | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                opportunity_set_fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationEvidenceSnapshotDto"];
+                };
+            };
+            /** @description Local authentication is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The exact evidence authority was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The definitions, source window, or authority changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The bounded request or evidence command is invalid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The local evidence authority is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
                 };
             };
         };

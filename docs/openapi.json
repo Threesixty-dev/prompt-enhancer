@@ -1920,6 +1920,241 @@
         "title": "AnalysisRunStatus",
         "type": "string"
       },
+      "AppIssuedRequirementVerificationOpportunity": {
+        "additionalProperties": false,
+        "properties": {
+          "coordinate": {
+            "$ref": "#/components/schemas/RequirementCoordinate"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_index": {
+            "exclusiveMaximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Requirement Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "opportunity_id",
+          "requirement_index",
+          "requirement_id",
+          "coordinate"
+        ],
+        "title": "AppIssuedRequirementVerificationOpportunity",
+        "type": "object"
+      },
+      "AppIssuedRequirementVerificationOpportunitySet": {
+        "additionalProperties": false,
+        "description": "Exact app-issued copy of one native-reviewed r6 active set.",
+        "properties": {
+          "complete_active_requirement_enumeration": {
+            "const": true,
+            "default": true,
+            "title": "Complete Active Requirement Enumeration",
+            "type": "boolean"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "evidence_policy_version": {
+            "const": "app-issued-reviewed-requirement-verification-v1",
+            "default": "app-issued-reviewed-requirement-verification-v1",
+            "title": "Evidence Policy Version",
+            "type": "string"
+          },
+          "evidence_schema_version": {
+            "const": "requirement-verification-evidence-v1",
+            "default": "requirement-verification-evidence-v1",
+            "title": "Evidence Schema Version",
+            "type": "string"
+          },
+          "issuer_version": {
+            "const": "reviewed-r6-requirement-opportunity-issuer-v1",
+            "default": "reviewed-r6-requirement-opportunity-issuer-v1",
+            "title": "Issuer Version",
+            "type": "string"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "opportunities": {
+            "items": {
+              "$ref": "#/components/schemas/AppIssuedRequirementVerificationOpportunity"
+            },
+            "maxItems": 1000,
+            "title": "Opportunities",
+            "type": "array"
+          },
+          "opportunity_set_fingerprint": {
+            "title": "Opportunity Set Fingerprint",
+            "type": "string"
+          },
+          "requirement_plan_confirmation_id": {
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_evidence_fingerprint": {
+            "title": "Requirement Plan Evidence Fingerprint",
+            "type": "string"
+          },
+          "requirement_plan_policy_version": {
+            "const": "reviewed-requirement-plan-v1",
+            "default": "reviewed-requirement-plan-v1",
+            "title": "Requirement Plan Policy Version",
+            "type": "string"
+          },
+          "requirement_plan_proposal_id": {
+            "title": "Requirement Plan Proposal Id",
+            "type": "string"
+          },
+          "requirement_plan_review_rubric_version": {
+            "const": "active-requirement-plan-review-rubric-v1",
+            "default": "active-requirement-plan-review-rubric-v1",
+            "title": "Requirement Plan Review Rubric Version",
+            "type": "string"
+          },
+          "requirement_plan_schema_version": {
+            "const": "requirement-plan-evidence-v1",
+            "default": "requirement-plan-evidence-v1",
+            "title": "Requirement Plan Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "source_window_fingerprint",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_proposal_id",
+          "requirement_plan_evidence_fingerprint",
+          "opportunities",
+          "opportunity_set_fingerprint"
+        ],
+        "title": "AppIssuedRequirementVerificationOpportunitySet",
+        "type": "object"
+      },
+      "AppIssuedRequirementVerificationResult": {
+        "additionalProperties": false,
+        "description": "One typed objective verifier result for one issued opportunity.",
+        "properties": {
+          "app_issued": {
+            "const": true,
+            "default": true,
+            "title": "App Issued",
+            "type": "boolean"
+          },
+          "authority_kind": {
+            "const": "app_objective_verifier",
+            "default": "app_objective_verifier",
+            "title": "Authority Kind",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "evidence_policy_version": {
+            "const": "app-issued-reviewed-requirement-verification-v1",
+            "default": "app-issued-reviewed-requirement-verification-v1",
+            "title": "Evidence Policy Version",
+            "type": "string"
+          },
+          "evidence_schema_version": {
+            "const": "requirement-verification-evidence-v1",
+            "default": "requirement-verification-evidence-v1",
+            "title": "Evidence Schema Version",
+            "type": "string"
+          },
+          "issuer_version": {
+            "const": "local-objective-verification-result-issuer-v1",
+            "default": "local-objective-verification-result-issuer-v1",
+            "title": "Issuer Version",
+            "type": "string"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "method": {
+            "$ref": "#/components/schemas/RequirementVerificationMethod"
+          },
+          "observed_sequence": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Observed Sequence",
+            "type": "integer"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "opportunity_set_fingerprint": {
+            "title": "Opportunity Set Fingerprint",
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/RequirementVerificationOutcome"
+          },
+          "receipt_reference_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Receipt Reference Ids",
+            "type": "array"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "result_fingerprint": {
+            "title": "Result Fingerprint",
+            "type": "string"
+          },
+          "result_id": {
+            "title": "Result Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result_id",
+          "opportunity_set_fingerprint",
+          "opportunity_id",
+          "requirement_id",
+          "observed_sequence",
+          "method",
+          "outcome",
+          "receipt_reference_ids",
+          "result_fingerprint"
+        ],
+        "title": "AppIssuedRequirementVerificationResult",
+        "type": "object"
+      },
       "ApprovalDecision": {
         "additionalProperties": false,
         "properties": {
@@ -5198,6 +5433,92 @@
           "reason"
         ],
         "title": "ExcludedRequirementClause",
+        "type": "object"
+      },
+      "ExplicitRequirementAcceptanceAuthority": {
+        "additionalProperties": false,
+        "description": "Separate owned-native user authority; never a verification result.",
+        "properties": {
+          "acceptance_fingerprint": {
+            "title": "Acceptance Fingerprint",
+            "type": "string"
+          },
+          "acceptance_id": {
+            "title": "Acceptance Id",
+            "type": "string"
+          },
+          "authority_kind": {
+            "const": "native_user_acceptance",
+            "default": "native_user_acceptance",
+            "title": "Authority Kind",
+            "type": "string"
+          },
+          "confirmation_id": {
+            "title": "Confirmation Id",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "evidence_policy_version": {
+            "const": "app-issued-reviewed-requirement-verification-v1",
+            "default": "app-issued-reviewed-requirement-verification-v1",
+            "title": "Evidence Policy Version",
+            "type": "string"
+          },
+          "evidence_schema_version": {
+            "const": "requirement-verification-evidence-v1",
+            "default": "requirement-verification-evidence-v1",
+            "title": "Evidence Schema Version",
+            "type": "string"
+          },
+          "issuer_version": {
+            "const": "native-explicit-requirement-acceptance-issuer-v1",
+            "default": "native-explicit-requirement-acceptance-issuer-v1",
+            "title": "Issuer Version",
+            "type": "string"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "opportunity_set_fingerprint": {
+            "title": "Opportunity Set Fingerprint",
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/RequirementAcceptanceOutcome"
+          },
+          "owned_native_action": {
+            "const": true,
+            "default": true,
+            "title": "Owned Native Action",
+            "type": "boolean"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "acceptance_id",
+          "opportunity_set_fingerprint",
+          "opportunity_id",
+          "requirement_id",
+          "confirmation_id",
+          "outcome",
+          "acceptance_fingerprint"
+        ],
+        "title": "ExplicitRequirementAcceptanceAuthority",
         "type": "object"
       },
       "FileContent": {
@@ -15153,6 +15474,55 @@
         "title": "RemoteSubmitResult",
         "type": "object"
       },
+      "RequirementAcceptanceAppendCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "record_explicit_native_requirement_acceptance",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "expected_predecessor_authority_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Authority Id"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "opportunity_set_fingerprint": {
+            "title": "Opportunity Set Fingerprint",
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/RequirementAcceptanceOutcome"
+          }
+        },
+        "required": [
+          "opportunity_set_fingerprint",
+          "opportunity_id",
+          "outcome",
+          "confirmation"
+        ],
+        "title": "RequirementAcceptanceAppendCommand",
+        "type": "object"
+      },
+      "RequirementAcceptanceOutcome": {
+        "enum": [
+          "accepted",
+          "rejected",
+          "unknown"
+        ],
+        "title": "RequirementAcceptanceOutcome",
+        "type": "string"
+      },
       "RequirementActionCandidate": {
         "additionalProperties": false,
         "description": "One application-issued, content-free safe action receipt.",
@@ -18183,6 +18553,294 @@
           "clause_count"
         ],
         "title": "RequirementPlanSourceMessageManifest",
+        "type": "object"
+      },
+      "RequirementVerificationAuthorityHead": {
+        "additionalProperties": false,
+        "properties": {
+          "authority_record_id": {
+            "title": "Authority Record Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RequirementVerificationAuthorityRecordKind"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 32000.0,
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "opportunity_id",
+          "authority_record_id",
+          "kind",
+          "revision"
+        ],
+        "title": "RequirementVerificationAuthorityHead",
+        "type": "object"
+      },
+      "RequirementVerificationAuthorityRecordKind": {
+        "enum": [
+          "objective_result",
+          "native_acceptance"
+        ],
+        "title": "RequirementVerificationAuthorityRecordKind",
+        "type": "string"
+      },
+      "RequirementVerificationEvidenceMutationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/RequirementVerificationEvidenceSnapshotDto"
+          }
+        },
+        "required": [
+          "snapshot",
+          "applied"
+        ],
+        "title": "RequirementVerificationEvidenceMutationDto",
+        "type": "object"
+      },
+      "RequirementVerificationEvidenceSet": {
+        "additionalProperties": false,
+        "description": "One bounded, versioned projection input for the objective metric.",
+        "properties": {
+          "acceptance_authorities": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ExplicitRequirementAcceptanceAuthority"
+            },
+            "maxItems": 1000,
+            "title": "Acceptance Authorities",
+            "type": "array"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "evidence_policy_version": {
+            "const": "app-issued-reviewed-requirement-verification-v1",
+            "default": "app-issued-reviewed-requirement-verification-v1",
+            "title": "Evidence Policy Version",
+            "type": "string"
+          },
+          "evidence_schema_version": {
+            "const": "requirement-verification-evidence-v1",
+            "default": "requirement-verification-evidence-v1",
+            "title": "Evidence Schema Version",
+            "type": "string"
+          },
+          "evidence_set_fingerprint": {
+            "title": "Evidence Set Fingerprint",
+            "type": "string"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "opportunities": {
+            "$ref": "#/components/schemas/AppIssuedRequirementVerificationOpportunitySet"
+          },
+          "projection_version": {
+            "const": "reviewed-requirement-verification-objective-projection-v1",
+            "default": "reviewed-requirement-verification-objective-projection-v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "verification_results": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AppIssuedRequirementVerificationResult"
+            },
+            "maxItems": 1000,
+            "title": "Verification Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "opportunities",
+          "evidence_set_fingerprint"
+        ],
+        "title": "RequirementVerificationEvidenceSet",
+        "type": "object"
+      },
+      "RequirementVerificationEvidenceSnapshotDto": {
+        "additionalProperties": false,
+        "description": "Public snapshot with no persistence command or raw-content fields.",
+        "properties": {
+          "authority_heads": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementVerificationAuthorityHead"
+            },
+            "title": "Authority Heads",
+            "type": "array"
+          },
+          "content_persisted": {
+            "const": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/RequirementVerificationEvidenceSet"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "persistence_schema_version": {
+            "const": "requirement-verification-persistence-v1",
+            "title": "Persistence Schema Version",
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 32000.0,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "evidence",
+          "revision",
+          "authority_heads",
+          "persistence_schema_version",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "RequirementVerificationEvidenceSnapshotDto",
+        "type": "object"
+      },
+      "RequirementVerificationMessageErrorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "enum": [
+              "authentication required",
+              "browser session required",
+              "origin not allowed",
+              "owned native confirmation required",
+              "same-origin mutation required",
+              "same-origin confirmation required",
+              "CSRF validation failed",
+              "user-presence confirmation is unavailable",
+              "native user-presence confirmation required",
+              "request validation failed"
+            ],
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "RequirementVerificationMessageErrorDto",
+        "type": "object"
+      },
+      "RequirementVerificationMethod": {
+        "description": "Objective methods an app verifier may attest.\n\nHuman acceptance is deliberately absent.  It has a separate authority\ncontract so it cannot be smuggled in as an objective test receipt.",
+        "enum": [
+          "test",
+          "static_check",
+          "build",
+          "artifact_inspection",
+          "other_documented"
+        ],
+        "title": "RequirementVerificationMethod",
+        "type": "string"
+      },
+      "RequirementVerificationOutcome": {
+        "enum": [
+          "passed",
+          "failed",
+          "unknown"
+        ],
+        "title": "RequirementVerificationOutcome",
+        "type": "string"
+      },
+      "RequirementVerificationResultAppendCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_predecessor_authority_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Authority Id"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AppIssuedRequirementVerificationResult"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "RequirementVerificationResultAppendCommand",
+        "type": "object"
+      },
+      "RequirementVerificationServiceErrorDetailDto": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "requirement_verification_evidence_definitions_out_of_date",
+              "invalid_requirement_verification_evidence",
+              "requirement_verification_evidence_not_found",
+              "requirement_verification_source_window_stale",
+              "requirement_verification_evidence_conflict",
+              "requirement_verification_evidence_persistence_failed"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "enum": [
+              "requirement-verification definitions are out of date",
+              "requirement-verification evidence is invalid",
+              "requirement-verification evidence was not found",
+              "requirement-verification authority changed",
+              "requirement-verification evidence is unavailable"
+            ],
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "RequirementVerificationServiceErrorDetailDto",
+        "type": "object"
+      },
+      "RequirementVerificationServiceErrorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/RequirementVerificationServiceErrorDetailDto"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "RequirementVerificationServiceErrorDto",
         "type": "object"
       },
       "ResearchSourceDto": {
@@ -35827,6 +36485,644 @@
         "summary": "Review Proposal",
         "tags": [
           "requirement-plan-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-verification-evidence/acceptances": {
+      "post": {
+        "operationId": "append_acceptance_v1_sessions__session_id__requirement_verification_evidence_acceptances_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 16,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Ephemeral same-origin browser session; API tokens and Bearer credentials are rejected.",
+            "in": "cookie",
+            "name": "prompt_enhancer_session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exact same-origin browser mutation origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          {
+            "description": "CSRF proof bound to the ephemeral browser session.",
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One-shot native capability bound to this POST path and the exact request-body SHA-256.",
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementAcceptanceAppendCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationEvidenceMutationDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationEvidenceMutationDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "An ephemeral browser session is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "Same-origin, CSRF, or body-bound native proof failed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The exact evidence authority was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The definitions, source window, or authority changed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 422 Append Acceptance V1 Sessions  Session Id  Requirement Verification Evidence Acceptances Post"
+                }
+              }
+            },
+            "description": "The bounded request or evidence command is invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 503 Append Acceptance V1 Sessions  Session Id  Requirement Verification Evidence Acceptances Post"
+                }
+              }
+            },
+            "description": "Native user presence or local evidence is unavailable."
+          }
+        },
+        "security": [],
+        "summary": "Append Acceptance",
+        "tags": [
+          "requirement-verification-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-verification-evidence/objective-results": {
+      "post": {
+        "operationId": "append_objective_result_v1_sessions__session_id__requirement_verification_evidence_objective_results_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 16,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementVerificationResultAppendCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationEvidenceMutationDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationEvidenceMutationDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "Local authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "The browser mutation proof is invalid."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The exact evidence authority was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The definitions, source window, or authority changed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 422 Append Objective Result V1 Sessions  Session Id  Requirement Verification Evidence Objective Results Post"
+                }
+              }
+            },
+            "description": "The bounded request or evidence command is invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The local evidence authority is unavailable."
+          }
+        },
+        "summary": "Append Objective Result",
+        "tags": [
+          "requirement-verification-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/current": {
+      "post": {
+        "operationId": "issue_current_opportunities_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets_current_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationEvidenceMutationDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationEvidenceMutationDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "Local authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "The browser mutation proof is invalid."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The exact evidence authority was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The definitions, source window, or authority changed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 422 Issue Current Opportunities V1 Sessions  Session Id  Requirement Verification Evidence Opportunity Sets Current Post"
+                }
+              }
+            },
+            "description": "The bounded request or evidence command is invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The local evidence authority is unavailable."
+          }
+        },
+        "summary": "Issue Current Opportunities",
+        "tags": [
+          "requirement-verification-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}": {
+      "get": {
+        "operationId": "snapshot_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_set_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Opportunity Set Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "through_revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 32000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Through Revision"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationEvidenceSnapshotDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "Local authentication is required."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The exact evidence authority was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The definitions, source window, or authority changed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 422 Snapshot V1 Sessions  Session Id  Requirement Verification Evidence Opportunity Sets  Opportunity Set Fingerprint  Get"
+                }
+              }
+            },
+            "description": "The bounded request or evidence command is invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The local evidence authority is unavailable."
+          }
+        },
+        "summary": "Snapshot",
+        "tags": [
+          "requirement-verification-evidence"
         ]
       }
     },

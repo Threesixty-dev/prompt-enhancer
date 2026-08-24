@@ -125,10 +125,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_55,
     MIGRATION_56,
     MIGRATION_57,
+    MIGRATION_58,
 )
 
 
-SCHEMA_VERSION = 57
+SCHEMA_VERSION = 58
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1665,6 +1666,7 @@ class Database:
                 (55, MIGRATION_55),
                 (56, MIGRATION_56),
                 (57, MIGRATION_57),
+                (58, MIGRATION_58),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1980,6 +1982,44 @@ class Database:
             self._connection,
             self._ensure_initialized,
             identifiers=identifiers,
+        )
+
+    def requirement_verification_evidence_repository(self):
+        """Return append-only, content-free requirement-verification storage."""
+
+        from .infrastructure.sqlite.requirement_verification_evidence import (
+            SqliteRequirementVerificationEvidenceRepository,
+        )
+
+        self._ensure_initialized()
+        identifiers = self._local_artifact_id_factory
+        if identifiers is None:
+            raise DatabaseInvariantError(
+                "requirement-verification persistence requires local keyed ID issuance"
+            )
+        return SqliteRequirementVerificationEvidenceRepository(
+            self._connection,
+            self._ensure_initialized,
+            identifiers=identifiers,
+        )
+
+    def requirement_verification_current_plan_authority(self):
+        """Return the restart-safe durable r6 current-window authority."""
+
+        from .application.analysis.requirement_verification_persistence import (
+            CurrentRequirementPlanSnapshotAuthority,
+        )
+        from .infrastructure.sqlite.requirement_verification_evidence import (
+            SqliteCurrentRequirementPlanSourceWindowAuthority,
+        )
+
+        self._ensure_initialized()
+        return CurrentRequirementPlanSnapshotAuthority(
+            self.requirement_plan_evidence_repository(),
+            SqliteCurrentRequirementPlanSourceWindowAuthority(
+                self._connection,
+                self._ensure_initialized,
+            ),
         )
 
     def analysis_run_repository(self):

@@ -1034,6 +1034,20 @@ class LocalApplication:
             review_contexts=contexts,
         )
 
+    def create_requirement_verification_evidence_service(self):
+        """Construct restart-safe, content-free verification evidence authority."""
+
+        from .application.analysis.requirement_verification_persistence import (
+            RequirementVerificationEvidenceService,
+        )
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+
+        return RequirementVerificationEvidenceService(
+            self.database.requirement_verification_evidence_repository(),
+            self.database.requirement_verification_current_plan_authority(),
+            LocalArtifactIdFactory(self.pseudonymizer),
+        )
+
     def create_session_model_ensemble_service(
         self,
         compatibility_policy: ProviderSurfaceCompatibilityPolicy,
@@ -1337,6 +1351,9 @@ class LocalApplication:
                 requirement_plan_review_contexts
             )
         )
+        requirement_verification_evidence_service = (
+            self.create_requirement_verification_evidence_service()
+        )
         requirement_action_evidence_service = (
             self.create_requirement_action_evidence_service(
                 requirement_action_review_contexts
@@ -1435,6 +1452,9 @@ class LocalApplication:
             requirement_plan_evidence_service=requirement_plan_evidence_service,
             requirement_action_evidence_service=(
                 requirement_action_evidence_service
+            ),
+            requirement_verification_evidence_service=(
+                requirement_verification_evidence_service
             ),
             task_analysis_service=self.create_task_analysis_service(),
             session_text_analysis_service=session_text_analysis_service,

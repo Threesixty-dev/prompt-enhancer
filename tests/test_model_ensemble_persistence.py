@@ -512,13 +512,13 @@ def test_model_ensemble_graph_is_immutable_sealed_and_privacy_deletable(tmp_path
 def test_model_ensemble_migrations_have_zero_backfill(tmp_path) -> None:
     database, _ = _database_and_session(tmp_path)
     with sqlite3.connect(database.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 57
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 58
         assert tuple(
             row[0]
             for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-        ) == tuple(range(1, 58))
+        ) == tuple(range(1, 59))
         assert connection.execute(
             "SELECT COUNT(*) FROM session_model_ensemble_runs"
         ).fetchone()[0] == 0
@@ -602,7 +602,7 @@ def test_v28_watch_upgrade_preserves_the_original_message_window(tmp_path) -> No
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 57
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 58
         assert tuple(row[1] for row in rows[:28]) == checksums
         assert rows[28][1] == hashlib.sha256(
             migrations.MIGRATION_29.encode("utf-8")
@@ -721,8 +721,8 @@ def test_v25_to_v26_preserves_prior_checksums_and_rows(tmp_path, populated: bool
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 57
-        assert tuple(row[0] for row in rows) == tuple(range(1, 58))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 58
+        assert tuple(row[0] for row in rows) == tuple(range(1, 59))
         assert tuple(row[1] for row in rows[:25]) == checksums
         assert rows[25][1] == hashlib.sha256(
             migrations.MIGRATION_26.encode("utf-8")

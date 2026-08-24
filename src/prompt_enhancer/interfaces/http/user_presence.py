@@ -71,6 +71,13 @@ _SAFE_ACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/"
+            r"requirement-verification-evidence/acceptances$"
+        ),
+        "Record one explicit native requirement acceptance outcome",
+    ),
+    (
+        re.compile(
             r"^/v1/agent/sessions/[a-f0-9]{32,64}/approvals/"
             r"[a-f0-9]{32,64}$"
         ),

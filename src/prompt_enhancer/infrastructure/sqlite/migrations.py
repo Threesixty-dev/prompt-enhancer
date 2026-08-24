@@ -15851,3 +15851,516 @@ BEGIN SELECT RAISE(ABORT,'metric V2 r7 publication is incomplete: requirement-ac
 COMMIT;
 """
 
+
+MIGRATION_58 = r"""
+BEGIN IMMEDIATE;
+
+-- Content-free, append-only requirement-verification authority.  M58 stores
+-- only keyed identities, closed enums, counts, coordinates, versions, and
+-- server timestamps.  No transcript, prompt, provider payload, path, label,
+-- or free-form proof field exists in this schema.
+CREATE TABLE requirement_verification_opportunity_sets (
+    opportunity_set_fingerprint TEXT PRIMARY KEY
+      CHECK(length(opportunity_set_fingerprint)=64
+            AND opportunity_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL
+      CHECK(length(source_window_fingerprint)=64
+            AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_confirmation_id TEXT NOT NULL
+      REFERENCES requirement_plan_evidence_decisions(decision_id) ON DELETE CASCADE
+      CHECK(length(requirement_plan_confirmation_id)=64
+            AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_proposal_id TEXT NOT NULL
+      REFERENCES requirement_plan_evidence_proposals(proposal_id) ON DELETE CASCADE
+      CHECK(length(requirement_plan_proposal_id)=64
+            AND requirement_plan_proposal_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_evidence_fingerprint TEXT NOT NULL
+      CHECK(length(requirement_plan_evidence_fingerprint)=64
+            AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_schema_version TEXT NOT NULL
+      CHECK(requirement_plan_schema_version='requirement-plan-evidence-v1'),
+    requirement_plan_policy_version TEXT NOT NULL
+      CHECK(requirement_plan_policy_version='reviewed-requirement-plan-v1'),
+    requirement_plan_review_rubric_version TEXT NOT NULL
+      CHECK(requirement_plan_review_rubric_version='active-requirement-plan-review-rubric-v1'),
+    opportunity_issuer_version TEXT NOT NULL
+      CHECK(opportunity_issuer_version='reviewed-r6-requirement-opportunity-issuer-v1'),
+    evidence_schema_version TEXT NOT NULL
+      CHECK(evidence_schema_version='requirement-verification-evidence-v1'),
+    evidence_policy_version TEXT NOT NULL
+      CHECK(evidence_policy_version='app-issued-reviewed-requirement-verification-v1'),
+    complete_active_requirement_enumeration INTEGER NOT NULL
+      CHECK(complete_active_requirement_enumeration=1),
+    opportunity_count INTEGER NOT NULL CHECK(opportunity_count BETWEEN 0 AND 1000),
+    issued_at TEXT NOT NULL
+      CHECK(length(issued_at)=32 AND substr(issued_at,27)='+00:00'),
+    persistence_schema_version TEXT NOT NULL
+      CHECK(persistence_schema_version='requirement-verification-persistence-v1'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    UNIQUE(session_id,requirement_plan_confirmation_id)
+) STRICT;
+
+CREATE INDEX requirement_verification_opportunity_sets_session_idx
+ON requirement_verification_opportunity_sets(session_id,issued_at,opportunity_set_fingerprint);
+
+CREATE TABLE requirement_verification_opportunities (
+    opportunity_set_fingerprint TEXT NOT NULL
+      REFERENCES requirement_verification_opportunity_sets(opportunity_set_fingerprint)
+      ON DELETE CASCADE,
+    requirement_index INTEGER NOT NULL CHECK(requirement_index BETWEEN 0 AND 999),
+    opportunity_id TEXT NOT NULL
+      CHECK(length(opportunity_id)=64 AND opportunity_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_id TEXT NOT NULL
+      CHECK(length(requirement_id)=64 AND requirement_id NOT GLOB '*[^0-9a-f]*'),
+    message_sequence INTEGER NOT NULL CHECK(message_sequence BETWEEN 0 AND 1000000000),
+    clause_index INTEGER NOT NULL CHECK(clause_index BETWEEN 0 AND 127),
+    PRIMARY KEY(opportunity_set_fingerprint,requirement_index),
+    UNIQUE(opportunity_set_fingerprint,opportunity_id),
+    UNIQUE(opportunity_set_fingerprint,requirement_id),
+    UNIQUE(opportunity_set_fingerprint,message_sequence,clause_index)
+) STRICT;
+
+CREATE TABLE requirement_verification_opportunity_set_seals (
+    opportunity_set_fingerprint TEXT PRIMARY KEY
+      REFERENCES requirement_verification_opportunity_sets(opportunity_set_fingerprint)
+      ON DELETE CASCADE,
+    session_id TEXT NOT NULL
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL
+      CHECK(length(source_window_fingerprint)=64
+            AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_confirmation_id TEXT NOT NULL
+      CHECK(length(requirement_plan_confirmation_id)=64
+            AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_proposal_id TEXT NOT NULL
+      CHECK(length(requirement_plan_proposal_id)=64
+            AND requirement_plan_proposal_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_evidence_fingerprint TEXT NOT NULL
+      CHECK(length(requirement_plan_evidence_fingerprint)=64
+            AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    opportunity_count INTEGER NOT NULL CHECK(opportunity_count BETWEEN 0 AND 1000),
+    opportunity_issuer_version TEXT NOT NULL
+      CHECK(opportunity_issuer_version='reviewed-r6-requirement-opportunity-issuer-v1'),
+    evidence_schema_version TEXT NOT NULL
+      CHECK(evidence_schema_version='requirement-verification-evidence-v1'),
+    evidence_policy_version TEXT NOT NULL
+      CHECK(evidence_policy_version='app-issued-reviewed-requirement-verification-v1'),
+    persistence_schema_version TEXT NOT NULL
+      CHECK(persistence_schema_version='requirement-verification-persistence-v1'),
+    sealed_at TEXT NOT NULL
+      CHECK(length(sealed_at)=32 AND substr(sealed_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0)
+) STRICT;
+
+CREATE TABLE requirement_verification_authority_records (
+    authority_record_id TEXT PRIMARY KEY
+      CHECK(length(authority_record_id)=64
+            AND authority_record_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    opportunity_set_fingerprint TEXT NOT NULL
+      REFERENCES requirement_verification_opportunity_sets(opportunity_set_fingerprint)
+      ON DELETE CASCADE,
+    opportunity_id TEXT NOT NULL
+      CHECK(length(opportunity_id)=64 AND opportunity_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_id TEXT NOT NULL
+      CHECK(length(requirement_id)=64 AND requirement_id NOT GLOB '*[^0-9a-f]*'),
+    revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 32000),
+    expected_predecessor_authority_id TEXT
+      CHECK(expected_predecessor_authority_id IS NULL OR
+            (length(expected_predecessor_authority_id)=64
+             AND expected_predecessor_authority_id NOT GLOB '*[^0-9a-f]*')),
+    authority_kind TEXT NOT NULL
+      CHECK(authority_kind IN ('objective_result','native_acceptance')),
+    authority_issuer_version TEXT NOT NULL CHECK(authority_issuer_version IN (
+      'local-objective-verification-result-issuer-v1',
+      'native-explicit-requirement-acceptance-issuer-v1'
+    )),
+    evidence_schema_version TEXT NOT NULL
+      CHECK(evidence_schema_version='requirement-verification-evidence-v1'),
+    evidence_policy_version TEXT NOT NULL
+      CHECK(evidence_policy_version='app-issued-reviewed-requirement-verification-v1'),
+    issued_authority INTEGER NOT NULL CHECK(issued_authority=1),
+    observed_sequence INTEGER CHECK(observed_sequence BETWEEN 0 AND 9223372036854775807),
+    verification_method TEXT
+      CHECK(verification_method IS NULL OR verification_method IN (
+        'test','static_check','build','artifact_inspection','other_documented'
+      )),
+    verification_outcome TEXT
+      CHECK(verification_outcome IS NULL OR verification_outcome IN ('passed','failed','unknown')),
+    receipt_reference_count INTEGER
+      CHECK(receipt_reference_count IS NULL OR receipt_reference_count BETWEEN 1 AND 16),
+    result_fingerprint TEXT
+      CHECK(result_fingerprint IS NULL OR
+            (length(result_fingerprint)=64
+             AND result_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    acceptance_confirmation_id TEXT
+      CHECK(acceptance_confirmation_id IS NULL OR
+            (length(acceptance_confirmation_id)=64
+             AND acceptance_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    acceptance_outcome TEXT
+      CHECK(acceptance_outcome IS NULL OR acceptance_outcome IN ('accepted','rejected','unknown')),
+    acceptance_fingerprint TEXT
+      CHECK(acceptance_fingerprint IS NULL OR
+            (length(acceptance_fingerprint)=64
+             AND acceptance_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    idempotency_key_digest TEXT NOT NULL
+      CHECK(length(idempotency_key_digest)=64
+            AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+    command_fingerprint TEXT NOT NULL
+      CHECK(length(command_fingerprint)=64
+            AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    recorded_at TEXT NOT NULL
+      CHECK(length(recorded_at)=32 AND substr(recorded_at,27)='+00:00'),
+    persistence_schema_version TEXT NOT NULL
+      CHECK(persistence_schema_version='requirement-verification-persistence-v1'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    UNIQUE(session_id,idempotency_key_digest),
+    UNIQUE(opportunity_set_fingerprint,revision),
+    FOREIGN KEY(opportunity_set_fingerprint,opportunity_id)
+      REFERENCES requirement_verification_opportunities(
+        opportunity_set_fingerprint,opportunity_id
+      ) ON DELETE CASCADE,
+    CHECK(
+      (authority_kind='objective_result'
+       AND authority_issuer_version='local-objective-verification-result-issuer-v1'
+       AND observed_sequence IS NOT NULL
+       AND verification_method IS NOT NULL
+       AND verification_outcome IS NOT NULL
+       AND receipt_reference_count IS NOT NULL
+       AND result_fingerprint IS NOT NULL
+       AND acceptance_confirmation_id IS NULL
+       AND acceptance_outcome IS NULL
+       AND acceptance_fingerprint IS NULL)
+      OR
+      (authority_kind='native_acceptance'
+       AND authority_issuer_version='native-explicit-requirement-acceptance-issuer-v1'
+       AND observed_sequence IS NULL
+       AND verification_method IS NULL
+       AND verification_outcome IS NULL
+       AND receipt_reference_count IS NULL
+       AND result_fingerprint IS NULL
+       AND acceptance_confirmation_id IS NOT NULL
+       AND acceptance_outcome IS NOT NULL
+       AND acceptance_fingerprint IS NOT NULL)
+    )
+) STRICT;
+
+CREATE INDEX requirement_verification_authority_records_history_idx
+ON requirement_verification_authority_records(
+  opportunity_set_fingerprint,opportunity_id,revision
+);
+
+CREATE TABLE requirement_verification_result_receipt_refs (
+    authority_record_id TEXT NOT NULL
+      REFERENCES requirement_verification_authority_records(authority_record_id)
+      ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 15),
+    receipt_reference_id TEXT NOT NULL
+      CHECK(length(receipt_reference_id)=64
+            AND receipt_reference_id NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(authority_record_id,ordinal),
+    UNIQUE(authority_record_id,receipt_reference_id)
+) STRICT;
+
+CREATE TABLE requirement_verification_authority_record_seals (
+    authority_record_id TEXT PRIMARY KEY
+      REFERENCES requirement_verification_authority_records(authority_record_id)
+      ON DELETE CASCADE,
+    session_id TEXT NOT NULL
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    opportunity_set_fingerprint TEXT NOT NULL
+      CHECK(length(opportunity_set_fingerprint)=64
+            AND opportunity_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    opportunity_id TEXT NOT NULL
+      CHECK(length(opportunity_id)=64 AND opportunity_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_id TEXT NOT NULL
+      CHECK(length(requirement_id)=64 AND requirement_id NOT GLOB '*[^0-9a-f]*'),
+    revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 32000),
+    expected_predecessor_authority_id TEXT
+      CHECK(expected_predecessor_authority_id IS NULL OR
+            (length(expected_predecessor_authority_id)=64
+             AND expected_predecessor_authority_id NOT GLOB '*[^0-9a-f]*')),
+    authority_kind TEXT NOT NULL
+      CHECK(authority_kind IN ('objective_result','native_acceptance')),
+    authority_issuer_version TEXT NOT NULL CHECK(authority_issuer_version IN (
+      'local-objective-verification-result-issuer-v1',
+      'native-explicit-requirement-acceptance-issuer-v1'
+    )),
+    evidence_schema_version TEXT NOT NULL
+      CHECK(evidence_schema_version='requirement-verification-evidence-v1'),
+    evidence_policy_version TEXT NOT NULL
+      CHECK(evidence_policy_version='app-issued-reviewed-requirement-verification-v1'),
+    issued_authority INTEGER NOT NULL CHECK(issued_authority=1),
+    authority_fingerprint TEXT NOT NULL
+      CHECK(length(authority_fingerprint)=64
+            AND authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    receipt_reference_count INTEGER NOT NULL CHECK(receipt_reference_count BETWEEN 0 AND 16),
+    idempotency_key_digest TEXT NOT NULL
+      CHECK(length(idempotency_key_digest)=64
+            AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+    command_fingerprint TEXT NOT NULL
+      CHECK(length(command_fingerprint)=64
+            AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    recorded_at TEXT NOT NULL
+      CHECK(length(recorded_at)=32 AND substr(recorded_at,27)='+00:00'),
+    persistence_schema_version TEXT NOT NULL
+      CHECK(persistence_schema_version='requirement-verification-persistence-v1'),
+    sealed_at TEXT NOT NULL
+      CHECK(length(sealed_at)=32 AND substr(sealed_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0)
+) STRICT;
+
+CREATE TRIGGER requirement_verification_opportunity_set_source_exact
+BEFORE INSERT ON requirement_verification_opportunity_sets
+WHEN NOT EXISTS(
+  SELECT 1
+  FROM requirement_plan_evidence_decisions decision
+  JOIN requirement_plan_evidence_proposals proposal
+    ON proposal.proposal_id=decision.proposal_id
+  JOIN requirement_plan_evidence_proposal_seals proposal_seal
+    ON proposal_seal.proposal_id=proposal.proposal_id
+  WHERE decision.decision_id=NEW.requirement_plan_confirmation_id
+    AND decision.decision='confirm'
+    AND decision.session_id=NEW.session_id
+    AND proposal.proposal_id=NEW.requirement_plan_proposal_id
+    AND proposal.session_id=NEW.session_id
+    AND proposal.source_window_fingerprint=NEW.source_window_fingerprint
+    AND proposal.requirement_count=NEW.opportunity_count
+    AND proposal.source_window_fingerprint=(
+      SELECT latest.input_fingerprint
+      FROM session_model_ensemble_runs latest
+      JOIN session_model_ensemble_seals latest_seal
+        ON latest_seal.run_id=latest.run_id
+      WHERE latest.session_id=NEW.session_id
+      ORDER BY latest.completed_at DESC,latest.run_id DESC
+      LIMIT 1
+    )
+    AND NOT EXISTS(
+      SELECT 1
+      FROM requirement_plan_evidence_decisions child_decision
+      JOIN requirement_plan_evidence_proposals child
+        ON child.proposal_id=child_decision.proposal_id
+      WHERE child_decision.decision='confirm'
+        AND child.expected_predecessor_confirmation_id=decision.decision_id
+    )
+)
+BEGIN SELECT RAISE(ABORT,'requirement-verification source authority changed'); END;
+
+CREATE TRIGGER requirement_verification_opportunity_insert_guard
+BEFORE INSERT ON requirement_verification_opportunities
+WHEN EXISTS(
+       SELECT 1 FROM requirement_verification_opportunity_set_seals
+       WHERE opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+     )
+ OR NOT EXISTS(
+      SELECT 1
+      FROM requirement_verification_opportunity_sets evidence
+      JOIN requirement_plan_evidence_requirements requirement
+        ON requirement.proposal_id=evidence.requirement_plan_proposal_id
+      WHERE evidence.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+        AND NEW.requirement_index<evidence.opportunity_count
+        AND requirement.message_sequence=NEW.message_sequence
+        AND requirement.clause_index=NEW.clause_index
+     )
+BEGIN SELECT RAISE(ABORT,'requirement-verification opportunity is outside its source'); END;
+
+CREATE TRIGGER requirement_verification_opportunity_set_seal_complete
+BEFORE INSERT ON requirement_verification_opportunity_set_seals
+WHEN NOT EXISTS(
+  SELECT 1 FROM requirement_verification_opportunity_sets evidence
+  WHERE evidence.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+    AND evidence.session_id=NEW.session_id
+    AND evidence.source_window_fingerprint=NEW.source_window_fingerprint
+    AND evidence.requirement_plan_confirmation_id=NEW.requirement_plan_confirmation_id
+    AND evidence.requirement_plan_proposal_id=NEW.requirement_plan_proposal_id
+    AND evidence.requirement_plan_evidence_fingerprint=
+        NEW.requirement_plan_evidence_fingerprint
+    AND evidence.opportunity_count=NEW.opportunity_count
+    AND evidence.opportunity_issuer_version=NEW.opportunity_issuer_version
+    AND evidence.evidence_schema_version=NEW.evidence_schema_version
+    AND evidence.evidence_policy_version=NEW.evidence_policy_version
+    AND evidence.persistence_schema_version=NEW.persistence_schema_version
+    AND evidence.issued_at=NEW.sealed_at
+    AND evidence.local_only=NEW.local_only
+    AND evidence.content_persisted=NEW.content_persisted
+    AND (SELECT COUNT(*) FROM requirement_verification_opportunities opportunity
+         WHERE opportunity.opportunity_set_fingerprint=
+               evidence.opportunity_set_fingerprint)=evidence.opportunity_count
+)
+BEGIN SELECT RAISE(ABORT,'requirement-verification opportunity set is incomplete'); END;
+
+CREATE TRIGGER requirement_verification_authority_record_append_exact
+BEFORE INSERT ON requirement_verification_authority_records
+WHEN NOT EXISTS(
+       SELECT 1
+       FROM requirement_verification_opportunity_sets evidence
+       JOIN requirement_verification_opportunity_set_seals evidence_seal
+         ON evidence_seal.opportunity_set_fingerprint=
+            evidence.opportunity_set_fingerprint
+       JOIN requirement_verification_opportunities opportunity
+         ON opportunity.opportunity_set_fingerprint=
+            evidence.opportunity_set_fingerprint
+        AND opportunity.opportunity_id=NEW.opportunity_id
+       JOIN requirement_plan_evidence_decisions decision
+         ON decision.decision_id=evidence.requirement_plan_confirmation_id
+       JOIN requirement_plan_evidence_proposals proposal
+         ON proposal.proposal_id=decision.proposal_id
+       WHERE evidence.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+         AND evidence.session_id=NEW.session_id
+         AND opportunity.requirement_id=NEW.requirement_id
+         AND proposal.proposal_id=evidence.requirement_plan_proposal_id
+         AND proposal.source_window_fingerprint=(
+           SELECT latest.input_fingerprint
+           FROM session_model_ensemble_runs latest
+           JOIN session_model_ensemble_seals latest_seal
+             ON latest_seal.run_id=latest.run_id
+           WHERE latest.session_id=NEW.session_id
+           ORDER BY latest.completed_at DESC,latest.run_id DESC
+           LIMIT 1
+         )
+         AND NOT EXISTS(
+           SELECT 1
+           FROM requirement_plan_evidence_decisions child_decision
+           JOIN requirement_plan_evidence_proposals child
+             ON child.proposal_id=child_decision.proposal_id
+           WHERE child_decision.decision='confirm'
+             AND child.expected_predecessor_confirmation_id=decision.decision_id
+         )
+     )
+ OR NEW.revision<>(
+      SELECT COALESCE(MAX(prior.revision),0)+1
+      FROM requirement_verification_authority_records prior
+      WHERE prior.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+    )
+ OR NEW.expected_predecessor_authority_id IS NOT (
+      SELECT prior.authority_record_id
+      FROM requirement_verification_authority_records prior
+      JOIN requirement_verification_authority_record_seals prior_seal
+        ON prior_seal.authority_record_id=prior.authority_record_id
+      WHERE prior.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+        AND prior.opportunity_id=NEW.opportunity_id
+      ORDER BY prior.revision DESC
+      LIMIT 1
+    )
+ OR EXISTS(
+      SELECT 1 FROM requirement_verification_authority_records prior
+      WHERE prior.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+        AND prior.opportunity_id=NEW.opportunity_id
+        AND prior.authority_kind<>NEW.authority_kind
+    )
+ OR (SELECT COUNT(*) FROM requirement_verification_authority_records prior
+     WHERE prior.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+       AND prior.opportunity_id=NEW.opportunity_id)>=32
+BEGIN SELECT RAISE(ABORT,'requirement-verification authority changed'); END;
+
+CREATE TRIGGER requirement_verification_receipt_insert_guard
+BEFORE INSERT ON requirement_verification_result_receipt_refs
+WHEN EXISTS(
+       SELECT 1 FROM requirement_verification_authority_record_seals
+       WHERE authority_record_id=NEW.authority_record_id
+     )
+ OR NOT EXISTS(
+      SELECT 1 FROM requirement_verification_authority_records authority
+      WHERE authority.authority_record_id=NEW.authority_record_id
+        AND authority.authority_kind='objective_result'
+        AND NEW.ordinal<authority.receipt_reference_count
+     )
+BEGIN SELECT RAISE(ABORT,'requirement-verification receipt is outside its result'); END;
+
+CREATE TRIGGER requirement_verification_authority_record_seal_complete
+BEFORE INSERT ON requirement_verification_authority_record_seals
+WHEN NOT EXISTS(
+  SELECT 1 FROM requirement_verification_authority_records authority
+  WHERE authority.authority_record_id=NEW.authority_record_id
+    AND authority.session_id=NEW.session_id
+    AND authority.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+    AND authority.opportunity_id=NEW.opportunity_id
+    AND authority.requirement_id=NEW.requirement_id
+    AND authority.revision=NEW.revision
+    AND authority.expected_predecessor_authority_id IS
+        NEW.expected_predecessor_authority_id
+    AND authority.authority_kind=NEW.authority_kind
+    AND authority.authority_issuer_version=NEW.authority_issuer_version
+    AND authority.evidence_schema_version=NEW.evidence_schema_version
+    AND authority.evidence_policy_version=NEW.evidence_policy_version
+    AND authority.issued_authority=NEW.issued_authority
+    AND COALESCE(authority.result_fingerprint,authority.acceptance_fingerprint)=
+        NEW.authority_fingerprint
+    AND COALESCE(authority.receipt_reference_count,0)=NEW.receipt_reference_count
+    AND authority.idempotency_key_digest=NEW.idempotency_key_digest
+    AND authority.command_fingerprint=NEW.command_fingerprint
+    AND authority.recorded_at=NEW.recorded_at
+    AND authority.recorded_at=NEW.sealed_at
+    AND authority.persistence_schema_version=NEW.persistence_schema_version
+    AND authority.local_only=NEW.local_only
+    AND authority.content_persisted=NEW.content_persisted
+    AND (SELECT COUNT(*) FROM requirement_verification_result_receipt_refs receipt
+         WHERE receipt.authority_record_id=authority.authority_record_id)=
+        COALESCE(authority.receipt_reference_count,0)
+)
+BEGIN SELECT RAISE(ABORT,'requirement-verification authority is incomplete'); END;
+
+CREATE TRIGGER requirement_verification_opportunity_sets_no_update
+BEFORE UPDATE ON requirement_verification_opportunity_sets
+BEGIN SELECT RAISE(ABORT,'requirement-verification opportunity sets are immutable'); END;
+CREATE TRIGGER requirement_verification_opportunities_no_update
+BEFORE UPDATE ON requirement_verification_opportunities
+BEGIN SELECT RAISE(ABORT,'requirement-verification opportunities are immutable'); END;
+CREATE TRIGGER requirement_verification_opportunity_set_seals_no_update
+BEFORE UPDATE ON requirement_verification_opportunity_set_seals
+BEGIN SELECT RAISE(ABORT,'requirement-verification opportunity seals are immutable'); END;
+CREATE TRIGGER requirement_verification_authority_records_no_update
+BEFORE UPDATE ON requirement_verification_authority_records
+BEGIN SELECT RAISE(ABORT,'requirement-verification authority records are immutable'); END;
+CREATE TRIGGER requirement_verification_result_receipt_refs_no_update
+BEFORE UPDATE ON requirement_verification_result_receipt_refs
+BEGIN SELECT RAISE(ABORT,'requirement-verification result receipts are immutable'); END;
+CREATE TRIGGER requirement_verification_authority_record_seals_no_update
+BEFORE UPDATE ON requirement_verification_authority_record_seals
+BEGIN SELECT RAISE(ABORT,'requirement-verification authority seals are immutable'); END;
+
+CREATE TRIGGER requirement_verification_opportunity_sets_privacy_delete_only
+BEFORE DELETE ON requirement_verification_opportunity_sets
+WHEN EXISTS(SELECT 1 FROM sessions WHERE session_id=OLD.session_id)
+AND EXISTS(
+  SELECT 1 FROM requirement_plan_evidence_proposals
+  WHERE proposal_id=OLD.requirement_plan_proposal_id
+)
+BEGIN SELECT RAISE(ABORT,'requirement-verification set requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_verification_opportunities_privacy_delete_only
+BEFORE DELETE ON requirement_verification_opportunities
+WHEN EXISTS(SELECT 1 FROM requirement_verification_opportunity_sets
+            WHERE opportunity_set_fingerprint=OLD.opportunity_set_fingerprint)
+BEGIN SELECT RAISE(ABORT,'requirement-verification opportunity requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_verification_opportunity_set_seals_privacy_delete_only
+BEFORE DELETE ON requirement_verification_opportunity_set_seals
+WHEN EXISTS(SELECT 1 FROM requirement_verification_opportunity_sets
+            WHERE opportunity_set_fingerprint=OLD.opportunity_set_fingerprint)
+BEGIN SELECT RAISE(ABORT,'requirement-verification opportunity seal requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_verification_authority_records_privacy_delete_only
+BEFORE DELETE ON requirement_verification_authority_records
+WHEN EXISTS(SELECT 1 FROM requirement_verification_opportunity_sets
+            WHERE opportunity_set_fingerprint=OLD.opportunity_set_fingerprint)
+AND EXISTS(SELECT 1 FROM sessions WHERE session_id=OLD.session_id)
+BEGIN SELECT RAISE(ABORT,'requirement-verification authority requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_verification_result_receipt_refs_privacy_delete_only
+BEFORE DELETE ON requirement_verification_result_receipt_refs
+WHEN EXISTS(SELECT 1 FROM requirement_verification_authority_records
+            WHERE authority_record_id=OLD.authority_record_id)
+BEGIN SELECT RAISE(ABORT,'requirement-verification receipt requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_verification_authority_record_seals_privacy_delete_only
+BEFORE DELETE ON requirement_verification_authority_record_seals
+WHEN EXISTS(SELECT 1 FROM requirement_verification_authority_records
+            WHERE authority_record_id=OLD.authority_record_id)
+BEGIN SELECT RAISE(ABORT,'requirement-verification authority seal requires parent privacy deletion'); END;
+
+COMMIT;
+"""
+

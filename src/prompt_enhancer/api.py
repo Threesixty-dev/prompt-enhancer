@@ -47,6 +47,9 @@ from .application.analysis.requirement_plan_evidence import (
 from .application.analysis.requirement_action_evidence import (
     RequirementActionEvidenceService,
 )
+from .application.analysis.requirement_verification_persistence import (
+    RequirementVerificationEvidenceService,
+)
 from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
@@ -109,6 +112,9 @@ from .interfaces.http.requirement_plan_evidence_routes import (
 )
 from .interfaces.http.requirement_action_evidence_routes import (
     create_requirement_action_evidence_router,
+)
+from .interfaces.http.requirement_verification_evidence_routes import (
+    create_requirement_verification_evidence_router,
 )
 from .interfaces.http.browser_session import (
     BROWSER_SESSION_COOKIE,
@@ -344,6 +350,9 @@ def create_app(
     requirement_action_evidence_service: (
         RequirementActionEvidenceService | None
     ) = None,
+    requirement_verification_evidence_service: (
+        RequirementVerificationEvidenceService | None
+    ) = None,
     task_analysis_service: TaskAnalysisCommandService | None = None,
     session_text_analysis_service: SessionTextAnalysisService | None = None,
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
@@ -521,6 +530,7 @@ def create_app(
                 "/agent-metric-evidence",
                 "/requirement-plan-evidence",
                 "/requirement-action-evidence",
+                "/requirement-verification-evidence",
                 "/declared-task-profile",
                 "/agent/sessions",
             )
@@ -620,6 +630,22 @@ def create_app(
                 detail="user-presence confirmation is unavailable",
             )
         user_presence_confirmation(request, await request.body())
+
+    async def require_requirement_acceptance_confirmation(
+        request: Request,
+    ) -> None:
+        """Apply native confirmation without advertising token authentication.
+
+        The route publishes its four required browser/native proofs explicitly.
+        Values are still validated by the same runtime dependency used by the
+        other owned-native authority routes.
+        """
+
+        await require_browser_user_confirmation(
+            request,
+            supplied_csrf=request.headers.get(CSRF_HEADER),
+            _supplied_user_presence=request.headers.get(USER_PRESENCE_HEADER),
+        )
 
     authenticated = Depends(require_local_token)
 
@@ -1033,6 +1059,14 @@ def create_app(
                 require_local_token,
                 require_browser_user_confirmation,
                 requirement_action_evidence_service,
+            )
+        )
+    if requirement_verification_evidence_service is not None:
+        app.include_router(
+            create_requirement_verification_evidence_router(
+                require_local_token,
+                require_requirement_acceptance_confirmation,
+                requirement_verification_evidence_service,
             )
         )
     if declared_task_profile_service is not None:

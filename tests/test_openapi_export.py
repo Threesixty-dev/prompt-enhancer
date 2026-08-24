@@ -34,6 +34,80 @@ def test_build_time_schema_contains_bounded_queries_and_review_commands() -> Non
     assert "/v1/research/text-analysis-methods" in paths
     assert "/v1/providers/{provider}/capabilities" in paths
     assert "/v1/sessions/{session_id}/metric-readiness" in paths
+    verification_base = (
+        "/v1/sessions/{session_id}/requirement-verification-evidence"
+    )
+    assert {
+        path for path in paths if path.startswith(verification_base)
+    } == {
+        f"{verification_base}/opportunity-sets/current",
+        (
+            f"{verification_base}/opportunity-sets/"
+            "{opportunity_set_fingerprint}"
+        ),
+        f"{verification_base}/objective-results",
+        f"{verification_base}/acceptances",
+    }
+    acceptance_operation = paths[f"{verification_base}/acceptances"]["post"]
+    acceptance_parameters = {
+        parameter["name"]: parameter
+        for parameter in acceptance_operation["parameters"]
+    }
+    native_proofs = {
+        "prompt_enhancer_session",
+        "Origin",
+        "X-Prompt-Enhancer-CSRF",
+        "X-Prompt-Enhancer-User-Presence",
+    }
+    assert set(acceptance_parameters) == {
+        "session_id",
+        "Idempotency-Key",
+        *native_proofs,
+    }
+    assert all(
+        acceptance_parameters[name]["required"] is True
+        for name in native_proofs
+    )
+    assert acceptance_parameters["prompt_enhancer_session"]["in"] == "cookie"
+    assert "X-Prompt-Enhancer-Token" not in acceptance_parameters
+    assert "Authorization" not in acceptance_parameters
+    assert acceptance_operation["security"] == []
+    assert set(acceptance_operation["responses"]) == {
+        "200",
+        "201",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503",
+    }
+    response_schema = acceptance_operation["responses"]["422"]["content"][
+        "application/json"
+    ]["schema"]
+    assert {item["$ref"] for item in response_schema["anyOf"]} == {
+        "#/components/schemas/RequirementVerificationMessageErrorDto",
+        "#/components/schemas/RequirementVerificationServiceErrorDto",
+    }
+    verification_schema = json.dumps(
+        {
+            name: value
+            for name, value in schema["components"]["schemas"].items()
+            if "RequirementVerification" in name
+            or "RequirementAcceptance" in name
+        }
+    ).casefold()
+    for prohibited in (
+        "assistant_claim",
+        "prompt",
+        "transcript",
+        "excerpt",
+        "file_path",
+        "raw_content",
+        "idempotency_key_digest",
+        "command_fingerprint",
+    ):
+        assert prohibited not in verification_schema
     assert "/v1/analysis-jobs" in paths
     assert "/v1/analysis-jobs/{job_id}" in paths
     assert "/v1/analysis-jobs/{job_id}/cancellation" in paths

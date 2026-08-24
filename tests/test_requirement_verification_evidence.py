@@ -27,6 +27,7 @@ from prompt_enhancer.application.analysis.requirement_plan_evidence import (
 from prompt_enhancer.application.analysis.requirement_verification_evidence import (
     AppIssuedRequirementVerificationResult,
     ExplicitRequirementAcceptanceAuthority,
+    MAX_REQUIREMENT_VERIFICATION_OBSERVED_SEQUENCE,
     MAX_REQUIREMENT_VERIFICATION_OPPORTUNITIES,
     REQUIREMENT_ACCEPTANCE_AUTHORITY_ISSUER_VERSION,
     REQUIREMENT_VERIFICATION_EVIDENCE_POLICY_VERSION,
@@ -42,6 +43,7 @@ from prompt_enhancer.application.analysis.requirement_verification_evidence impo
     issue_requirement_verification_evidence_set,
     issue_requirement_verification_opportunities,
     issue_requirement_verification_result,
+    validate_requirement_verification_result,
 )
 from prompt_enhancer.application.analysis.text_contracts import MetricValueState
 
@@ -451,6 +453,31 @@ def test_versions_and_keyed_fingerprints_are_exact_and_tamper_evident() -> None:
     assert _project(snapshot, tampered).explanation_code == (
         "requirement_verification_authority_invalid"
     )
+
+
+def test_observed_sequence_has_exact_sqlite_safe_bound_and_keyed_revalidation() -> None:
+    opportunities = issue_requirement_verification_opportunities(_snapshot(1), IDS)
+    bounded = _result(
+        opportunities,
+        0,
+        RequirementVerificationOutcome.PASSED,
+        sequence=MAX_REQUIREMENT_VERIFICATION_OBSERVED_SEQUENCE,
+    )
+    assert (
+        validate_requirement_verification_result(bounded, opportunities, IDS)
+        == bounded
+    )
+
+    with pytest.raises(ValidationError):
+        _result(
+            opportunities,
+            0,
+            RequirementVerificationOutcome.PASSED,
+            sequence=MAX_REQUIREMENT_VERIFICATION_OBSERVED_SEQUENCE + 1,
+        )
+    tampered = bounded.model_copy(update={"observed_sequence": 0})
+    with pytest.raises(ValueError, match="lacks app-issued authority"):
+        validate_requirement_verification_result(tampered, opportunities, IDS)
 
 
 def test_v4_integration_replaces_only_verified_requirement_authority() -> None:

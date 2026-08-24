@@ -91,3 +91,17 @@ def test_requirement_action_review_and_decision_are_the_only_new_safe_actions() 
     assert manager.action_label("GET", f"{base}/review") is None
     assert manager.action_label("POST", f"{base}/import") is None
     assert manager.action_label("POST", f"{base}/review/extra") is None
+
+
+def test_requirement_acceptance_is_one_exact_native_safe_action() -> None:
+    manager = UserPresenceApprovalManager()
+    path = (
+        f"/v1/sessions/{SESSION}/"
+        "requirement-verification-evidence/acceptances"
+    )
+
+    assert manager.action_label("POST", path) == (
+        "Record one explicit native requirement acceptance outcome"
+    )
+    assert manager.action_label("GET", path) is None
+    assert manager.action_label("POST", f"{path}/extra") is None
