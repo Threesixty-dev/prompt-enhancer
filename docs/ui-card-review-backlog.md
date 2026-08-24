@@ -9,6 +9,11 @@ that time. Targeted localhost reloads now work, and Checkpoint 9A adds synthetic
 inventory still does not claim that a visual defect exists until that defect is
 reproduced in the rendered application.
 
+Checkpoint 9B has now landed objective route/focus, asynchronous ownership,
+confirmation-dialog, and timeline-control corrections. Those correctness
+changes do not visually approve UI-03 through UI-10; their card-by-card owner
+review remains pending.
+
 The application currently contains 18 routed or window shells and roughly 60
 distinct card, panel, drawer, and dialog work units. The current r7 tranche
 directly changes only the canonical metric/evidence workflow and metric
