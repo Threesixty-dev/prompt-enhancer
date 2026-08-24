@@ -1,6 +1,6 @@
 # UI card review backlog
 
-Status: frozen inventory; UI-03 through UI-09 implemented; user visual review pending
+Status: frozen inventory; UI-03 through UI-10 implemented; user visual review pending
 
 The in-app browser could not be automated against localhost because its URL
 security policy rejected the page. This inventory therefore comes from the
@@ -46,7 +46,7 @@ raw transcript content.
 | UI-07 | Generic evidence import | `MetricEvidenceFilePanel`, definitions alert | Frozen implementation; exact-run ownership, bounded file validation, fail-closed native decisions, state hierarchy, focus/Escape, and first-render A→B stale-action rejection are covered and independently rechecked ([checkpoint note](ui-card-checkpoints/UI-07-generic-evidence-import.md)) | User visual review remains pending; inspect full/compact hierarchy, all file/transport states, action feedback, long safe metadata, and narrow layouts |
 | UI-08 | Requirement-plan evidence | `RequirementPlanEvidencePanel` | Frozen implementation; exact owner/live-control epochs, strict r5/r6/r7 contract/file/proposal/review/decision checks, complete clause truth, coherent fail-closed presence, decided states, focus/`Escape`, and responsive wrapping are independently rechecked ([checkpoint note](ui-card-checkpoints/UI-08-requirement-plan-evidence.md)) | User visual review remains pending; inspect complete clause sets, exclusions/bases/links, long coordinates, acknowledgement clarity, and mobile/full/compact modes |
 | UI-09 | Requirement-action evidence | `RequirementActionEvidencePanel` | Frozen implementation; exact public binding/source/transport ownership, strict descriptor/candidate/membership receipts, inert import plus native review/decision, decided-state truth, full opaque IDs, focus/`Escape`, and responsive wrapping are independently rechecked ([checkpoint note](ui-card-checkpoints/UI-09-requirement-action-evidence.md)) | User visual review remains pending; highest visual risk remains long escaped text, dense indices/memberships, clipping, light/dark, and mobile/full/compact modes |
-| UI-10 | Quality profile | `QualityProfileView`, `QualityRadar`, metric board, analyze/share dialogs | Lenses, exact profile semantics, preview identity, focus traps tested | Review radar/board relationship, empty/unknown states, dialogs, mobile information hierarchy |
+| UI-10 | Quality profile | `QualityProfileView`, `QualityRadar`, metric board, analyze/share dialogs | Frozen implementation; exact preset/profile/pack/session/provider readiness ownership, malformed-input withholding, authoritative board-before-radar hierarchy, direction-safe axes, same-kind A→B context resets, captured dialog handlers, and focus/responsive rules are independently rechecked ([checkpoint note](ui-card-checkpoints/UI-10-quality-profile.md)) | User visual review remains pending; inspect radar/board hierarchy, all empty/unknown/incompatible states, analyze/share dialogs, long identifiers, themes, and mobile information hierarchy |
 | UI-11 | Session metric surroundings | `SessionRadarCard`, session timeline/transcript, coaching, model judge, model-link experiment | Most nested panels have direct tests; radar card is mainly composite-covered | Review competing disclosures and primary-action hierarchy around the canonical metric panel |
 | UI-12 | Local sources | Codex and Claude source cards, bounded controls, readiness, project/session selector | Consent, bounds, labels, capabilities, empty/error states tested | Review source-card parity, truth-copy density, selection/editor flow, mobile layout |
 | UI-13 | Overview and session catalog | four overview tiles, next steps, session rows | Independent loading/ready/unavailable and navigation tested | Review scanability, unavailable values, row density, empty/search states |
@@ -60,7 +60,7 @@ raw transcript content.
 
 ## First recommended visual tranche
 
-Start with UI-03 through UI-09 because those are the only card surfaces changed
+Start with UI-03 through UI-10 because those are the only card surfaces changed
 by the stabilized r7 tranche. Use this internal order:
 
 1. Model-ensemble shell and metric workspace.
@@ -68,6 +68,7 @@ by the stabilized r7 tranche. Use this internal order:
 3. Generic evidence import.
 4. Requirement-plan evidence.
 5. Requirement-action evidence in full and compact modes.
+6. Quality profile exact board, secondary radar, readiness, analyze, and share dialogs.
 
 Only after those surfaces are visually stable should work expand to unrelated
 project, source, task, agent, team, or social cards.
