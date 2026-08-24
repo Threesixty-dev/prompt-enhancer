@@ -2,11 +2,12 @@
 
 Status: frozen inventory; UI-03 through UI-10 implemented; user visual review pending
 
-The in-app browser could not be automated against localhost because its URL
-security policy rejected the page. This inventory therefore comes from the
-actual route map, component tree, CSS, tests, and current diff. It does not
-claim that a visual defect exists until that defect is reproduced in the
-rendered application.
+The initial inventory was assembled from the route map, component tree, CSS,
+tests, and current diff because localhost browser automation was unavailable at
+that time. Targeted localhost reloads now work, and Checkpoint 9A adds synthetic
+360 px route coverage for Overview, Sessions, Calibration, and Models. This
+inventory still does not claim that a visual defect exists until that defect is
+reproduced in the rendered application.
 
 The application currently contains 18 routed or window shells and roughly 60
 distinct card, panel, drawer, and dialog work units. The current r7 tranche
@@ -80,8 +81,8 @@ project, source, task, agent, team, or social cards.
   long exact strings and nested receipt/membership content.
 - `TeamFoldersPanel`, `SessionRadarCard`, `TaskSummary`, and `ProvenancePanel`
   have the weakest targeted component coverage.
-- Several routes have strong unit semantics but no route-level responsive
-  check: Overview, Sessions, Calibration, Models, Local Sources, and the live
-  mini window.
+- Local Sources and the live mini window still lack a route-level responsive
+  check. Checkpoint 9A now covers Overview, Sessions, Calibration, and Models;
+  it also requires every Models state to retain its labelled page heading.
 
 These are backlog priorities, not claims that the cards are currently broken.
