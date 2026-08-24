@@ -269,7 +269,11 @@ export type SafeTransportReasonCode =
   | "model_ensemble_persistence_failed"
   | "invalid_model_ensemble_watch_request"
   | "model_ensemble_watch_not_found"
-  | "model_ensemble_watch_conflict";
+  | "model_ensemble_watch_conflict"
+  | "claude_home_invalid"
+  | "claude_home_override_unsupported"
+  | "claude_code_not_installed"
+  | "codex_not_installed";
 
 const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "redacted_content_consent_required",
@@ -317,6 +321,10 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "invalid_model_ensemble_watch_request",
   "model_ensemble_watch_not_found",
   "model_ensemble_watch_conflict",
+  "claude_home_invalid",
+  "claude_home_override_unsupported",
+  "claude_code_not_installed",
+  "codex_not_installed",
 ]);
 
 const MODEL_LAB_INVENTORY_KEYS = new Set([
@@ -2295,7 +2303,7 @@ export function createHttpTransport(options: {
     path: string,
     init: RequestInit,
     signal?: AbortSignal,
-    readSafeAnalysisReason = false,
+    readSafeErrorReason = false,
     requirePrivateNoStore = false,
     requireUserPresence = false,
   ): Promise<T> {
@@ -2344,7 +2352,7 @@ export function createHttpTransport(options: {
 
     if (!response.ok) {
       let reasonCode: SafeTransportReasonCode | null = null;
-      if (readSafeAnalysisReason && isJsonResponse(response)) {
+      if (readSafeErrorReason && isJsonResponse(response)) {
         try {
           reasonCode = safeReasonFromErrorPayload(await response.json());
         } catch {
@@ -3090,6 +3098,7 @@ export function createHttpTransport(options: {
         "/v1/onboarding/accept",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         signal,
+        true,
       );
     },
     getSessionTranscript(sessionId, signal) {

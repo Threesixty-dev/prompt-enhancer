@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CodexSession } from "../../shared/api/contracts";
 import { OverviewPage, sessionsPerDay } from "./OverviewPage";
@@ -14,6 +14,29 @@ function session(startedAt: string, provider = "codex"): CodexSession {
   } as unknown as CodexSession;
 }
 
+function overviewTransport(indexedSessions: [number | null, number | null]) {
+  return {
+    getOnboardingStatus: vi.fn(async () => ({
+      contract_version: "onboarding.v1" as const,
+      any_installed: true,
+      needs_onboarding: false,
+      refresh_interval_seconds: 600,
+      last_refresh_at: "2026-08-19T11:00:00Z",
+      last_refresh_error: false,
+      claude_home_override_supported: true,
+      providers: [
+        { provider: "codex" as const, installed: true, signal: "codex_cli_on_path" as const, consent_active: true, indexed_sessions: indexedSessions[0], transcript_files: null },
+        { provider: "claude_code" as const, installed: true, signal: "claude_transcript_root" as const, consent_active: true, indexed_sessions: indexedSessions[1], transcript_files: 0 },
+      ],
+    })),
+    listCodexSessions: vi.fn(async () => ({ limit: 100, offset: 0, sessions: [] })),
+    getCalibrationSample: vi.fn(async () => ({ contract_version: "calibration.v1", frozen_at: "2026-08-19T00:00:00Z", metric_keys: [], members: [] }) as never),
+    getModelJudgeAgreement: vi.fn(async () => ({ contract_version: "model-judge.v1" as const, model_alias: "synthetic-local", judged_sessions: 0, metrics: [], caveat: "synthetic" }) as never),
+    getLocalModels: vi.fn(async () => ({ contract_version: "local-models.v1" as const, runtime_available: false, storage_root: "D:/synthetic", downloads: [], hardware: { gpu_name: null, gpu_memory_mb: null, gpu_memory_free_mb: null, ram_mb: 8192, llama_server_path: null, llama_server_version: null }, models: [] })),
+    getPromptCheckHistory: vi.fn(async () => ({ contract_version: "prompt-check.v1" as const, limit: 60, offset: 0, checks: [] })),
+  };
+}
+
 describe("OverviewPage", () => {
   it("buckets sessions per day with today on the right", () => {
     const counts = sessionsPerDay([session("2026-08-19T08:00:00Z"), session("2026-08-19T09:00:00Z"), session("2026-08-18T10:00:00Z"), session("2026-06-01T00:00:00Z")], 30, NOW);
@@ -23,11 +46,60 @@ describe("OverviewPage", () => {
     expect(counts.reduce((a, b) => a + b, 0)).toBe(3);
   });
 
+  it("does not sum an unavailable provider count as zero", async () => {
+    render(<OverviewPage navigate={vi.fn()} now={() => NOW} transport={overviewTransport([null, 0])} />);
+    const tile = screen.getByText("Sessions indexed").closest("button") as HTMLButtonElement;
+    expect(await within(tile).findByText("Unknown")).toBeInTheDocument();
+    expect(within(tile).getByText("Codex count unavailable · Claude Code 0")).toBeInTheDocument();
+    expect(within(tile).queryByText(/^0$/)).toBeNull();
+  });
+
+  it("keeps the source detail unknown while onboarding is still loading", () => {
+    const transport = overviewTransport([0, 0]);
+    transport.getOnboardingStatus = vi.fn(() => new Promise<never>(() => undefined));
+    render(<OverviewPage navigate={vi.fn()} now={() => NOW} transport={transport} />);
+    const tile = screen.getByText("Sessions indexed").closest("button") as HTMLButtonElement;
+    expect(within(tile).getByText("checking source counts…")).toBeInTheDocument();
+    expect(within(tile).queryByText("no source loaded yet")).toBeNull();
+  });
+
+  it("renders an exact zero when every provider count is known zero", async () => {
+    render(<OverviewPage navigate={vi.fn()} now={() => NOW} transport={overviewTransport([0, 0])} />);
+    const tile = screen.getByText("Sessions indexed").closest("button") as HTMLButtonElement;
+    expect(await within(tile).findByText("0")).toBeInTheDocument();
+    expect(within(tile).getByText("Codex 0 · Claude Code 0")).toBeInTheDocument();
+  });
+
+  it("keeps an unsafe aggregate unknown even when each provider count is safe", async () => {
+    render(<OverviewPage
+      navigate={vi.fn()}
+      now={() => NOW}
+      transport={overviewTransport([Number.MAX_SAFE_INTEGER, 2])}
+    />);
+    const tile = screen.getByText("Sessions indexed").closest("button") as HTMLButtonElement;
+    expect(await within(tile).findByText("Unknown")).toBeInTheDocument();
+    expect(within(tile).queryByText("9007199254740992")).toBeNull();
+  });
+
+  it("makes contradictory onboarding metadata unavailable instead of rendering it", async () => {
+    const transport = overviewTransport([0, 0]);
+    transport.getOnboardingStatus = vi.fn(async () => ({
+      ...(await overviewTransport([0, 0]).getOnboardingStatus()),
+      any_installed: false,
+    }));
+    render(<OverviewPage navigate={vi.fn()} now={() => NOW} transport={transport} />);
+    const tile = screen.getByText("Sessions indexed").closest("button") as HTMLButtonElement;
+    expect(await within(tile).findByText("—")).toBeInTheDocument();
+    expect(within(tile).getByText("source counts unavailable")).toBeInTheDocument();
+    expect(within(tile).queryByText("no source loaded yet")).toBeNull();
+    expect(within(tile).queryByText(/^0$/)).toBeNull();
+  });
+
   it("shows the four tiles from the app's own endpoints and suggests what to do next", async () => {
     const navigate = vi.fn();
     const transport = {
       getOnboardingStatus: vi.fn(async () => ({
-        contract_version: "onboarding.v1" as const, any_installed: true, needs_onboarding: false, refresh_interval_seconds: 600,
+        contract_version: "onboarding.v1" as const, any_installed: true, needs_onboarding: true, refresh_interval_seconds: 600,
         last_refresh_at: "2026-08-19T11:00:00Z", last_refresh_error: false, claude_home_override_supported: true,
         providers: [
           { provider: "codex" as const, installed: true, signal: "codex_cli_on_path" as const, consent_active: true, indexed_sessions: 62, transcript_files: null },

@@ -552,6 +552,57 @@ describe("same-origin HTTP transport", () => {
     expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
   });
 
+  it.each([
+    "claude_home_invalid",
+    "claude_home_override_unsupported",
+    "claude_code_not_installed",
+    "codex_not_installed",
+  ] as const)("projects the fixed onboarding failure code %s without forwarding detail", async (code) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({
+        detail: {
+          code,
+          message: "SYNTHETIC_PRIVATE_ONBOARDING_CANARY",
+        },
+      }, 422));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const error = await transport.acceptOnboarding({
+      providers: ["claude_code"],
+      claude_home: "D:/example/claude-home",
+    }).catch((value: unknown) => value);
+
+    expect(error).toMatchObject({ status: 422, reasonCode: code });
+    expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_ONBOARDING_CANARY");
+  });
+
+  it("discards an arbitrary onboarding failure code and its detail", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({
+        detail: {
+          code: "SYNTHETIC_PRIVATE_ONBOARDING_CODE",
+          message: "SYNTHETIC_PRIVATE_ONBOARDING_CANARY",
+        },
+      }, 422));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const error = await transport.acceptOnboarding({
+      providers: ["claude_code"],
+      claude_home: "D:/example/claude-home",
+    }).catch((value: unknown) => value);
+
+    expect(error).toMatchObject({ status: 422, reasonCode: null });
+    expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_ONBOARDING");
+  });
+
   it("validates and reads the private model compatibility catalog with GET", async () => {
     const payload = await createSyntheticTransport().getTextModelCompatibility!();
     const fetchMock = vi.fn()

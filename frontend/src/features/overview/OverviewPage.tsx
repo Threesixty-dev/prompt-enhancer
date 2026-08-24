@@ -4,12 +4,15 @@ import type {
   CodexSession,
   JudgeAgreementReport,
   LocalModelsOverview,
-  OnboardingStatus,
   PromptCheckHistory,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import type { AppRoute } from "../../shared/platform/platform";
 import { Icon } from "../../shared/ui/Icon";
+import {
+  safeOnboardingStatus,
+  type TruthfulOnboardingStatus,
+} from "../onboarding/FirstRunPanel";
 import "./OverviewPage.css";
 
 const DAYS = 30;
@@ -17,6 +20,16 @@ const SESSION_PAGE = 100;
 const MAX_SESSION_PAGES = 5;
 
 type Loaded<T> = { state: "loading" } | { state: "ready"; value: T } | { state: "unavailable" };
+
+type OverviewTransport = Omit<
+  Pick<
+    PromptEnhancerTransport,
+    "getOnboardingStatus" | "listCodexSessions" | "getCalibrationSample" | "getModelJudgeAgreement" | "getLocalModels" | "getPromptCheckHistory"
+  >,
+  "getOnboardingStatus"
+> & {
+  getOnboardingStatus(signal?: AbortSignal): Promise<unknown>;
+};
 
 function useLoaded<T>(load: (signal: AbortSignal) => Promise<T>, deps: unknown[]): Loaded<T> {
   const [value, setValue] = useState<Loaded<T>>({ state: "loading" });
@@ -75,10 +88,14 @@ export function OverviewPage({
   now = () => new Date(),
 }: {
   navigate: (route: AppRoute) => void;
-  transport: Pick<PromptEnhancerTransport, "getOnboardingStatus" | "listCodexSessions" | "getCalibrationSample" | "getModelJudgeAgreement" | "getLocalModels" | "getPromptCheckHistory">;
+  transport: OverviewTransport;
   now?: () => Date;
 }) {
-  const onboarding = useLoaded<OnboardingStatus>((signal) => transport.getOnboardingStatus(signal), [transport]);
+  const onboarding = useLoaded<TruthfulOnboardingStatus>(async (signal) => {
+    const value = await transport.getOnboardingStatus(signal);
+    if (!safeOnboardingStatus(value)) throw new Error("invalid onboarding response");
+    return value;
+  }, [transport]);
   const sessions = useLoaded<CodexSession[]>(async (signal) => {
     const all: CodexSession[] = [];
     for (let page = 0; page < MAX_SESSION_PAGES; page += 1) {
@@ -96,7 +113,25 @@ export function OverviewPage({
   const perDay = useMemo(() => (sessions.state === "ready" ? sessionsPerDay(sessions.value, DAYS, now()) : []), [sessions, now]);
   const recentCount = perDay.reduce((a, b) => a + b, 0);
   const providers = onboarding.state === "ready" ? onboarding.value.providers : [];
-  const indexedTotal = providers.reduce((sum, p) => sum + (p.indexed_sessions ?? 0), 0);
+  const indexedCounts = providers.map((provider) => provider.indexed_sessions);
+  const summedIndexedTotal = indexedCounts.length > 0
+    && indexedCounts.every((count): count is number => count !== null)
+    ? indexedCounts.reduce((sum, count) => sum + count, 0)
+    : null;
+  const indexedTotal = summedIndexedTotal !== null && Number.isSafeInteger(summedIndexedTotal)
+    ? summedIndexedTotal
+    : null;
+  const indexedDetail = onboarding.state === "loading"
+    ? "checking source counts…"
+    : onboarding.state === "unavailable"
+      ? "source counts unavailable"
+      : providers
+        .filter((p) => p.consent_active)
+        .map((p) => {
+          const label = p.provider === "claude_code" ? "Claude Code" : p.provider === "codex" ? "Codex" : p.provider;
+          return `${label} ${p.indexed_sessions === null ? "count unavailable" : p.indexed_sessions}`;
+        })
+        .join(" · ") || "no source loaded yet";
   const activeModel = models.state === "ready" ? models.value.models.find((m) => m.runtime.state === "running") ?? null : null;
   const sampleMembers = calibration.state === "ready" ? calibration.value.members : [];
   const metricCount = calibration.state === "ready" ? calibration.value.metric_keys.length : 0;
@@ -147,9 +182,11 @@ export function OverviewPage({
       <div className="overview__tiles">
         <button className="overview-tile" onClick={() => navigate({ name: "sessions" })} type="button">
           <span className="overview-tile__label"><Icon name="layers" /> Sessions indexed</span>
-          <strong className="overview-tile__value">{onboarding.state === "ready" ? indexedTotal : "…"}</strong>
+          <strong className="overview-tile__value">
+            {onboarding.state === "loading" ? "…" : onboarding.state === "unavailable" ? "—" : indexedTotal === null ? "Unknown" : indexedTotal}
+          </strong>
           <span className="overview-tile__sub">
-            {providers.filter((p) => p.consent_active).map((p) => `${p.provider === "claude_code" ? "Claude Code" : p.provider === "codex" ? "Codex" : p.provider} ${p.indexed_sessions}`).join(" · ") || "no source loaded yet"}
+            {indexedDetail}
           </span>
           {sessions.state === "ready" && <Sparkline label={`Sessions per day, last ${DAYS} days (${recentCount})`} values={perDay} />}
           <span className="overview-tile__foot">{sessions.state === "ready" ? `${recentCount} in the last ${DAYS} days` : sessions.state === "loading" ? "counting…" : "history unavailable"}</span>
