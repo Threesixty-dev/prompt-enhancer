@@ -86,7 +86,7 @@ export function describeMetricSemantics(input: {
         label: "Unknown",
         detail:
           "No eligible evidence was available in this current snapshot, so no value was inferred.",
-        tone: "neutral",
+        tone: "unknown",
         partial: true,
       };
     }
@@ -95,7 +95,7 @@ export function describeMetricSemantics(input: {
         label: "Unknown",
         detail:
           "Eligible evidence exists, but no usable observations were available in this current snapshot.",
-        tone: "neutral",
+        tone: "unknown",
         partial: true,
       };
     }
@@ -103,7 +103,7 @@ export function describeMetricSemantics(input: {
       label: "Unknown",
       detail:
         "Available observations were insufficient to infer a value in this current snapshot.",
-      tone: "neutral",
+      tone: "unknown",
       partial: true,
     };
   }

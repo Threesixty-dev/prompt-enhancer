@@ -34,7 +34,7 @@ describe("SessionMetricCard", () => {
 
     expect(screen.getByText("Unknown", { selector: "strong" })).toBeVisible();
     expect(screen.getByText(/no usable observations/i)).toBeVisible();
-    expect(screen.getByRole("progressbar")).toHaveAccessibleName(
+    expect(screen.getByRole("meter")).toHaveAccessibleName(
       "0 of 2 observations (0%)",
     );
 

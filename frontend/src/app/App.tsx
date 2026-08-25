@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type RefObject,
   type ReactNode,
 } from "react";
 import type { PromptEnhancerTransport, Provider } from "../shared/api/contracts";
@@ -26,8 +27,9 @@ import { DiscoveryInbox } from "../features/discovery-inbox/DiscoveryInbox";
 import type { ProjectWorkspaceRoute } from "../features/project-workspace";
 import { Icon, type IconName } from "../shared/ui/Icon";
 import { ThemeToggle } from "../shared/ui/ThemeToggle";
-import { ErrorState, LoadingState } from "../shared/ui/AsyncState";
+import { LoadingState } from "../shared/ui/AsyncState";
 import { EmptyState } from "../shared/ui/EmptyState";
+import { Dialog } from "../shared/ui/Dialog";
 
 const AnalysisJobCentreScreen = lazy(() =>
   import("../features/analysis-job-centre").then((module) => ({
@@ -121,7 +123,8 @@ const PRIMARY_NAV_ICONS = {
 
 interface RouteErrorBoundaryProps {
   children: ReactNode;
-  onExit: () => void;
+  exitLabel?: string;
+  onExit?: () => void;
   resetKey: string;
 }
 
@@ -154,17 +157,118 @@ export class RouteErrorBoundary extends Component<
     return null;
   }
 
+  componentDidUpdate(
+    _previousProps: RouteErrorBoundaryProps,
+    previousState: RouteErrorBoundaryState,
+  ) {
+    if (previousState.failed && !this.state.failed) {
+      document.getElementById("main-content")?.focus();
+    }
+  }
+
+  private retry = () => {
+    this.setState({ failed: false });
+  };
+
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <ErrorState
-        actionLabel="Return to Discovery"
-        message="Its local route bundle failed safely. No provider error or session content is shown."
-        onRetry={this.props.onExit}
-        title="This screen could not be loaded"
-      />
+      <div className="async-state async-state--error route-error" role="alert">
+        <span className="async-state__icon"><Icon name="x" /></span>
+        <div className="route-error__message">
+          <strong>This screen could not be loaded</strong>
+          <p>The local screen failed safely. No provider error or session content is shown.</p>
+        </div>
+        <div className="route-error__actions">
+          <button className="button button--primary" onClick={this.retry} type="button">
+            Retry screen
+          </button>
+          {this.props.onExit !== undefined && (
+            <button className="button button--secondary" onClick={this.props.onExit} type="button">
+              {this.props.exitLabel ?? "Leave this screen"}
+            </button>
+          )}
+        </div>
+      </div>
     );
   }
+}
+
+interface PrimaryNavigationItem {
+  active: boolean;
+  busy?: boolean;
+  icon: IconName;
+  indicator?: { label: string; value: number };
+  key: string;
+  label: string;
+  onSelect: () => void;
+}
+
+interface PrimaryNavigationSection {
+  key: string;
+  label: string;
+  items: readonly PrimaryNavigationItem[];
+}
+
+function BrandMark() {
+  return (
+    <span className="brand__mark brand__mark--glyph" aria-hidden="true">
+      <svg viewBox="0 0 36 36" focusable="false">
+        <path className="brand__caret" d="M11 10 L19 18 L11 26" />
+        <path className="brand__caret brand__caret--lift" d="M17 25.5 L25 25.5" />
+        <path className="brand__spark" d="M26.5 7.5 L27.6 11 L31 12.1 L27.6 13.2 L26.5 16.7 L25.4 13.2 L22 12.1 L25.4 11 Z" />
+      </svg>
+    </span>
+  );
+}
+
+function PrimaryNavigation({
+  activeItemRef,
+  ariaLabel,
+  idPrefix,
+  onSelectItem,
+  sections,
+  variant,
+}: {
+  activeItemRef?: RefObject<HTMLButtonElement | null>;
+  ariaLabel: string;
+  idPrefix: string;
+  onSelectItem?: (item: PrimaryNavigationItem) => void;
+  sections: readonly PrimaryNavigationSection[];
+  variant: "drawer" | "sidebar";
+}) {
+  return (
+    <nav aria-label={ariaLabel} className={`primary-nav primary-nav--${variant}`}>
+      {sections.map((section) => {
+        const labelId = `${idPrefix}-${section.key}`;
+        return (
+          <div aria-labelledby={labelId} className="primary-nav__section" key={section.key} role="group">
+            <p id={labelId}>{section.label}</p>
+            {section.items.map((item) => (
+              <button
+                aria-busy={item.busy || undefined}
+                aria-current={item.active ? "page" : undefined}
+                className={item.active ? "primary-nav__item--active" : ""}
+                disabled={item.busy}
+                key={item.key}
+                onClick={() => (onSelectItem === undefined ? item.onSelect() : onSelectItem(item))}
+                ref={item.active ? activeItemRef : undefined}
+                type="button"
+              >
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
+                {item.indicator !== undefined && (
+                  <span className="nav-indicator" aria-label={item.indicator.label}>
+                    {item.indicator.value}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </nav>
+  );
 }
 
 function isProjectWorkspaceRoute(route: AppRoute): route is ProjectWorkspaceRoute {
@@ -243,6 +347,26 @@ function runtimeStatusCopy(
   };
 }
 
+function useCompactShellViewport(): boolean {
+  const query = "(max-width: 860px)";
+  const [compact, setCompact] = useState(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia(query).matches
+      : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const media = window.matchMedia(query);
+    const update = () => setCompact(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return compact;
+}
+
 export function App({
   platform,
   runtime,
@@ -257,6 +381,7 @@ export function App({
   socialHub?: SocialHubPort;
 }) {
   const transport: PromptEnhancerTransport = runtime.transport;
+  const compactShell = useCompactShellViewport();
   const teamPort = useMemo(
     () => composeTeamControlPlanePort(runtime.mode, teamControlPlane),
     [runtime.mode, teamControlPlane],
@@ -272,7 +397,14 @@ export function App({
     projectWorkspace: isProjectWorkspaceRoute(route),
   });
   const latestTaskControllerRef = useRef<AbortController | null>(null);
+  const desktopActiveItemRef = useRef<HTMLButtonElement>(null);
+  const mobileActiveItemRef = useRef<HTMLButtonElement>(null);
+  const mobileNavigationActionRef = useRef<(() => void) | null>(null);
+  const focusDesktopNavigationAfterDrawerCloseRef = useRef(false);
+  const focusMainAfterDrawerCloseRef = useRef(false);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [navigationNotice, setNavigationNotice] = useState("");
+  const [latestTaskPending, setLatestTaskPending] = useState(false);
   const [undecidedCount, setUndecidedCount] = useState<number | null>(null);
   const [serviceState, setServiceState] = useState<RuntimeServiceState>(() =>
     runtime.mode === "synthetic_demo" ? "available" : "checking",
@@ -285,11 +417,61 @@ export function App({
 
   useEffect(() => {
     setNavigationNotice("");
+    setLatestTaskPending(false);
     return () => {
       latestTaskControllerRef.current?.abort();
       latestTaskControllerRef.current = null;
     };
   }, [routeIdentity, transport]);
+
+  useEffect(() => {
+    if (mobileNavigationOpen || mobileNavigationActionRef.current === null) return;
+    const action = mobileNavigationActionRef.current;
+    mobileNavigationActionRef.current = null;
+    action();
+  }, [mobileNavigationOpen]);
+
+  useLayoutEffect(() => {
+    if (compactShell) return;
+    if (mobileNavigationOpen) focusDesktopNavigationAfterDrawerCloseRef.current = true;
+    mobileNavigationActionRef.current = null;
+    setMobileNavigationOpen(false);
+  }, [compactShell]);
+
+  useLayoutEffect(() => {
+    if (!mobileNavigationOpen) return;
+    mobileNavigationActionRef.current = null;
+    focusMainAfterDrawerCloseRef.current = true;
+    setMobileNavigationOpen(false);
+  }, [routeIdentity]);
+
+  useLayoutEffect(() => {
+    if (mobileNavigationOpen) return;
+    if (focusMainAfterDrawerCloseRef.current) {
+      focusMainAfterDrawerCloseRef.current = false;
+      focusDesktopNavigationAfterDrawerCloseRef.current = false;
+      document.getElementById("main-content")?.focus();
+      return;
+    }
+    if (!compactShell && focusDesktopNavigationAfterDrawerCloseRef.current) {
+      focusDesktopNavigationAfterDrawerCloseRef.current = false;
+      desktopActiveItemRef.current?.focus();
+    }
+  }, [compactShell, mobileNavigationOpen, routeIdentity]);
+
+  useLayoutEffect(() => {
+    if (compactShell) return;
+    const activeItem = desktopActiveItemRef.current;
+    const navigation = activeItem?.closest<HTMLElement>(".primary-nav--sidebar");
+    if (activeItem === null || navigation === null || navigation === undefined) return;
+    const itemBounds = activeItem.getBoundingClientRect();
+    const navigationBounds = navigation.getBoundingClientRect();
+    if (itemBounds.top < navigationBounds.top) {
+      navigation.scrollTop += itemBounds.top - navigationBounds.top;
+    } else if (itemBounds.bottom > navigationBounds.bottom) {
+      navigation.scrollTop += itemBounds.bottom - navigationBounds.bottom;
+    }
+  }, [compactShell, routeIdentity]);
 
   useLayoutEffect(() => {
     document.title = `${routeTitle(route)} · Prompt Enhancer`;
@@ -325,15 +507,22 @@ export function App({
   function navigate(next: AppRoute) {
     latestTaskControllerRef.current?.abort();
     latestTaskControllerRef.current = null;
+    setLatestTaskPending(false);
     setNavigationNotice("");
     platform.navigate(next);
+  }
+
+  function selectFromMobileNavigation(item: PrimaryNavigationItem) {
+    mobileNavigationActionRef.current = item.onSelect;
+    setMobileNavigationOpen(false);
   }
 
   async function openLatestTask() {
     latestTaskControllerRef.current?.abort();
     const controller = new AbortController();
     latestTaskControllerRef.current = controller;
-    setNavigationNotice("");
+    setLatestTaskPending(true);
+    setNavigationNotice("Opening reviewed task…");
     try {
       const response = await transport.listTaskRevisions(undefined, controller.signal);
       if (controller.signal.aborted || latestTaskControllerRef.current !== controller) return;
@@ -349,16 +538,170 @@ export function App({
     } finally {
       if (latestTaskControllerRef.current === controller) {
         latestTaskControllerRef.current = null;
+        setLatestTaskPending(false);
       }
     }
   }
+
+  const discoveryIndicator = undecidedCount === null
+    ? undefined
+    : {
+        label: `${undecidedCount} ${undecidedCount === 1 ? "candidate needs" : "candidates need"} review`,
+        value: undecidedCount,
+      };
+  const navigationSections: readonly PrimaryNavigationSection[] = [
+    {
+      key: "workspace",
+      label: "Workspace",
+      items: [
+        {
+          active: route.name === "overview",
+          icon: PRIMARY_NAV_ICONS.overview,
+          key: "overview",
+          label: "Overview",
+          onSelect: () => navigate({ name: "overview" }),
+        },
+        {
+          active: route.name === "projects" || route.name === "project_automation" || isProjectWorkspaceRoute(route),
+          icon: PRIMARY_NAV_ICONS.projects,
+          key: "projects",
+          label: "Projects",
+          onSelect: () => navigate({ name: "projects" }),
+        },
+        {
+          active: route.name === "sessions",
+          icon: PRIMARY_NAV_ICONS.sessions,
+          key: "sessions",
+          label: "Sessions",
+          onSelect: () => navigate({ name: "sessions" }),
+        },
+        {
+          active: route.name === "agent",
+          icon: PRIMARY_NAV_ICONS.agent,
+          key: "agent",
+          label: "Agent",
+          onSelect: () => navigate({ name: "agent" }),
+        },
+      ],
+    },
+    {
+      key: "review",
+      label: "Review & improve",
+      items: [
+        {
+          active: route.name === "discovery",
+          icon: PRIMARY_NAV_ICONS.discovery,
+          indicator: discoveryIndicator,
+          key: "discovery",
+          label: "Discovery",
+          onSelect: () => navigate({ name: "discovery" }),
+        },
+        {
+          active: route.name === "task",
+          busy: latestTaskPending,
+          icon: PRIMARY_NAV_ICONS.reviewedTasks,
+          key: "reviewed-tasks",
+          label: latestTaskPending ? "Opening reviewed task…" : "Reviewed tasks",
+          onSelect: () => void openLatestTask(),
+        },
+        {
+          active: route.name === "task_flow",
+          icon: PRIMARY_NAV_ICONS.taskFlow,
+          key: "task-flow",
+          label: "Task flow",
+          onSelect: () => navigate({ name: "task_flow" }),
+        },
+        {
+          active: route.name === "prompt_checks",
+          icon: PRIMARY_NAV_ICONS.promptChecks,
+          key: "prompt-checks",
+          label: "Prompt check",
+          onSelect: () => navigate({ name: "prompt_checks" }),
+        },
+        {
+          active: route.name === "calibration",
+          icon: PRIMARY_NAV_ICONS.calibration,
+          key: "calibration",
+          label: "Calibration",
+          onSelect: () => navigate({ name: "calibration" }),
+        },
+      ],
+    },
+    {
+      key: "collaboration",
+      label: "Collaboration",
+      items: [
+        {
+          active: route.name === "team",
+          icon: PRIMARY_NAV_ICONS.team,
+          key: "team",
+          label: "Team analytics",
+          onSelect: () => navigate({ name: "team" }),
+        },
+        {
+          active: route.name === "social",
+          icon: PRIMARY_NAV_ICONS.social,
+          key: "social",
+          label: "Social",
+          onSelect: () => navigate({ name: "social" }),
+        },
+      ],
+    },
+    {
+      key: "system",
+      label: "System & methods",
+      items: [
+        {
+          active: route.name === "models",
+          icon: PRIMARY_NAV_ICONS.models,
+          key: "models",
+          label: "Models",
+          onSelect: () => navigate({ name: "models" }),
+        },
+        ...(runtime.mode === "local_real"
+          ? [{
+              active: route.name === "local_sources",
+              icon: PRIMARY_NAV_ICONS.localSources,
+              key: "local-sources",
+              label: "Data source",
+              onSelect: () => navigate({ name: "local_sources" }),
+            } satisfies PrimaryNavigationItem]
+          : []),
+        {
+          active: route.name === "analysis_jobs",
+          icon: PRIMARY_NAV_ICONS.analysisJobs,
+          key: "analysis-jobs",
+          label: "Job centre",
+          onSelect: () => navigate({ name: "analysis_jobs" }),
+        },
+        {
+          active: route.name === "research",
+          icon: PRIMARY_NAV_ICONS.research,
+          key: "research",
+          label: "Methods & models",
+          onSelect: () => navigate({ name: "research" }),
+        },
+      ],
+    },
+  ];
+  const mobileRuntimeText = runtime.mode === "synthetic_demo"
+    ? "Synthetic fixture ready"
+    : serviceState === "checking"
+      ? "Local service checking"
+      : serviceState === "available"
+        ? "Local service available"
+        : "Local service unavailable";
 
   if (route.name === "agent" && route.window) {
     // Chrome-less agent window: the workspace chat alone, like a second editor pane.
     return (
       <div className="app-shell app-shell--live app-shell--agent-window" data-layout="agent-window">
         <main id="main-content" tabIndex={-1}>
-          <RouteErrorBoundary onExit={() => navigate({ name: "agent" })} resetKey={routeIdentity}>
+          <RouteErrorBoundary
+            exitLabel="Return to Agent"
+            onExit={() => navigate({ name: "agent" })}
+            resetKey={routeIdentity}
+          >
             <Suspense fallback={<RouteLoading route={route} />}>
               <AgentScreen sessionId={route.sessionId} transport={transport} windowMode />
             </Suspense>
@@ -373,7 +716,11 @@ export function App({
     return (
       <div className="app-shell app-shell--live" data-layout="live-window">
         <main id="main-content" tabIndex={-1}>
-          <RouteErrorBoundary onExit={() => navigate({ name: "discovery" })} resetKey={routeIdentity}>
+          <RouteErrorBoundary
+            exitLabel="Return to Discovery"
+            onExit={() => navigate({ name: "discovery" })}
+            resetKey={routeIdentity}
+          >
             <Suspense fallback={<RouteLoading route={route} />}>
               <LiveMiniWindowScreen projectId={route.projectId} sessionId={route.sessionId} transport={transport} />
             </Suspense>
@@ -385,180 +732,60 @@ export function App({
 
   return (
     <div className="app-shell" data-layout="responsive-shell">
-      <a className="skip-link" href="#main-content">Skip to dashboard</a>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
+      <header className="mobile-shell-header">
+        <div aria-label="Prompt Enhancer" className="mobile-shell-header__identity">
+          <BrandMark />
+          <span>
+            <strong>Prompt Enhancer</strong>
+            <small>{routeTitle(route)}</small>
+          </span>
+        </div>
+        <div className="mobile-shell-header__actions">
+          {compactShell && <ThemeToggle />}
+          <button
+            aria-busy={latestTaskPending || undefined}
+            aria-expanded={mobileNavigationOpen}
+            aria-haspopup="dialog"
+            aria-label={latestTaskPending ? "Opening reviewed task" : "Open navigation"}
+            className="mobile-shell-header__menu"
+            onClick={() => setMobileNavigationOpen(true)}
+            type="button"
+          >
+            <Icon name="menu" />
+            <span>{latestTaskPending ? "Opening…" : "Menu"}</span>
+          </button>
+        </div>
+        <span
+          aria-label={`Private by default. Mobile runtime status: ${runtimeCopy.indicator}`}
+          aria-live="polite"
+          className="mobile-runtime-marker"
+          data-service-state={serviceState}
+        >
+          <span className="mobile-runtime-marker__icon"><Icon name="lock" /></span>
+          <span>
+            <strong>Private by default</strong>
+            <small>{mobileRuntimeText}</small>
+          </span>
+          <span aria-hidden="true" className={`online-dot online-dot--${serviceState}`} />
+        </span>
+      </header>
       <aside aria-label="Application" className="sidebar">
         <div aria-label="Prompt Enhancer" className="brand">
-          <span className="brand__mark brand__mark--glyph" aria-hidden="true">
-            <svg viewBox="0 0 36 36" focusable="false">
-              <path className="brand__caret" d="M11 10 L19 18 L11 26" />
-              <path className="brand__caret brand__caret--lift" d="M17 25.5 L25 25.5" />
-              <path className="brand__spark" d="M26.5 7.5 L27.6 11 L31 12.1 L27.6 13.2 L26.5 16.7 L25.4 13.2 L22 12.1 L25.4 11 Z" />
-            </svg>
-          </span>
+          <BrandMark />
           <span>
             <strong>Prompt</strong>
             <small>Enhancer</small>
           </span>
         </div>
 
-        <nav aria-label="Primary" className="primary-nav">
-          <p>Workspace</p>
-          <button
-            aria-current={route.name === "overview" ? "page" : undefined}
-            className={route.name === "overview" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "overview" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.overview} />
-            <span>Overview</span>
-          </button>
-          <button
-            aria-current={
-              route.name === "projects" || route.name === "project_automation" ||
-                isProjectWorkspaceRoute(route)
-                ? "page"
-                : undefined
-            }
-            className={
-              route.name === "projects" || route.name === "project_automation" ||
-                isProjectWorkspaceRoute(route)
-                ? "primary-nav__item--active"
-                : ""
-            }
-            onClick={() => navigate({ name: "projects" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.projects} />
-            <span>Projects</span>
-          </button>
-          <button
-            aria-current={route.name === "sessions" ? "page" : undefined}
-            className={route.name === "sessions" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "sessions" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.sessions} />
-            <span>Sessions</span>
-          </button>
-          <button
-            aria-current={route.name === "calibration" ? "page" : undefined}
-            className={route.name === "calibration" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "calibration" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.calibration} />
-            <span>Calibration</span>
-          </button>
-          <button
-            aria-current={route.name === "models" ? "page" : undefined}
-            className={route.name === "models" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "models" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.models} />
-            <span>Models</span>
-          </button>
-          <button
-            aria-current={route.name === "agent" ? "page" : undefined}
-            className={route.name === "agent" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "agent" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.agent} />
-            <span>Agent</span>
-          </button>
-          <button
-            aria-current={route.name === "prompt_checks" ? "page" : undefined}
-            className={route.name === "prompt_checks" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "prompt_checks" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.promptChecks} />
-            <span>Prompt check</span>
-          </button>
-          <button
-            aria-current={route.name === "discovery" ? "page" : undefined}
-            className={route.name === "discovery" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "discovery" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.discovery} />
-            <span>Discovery</span>
-            {undecidedCount !== null && (
-              <span
-                className="nav-indicator"
-                aria-label={`${undecidedCount} ${undecidedCount === 1 ? "candidate needs" : "candidates need"} review`}
-              >
-                {undecidedCount}
-              </span>
-            )}
-          </button>
-          <button
-            aria-current={route.name === "task" ? "page" : undefined}
-            className={route.name === "task" ? "primary-nav__item--active" : ""}
-            onClick={() => void openLatestTask()}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.reviewedTasks} />
-            <span>Reviewed tasks</span>
-          </button>
-          <button
-            aria-current={route.name === "task_flow" ? "page" : undefined}
-            className={route.name === "task_flow" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "task_flow" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.taskFlow} />
-            <span>Task flow</span>
-          </button>
-          <button
-            aria-current={route.name === "team" ? "page" : undefined}
-            className={route.name === "team" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "team" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.team} />
-            <span>Team analytics</span>
-          </button>
-          <button
-            aria-current={route.name === "social" ? "page" : undefined}
-            className={route.name === "social" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "social" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.social} />
-            <span>Social</span>
-          </button>
-          {runtime.mode === "local_real" && (
-            <button
-              aria-current={route.name === "local_sources" ? "page" : undefined}
-              className={route.name === "local_sources" ? "primary-nav__item--active" : ""}
-              onClick={() => navigate({ name: "local_sources" })}
-              type="button"
-            >
-              <Icon name={PRIMARY_NAV_ICONS.localSources} />
-              <span>Data source</span>
-            </button>
-          )}
-          <button
-            aria-current={route.name === "analysis_jobs" ? "page" : undefined}
-            className={route.name === "analysis_jobs" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "analysis_jobs" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.analysisJobs} />
-            <span>Job centre</span>
-          </button>
-          <button
-            aria-current={route.name === "research" ? "page" : undefined}
-            className={route.name === "research" ? "primary-nav__item--active" : ""}
-            onClick={() => navigate({ name: "research" })}
-            type="button"
-          >
-            <Icon name={PRIMARY_NAV_ICONS.research} />
-            <span>Methods & models</span>
-          </button>
-        </nav>
+        <PrimaryNavigation
+          activeItemRef={desktopActiveItemRef}
+          ariaLabel="Primary"
+          idPrefix="sidebar-navigation"
+          sections={navigationSections}
+          variant="sidebar"
+        />
 
         <div className="sidebar__footer">
           <div className="privacy-status">
@@ -584,7 +811,7 @@ export function App({
             <strong>{routeTitle(route)}</strong>
           </div>
           <div className="topbar__right">
-            <ThemeToggle />
+            {!compactShell && <ThemeToggle />}
             <span
               aria-label={`Runtime status: ${runtimeCopy.indicator}`}
               aria-live="polite"
@@ -599,7 +826,8 @@ export function App({
         {navigationNotice && <div className="navigation-notice" role="status">{navigationNotice}</div>}
         <main id="main-content" tabIndex={-1}>
           <RouteErrorBoundary
-            onExit={() => navigate({ name: "discovery" })}
+            exitLabel="Return to Discovery"
+            onExit={route.name === "discovery" ? undefined : () => navigate({ name: "discovery" })}
             resetKey={routeIdentity}
           >
             <Suspense fallback={<RouteLoading route={route} />}>
@@ -701,6 +929,23 @@ export function App({
           </RouteErrorBoundary>
         </main>
       </div>
+      <Dialog
+        closeLabel="Close navigation"
+        description="Choose a destination. The current screen receives focus first."
+        initialFocusRef={mobileActiveItemRef}
+        onClose={() => setMobileNavigationOpen(false)}
+        open={mobileNavigationOpen}
+        title="Navigate Prompt Enhancer"
+      >
+        <PrimaryNavigation
+          activeItemRef={mobileActiveItemRef}
+          ariaLabel="Mobile primary"
+          idPrefix="mobile-navigation"
+          onSelectItem={selectFromMobileNavigation}
+          sections={navigationSections}
+          variant="drawer"
+        />
+      </Dialog>
     </div>
   );
 }

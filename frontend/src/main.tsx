@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
+import { BootstrapFailure, BootstrapLoading } from "./app/BootstrapState";
 import { createHttpTransport } from "./shared/api/httpTransport";
 import {
   createTeamControlPlanePortForRuntime,
@@ -19,6 +20,17 @@ import "./app/palette.generated.css";
 import { bootstrapTheme } from "./shared/platform/theme";
 
 bootstrapTheme();
+
+const rootElement = document.getElementById("root");
+if (rootElement === null) {
+  throw new Error("The application root is unavailable.");
+}
+const root = createRoot(rootElement);
+root.render(
+  <StrictMode>
+    <BootstrapLoading />
+  </StrictMode>,
+);
 
 async function mountApp() {
   const mode = resolveRuntimeDataMode({
@@ -48,7 +60,7 @@ async function mountApp() {
   const Root = overlay
     ? (await import("./features/model-ensemble")).ModelEnsembleOverlay
     : null;
-  createRoot(document.getElementById("root")!).render(
+  root.render(
     <StrictMode>
       {Root === null
         ? <App platform={createBrowserPlatform()} runtime={runtime} socialHub={socialHub} teamControlPlane={teamControlPlane} />
@@ -60,4 +72,10 @@ async function mountApp() {
   );
 }
 
-void mountApp();
+void mountApp().catch(() => {
+  root.render(
+    <StrictMode>
+      <BootstrapFailure onRetry={() => window.location.reload()} />
+    </StrictMode>,
+  );
+});

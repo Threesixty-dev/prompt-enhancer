@@ -20,6 +20,7 @@ export type IconName =
   | "layers"
   | "lock"
   | "merge"
+  | "menu"
   | "pause"
   | "play"
   | "search"
@@ -122,6 +123,7 @@ const paths: Record<IconName, ReactNode> = {
     </>
   ),
   merge: <path d="M7 3v5a4 4 0 0 0 4 4h6m0 0-3-3m3 3-3 3M7 21v-5a4 4 0 0 1 4-4" />,
+  menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   pause: <path d="M9 5v14M15 5v14" />,
   play: <path d="m8 5 10 7-10 7V5Z" />,
   search: (

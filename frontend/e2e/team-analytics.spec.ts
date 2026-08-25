@@ -209,6 +209,7 @@ for (const viewport of [
 test("keeps global navigation text at 12px on a 360px viewport", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 720 });
   await page.goto("/team");
-  await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
-  expect((await layoutAudit(page, ".primary-nav", 12)).tooSmall).toEqual([]);
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  await expect(page.getByRole("navigation", { name: "Mobile primary" })).toBeVisible();
+  expect((await layoutAudit(page, ".primary-nav--drawer", 12)).tooSmall).toEqual([]);
 });

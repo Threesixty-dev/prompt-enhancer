@@ -43,7 +43,7 @@ describe("CandidateReviewPanel", () => {
     expect(screen.getByText("Unknown evidence")).toBeVisible();
     expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("progressbar", { name: "0 of 2 observations (0%)" }),
+      screen.getAllByRole("meter", { name: "0 of 2 observations (0%)" }),
     ).toHaveLength(2);
   });
 });

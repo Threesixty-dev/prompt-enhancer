@@ -508,6 +508,7 @@ export function ResearchLab({ transport }: { transport: PromptEnhancerTransport 
       </aside>
 
       <TabList
+        activationMode="manual"
         className="research-view-switcher"
         idPrefix={RESEARCH_TAB_PREFIX}
         label="Research catalog view"

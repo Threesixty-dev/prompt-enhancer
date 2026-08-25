@@ -21,7 +21,7 @@ describe("MetricObservationCard", () => {
     expect(
       screen.getByText(/Eligible evidence exists, but no usable observations/i),
     ).toBeVisible();
-    expect(screen.getByRole("progressbar")).toHaveAccessibleName(
+    expect(screen.getByRole("meter")).toHaveAccessibleName(
       `0 of ${result.eligible_count} observations (0%)`,
     );
   });
@@ -128,7 +128,7 @@ describe("MetricObservationCard", () => {
 
     expect(screen.getByText("0.1%", { selector: ".metric-card__value" })).toBeVisible();
     expect(screen.getByText("1/1,000")).toBeVisible();
-    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.getByRole("meter")).toHaveAttribute("aria-valuenow", "100");
   });
 
   it("explains when an unknown metric has no eligible evidence", () => {

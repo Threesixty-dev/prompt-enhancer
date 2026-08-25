@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("renders one keyboard skip link", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("a.skip-link")).toHaveCount(1);
-  await expect(page.getByRole("link", { name: "Skip to dashboard" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Skip to main content" })).toHaveAttribute(
     "href",
     "#main-content",
   );

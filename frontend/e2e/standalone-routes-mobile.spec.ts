@@ -62,10 +62,14 @@ for (const route of ROUTES) {
     await expect(main).toBeVisible();
     await expect(page).toHaveTitle(`${route.routeTitle} · Prompt Enhancer`);
     await expect(page.locator(".topbar__trail strong")).toHaveText(route.routeTitle);
-    await expect(page.getByRole("button", { exact: true, name: route.navName })).toHaveAttribute(
+    await expect(page.locator('[aria-label*="Synthetic demo fixture ready"]:visible').first()).toBeVisible();
+    const navigationDialog = await openMobileNavigation(page);
+    await expect(navigationDialog.getByRole("button", { exact: true, name: route.navName })).toHaveAttribute(
       "aria-current",
       "page",
     );
+    await page.keyboard.press("Escape");
+    await expect(navigationDialog).toHaveCount(0);
 
     await expect(main.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
     if (route.stateText) await expect(main.getByText(route.stateText, { exact: true })).toBeVisible();
@@ -82,14 +86,22 @@ test("mobile primary navigation remains keyboard-visible and usable", async ({ p
   await page.goto("/overview");
   await expect(page.getByRole("heading", { level: 1, name: "Everything the app did on its own" })).toBeVisible();
 
-  const skipLink = page.getByRole("link", { name: "Skip to dashboard" });
+  const skipLink = page.getByRole("link", { name: "Skip to main content" });
   await resetFocusToDocument(page);
   await tabUntil(page, skipLink, 2);
   await expect(skipLink).toBeFocused();
   await expect(skipLink).toBeVisible();
 
-  const sessions = page.getByRole("button", { exact: true, name: "Sessions" });
-  await tabUntil(page, sessions, 3);
+  const openNavigation = page.getByRole("button", { name: "Open navigation" });
+  await tabUntil(page, openNavigation, 3);
+  await expect(openNavigation).toBeFocused();
+  await expect(openNavigation).toBeVisible();
+  await page.keyboard.press("Enter");
+
+  const navigationDialog = page.getByRole("dialog", { name: "Navigate Prompt Enhancer" });
+  await expect(navigationDialog).toBeVisible();
+  const sessions = navigationDialog.getByRole("button", { exact: true, name: "Sessions" });
+  await tabUntil(page, sessions, 5);
   await expect(sessions).toBeFocused();
   await expect(sessions).toBeVisible();
   await expect(sessions).toBeInViewport();
@@ -101,9 +113,15 @@ test("mobile primary navigation remains keyboard-visible and usable", async ({ p
   expect(focusOutline.width).toBeGreaterThan(0);
 
   await page.keyboard.press("Enter");
+  await expect(navigationDialog).toHaveCount(0);
   await expect(page).toHaveURL(/\/sessions$/);
   await expect(page.locator("#main-content").getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
-  await expect(sessions).toHaveAttribute("aria-current", "page");
+  const reopened = await openMobileNavigation(page);
+  await expect(reopened.getByRole("button", { exact: true, name: "Sessions" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await page.keyboard.press("Escape");
 });
 
 test("click and browser-history route changes update exact title and main focus", async ({ page }) => {
@@ -113,19 +131,30 @@ test("click and browser-history route changes update exact title and main focus"
   await expect(page).toHaveTitle("Overview · Prompt Enhancer");
   await expect(main).not.toBeFocused();
 
-  await page.getByRole("button", { exact: true, name: "Sessions" }).click();
+  const navigationDialog = await openMobileNavigation(page);
+  await navigationDialog.getByRole("button", { exact: true, name: "Sessions" }).click();
   await expect(page).toHaveURL(/\/sessions$/);
   await expect(page).toHaveTitle("Sessions · Prompt Enhancer");
   await expect(main.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
   await expect(main).toBeFocused();
 
-  const search = page.getByRole("searchbox", { name: "Search sessions by project or title" });
-  await search.focus();
-  await expect(search).toBeFocused();
+  const historyDialog = await openMobileNavigation(page);
+  await expect(historyDialog.getByRole("button", { exact: true, name: "Sessions" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
   await page.goBack();
 
+  await expect(historyDialog).toHaveCount(0);
   await expect(page).toHaveURL(/\/overview$/);
   await expect(page).toHaveTitle("Overview · Prompt Enhancer");
   await expect(page.getByRole("heading", { level: 1, name: "Everything the app did on its own" })).toBeVisible();
   await expect(main).toBeFocused();
 });
+
+async function openMobileNavigation(page: Page): Promise<Locator> {
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const dialog = page.getByRole("dialog", { name: "Navigate Prompt Enhancer" });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}

@@ -21,12 +21,25 @@
 .fact-list--compact dt, .fact-list--compact dd { font-size: 0.72rem; }
 
 /* Dialog --------------------------------------------------------------- */
-.ui-dialog { position: fixed; inset: 0; z-index: 900; display: grid; place-items: center; padding: 16px; }
+.ui-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ui-dialog-layer, 900);
+  display: grid;
+  place-items: center;
+  padding:
+    max(12px, env(safe-area-inset-top, 0px))
+    max(12px, env(safe-area-inset-right, 0px))
+    max(12px, env(safe-area-inset-bottom, 0px))
+    max(12px, env(safe-area-inset-left, 0px));
+  overscroll-behavior: contain;
+}
 .ui-dialog__scrim { position: absolute; inset: 0; background: var(--pa-16-28-35-420); backdrop-filter: blur(2px); }
 .ui-dialog__panel {
   position: relative;
   width: min(560px, 100%);
   max-height: min(88vh, 720px);
+  max-height: min(720px, calc(100dvh - max(24px, calc(env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px)))));
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -35,6 +48,7 @@
   background: var(--surface);
   box-shadow: var(--shadow-md);
   overflow: hidden;
+  overscroll-behavior: contain;
 }
 .ui-dialog[data-tone="danger"] .ui-dialog__panel { border-color: var(--red-100); }
 .ui-dialog__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 18px 0; }
@@ -43,7 +57,7 @@
 .ui-dialog__close:hover { background: var(--surface-soft); }
 .ui-dialog__close svg { width: 16px; height: 16px; }
 .ui-dialog__description { margin: 8px 18px 0; color: var(--ink-650); font-size: 0.82rem; line-height: 1.5; }
-.ui-dialog__body { min-height: 0; padding: 14px 18px 18px; overflow: auto; font-size: 0.82rem; }
+.ui-dialog__body { min-height: 0; padding: 14px 18px 18px; overflow: auto; overscroll-behavior: contain; font-size: 0.82rem; }
 .ui-dialog__footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--surface-soft); }
 
 /* Disclosure ----------------------------------------------------------- */

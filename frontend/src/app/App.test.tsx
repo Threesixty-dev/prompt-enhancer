@@ -72,7 +72,7 @@ describe("App discovery navigation", () => {
       />,
     );
 
-    expect(screen.getByRole("link", { name: "Skip to dashboard" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Skip to main content" })).toHaveAttribute(
       "href",
       "#main-content",
     );
@@ -83,6 +83,7 @@ describe("App discovery navigation", () => {
     expect(container.querySelector("#main-content")).toHaveAttribute("tabindex", "-1");
     const primaryNavigation = screen.getByRole("navigation", { name: "Primary" });
     expect(primaryNavigation).toBeVisible();
+    expect(within(primaryNavigation).getAllByRole("group")).toHaveLength(4);
     const navigationGlyphs = within(primaryNavigation).getAllByRole("button").map(
       (button) => button.querySelector("svg")?.innerHTML,
     );
@@ -90,6 +91,61 @@ describe("App discovery navigation", () => {
     expect(new Set(navigationGlyphs).size).toBe(navigationGlyphs.length);
     expect(screen.getByLabelText("Synthetic demo fixture ready")).toBeVisible();
     expect(screen.getByText("Synthetic demo · Fixture ready")).toBeVisible();
+    expect(
+      screen.getByLabelText(/Private by default\. Mobile runtime status: Synthetic demo fixture ready/),
+    ).toBeInTheDocument();
+  });
+
+  it("opens a grouped mobile navigation dialog and initially focuses the current destination", async () => {
+    render(
+      <App
+        runtime={syntheticRuntime()}
+        platform={createMemoryPlatform({ name: "overview" })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    const dialog = screen.getByRole("dialog", { name: "Navigate Prompt Enhancer" });
+    const mobileNavigation = within(dialog).getByRole("navigation", { name: "Mobile primary" });
+    expect(within(mobileNavigation).getAllByRole("group")).toHaveLength(4);
+    const overview = within(mobileNavigation).getByRole("button", { name: "Overview" });
+    expect(overview).toHaveAttribute("aria-current", "page");
+    await waitFor(() => expect(overview).toHaveFocus());
+
+    fireEvent.click(within(mobileNavigation).getByRole("button", { name: "Sessions" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Navigate Prompt Enhancer" })).not.toBeInTheDocument();
+  });
+
+  it("keeps reviewed-task progress visible after the mobile drawer closes", async () => {
+    const transport = createSyntheticTransport();
+    const response = await transport.listTaskRevisions();
+    const pending = deferred<typeof response>();
+    transport.listTaskRevisions = vi.fn(() => pending.promise);
+    render(
+      <App
+        runtime={syntheticRuntime(transport)}
+        platform={createMemoryPlatform({ name: "overview" })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    const dialog = screen.getByRole("dialog", { name: "Navigate Prompt Enhancer" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reviewed tasks" }));
+
+    await waitFor(() => expect(transport.listTaskRevisions).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog", { name: "Navigate Prompt Enhancer" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Opening reviewed task$/ })).toHaveTextContent(
+      "Opening…",
+    );
+    expect(
+      screen.getAllByRole("status").some((status) => status.textContent === "Opening reviewed task…"),
+    ).toBe(true);
+
+    await act(async () => {
+      pending.resolve(response);
+      await pending.promise;
+    });
   });
 
   it("sets an exact initial title without stealing focus, then focuses main on click navigation only", async () => {
@@ -198,8 +254,12 @@ describe("App discovery navigation", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Reviewed tasks" }));
+    const reviewedTasks = screen.getByRole("button", { name: "Reviewed tasks" });
+    fireEvent.click(reviewedTasks);
     await waitFor(() => expect(transport.listTaskRevisions).toHaveBeenCalledTimes(1));
+    expect(reviewedTasks).toBeDisabled();
+    expect(reviewedTasks).toHaveAttribute("aria-busy", "true");
+    expect(reviewedTasks).toHaveTextContent("Opening reviewed task…");
     const signal = vi.mocked(transport.listTaskRevisions).mock.calls[0][1];
     expect(signal).toBeInstanceOf(AbortSignal);
     expect(signal?.aborted).toBe(false);
@@ -254,7 +314,8 @@ describe("App discovery navigation", () => {
     );
 
     const fallback = screen.getByText("Loading Methods & models…").closest(".async-state");
-    expect(fallback).toHaveAttribute("aria-busy", "true");
+    expect(fallback).toHaveAttribute("role", "status");
+    expect(fallback).toHaveAttribute("aria-atomic", "true");
     expect(fallback).toHaveAttribute("aria-live", "polite");
     expect(screen.getByLabelText("Current location")).toHaveTextContent("Methods & models");
     expect(
@@ -400,17 +461,21 @@ describe("App discovery navigation", () => {
     expect(listSessions).not.toHaveBeenCalled();
   });
 
-  it("isolates a failed route without exposing its error and resets on navigation", async () => {
+  it("isolates a failed route, offers a truthful exit, and retries the same route", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const onExit = vi.fn();
-    function FailingRoute(): never {
-      throw new Error("SYNTHETIC_ROUTE_FAILURE_CANARY");
+    let shouldFail = true;
+    function FailingRoute() {
+      if (shouldFail) throw new Error("SYNTHETIC_ROUTE_FAILURE_CANARY");
+      return <p>Recovered route</p>;
     }
 
-    const view = render(
-      <RouteErrorBoundary onExit={onExit} resetKey="/failed-route">
-        <FailingRoute />
-      </RouteErrorBoundary>,
+    render(
+      <main id="main-content" tabIndex={-1}>
+        <RouteErrorBoundary exitLabel="Return to Discovery" onExit={onExit} resetKey="/failed-route">
+          <FailingRoute />
+        </RouteErrorBoundary>
+      </main>,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("This screen could not be loaded");
     expect(screen.getByRole("alert")).toHaveTextContent(/No provider error or session content is shown/);
@@ -418,13 +483,29 @@ describe("App discovery navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Return to Discovery" }));
     expect(onExit).toHaveBeenCalledTimes(1);
 
-    view.rerender(
-      <RouteErrorBoundary onExit={onExit} resetKey="/recovered-route">
-        <p>Recovered route</p>
-      </RouteErrorBoundary>,
-    );
+    shouldFail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry screen" }));
     expect(await screen.findByText("Recovered route")).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(document.getElementById("main-content")).toHaveFocus();
+    consoleError.mockRestore();
+  });
+
+  it("omits a circular exit action when retry is the only truthful route recovery", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    function FailingRoute(): never {
+      throw new Error("SYNTHETIC_DISCOVERY_FAILURE_CANARY");
+    }
+
+    render(
+      <RouteErrorBoundary resetKey="/">
+        <FailingRoute />
+      </RouteErrorBoundary>,
+    );
+
+    expect(screen.getByRole("button", { name: "Retry screen" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Return|Leave/ })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("SYNTHETIC_DISCOVERY_FAILURE_CANARY");
     consoleError.mockRestore();
   });
 

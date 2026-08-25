@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export type PillTone = "neutral" | "positive" | "warning" | "info" | "danger";
+export type PillTone = "neutral" | "unknown" | "positive" | "warning" | "info" | "danger";
 
 export function StatusPill({
   children,

@@ -80,7 +80,9 @@ describe("ResearchLab", () => {
   });
 
   it("exposes stable, keyboard-operated tabs with valid panel relationships", async () => {
-    render(<ResearchLab transport={createSyntheticTransport()} />);
+    const transport = createSyntheticTransport();
+    const inventorySpy = vi.spyOn(transport, "getModelLabInventory");
+    render(<ResearchLab transport={transport} />);
     await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
 
     const tablist = screen.getByRole("tablist", { name: "Research catalog view" });
@@ -104,14 +106,24 @@ describe("ResearchLab", () => {
     metricTab.focus();
     fireEvent.keyDown(tablist, { key: "ArrowRight" });
     expect(methodTab).toHaveFocus();
+    expect(methodTab).toHaveAttribute("aria-selected", "false");
+    expect(document.getElementById(methodTab.getAttribute("aria-controls")!)).toHaveAttribute("hidden");
+    fireEvent.click(methodTab);
     expect(methodTab).toHaveAttribute("aria-selected", "true");
     expect(document.getElementById(methodTab.getAttribute("aria-controls")!)).not.toHaveAttribute("hidden");
 
     fireEvent.keyDown(tablist, { key: "End" });
     expect(modelTab).toHaveFocus();
+    expect(modelTab).toHaveAttribute("aria-selected", "false");
+    expect(inventorySpy).not.toHaveBeenCalled();
+    fireEvent.click(modelTab);
     expect(modelTab).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "Synthetic evaluation inventory" })).toBeVisible();
+    expect(inventorySpy).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(tablist, { key: "Home" });
     expect(metricTab).toHaveFocus();
+    expect(metricTab).toHaveAttribute("aria-selected", "false");
+    fireEvent.click(metricTab);
     expect(metricTab).toHaveAttribute("aria-selected", "true");
   });
 

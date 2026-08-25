@@ -1,6 +1,6 @@
 # UI card review backlog
 
-Status: Checkpoint 9D objective audit complete; UI-03 through UI-20 user visual review pending
+Status: Checkpoint 13 UI-00 objective repair complete; UI-00 and UI-03 through UI-20 owner visual review pending
 
 The initial inventory was assembled from the route map, component tree, CSS,
 tests, and current diff because localhost browser automation was unavailable at
@@ -20,6 +20,14 @@ direction, model-judge prompting, timestamp provenance, and schema migration.
 Its deterministic and synthetic-browser evidence closes objective defects but
 does not visually approve any card. The owner review boundary therefore remains
 unchanged.
+
+Checkpoint 13 repairs the application shell and shared primitive contract before
+more card-level polish. Desktop navigation now owns its overflow without hiding
+the footer or current route; mobile uses a contained navigation dialog while
+retaining privacy/runtime truth; bootstrap and route failures recover safely;
+and shared dialog, loading, coverage, progress, tab, and status semantics have
+direct synthetic coverage. The implementation is objectively validated, but
+the owner has not yet visually approved the shell.
 
 The application currently contains 18 routed or window shells and roughly 60
 distinct card, panel, drawer, and dialog work units. The current r7 tranche
@@ -49,7 +57,7 @@ raw transcript content.
 
 | ID | Surface | Main components | Code-established state | Visual work still required |
 | --- | --- | --- | --- | --- |
-| UI-00 | Application shell and primitives | `App`, route error/loading boundaries, navigation, `AsyncState`, `Dialog`, `Disclosure`, `EmptyState`, `Tabs`, status/coverage primitives | Direct application and primitive tests | Establish spacing, typography, theme, focus, and loading/error conventions before card-specific polish |
+| UI-00 | Application shell and primitives | `App`, route error/loading boundaries, navigation, `AsyncState`, `Dialog`, `Disclosure`, `EmptyState`, `Tabs`, status/coverage primitives | Frozen implementation; desktop/mobile navigation, bootstrap/route recovery, modal stack isolation, truthful unknown coverage/progress, manual tabs, status semantics, 12 px mobile navigation copy, and synthetic responsive/a11y regressions are covered ([checkpoint note](ui-card-checkpoints/UI-00-shell-and-primitives.md)) | Owner visual review remains pending; inspect desktop/mobile shell, both themes, drawer hierarchy, focus transfer, short-height scrolling, and shared state tour |
 | UI-01 | Project catalog | project cards, metric coverage, selection/comparison | Search, sorting, bounded selection, aggregate and incompatibility states tested | Review card hierarchy, selection density, empty/error presentation, desktop/mobile |
 | UI-02 | Project workspace | masthead, metric category deck, project facts, timeline, session cards | Route/focus, bounded scope, planned and missing-analysis states tested | Review navigation hierarchy, compact masthead, deck scanability, session-card density |
 | UI-03 | Canonical model-ensemble shell | `ModelEnsemblePanel`, run/watch controls, definitions alert | Frozen shell repair; truthful receipt authority, serialized/context-safe controls, terminal/retry states, and responsive/a11y regressions are covered ([checkpoint note](ui-card-checkpoints/UI-03-model-ensemble-shell.md)) | User visual review remains pending; then keep nested metric-card changes in UI-04+ |
@@ -73,15 +81,17 @@ raw transcript content.
 
 ## First recommended visual tranche
 
-Start with UI-03 through UI-10 because those are the only card surfaces changed
-by the stabilized r7 tranche. Use this internal order:
+Begin with one owner spot-check of UI-00, then continue UI-03 through UI-10
+because those are the card surfaces changed by the stabilized r7 tranche. Use
+this internal order:
 
-1. Model-ensemble shell and metric workspace.
-2. Radar, knowledge card, history, and model-stage drawers.
-3. Generic evidence import.
-4. Requirement-plan evidence.
-5. Requirement-action evidence in full and compact modes.
-6. Quality profile exact board, secondary radar, readiness, analyze, and share dialogs.
+1. Application shell at short desktop height and 360 px, including the mobile drawer and shared state tour.
+2. Model-ensemble shell and metric workspace.
+3. Radar, knowledge card, history, and model-stage drawers.
+4. Generic evidence import.
+5. Requirement-plan evidence.
+6. Requirement-action evidence in full and compact modes.
+7. Quality profile exact board, secondary radar, readiness, analyze, and share dialogs.
 
 Only after those surfaces are visually stable should work expand to unrelated
 project, source, task, agent, team, or social cards.

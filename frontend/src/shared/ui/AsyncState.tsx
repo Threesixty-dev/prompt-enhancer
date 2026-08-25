@@ -2,8 +2,8 @@ import { Icon } from "./Icon";
 
 export function LoadingState({ label }: { label: string }) {
   return (
-    <div aria-busy="true" aria-live="polite" className="async-state">
-      <span className="spinner" />
+    <div aria-atomic="true" aria-live="polite" className="async-state" role="status">
+      <span aria-hidden="true" className="spinner" />
       <p>{label}</p>
     </div>
   );

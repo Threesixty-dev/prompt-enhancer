@@ -17,7 +17,7 @@ const UNASSESSED_OUTCOME_COPY: Record<
   Extract<CoachingOutcomeStatus, "unknown" | "abstained" | "not-applicable">,
   { label: string; tone: PillTone }
 > = {
-  unknown: { label: "Outcome unknown", tone: "neutral" },
+  unknown: { label: "Outcome unknown", tone: "unknown" },
   abstained: { label: "Outcome not assessed", tone: "info" },
   "not-applicable": { label: "Not applicable", tone: "neutral" },
 };

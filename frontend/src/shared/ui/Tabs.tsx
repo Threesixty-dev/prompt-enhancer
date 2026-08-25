@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { moveRovingFocus } from "./rovingFocus";
 
 export interface TabDescriptor<Id extends string> {
@@ -30,6 +31,7 @@ export function TabList<Id extends string>({
   tabs,
   value,
   onChange,
+  activationMode = "automatic",
   compact = false,
   className = "",
 }: {
@@ -38,14 +40,26 @@ export function TabList<Id extends string>({
   tabs: readonly TabDescriptor<Id>[];
   value: Id;
   onChange: (id: Id) => void;
+  activationMode?: "automatic" | "manual";
   compact?: boolean;
   className?: string;
 }) {
+  const [focusedValue, setFocusedValue] = useState<Id>(value);
+  useEffect(() => setFocusedValue(value), [value]);
+
   return (
     <div
       aria-label={label}
+      aria-orientation="horizontal"
       className={`ui-tabs${compact ? " ui-tabs--compact" : ""}${className ? ` ${className}` : ""}`}
-      onKeyDown={(event) => moveRovingFocus(event, (index) => onChange(tabs[index].id))}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowUp" || event.key === "ArrowDown") return;
+        moveRovingFocus(event, (index) => {
+          const id = tabs[index].id;
+          setFocusedValue(id);
+          if (activationMode === "automatic") onChange(id);
+        });
+      }}
       role="tablist"
     >
       {tabs.map((tab) => {
@@ -58,8 +72,9 @@ export function TabList<Id extends string>({
             id={tabId(idPrefix, tab.id)}
             key={tab.id}
             onClick={() => onChange(tab.id)}
+            onFocus={() => setFocusedValue(tab.id)}
             role="tab"
-            tabIndex={selected ? 0 : -1}
+            tabIndex={(activationMode === "manual" ? tab.id === focusedValue : selected) ? 0 : -1}
             type="button"
           >
             <span>{tab.label}</span>

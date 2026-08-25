@@ -19,8 +19,8 @@ const ANALYSIS_TONE: Readonly<Record<TaskFlowItem["analysis"]["state"], PillTone
   running: "warning",
   completed: "neutral",
   failed: "danger",
-  not_observed: "neutral",
-  unknown: "neutral",
+  not_observed: "unknown",
+  unknown: "unknown",
   not_applicable: "neutral",
 };
 

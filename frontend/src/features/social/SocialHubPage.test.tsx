@@ -207,7 +207,9 @@ describe("SocialHubPage", () => {
 
   it("fails closed in the local loopback runtime with zero relationships, messages, and offers", async () => {
     renderPage(createUnavailableSocialHubPort(() => NOW), "local_real");
-    const closed = await screen.findByRole("status");
+    const closedCopy = await screen.findByText("Social features are not served in this runtime");
+    const closed = closedCopy.closest("[role='status']");
+    expect(closed).not.toBeNull();
     expect(closed).toHaveTextContent("Social features are not served in this runtime");
     expect(closed).toHaveTextContent("0 friends · 0 relationships · 0 requests · 0 conversations · 0 messages · 0 file offers · presence not shared");
     expect(screen.queryByRole("tablist")).toBeNull();
