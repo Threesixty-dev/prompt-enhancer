@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CandidateListItem,
   CandidateStatusFilter,
@@ -26,22 +26,37 @@ export function DiscoveryInbox({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
   const [merging, setMerging] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [reviewOutputs, setReviewOutputs] = useState<TaskReviewResponse["output_revisions"]>([]);
   const [undecidedCount, setUndecidedCount] = useState(0);
+  const loadControllerRef = useRef<AbortController | null>(null);
+  const loadGenerationRef = useRef(0);
 
   const load = useCallback(async () => {
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    const generation = loadGenerationRef.current + 1;
+    loadGenerationRef.current = generation;
+    loadControllerRef.current = controller;
+    const isCurrent = () => (
+      !controller.signal.aborted
+      && loadControllerRef.current === controller
+      && loadGenerationRef.current === generation
+    );
     setLoading(true);
+    setLoadFailed(false);
     setError(null);
     try {
-      const response = await transport.listCandidates(filter);
+      const response = await transport.listCandidates(filter, controller.signal);
       const undecidedResponse =
         filter === "undecided"
           ? response
-          : await transport.listCandidates("undecided");
+          : await transport.listCandidates("undecided", controller.signal);
+      if (!isCurrent()) return;
       const nextUndecidedCount = undecidedResponse.candidates.length;
       setUndecidedCount(nextUndecidedCount);
       onUndecidedCountChange(nextUndecidedCount);
@@ -53,14 +68,27 @@ export function DiscoveryInbox({
       );
       setSelectedIds(new Set());
     } catch (reason) {
+      if (!isCurrent()) return;
+      setItems([]);
+      setActiveId(null);
+      setSelectedIds(new Set());
+      setLoadFailed(true);
       setError(reason instanceof Error ? reason.message : "Discovery inbox could not be loaded");
     } finally {
-      setLoading(false);
+      if (isCurrent()) {
+        loadControllerRef.current = null;
+        setLoading(false);
+      }
     }
   }, [filter, onUndecidedCountChange, transport]);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadGenerationRef.current += 1;
+      loadControllerRef.current?.abort();
+      loadControllerRef.current = null;
+    };
   }, [load]);
 
   const active = items.find((item) => item.candidate.candidate_id === activeId) ?? null;
@@ -184,9 +212,10 @@ export function DiscoveryInbox({
         </div>
       </div>
 
-      {error && <ErrorState message={error} onRetry={() => void load()} />}
       {loading ? (
         <LoadingState label="Loading discovery candidates" />
+      ) : loadFailed ? (
+        <ErrorState message={error ?? "Discovery inbox could not be loaded"} onRetry={() => void load()} />
       ) : items.length === 0 ? (
         <div className="empty-inbox">
           <span><Icon name="check" /></span>
@@ -194,34 +223,37 @@ export function DiscoveryInbox({
           <p>Try another filter, or run synthetic discovery again.</p>
         </div>
       ) : (
-        <div className="inbox-layout">
-          <section aria-label={`${counts.visible} discovery candidates`} className="candidate-list">
-            {items.map((item) => (
-              <CandidateCard
-                active={item.candidate.candidate_id === activeId}
-                item={item}
-                key={item.candidate.candidate_id}
-                onInspect={() => setActiveId(item.candidate.candidate_id)}
-                onSelect={(selectedValue) =>
-                  setSelectedIds((current) => {
-                    const next = new Set(current);
-                    if (selectedValue) next.add(item.candidate.candidate_id);
-                    else next.delete(item.candidate.candidate_id);
-                    return next;
-                  })
-                }
-                selected={selectedIds.has(item.candidate.candidate_id)}
+        <>
+          {error && <ErrorState message={error} onRetry={() => void load()} />}
+          <div className="inbox-layout">
+            <section aria-label={`${counts.visible} discovery candidates`} className="candidate-list">
+              {items.map((item) => (
+                <CandidateCard
+                  active={item.candidate.candidate_id === activeId}
+                  item={item}
+                  key={item.candidate.candidate_id}
+                  onInspect={() => setActiveId(item.candidate.candidate_id)}
+                  onSelect={(selectedValue) =>
+                    setSelectedIds((current) => {
+                      const next = new Set(current);
+                      if (selectedValue) next.add(item.candidate.candidate_id);
+                      else next.delete(item.candidate.candidate_id);
+                      return next;
+                    })
+                  }
+                  selected={selectedIds.has(item.candidate.candidate_id)}
+                />
+              ))}
+            </section>
+            {active && (
+              <CandidateReviewPanel
+                item={active}
+                onReviewed={reviewed}
+                transport={transport}
               />
-            ))}
-          </section>
-          {active && (
-            <CandidateReviewPanel
-              item={active}
-              onReviewed={reviewed}
-              transport={transport}
-            />
-          )}
-        </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { CodexSession } from "../../shared/api/contracts";
+import type { CodexSession, JudgeAgreementReport, LocalModelsOverview, PromptCheckHistory } from "../../shared/api/contracts";
 import { OverviewPage, sessionsPerDay } from "./OverviewPage";
 
 const NOW = new Date("2026-08-19T12:00:00Z");
@@ -37,6 +37,16 @@ function overviewTransport(indexedSessions: [number | null, number | null]) {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, reject, resolve };
+}
+
 describe("OverviewPage", () => {
   it("buckets sessions per day with today on the right", () => {
     const counts = sessionsPerDay([session("2026-08-19T08:00:00Z"), session("2026-08-19T09:00:00Z"), session("2026-08-18T10:00:00Z"), session("2026-06-01T00:00:00Z")], 30, NOW);
@@ -61,6 +71,65 @@ describe("OverviewPage", () => {
     const tile = screen.getByText("Sessions indexed").closest("button") as HTMLButtonElement;
     expect(within(tile).getByText("checking source counts…")).toBeInTheDocument();
     expect(within(tile).queryByText("no source loaded yet")).toBeNull();
+  });
+
+  it("does not turn pending or failed model and commentary requests into zero-valued facts", async () => {
+    const models = deferred<LocalModelsOverview>();
+    const checks = deferred<PromptCheckHistory>();
+    const transport = {
+      ...overviewTransport([0, 0]),
+      getLocalModels: vi.fn(() => models.promise),
+      getPromptCheckHistory: vi.fn(() => checks.promise),
+    };
+    render(<OverviewPage navigate={vi.fn()} now={() => NOW} transport={transport} />);
+
+    const modelTile = screen.getByText("Local model").closest("button") as HTMLButtonElement;
+    const checkTile = screen.getByText("Prompt checks").closest("button") as HTMLButtonElement;
+    expect(within(modelTile).getByText("checking hardware…")).toBeInTheDocument();
+    expect(within(modelTile).queryByText("no GPU detected")).toBeNull();
+    expect(within(checkTile).getByText("checking prompt history…")).toBeInTheDocument();
+    expect(within(checkTile).queryByText("no check yet")).toBeNull();
+    expect(within(checkTile).getByText("counting model commentary…")).toBeInTheDocument();
+    expect(within(checkTile).queryByText("0 with model commentary")).toBeNull();
+
+    await act(async () => {
+      models.reject(new Error("synthetic model lookup failure"));
+      checks.reject(new Error("synthetic history lookup failure"));
+      await Promise.allSettled([models.promise, checks.promise]);
+    });
+    expect(within(modelTile).getByText("hardware unavailable")).toBeInTheDocument();
+    expect(within(checkTile).getByText("prompt history unavailable")).toBeInTheDocument();
+    expect(within(checkTile).queryByText("no check yet")).toBeNull();
+    expect(within(checkTile).getByText("commentary history unavailable")).toBeInTheDocument();
+  });
+
+  it("reserves no-GPU and zero-commentary copy for verified ready responses", async () => {
+    render(<OverviewPage navigate={vi.fn()} now={() => NOW} transport={overviewTransport([0, 0])} />);
+    const modelTile = screen.getByText("Local model").closest("button") as HTMLButtonElement;
+    const checkTile = screen.getByText("Prompt checks").closest("button") as HTMLButtonElement;
+    expect(await within(modelTile).findByText("no GPU detected")).toBeInTheDocument();
+    expect(await within(checkTile).findByText("no check yet")).toBeInTheDocument();
+    expect(await within(checkTile).findByText("0 with model commentary")).toBeInTheDocument();
+  });
+
+  it("distinguishes a pending judge lane from an unavailable one", async () => {
+    const judge = deferred<JudgeAgreementReport>();
+    const transport = {
+      ...overviewTransport([0, 0]),
+      getModelJudgeAgreement: vi.fn(() => judge.promise),
+    };
+    render(<OverviewPage navigate={vi.fn()} now={() => NOW} transport={transport} />);
+
+    const tile = screen.getByText("Calibration").closest("button") as HTMLButtonElement;
+    expect(within(tile).getByText("checking judge lane…")).toBeInTheDocument();
+    expect(within(tile).queryByText("judge lane unavailable")).toBeNull();
+
+    await act(async () => {
+      judge.reject(new Error("synthetic judge interruption"));
+      await judge.promise.catch(() => undefined);
+    });
+    expect(within(tile).getByText("judge lane unavailable")).toBeInTheDocument();
+    expect(within(tile).queryByText("checking judge lane…")).toBeNull();
   });
 
   it("renders an exact zero when every provider count is known zero", async () => {
@@ -118,6 +187,7 @@ describe("OverviewPage", () => {
     expect(screen.getByText("1/2")).toBeTruthy();
     expect(screen.getByText(/orca27b-iq3m judged 62 sessions/)).toBeTruthy();
     expect(screen.getByText("none active")).toBeTruthy();
+    expect(screen.getByText("Example GPU · 4.0 GB VRAM free")).toBeTruthy();
     expect(screen.getByText(/not loaded yet/)).toBeTruthy();
     expect(screen.getByText(/No local model is active/)).toBeTruthy();
     expect(screen.getByText(/Rate sessions blind/)).toBeTruthy();

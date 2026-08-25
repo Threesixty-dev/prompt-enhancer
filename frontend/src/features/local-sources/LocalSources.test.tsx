@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   CodexIngestionReport,
@@ -18,6 +18,16 @@ const PROJECT_B = "b".repeat(64);
 const SESSION_A = "c".repeat(64);
 const SESSION_B = "d".repeat(64);
 const SESSION_C = "e".repeat(64);
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, reject, resolve };
+}
 
 const VALIDATION_CAPABILITY: VerificationCapability = {
   state: "validation_only",
@@ -237,6 +247,56 @@ async function openAdvancedMaintenance() {
 }
 
 describe("LocalSources", () => {
+  it("offers an in-place retry after the initial overview request fails", async () => {
+    const { transport } = createLocalTransport(false);
+    vi.mocked(transport.getCodexLocalSourceStatus)
+      .mockRejectedValueOnce(new Error("synthetic loopback interruption"));
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    renderLocalSources(transport);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Local sources" })).toBeVisible();
+    expect(transport.getCodexLocalSourceStatus).toHaveBeenCalledTimes(2);
+    expect(errorLog).not.toHaveBeenCalled();
+    errorLog.mockRestore();
+  });
+
+  it("aborts and ignores an older overview after the transport changes", async () => {
+    const stale = createLocalTransport(false);
+    const staleStatus = await stale.transport.getCodexLocalSourceStatus();
+    const stalePage = await stale.transport.listCodexSessions(100, 0);
+    const pendingStatus = deferred<CodexLocalSourceStatus>();
+    const pendingPage = deferred<typeof stalePage>();
+    let statusSignal: AbortSignal | undefined;
+    let pageSignal: AbortSignal | undefined;
+    stale.transport.getCodexLocalSourceStatus = vi.fn((signal?: AbortSignal) => {
+      statusSignal = signal;
+      return pendingStatus.promise;
+    });
+    stale.transport.listCodexSessions = vi.fn((_limit = 100, _offset = 0, signal?: AbortSignal) => {
+      pageSignal = signal;
+      return pendingPage.promise;
+    });
+    const view = renderLocalSources(stale.transport);
+    await waitFor(() => expect(stale.transport.listCodexSessions).toHaveBeenCalledTimes(1));
+
+    const fresh = createLocalTransport(true);
+    view.rerender(<LocalSources navigate={view.navigate} transport={fresh.transport} />);
+    expect(await screen.findByText("Access granted")).toBeVisible();
+    expect(statusSignal?.aborted).toBe(true);
+    expect(pageSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      pendingStatus.resolve(staleStatus);
+      pendingPage.resolve(stalePage);
+      await Promise.all([pendingStatus.promise, pendingPage.promise]);
+    });
+    expect(screen.getByText("Access granted")).toBeVisible();
+    expect(screen.queryByText("Consent required")).toBeNull();
+  });
+
   it("shows explicit consent state and groups only safe session metadata", async () => {
     const { transport } = createLocalTransport(false);
     renderLocalSources(transport);

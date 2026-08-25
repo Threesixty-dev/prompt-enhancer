@@ -4,12 +4,18 @@ export type IconName =
   | "activity"
   | "arrow"
   | "board"
+  | "bot"
   | "branch"
   | "chat"
   | "check"
   | "chevron"
   | "clock"
+  | "cpu"
+  | "dashboard"
+  | "database"
   | "file"
+  | "flask"
+  | "folder"
   | "info"
   | "layers"
   | "lock"
@@ -19,6 +25,7 @@ export type IconName =
   | "search"
   | "send"
   | "split"
+  | "sliders"
   | "tasks"
   | "users"
   | "x";
@@ -30,6 +37,12 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M9 4v16M15 4v16M3 10h6M15 13h6" />
+    </>
+  ),
+  bot: (
+    <>
+      <rect x="4" y="7" width="16" height="13" rx="3" />
+      <path d="M12 3v4M8.5 12h.01M15.5 12h.01M8 16h8" />
     </>
   ),
   branch: (
@@ -54,11 +67,41 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M12 7v5l3 2" />
     </>
   ),
+  cpu: (
+    <>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <rect x="9" y="9" width="6" height="6" rx="1" />
+      <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
+    </>
+  ),
+  dashboard: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  database: (
+    <>
+      <ellipse cx="12" cy="5" rx="8" ry="3" />
+      <path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7" />
+    </>
+  ),
   file: (
     <>
       <path d="M7 3h7l5 5v13H7V3Z" />
       <path d="M14 3v5h5M10 13h5M10 17h5" />
     </>
+  ),
+  flask: (
+    <>
+      <path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3" />
+      <path d="M7.5 15h9" />
+    </>
+  ),
+  folder: (
+    <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-11Z" />
   ),
   info: (
     <>
@@ -89,6 +132,14 @@ const paths: Record<IconName, ReactNode> = {
   ),
   send: <path d="M4 12 20 4l-4 16-4-7-8-1Z" />,
   split: <path d="M7 3v5a4 4 0 0 0 4 4h6m0 0-3-3m3 3-3 3M11 12a4 4 0 0 0-4 4v5" />,
+  sliders: (
+    <>
+      <path d="M4 6h5M13 6h7M4 12h9M17 12h3M4 18h3M11 18h9" />
+      <circle cx="11" cy="6" r="2" />
+      <circle cx="15" cy="12" r="2" />
+      <circle cx="9" cy="18" r="2" />
+    </>
+  ),
   tasks: (
     <>
       <rect x="4" y="4" width="16" height="16" rx="3" />

@@ -114,6 +114,15 @@ describe("LocalModelsPage", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("The model list could not be verified.");
   });
 
+  it("presents static model examples as neutral references instead of machine-specific recommendations", async () => {
+    render(<LocalModelsPage transport={transportWithOverview(vi.fn(async () => overview()))} />);
+
+    await screen.findByRole("heading", { name: "Common GGUF starting points" });
+    expect(screen.queryByRole("heading", { name: "Recommended for this machine" })).toBeNull();
+    expect(screen.getByText(/general reference examples, not recommendations or performance measurements for this machine/i)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/tok\/s/);
+  });
+
   it("does not let a poll started before a command overwrite the command reload", async () => {
     vi.useFakeTimers();
     const initial = deferred<LocalModelsOverview>();

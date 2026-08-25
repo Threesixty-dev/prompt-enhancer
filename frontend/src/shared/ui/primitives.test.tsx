@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Dialog } from "./Dialog";
 import { Disclosure } from "./Disclosure";
@@ -68,6 +68,60 @@ describe("shared UI primitives", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(open).toHaveFocus();
+  });
+
+  it("Dialog skips focusable descendants of a collapsed Disclosure", () => {
+    function Harness() {
+      const hiddenActionRef = useRef<HTMLButtonElement>(null);
+      return (
+        <Dialog
+          initialFocusRef={hiddenActionRef}
+          onClose={vi.fn()}
+          open
+          title="Disclosure dialog"
+        >
+          <Disclosure summary="Advanced options">
+            <button ref={hiddenActionRef} type="button">Hidden action</button>
+          </Disclosure>
+        </Dialog>
+      );
+    }
+    render(<Harness />);
+
+    expect(screen.getByRole("button", { name: "Close dialog" })).toHaveFocus();
+    const trigger = screen.getByRole("button", { name: "Advanced options" });
+    trigger.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+
+    expect(screen.getByRole("button", { name: "Close dialog" })).toHaveFocus();
+  });
+
+  it("Dialog falls back when the requested initial control is disabled", () => {
+    function Harness() {
+      const disabledRef = useRef<HTMLButtonElement>(null);
+      return (
+        <Dialog initialFocusRef={disabledRef} onClose={vi.fn()} open title="Disabled initial control">
+          <button disabled ref={disabledRef} type="button">Unavailable action</button>
+        </Dialog>
+      );
+    }
+    render(<Harness />);
+
+    expect(screen.getByRole("button", { name: "Close dialog" })).toHaveFocus();
+  });
+
+  it("Dialog falls back when CSS hides the requested initial control", () => {
+    function Harness() {
+      const hiddenRef = useRef<HTMLButtonElement>(null);
+      return (
+        <Dialog initialFocusRef={hiddenRef} onClose={vi.fn()} open title="CSS-hidden initial control">
+          <button ref={hiddenRef} style={{ display: "none" }} type="button">Hidden action</button>
+        </Dialog>
+      );
+    }
+    render(<Harness />);
+
+    expect(screen.getByRole("button", { name: "Close dialog" })).toHaveFocus();
   });
 
   it("Disclosure is a real button bound to its panel and keeps the panel mounted but hidden", () => {

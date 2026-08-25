@@ -18,27 +18,108 @@ type ClaudeTransport = Pick<PromptEnhancerTransport,
 
 type Operation = "grant" | "revoke" | "index" | null;
 
+const CLAUDE_STATUS_KEYS = [
+  "capture_channel",
+  "captured_events",
+  "captured_requests",
+  "captured_sessions",
+  "consent_active",
+  "indexed_projects",
+  "indexed_sessions",
+  "persists_content",
+  "reads_transcripts",
+  "telemetry_channel",
+  "telemetry_sessions",
+  "verification_capability",
+] as const;
+const VERIFICATION_CAPABILITY_KEYS = [
+  "candidate_schema_version",
+  "classifier_version",
+  "live_classification_enabled",
+  "normalizer_version",
+  "reason_code",
+  "state",
+  "supported_kinds",
+] as const;
+const VERIFICATION_STATES = new Set([
+  "supported",
+  "validation_only",
+  "unsupported",
+  "incompatible",
+  "not_authorized",
+]);
+const VERIFICATION_KINDS = new Set([
+  "test",
+  "build",
+  "lint",
+  "type_check",
+  "security",
+  "artifact_validation",
+]);
+const SAFE_REASON = /^[a-z][a-z0-9_.-]{0,63}$/;
+const SAFE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function nonNegativeInt(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(value);
+  return actual.length === expected.length
+    && expected.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function isOptionalSafeVersion(value: unknown): value is string | null {
+  return value === null || (typeof value === "string" && SAFE_VERSION.test(value));
+}
+
+function safeVerificationCapability(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactKeys(value, VERIFICATION_CAPABILITY_KEYS)) return false;
+  if (
+    typeof value.state !== "string"
+    || !VERIFICATION_STATES.has(value.state)
+    || typeof value.live_classification_enabled !== "boolean"
+    || value.live_classification_enabled !== (value.state === "supported")
+    || !isOptionalSafeVersion(value.classifier_version)
+    || !isOptionalSafeVersion(value.normalizer_version)
+    || !isOptionalSafeVersion(value.candidate_schema_version)
+    || typeof value.reason_code !== "string"
+    || !SAFE_REASON.test(value.reason_code)
+    || !Array.isArray(value.supported_kinds)
+    || !value.supported_kinds.every(
+      (kind) => typeof kind === "string" && VERIFICATION_KINDS.has(kind),
+    )
+  ) return false;
+  if (value.state === "supported" || value.state === "validation_only") {
+    return value.classifier_version !== null
+      && value.normalizer_version !== null
+      && value.candidate_schema_version !== null
+      && value.supported_kinds.length > 0;
+  }
+  return true;
 }
 
 /** Fail closed on any shape that could carry more than the content-free counts. */
 export function safeClaudeStatus(value: unknown): value is ClaudeCodeLocalSourceStatus {
   return (
     isRecord(value) &&
+    hasExactKeys(value, CLAUDE_STATUS_KEYS) &&
     typeof value.consent_active === "boolean" &&
     nonNegativeInt(value.captured_sessions) &&
     nonNegativeInt(value.captured_events) &&
+    nonNegativeInt(value.captured_requests) &&
+    nonNegativeInt(value.telemetry_sessions) &&
     nonNegativeInt(value.indexed_sessions) &&
     nonNegativeInt(value.indexed_projects) &&
     value.capture_channel === "claude_code_hooks" &&
-    typeof value.reads_transcripts === "boolean" &&
+    value.telemetry_channel === "claude_code_otlp" &&
+    value.reads_transcripts === false &&
     value.persists_content === false &&
-    isRecord(value.verification_capability)
+    safeVerificationCapability(value.verification_capability)
   );
 }
 
@@ -96,11 +177,21 @@ export function ClaudeSourceCard({ transport }: { transport: ClaudeTransport }) 
     try {
       if (kind === "grant") {
         const next = await transport.grantClaudeLocalHistoryConsent();
-        if (safeClaudeStatus(next)) setStatus(next);
+        if (!safeClaudeStatus(next) || !next.consent_active) {
+          await load();
+          setError("The consent change could not be confirmed from the local service.");
+          return;
+        }
+        setStatus(next);
         setNotice("Hook capture is now permitted. Install the hooks fragment in Claude Code to start recording.");
       } else if (kind === "revoke") {
         const next = await transport.revokeClaudeLocalHistoryConsent();
-        if (safeClaudeStatus(next)) setStatus(next);
+        if (!safeClaudeStatus(next) || next.consent_active) {
+          await load();
+          setError("The consent change could not be confirmed from the local service.");
+          return;
+        }
+        setStatus(next);
         setNotice("Hook capture is now off. The receiver records nothing further; already-captured events remain until you delete them.");
       } else {
         const report = await transport.indexClaudeLocalSessions(indexMax);

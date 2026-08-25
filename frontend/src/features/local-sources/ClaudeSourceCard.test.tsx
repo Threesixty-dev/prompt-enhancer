@@ -62,7 +62,7 @@ describe("ClaudeSourceCard", () => {
     expect(screen.getByText("Captured events").nextSibling).toHaveTextContent("17");
     expect(screen.getByText("Indexed sessions").nextSibling).toHaveTextContent("1");
     expect(screen.getByText("Transcripts read").nextSibling).toHaveTextContent("Never");
-    expect(safeClaudeStatus({ ...status(), reads_transcripts: true })).toBe(true);
+    expect(safeClaudeStatus({ ...status(), reads_transcripts: true })).toBe(false);
     expect(screen.getByText("Content stored").nextSibling).toHaveTextContent("Never");
     expect(screen.getByText(/Neither claims that every provider event was captured/)).toBeInTheDocument();
     expect(screen.getByLabelText("Source: Claude Code")).toBeInTheDocument();
@@ -95,6 +95,78 @@ describe("ClaudeSourceCard", () => {
     await screen.findByText(/already-captured events remain until you delete them/);
     expect(transport.revokeClaudeLocalHistoryConsent).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Capture not permitted")).toBeInTheDocument();
+  });
+
+  it("does not claim a grant succeeded when the local response cannot be verified", async () => {
+    const current = status({ consent_active: false });
+    const transport = {
+      getClaudeLocalSourceStatus: vi.fn(async () => current),
+      grantClaudeLocalHistoryConsent: vi.fn(async () => ({
+        ...current,
+        consent_active: "yes" as unknown as boolean,
+      })),
+      revokeClaudeLocalHistoryConsent: vi.fn(),
+      indexClaudeLocalSessions: vi.fn(),
+    };
+
+    render(<ClaudeSourceCard transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Permit hook capture" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be confirmed");
+    expect(screen.queryByText(/Hook capture is now permitted/)).toBeNull();
+    expect(screen.getByText("Capture not permitted")).toBeVisible();
+    expect(transport.getClaudeLocalSourceStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not claim a revoke succeeded when the local response cannot be verified", async () => {
+    const current = status({ consent_active: true });
+    const transport = {
+      getClaudeLocalSourceStatus: vi.fn(async () => current),
+      grantClaudeLocalHistoryConsent: vi.fn(),
+      revokeClaudeLocalHistoryConsent: vi.fn(async () => ({
+        ...current,
+        consent_active: null as unknown as boolean,
+      })),
+      indexClaudeLocalSessions: vi.fn(),
+    };
+
+    render(<ClaudeSourceCard transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop hook capture" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be confirmed");
+    expect(screen.queryByText(/Hook capture is now off/)).toBeNull();
+    expect(screen.getByText("Capture permitted")).toBeVisible();
+    expect(transport.getClaudeLocalSourceStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires the requested consent state before announcing success", async () => {
+    const grantStatus = status({ consent_active: false });
+    const grantTransport = {
+      getClaudeLocalSourceStatus: vi.fn(async () => grantStatus),
+      grantClaudeLocalHistoryConsent: vi.fn(async () => grantStatus),
+      revokeClaudeLocalHistoryConsent: vi.fn(),
+      indexClaudeLocalSessions: vi.fn(),
+    };
+
+    const grantView = render(<ClaudeSourceCard transport={grantTransport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Permit hook capture" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be confirmed");
+    expect(screen.queryByText(/Hook capture is now permitted/)).toBeNull();
+    expect(screen.getByText("Capture not permitted")).toBeVisible();
+    grantView.unmount();
+
+    const revokeStatus = status({ consent_active: true });
+    const revokeTransport = {
+      getClaudeLocalSourceStatus: vi.fn(async () => revokeStatus),
+      grantClaudeLocalHistoryConsent: vi.fn(),
+      revokeClaudeLocalHistoryConsent: vi.fn(async () => revokeStatus),
+      indexClaudeLocalSessions: vi.fn(),
+    };
+    render(<ClaudeSourceCard transport={revokeTransport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop hook capture" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be confirmed");
+    expect(screen.queryByText(/Hook capture is now off/)).toBeNull();
+    expect(screen.getByText("Capture permitted")).toBeVisible();
   });
 
   it("explains a 403 on index as missing consent, and shows setup on demand", async () => {
@@ -141,6 +213,24 @@ describe("ClaudeSourceCard", () => {
     expect(safeClaudeStatus(status())).toBe(true);
     expect(safeClaudeStatus({ ...status(), capture_channel: "jsonl" })).toBe(false);
     expect(safeClaudeStatus({ ...status(), captured_events: -1 })).toBe(false);
+    expect(safeClaudeStatus({ ...status(), captured_requests: "private text" })).toBe(false);
+    expect(safeClaudeStatus({ ...status(), telemetry_sessions: Number.MAX_SAFE_INTEGER + 1 })).toBe(false);
+    expect(safeClaudeStatus({ ...status(), telemetry_channel: "unexpected" })).toBe(false);
+    expect(safeClaudeStatus({ ...status(), unexpected_content: "must not cross the boundary" })).toBe(false);
+    expect(safeClaudeStatus({
+      ...status(),
+      verification_capability: {
+        ...status().verification_capability,
+        supported_kinds: ["unknown_kind"],
+      },
+    })).toBe(false);
+    expect(safeClaudeStatus({
+      ...status(),
+      verification_capability: {
+        ...status().verification_capability,
+        live_classification_enabled: true,
+      },
+    })).toBe(false);
     expect(safeClaudeStatus(null)).toBe(false);
   });
 });

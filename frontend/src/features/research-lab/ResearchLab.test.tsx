@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ModelRuntimeInventory } from "../../shared/api/contracts";
+import type { ModelEvaluationJob, ModelRuntimeInventory } from "../../shared/api/contracts";
 import { ModelCompatibilityPayloadError } from "../../shared/api/modelCompatibilityContract";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
 import { ResearchLab } from "./ResearchLab";
@@ -77,6 +77,77 @@ describe("ResearchLab", () => {
       },
     );
     expect(sessionSpy).not.toHaveBeenCalled();
+  });
+
+  it("exposes stable, keyboard-operated tabs with valid panel relationships", async () => {
+    render(<ResearchLab transport={createSyntheticTransport()} />);
+    await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
+
+    const tablist = screen.getByRole("tablist", { name: "Research catalog view" });
+    const metricTab = screen.getByRole("tab", { name: "Metric roadmap" });
+    const methodTab = screen.getByRole("tab", { name: "Method stack" });
+    const modelTab = screen.getByRole("tab", { name: "Model candidates" });
+    const tabs = [metricTab, methodTab, modelTab];
+
+    for (const tab of tabs) {
+      const controlledId = tab.getAttribute("aria-controls");
+      expect(controlledId).not.toBeNull();
+      expect(document.getElementById(controlledId!)).not.toBeNull();
+    }
+    const metricPanel = document.getElementById(metricTab.getAttribute("aria-controls")!);
+    expect(metricTab).toHaveAttribute("tabindex", "0");
+    expect(methodTab).toHaveAttribute("tabindex", "-1");
+    expect(metricPanel).toHaveAttribute("aria-labelledby", metricTab.id);
+    expect(metricPanel).toHaveAttribute("tabindex", "0");
+    expect(metricPanel).not.toHaveAttribute("hidden");
+
+    metricTab.focus();
+    fireEvent.keyDown(tablist, { key: "ArrowRight" });
+    expect(methodTab).toHaveFocus();
+    expect(methodTab).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById(methodTab.getAttribute("aria-controls")!)).not.toHaveAttribute("hidden");
+
+    fireEvent.keyDown(tablist, { key: "End" });
+    expect(modelTab).toHaveFocus();
+    expect(modelTab).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(tablist, { key: "Home" });
+    expect(metricTab).toHaveFocus();
+    expect(metricTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("names the available download action in missing-cache recovery guidance", async () => {
+    const transport = createSyntheticTransport();
+    const missingCacheJob: ModelEvaluationJob = {
+      candidate: {
+        allow_download: false,
+        candidate: "session-link",
+        device: "auto",
+        mode: "smoke",
+      },
+      completed_at: "2040-01-03T09:00:08Z",
+      created_at: "2040-01-03T09:00:00Z",
+      error_code: "candidate_evaluation_incomplete",
+      job_id: "b".repeat(32),
+      outcomes: [{
+        error_code: "model_cache_missing_or_invalid",
+        key: "multilingual_e5_small",
+        status: "not_completed",
+      }],
+      resolved_device: "cpu",
+      started_at: "2040-01-03T09:00:01Z",
+      status: "failed",
+    };
+    transport.startTextModelEvaluation = vi.fn(async () => missingCacheJob);
+
+    render(<ResearchLab transport={transport} />);
+    await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
+    fireEvent.click(screen.getByRole("tab", { name: "Model candidates" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Test cached session models" }));
+
+    expect(await screen.findByText(/One or more verified snapshots are missing/)).toHaveTextContent(
+      "Download & test session models",
+    );
+    expect(screen.getByRole("button", { name: "Download & test session models" })).toBeVisible();
   });
 
   it("fails closed when the catalog capability is absent", async () => {

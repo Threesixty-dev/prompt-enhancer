@@ -1,7 +1,8 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import {
   createSyntheticSocialHubPort,
+  createSyntheticSocialSnapshot,
   createUnavailableSocialHubPort,
   type SocialHubPort,
 } from "../../shared/api/socialHub";
@@ -226,7 +227,10 @@ describe("SocialHubPage", () => {
     expect(presence).toHaveTextContent(/never derived from analyzer activity/);
     expect(presence).toHaveTextContent(/“not shared” means a person has not opted in, which is not the same as offline/);
     const toggle = within(presence).getByRole("checkbox", { name: /Share a coarse presence level/ });
+    const level = within(presence).getByRole("combobox", { name: "Level" });
     expect(toggle).toBeChecked();
+    fireEvent.change(level, { target: { value: "away" } });
+    await waitFor(() => expect(presence).toHaveTextContent(/Others currently see: Away/));
     // Finley has not opted in: rendered as "Presence not shared", never as offline.
     within(screen.getByRole("list", { name: "Conversations" })).getByRole("button", { name: /#fixture-guild/ }).click();
     await screen.findByRole("region", { name: "#fixture-guild" });
@@ -239,10 +243,38 @@ describe("SocialHubPage", () => {
     toggle.click();
     await waitFor(() => expect(presence).toHaveTextContent(/Others currently see: Presence not shared/));
     expect(screen.getByRole("status", { name: "" })).toHaveTextContent(/not the same as offline/);
-    expect(within(presence).getByRole("combobox", { name: "Level" })).toBeDisabled();
+    expect(level).toBeDisabled();
+    expect(level).toHaveValue("away");
+    toggle.click();
+    await waitFor(() => expect(presence).toHaveTextContent(/Others currently see: Away/));
+    expect(level).toBeEnabled();
+    expect(level).toHaveValue("away");
     // The friends tab labels presence as self-declared and not analyzer activity.
     within(screen.getByRole("tablist", { name: "Rail sections" })).getByRole("tab", { name: /Friends/ }).click();
     expect(await screen.findByText(/Presence · self-declared, coarse, opt-in · not analyzer activity/)).toBeInTheDocument();
+  });
+
+  it("defaults an unknown first presence opt-in to offline", async () => {
+    const basePort = createSyntheticSocialHubPort();
+    const base = createSyntheticSocialSnapshot();
+    const snapshot = {
+      ...base,
+      people: base.people.map((person) => person.id === base.me_person_id
+        ? { ...person, presence: { sharing: "not_shared" as const, level: null, source: "self_declared_opt_in" as const } }
+        : person),
+    };
+    const port: SocialHubPort = { ...basePort, getSnapshot: async () => snapshot };
+    renderPage(port);
+    await ready();
+
+    const presence = screen.getByRole("group", { name: /Your presence · opt-in, coarse, self-declared/ });
+    const toggle = within(presence).getByRole("checkbox", { name: /Share a coarse presence level/ });
+    const level = within(presence).getByRole("combobox", { name: "Level" });
+    expect(toggle).not.toBeChecked();
+    expect(level).toBeDisabled();
+    expect(level).toHaveValue("offline");
+    toggle.click();
+    await waitFor(() => expect(presence).toHaveTextContent(/Others currently see: Offline/));
   });
 
   it("states the encryption, metadata, access, payload, transport, and data-control truths without offering fake controls", async () => {

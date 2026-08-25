@@ -14,15 +14,16 @@ import "./LocalModelsPage.css";
 
 const RECOMMENDED_REPO = "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF";
 /**
- * Suggestions only: picking one just runs the same server-side lookup as typing the
- * repository by hand. Sizes here are rough notes for choosing a quantization; nothing
+ * Common starting points only, not recommendations derived from detected hardware:
+ * picking one just runs the same server-side lookup as typing the repository by hand.
+ * Sizes here are rough reference notes for choosing a quantization; nothing
  * is downloaded until the server has resolved an immutable revision, digest and licence
  * for the exact file and the person has confirmed all of them.
  */
 const RECOMMENDED: readonly { repo: string; file: string; label: string; note: string; sizeGb: number }[] = [
-  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ3_M.gguf", label: "Qwen3.8-27B uncensored · IQ3_M", note: "about 12.8 GB - fully on a 16 GB GPU, ~25 tok/s", sizeGb: 12.8 },
-  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ4_XS.gguf", label: "Qwen3.8-27B uncensored · IQ4_XS", note: "about 15.3 GB - higher quality, needs a GPU/CPU split on 16 GB", sizeGb: 15.3 },
-  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-Q4_K_M.gguf", label: "Qwen3.8-27B uncensored · Q4_K_M", note: "about 16.8 GB - best quality of the three, split 62/65 layers ~14 tok/s", sizeGb: 16.8 },
+  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ3_M.gguf", label: "Qwen3.8-27B uncensored · IQ3_M", note: "reference: about 12.8 GB of weights; a 16 GB GPU may fit them only if runtime overhead also fits", sizeGb: 12.8 },
+  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ4_XS.gguf", label: "Qwen3.8-27B uncensored · IQ4_XS", note: "reference: about 15.3 GB of weights; a 16 GB GPU commonly needs a GPU/CPU split after overhead", sizeGb: 15.3 },
+  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-Q4_K_M.gguf", label: "Qwen3.8-27B uncensored · Q4_K_M", note: "reference: about 16.8 GB of weights; this typically exceeds 16 GB VRAM and needs a GPU/CPU split", sizeGb: 16.8 },
 ];
 const LICENSE_ADMISSION_TEXT: Readonly<Record<string, string>> = {
   allowed: "admitted by this app's frozen download policy",
@@ -405,7 +406,7 @@ export function LocalModelsPage({
       <section aria-labelledby="add-model-title" className="local-models__section">
         <h2 id="add-model-title">Add a model</h2>
         <div className="local-models__recommended">
-          <h3>Recommended for this machine</h3>
+          <h3>Common GGUF starting points</h3>
           <ul>
             {RECOMMENDED.map((item) => {
               const installed = overview.models.some((m) => m.record.source_file === item.file);
@@ -428,7 +429,8 @@ export function LocalModelsPage({
             })}
           </ul>
           <p className="local-models__hint">
-            Sizes here are rough notes. Nothing downloads from this list: choosing one looks the repository up, and the
+            These are general reference examples, not recommendations or performance measurements for this machine. Compare the
+            hardware summary above with the exact pinned file size. Nothing downloads from this list: choosing one looks the repository up, and the
             download button below only appears once the server has pinned an immutable revision, an exact size, a sha256
             and an admitted licence for the file you picked. Other repositories: paste any GGUF repo id below.
           </p>
@@ -461,7 +463,7 @@ export function LocalModelsPage({
                 </div>
               </dl>
               <label>
-                <span>File (4-bit recommended on 16 GB)</span>
+                <span>File (4-bit is a common starting point; verify fit)</span>
                 <select aria-label="Model file" onChange={(e) => { setChosenFile(e.currentTarget.value); setAlias(defaultAlias(e.currentTarget.value)); }} value={chosenFile}>
                   {remote.files.map((f) => (
                     <option key={f.filename} value={f.filename}>

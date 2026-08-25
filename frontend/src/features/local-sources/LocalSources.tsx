@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClaudeSourceCard } from "./ClaudeSourceCard";
 import type {
   CodexIngestionReport,
@@ -9,6 +9,7 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import type { AppRoute } from "../../shared/platform/platform";
+import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
 import { Icon } from "../../shared/ui/Icon";
 
 const INDEX_LIMITS = [100, 250, 500] as const;
@@ -108,34 +109,72 @@ export function LocalSources({
   const [selectedSessions, setSelectedSessions] = useState<Set<string>>(
     () => new Set(),
   );
+  const overviewControllerRef = useRef<AbortController | null>(null);
+  const overviewGenerationRef = useRef(0);
 
   const refreshOverview = useCallback(
-    async (signal?: AbortSignal) => {
-      const [nextStatus, response] = await Promise.all([
-        transport.getCodexLocalSourceStatus(signal),
-        transport.listCodexSessions(100, 0, signal),
-      ]);
+    async (): Promise<boolean> => {
+      overviewControllerRef.current?.abort();
+      const controller = new AbortController();
+      const generation = overviewGenerationRef.current + 1;
+      overviewGenerationRef.current = generation;
+      overviewControllerRef.current = controller;
+      let nextStatus: CodexLocalSourceStatus;
+      let response: Awaited<ReturnType<PromptEnhancerTransport["listCodexSessions"]>>;
+      try {
+        [nextStatus, response] = await Promise.all([
+          transport.getCodexLocalSourceStatus(controller.signal),
+          transport.listCodexSessions(100, 0, controller.signal),
+        ]);
+      } catch (error) {
+        if (
+          controller.signal.aborted
+          || overviewControllerRef.current !== controller
+          || overviewGenerationRef.current !== generation
+        ) return false;
+        overviewControllerRef.current = null;
+        throw error;
+      }
+      if (
+        controller.signal.aborted
+        || overviewControllerRef.current !== controller
+        || overviewGenerationRef.current !== generation
+      ) return false;
       setStatus(nextStatus);
       setSessions(response.sessions);
+      overviewControllerRef.current = null;
+      return true;
     },
     [transport],
   );
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const loadOverview = useCallback(async () => {
     setLoading(true);
-    refreshOverview(controller.signal)
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) {
-          setError("The local Codex source could not be loaded.");
-          console.error("Local source overview failed", reason);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
+    setError("");
+    let current = false;
+    try {
+      current = await refreshOverview();
+    } catch {
+      const active = overviewControllerRef.current;
+      if (active?.signal.aborted) return;
+      current = true;
+      overviewControllerRef.current = null;
+      setStatus(null);
+      setSessions([]);
+      setError("The local Codex source could not be loaded.");
+    } finally {
+      if (current) setLoading(false);
+    }
   }, [refreshOverview]);
+
+  useEffect(() => {
+    void loadOverview();
+    return () => {
+      overviewGenerationRef.current += 1;
+      overviewControllerRef.current?.abort();
+      overviewControllerRef.current = null;
+    };
+  }, [loadOverview]);
 
   const groupedSessions = useMemo(() => {
     const groups = new Map<string, CodexSession[]>();
@@ -369,10 +408,7 @@ export function LocalSources({
   if (loading) {
     return (
       <section className="local-sources-page">
-        <div className="async-state" role="status">
-          <span className="spinner" />
-          <span>Loading local-source metadata...</span>
-        </div>
+        <LoadingState label="Loading local-source metadata..." />
       </section>
     );
   }
@@ -380,13 +416,10 @@ export function LocalSources({
   if (!status) {
     return (
       <section className="local-sources-page">
-        <div className="async-state async-state--error" role="alert">
-          <span className="async-state__icon"><Icon name="x" /></span>
-          <div>
-            <strong>Local source unavailable</strong>
-            <p>{error || "The loopback service did not return source status."}</p>
-          </div>
-        </div>
+        <ErrorState
+          message={error || "The loopback service did not return source status."}
+          onRetry={() => void loadOverview()}
+        />
       </section>
     );
   }

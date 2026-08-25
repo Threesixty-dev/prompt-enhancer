@@ -45,6 +45,29 @@ function useLoaded<T>(load: (signal: AbortSignal) => Promise<T>, deps: unknown[]
   return value;
 }
 
+function localModelHardwareFooter(models: Loaded<LocalModelsOverview>): string {
+  if (models.state === "loading") return "checking hardware…";
+  if (models.state === "unavailable") return "hardware unavailable";
+  const hardware = models.value.hardware;
+  if (!hardware.gpu_name) return "no GPU detected";
+  const free = hardware.gpu_memory_free_mb;
+  return `${hardware.gpu_name}${free !== null && free !== undefined ? ` · ${(free / 1024).toFixed(1)} GB VRAM free` : ""}`;
+}
+
+function promptCommentaryFooter(checks: Loaded<PromptCheckHistory>): string {
+  if (checks.state === "loading") return "counting model commentary…";
+  if (checks.state === "unavailable") return "commentary history unavailable";
+  return `${checks.value.checks.filter((row) => row.commentary_state === "ok").length} with model commentary`;
+}
+
+function promptCheckCoverageSummary(checks: Loaded<PromptCheckHistory>, coverage: readonly number[]): string {
+  if (checks.state === "loading") return "checking prompt history…";
+  if (checks.state === "unavailable") return "prompt history unavailable";
+  if (checks.value.checks.length === 0) return "no check yet";
+  if (coverage.length === 0) return "task definition coverage unavailable";
+  return `task definition ${Math.round((coverage.reduce((sum, value) => sum + value, 0) / coverage.length) * 100)}% on average`;
+}
+
 export function sessionsPerDay(sessions: readonly CodexSession[], days: number, now: Date): number[] {
   const counts = new Array<number>(days).fill(0);
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -200,7 +223,11 @@ export function OverviewPage({
           <span className="overview-tile__foot">
             {judge.state === "ready" && judge.value.model_alias
               ? `${judge.value.model_alias} judged ${judgedSessions} sessions · ${agreementPairs} agreement pairs`
-              : judge.state === "ready" ? `${judgedSessions} sessions judged · no model active` : "judge lane unavailable"}
+              : judge.state === "ready"
+                ? `${judgedSessions} sessions judged · no model active`
+                : judge.state === "loading"
+                  ? "checking judge lane…"
+                  : "judge lane unavailable"}
           </span>
         </button>
 
@@ -210,17 +237,17 @@ export function OverviewPage({
           <span className="overview-tile__sub">
             {activeModel ? `${activeModel.runtime.device ?? "device"}${activeModel.runtime.gpu_layers !== null && activeModel.runtime.gpu_layers !== undefined ? ` · ${activeModel.runtime.gpu_layers} GPU layers` : ""} · ${models.state === "ready" ? models.value.models.length : 0} installed` : models.state === "ready" ? `${models.value.models.length} installed` : ""}
           </span>
-          <span className="overview-tile__foot">{models.state === "ready" && models.value.hardware.gpu_name ? `${models.value.hardware.gpu_name}${models.value.hardware.gpu_memory_free_mb ? ` · ${(models.value.hardware.gpu_memory_free_mb / 1024).toFixed(1)} GB VRAM free` : ""}` : "no GPU detected"}</span>
+          <span className="overview-tile__foot">{localModelHardwareFooter(models)}</span>
         </button>
 
         <button className="overview-tile" onClick={() => navigate({ name: "prompt_checks" })} type="button">
           <span className="overview-tile__label"><Icon name="check" /> Prompt checks</span>
           <strong className="overview-tile__value">{checks.state === "ready" ? checkRows.length : checks.state === "loading" ? "…" : "—"}</strong>
           <span className="overview-tile__sub">
-            {checkCoverage.length > 0 ? `task definition ${Math.round((checkCoverage.reduce((a, b) => a + b, 0) / checkCoverage.length) * 100)}% on average` : "no check yet"}
+            {promptCheckCoverageSummary(checks, checkCoverage)}
           </span>
           {checkSpark.length > 1 && <Sparkline accent="var(--chart-2)" label="Task definition coverage across your checks" values={checkSpark} />}
-          <span className="overview-tile__foot">{checkRows.filter((r) => r.commentary_state === "ok").length} with model commentary</span>
+          <span className="overview-tile__foot">{promptCommentaryFooter(checks)}</span>
         </button>
       </div>
 

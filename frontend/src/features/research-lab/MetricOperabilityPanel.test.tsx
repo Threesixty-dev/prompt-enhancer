@@ -17,6 +17,7 @@ describe("MetricOperabilityPanel", () => {
     const summary = screen.getByLabelText("Metric operability summary");
     expect(within(summary).getByText("Measured paths shipped").closest("div")).toHaveTextContent("16");
     expect(within(summary).getByText("Need project profile").closest("div")).toHaveTextContent("0");
+    expect(screen.queryByRole("heading", { name: "Project profile needed" })).toBeNull();
     expect(within(summary).getByText("Need source adapter").closest("div")).toHaveTextContent("4");
     expect(within(summary).getByText("Model-authored metrics").closest("div")).toHaveTextContent("0");
     expect(screen.getByText("Constraint precision").closest("li")).toHaveAttribute(

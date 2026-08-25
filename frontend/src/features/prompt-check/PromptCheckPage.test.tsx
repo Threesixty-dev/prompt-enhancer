@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { PromptCheckRecord, PromptCheckResult } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { PromptCheckPage, shortName } from "./PromptCheckPage";
+import { PromptMetricRadar, PromptMetricTrend, promptMetricQualityValue } from "./promptCheckPlots";
 
 const CHECK = "c".repeat(64);
 
@@ -70,6 +71,16 @@ function record(): PromptCheckRecord {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, reject, resolve };
+}
+
 describe("PromptCheckPage", () => {
   it("checks a pasted prompt with earlier turns and shows cues, commentary, reformulation and history", async () => {
     const checkPrompt = vi.fn(async (_request: { prompt: string; prior_messages?: { role: string; content: string }[] | null; want_commentary?: boolean }) => result());
@@ -97,6 +108,77 @@ describe("PromptCheckPage", () => {
     expect(screen.getByRole("img", { name: "Prompt metric radar" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Prompt metric trend across checks" })).toBeTruthy();
     expect(screen.getByText(/claude_code · claude-opus-5/)).toBeTruthy();
+  });
+
+  it("keeps a current result visible while a linked stored check loads", async () => {
+    const pending = deferred<PromptCheckRecord>();
+    const transport = {
+      checkPrompt: vi.fn(async () => result()),
+      getPromptCheckHistory: vi.fn(async () => ({ contract_version: "prompt-check.v1" as const, checks: [], limit: 60, offset: 0 })),
+      getPromptCheck: vi.fn(() => pending.promise),
+    };
+    const view = render(<PromptCheckPage navigate={vi.fn()} transport={transport} />);
+    await screen.findByText(/No check yet/);
+    fireEvent.change(screen.getByLabelText("Prompt to check"), { target: { value: "Add a bounded retry" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check prompt" }));
+    await screen.findByRole("heading", { name: "Result" });
+
+    view.rerender(<PromptCheckPage checkId={CHECK} navigate={vi.fn()} transport={transport} />);
+    expect(screen.getByRole("heading", { name: "Result" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading stored check…");
+
+    await act(async () => {
+      pending.resolve(record());
+      await pending.promise;
+    });
+    expect(await screen.findByRole("region", { name: "Stored check" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Result" })).toBeNull();
+  });
+
+  it("distinguishes a missing stored check from a read error and retries both", async () => {
+    const pending = deferred<PromptCheckRecord>();
+    const getPromptCheck = vi.fn()
+      .mockImplementationOnce(() => pending.promise)
+      .mockRejectedValueOnce(new TransportError("read failed", 500))
+      .mockResolvedValueOnce(record());
+    const transport = {
+      checkPrompt: vi.fn(),
+      getPromptCheckHistory: vi.fn(async () => ({ contract_version: "prompt-check.v1" as const, checks: [], limit: 60, offset: 0 })),
+      getPromptCheck,
+    };
+    render(<PromptCheckPage checkId={CHECK} navigate={vi.fn()} transport={transport} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading stored check…");
+
+    await act(async () => {
+      pending.reject(new TransportError("missing", 404));
+      await pending.promise.catch(() => undefined);
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("No stored check was found for this link.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry stored check" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The stored check could not be read.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry stored check" }));
+    expect(await screen.findByRole("region", { name: "Stored check" })).toBeInTheDocument();
+    expect(getPromptCheck).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses the same quality orientation for lower-is-better radar labels, tooltips, and trends", () => {
+    const { container } = render(
+      <>
+        <PromptMetricRadar readings={[{ key: "risk", label: "Risk", value: 0.1, higherIsBetter: false }]} />
+        <PromptMetricTrend series={[{
+          key: "risk",
+          label: "Risk",
+          higherIsBetter: false,
+          points: [{ x: 0, value: 0.1, at: "2026-08-19T12:00:00Z" }],
+        }]} />
+      </>,
+    );
+
+    expect(promptMetricQualityValue(0.1, false)).toBeCloseTo(0.9);
+    expect(container).toHaveTextContent("90% quality (raw 10%; lower is better)");
+    expect(container).toHaveTextContent("Risk · quality (raw lower is better)");
+    expect(Number(container.querySelector(".prompt-plot--radar .prompt-plot__dot")?.getAttribute("cy"))).toBeLessThan(60);
+    expect(Number(container.querySelector(".prompt-plot--trend .prompt-plot__series circle")?.getAttribute("cy"))).toBeLessThan(50);
   });
 
   it("explains a missing model and hides itself when the feature is unavailable", async () => {

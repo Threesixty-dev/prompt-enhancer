@@ -11,6 +11,7 @@ import { PromptMetricRadar, PromptMetricTrend } from "./promptCheckPlots";
 import "./PromptCheckPage.css";
 
 type Reading = PromptCheckResult["metrics"][number];
+type StoredCheckState = "idle" | "loading" | "ready" | "not_found" | "error";
 
 const SHORT_NAMES: Record<string, string> = {
   "prompt.task_definition_coverage": "Task definition",
@@ -76,6 +77,8 @@ export function PromptCheckPage({
   const [history, setHistory] = useState<PromptCheckRecord[]>([]);
   const [historyState, setHistoryState] = useState<"loading" | "ready" | "unavailable" | "error">("loading");
   const [stored, setStored] = useState<PromptCheckRecord | null>(null);
+  const [storedState, setStoredState] = useState<StoredCheckState>("idle");
+  const [storedRetry, setStoredRetry] = useState(0);
   const [copied, setCopied] = useState(false);
 
   const loadHistory = useCallback(async (signal?: AbortSignal) => {
@@ -97,12 +100,26 @@ export function PromptCheckPage({
   }, [loadHistory]);
 
   useEffect(() => {
-    if (!checkId) { setStored(null); return; }
-    setResult(null);
+    if (!checkId) {
+      setStored(null);
+      setStoredState("idle");
+      return;
+    }
+    setStored(null);
+    setStoredState("loading");
     const controller = new AbortController();
-    transport.getPromptCheck(checkId, controller.signal).then((record) => { if (!controller.signal.aborted) setStored(record); }).catch(() => { if (!controller.signal.aborted) setStored(null); });
+    transport.getPromptCheck(checkId, controller.signal).then((record) => {
+      if (controller.signal.aborted) return;
+      setStored(record);
+      setResult(null);
+      setStoredState("ready");
+    }).catch((caught) => {
+      if (controller.signal.aborted) return;
+      setStored(null);
+      setStoredState(caught instanceof TransportError && caught.status === 404 ? "not_found" : "error");
+    });
     return () => controller.abort();
-  }, [checkId, transport]);
+  }, [checkId, storedRetry, transport]);
 
   async function run() {
     const text = prompt.trim();
@@ -285,7 +302,23 @@ export function PromptCheckPage({
         </section>
       )}
 
-      {stored && (
+      {checkId && storedState === "loading" && (
+        <p className="prompt-check__note" role="status">Loading stored check…</p>
+      )}
+      {checkId && storedState === "not_found" && (
+        <div className="prompt-check__note" role="status">
+          <p>No stored check was found for this link.</p>
+          <button className="button button--ghost" onClick={() => setStoredRetry((value) => value + 1)} type="button">Retry stored check</button>
+        </div>
+      )}
+      {checkId && storedState === "error" && (
+        <div className="prompt-check__note" role="alert">
+          <p>The stored check could not be read.</p>
+          <button className="button button--ghost" onClick={() => setStoredRetry((value) => value + 1)} type="button">Retry stored check</button>
+        </div>
+      )}
+
+      {storedState === "ready" && stored && (
         <section className="prompt-check__result" aria-label="Stored check">
           <h2>Stored check</h2>
           <p className="prompt-check__note">
@@ -307,6 +340,7 @@ export function PromptCheckPage({
               series={Object.keys(SHORT_NAMES).map((key) => ({
                 key,
                 label: shortName(key),
+                higherIsBetter: trend.map((record) => record.metrics.find((metric) => metric.key === key)).find((reading) => reading !== undefined)?.higher_is_better ?? true,
                 points: trend.map((record, index) => {
                   const reading = record.metrics.find((m) => m.key === key);
                   return { x: index, value: reading ? readingValue(reading as Reading) : null, at: record.created_at };

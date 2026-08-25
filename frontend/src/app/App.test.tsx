@@ -15,6 +15,16 @@ import {
 } from "../shared/platform/runtimeMode";
 import { App, RouteErrorBoundary } from "./App";
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, reject, resolve };
+}
+
 function createMemoryPlatform(initialRoute: AppRoute = { name: "discovery" }): PlatformAdapter {
   let route: AppRoute = initialRoute;
   const listeners = new Set<(next: AppRoute) => void>();
@@ -71,7 +81,13 @@ describe("App discovery navigation", () => {
       "responsive-shell",
     );
     expect(container.querySelector("#main-content")).toHaveAttribute("tabindex", "-1");
-    expect(screen.getByRole("navigation", { name: "Primary" })).toBeVisible();
+    const primaryNavigation = screen.getByRole("navigation", { name: "Primary" });
+    expect(primaryNavigation).toBeVisible();
+    const navigationGlyphs = within(primaryNavigation).getAllByRole("button").map(
+      (button) => button.querySelector("svg")?.innerHTML,
+    );
+    expect(navigationGlyphs.every(Boolean)).toBe(true);
+    expect(new Set(navigationGlyphs).size).toBe(navigationGlyphs.length);
     expect(screen.getByLabelText("Synthetic demo fixture ready")).toBeVisible();
     expect(screen.getByText("Synthetic demo · Fixture ready")).toBeVisible();
   });
@@ -147,6 +163,57 @@ describe("App discovery navigation", () => {
     expect(await screen.findByLabelText("2 candidates need review")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Accept as one task" }));
     expect(await screen.findByLabelText("1 candidate needs review")).toBeVisible();
+  });
+
+  it("announces a reviewed-task navigation result in one live status region", async () => {
+    const transport = createSyntheticTransport();
+    transport.listTaskRevisions = vi.fn(async () => ({ limit: 100, offset: 0, tasks: [] }));
+    render(
+      <App
+        platform={createMemoryPlatform()}
+        runtime={syntheticRuntime(transport)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reviewed tasks" }));
+
+    const notices = await screen.findAllByText("No reviewed task is available yet.");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toHaveAttribute("role", "status");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+    expect(screen.queryByText("No reviewed task is available yet.")).toBeNull();
+  });
+
+  it("aborts a pending reviewed-task lookup when newer navigation wins", async () => {
+    const transport = createSyntheticTransport();
+    const response = await transport.listTaskRevisions();
+    const pending = deferred<typeof response>();
+    transport.listTaskRevisions = vi.fn((_taskId?: string, _signal?: AbortSignal) => pending.promise);
+    render(
+      <App
+        platform={createMemoryPlatform()}
+        runtime={syntheticRuntime(transport)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reviewed tasks" }));
+    await waitFor(() => expect(transport.listTaskRevisions).toHaveBeenCalledTimes(1));
+    const signal = vi.mocked(transport.listTaskRevisions).mock.calls[0][1];
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+    expect(signal?.aborted).toBe(true);
+
+    await act(async () => {
+      pending.resolve(response);
+      await pending.promise;
+    });
+    expect(screen.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+    expect(screen.queryByText(/reviewed task is available|task index could not be loaded/i)).toBeNull();
   });
 
   it("keeps fictional projects available in preview while local-source controls stay local", async () => {
@@ -256,6 +323,10 @@ describe("App discovery navigation", () => {
     expect(
       screen.getByText("Local sources are disabled in synthetic preview"),
     ).toBeVisible();
+    const closedState = screen.getByText("Local sources are disabled in synthetic preview")
+      .closest(".ui-empty-state");
+    expect(closedState).toHaveAttribute("data-tone", "closed");
+    expect(closedState).toHaveAttribute("role", "status");
     expect(statusSpy).not.toHaveBeenCalled();
   });
 

@@ -11,6 +11,24 @@ const FOCUSABLE = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
+function hasVisibleStyles(element: HTMLElement): boolean {
+  for (let current: HTMLElement | null = element; current !== null; current = current.parentElement) {
+    const style = window.getComputedStyle(current);
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isAvailableFocusable(element: HTMLElement): boolean {
+  return element.matches(FOCUSABLE)
+    && element.getAttribute("aria-disabled") !== "true"
+    && !(element instanceof HTMLInputElement && element.type === "hidden")
+    && element.closest("[hidden], [inert], [aria-hidden='true']") === null
+    && hasVisibleStyles(element);
+}
+
 /**
  * Modal dialog primitive: `role="dialog"`, `aria-modal`, labelled by its title,
  * described by an optional description, focus trapped inside, Escape closes,
@@ -57,7 +75,13 @@ export function Dialog({
     if (!open) return undefined;
     const previous = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
-    const initial = initialFocusRefRef.current?.current ?? closeRef.current;
+    const requestedInitial = initialFocusRefRef.current?.current;
+    const initial = requestedInitial !== undefined
+      && requestedInitial !== null
+      && panel?.contains(requestedInitial)
+      && isAvailableFocusable(requestedInitial)
+      ? requestedInitial
+      : closeRef.current ?? panel;
     initial?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -66,9 +90,11 @@ export function Dialog({
         return;
       }
       if (event.key !== "Tab" || panel === null) return;
-      const focusable = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      const focusable = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)]
+        .filter(isAvailableFocusable);
       if (focusable.length === 0) {
         event.preventDefault();
+        panel.focus();
         return;
       }
       const first = focusable[0];
@@ -100,6 +126,7 @@ export function Dialog({
         className="ui-dialog__panel"
         ref={panelRef}
         role="dialog"
+        tabIndex={-1}
       >
         <header className="ui-dialog__header">
           <h2 id={titleId}>{title}</h2>

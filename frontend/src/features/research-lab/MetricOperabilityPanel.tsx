@@ -127,7 +127,7 @@ export function MetricOperabilityPanel({ transport }: { transport: PromptEnhance
       entries: state.catalog.entries.filter(
         (entry) => entry.shipped_path_state === group.state,
       ),
-    }));
+    })).filter((group) => group.entries.length > 0);
   }, [state]);
 
   if (state.kind === "loading") {

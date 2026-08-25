@@ -9,19 +9,29 @@ export function LoadingState({ label }: { label: string }) {
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function ErrorState({
+  message,
+  onRetry,
+  title = "Something needs attention",
+  actionLabel = "Try again",
+}: {
+  message: string;
+  onRetry?: () => void;
+  title?: string;
+  actionLabel?: string;
+}) {
   return (
     <div className="async-state async-state--error" role="alert">
       <span className="async-state__icon">
         <Icon name="x" />
       </span>
       <div>
-        <strong>Something needs attention</strong>
+        <strong>{title}</strong>
         <p>{message}</p>
       </div>
       {onRetry && (
         <button className="button button--secondary" onClick={onRetry} type="button">
-          Try again
+          {actionLabel}
         </button>
       )}
     </div>

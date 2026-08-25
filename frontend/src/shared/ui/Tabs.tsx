@@ -31,6 +31,7 @@ export function TabList<Id extends string>({
   value,
   onChange,
   compact = false,
+  className = "",
 }: {
   idPrefix: string;
   label: string;
@@ -38,11 +39,12 @@ export function TabList<Id extends string>({
   value: Id;
   onChange: (id: Id) => void;
   compact?: boolean;
+  className?: string;
 }) {
   return (
     <div
       aria-label={label}
-      className={`ui-tabs${compact ? " ui-tabs--compact" : ""}`}
+      className={`ui-tabs${compact ? " ui-tabs--compact" : ""}${className ? ` ${className}` : ""}`}
       onKeyDown={(event) => moveRovingFocus(event, (index) => onChange(tabs[index].id))}
       role="tablist"
     >

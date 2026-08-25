@@ -227,6 +227,8 @@ export function FirstRunPanel({
   const installed = status.providers.filter((p) => p.installed && !p.consent_active).map((p) => p.provider);
   const claude = status.providers.find((provider) => provider.provider === "claude_code");
   const claudeHomeOverrideSupported = status.claude_home_override_supported;
+  const canLoad = installed.length > 0
+    || (claudeHomeOverrideSupported && claudeHome.trim().length > 0);
 
   async function loadEverything() {
     setBusy(true);
@@ -334,8 +336,16 @@ export function FirstRunPanel({
 
       {error !== "" && <p className="first-run__error" role="alert">{error}</p>}
 
+      {!canLoad && (
+        <p className="first-run__note">
+          {claudeHomeOverrideSupported
+            ? "Install Codex or Claude Code, or enter a Claude Code folder above, before loading."
+            : "Install Codex or Claude Code before loading."}
+        </p>
+      )}
+
       <div className="first-run__actions">
-        <button className="button button--primary" disabled={busy} onClick={() => void loadEverything()} type="button">
+        <button className="button button--primary" disabled={busy || !canLoad} onClick={() => void loadEverything()} type="button">
           {busy ? "Loading…" : "Yes, load everything"}
         </button>
         <button className="button button--ghost" disabled={busy} onClick={dismiss} type="button">Not now</button>

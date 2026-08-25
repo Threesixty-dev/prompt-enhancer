@@ -8,11 +8,20 @@ import type {
 import { ModelLabInventoryPanel } from "./ModelLabInventoryPanel";
 import { ModelCompatibilityPanel } from "./ModelCompatibilityPanel";
 import { MetricOperabilityPanel } from "./MetricOperabilityPanel";
+import { TabList, tabId, tabPanelId } from "../../shared/ui/Tabs";
 
 type LabView = "metrics" | "methods" | "models";
 type Metric = TextAnalysisResearchCatalog["metric_roadmap"][number];
 type Method = TextAnalysisResearchCatalog["methods"][number];
 type Candidate = TextAnalysisResearchCatalog["model_candidates"][number];
+
+const RESEARCH_TAB_PREFIX = "research-catalog";
+const RESEARCH_TABS = [
+  { id: "metrics", label: "Metric roadmap" },
+  { id: "methods", label: "Method stack" },
+  { id: "models", label: "Model candidates" },
+] as const;
+const DOWNLOAD_SESSION_MODELS_LABEL = "Download & test session models";
 
 const PROFILE_LABELS: Record<Metric["profile"], string> = {
   prompt: "How you define the work",
@@ -303,7 +312,7 @@ function ModelEvaluationPanel({ transport }: { transport: PromptEnhancerTranspor
           }
           type="button"
         >
-          Download & test session models
+          {DOWNLOAD_SESSION_MODELS_LABEL}
         </button>
         <button
           className="button-secondary"
@@ -331,7 +340,7 @@ function ModelEvaluationPanel({ transport }: { transport: PromptEnhancerTranspor
             <span>{job.resolved_device?.toUpperCase() ?? job.candidate.device.toUpperCase()} · {job.candidate.mode}</span>
           </header>
           {job.status === "failed" && job.outcomes.some((item) => item.error_code === "model_cache_missing_or_invalid") && (
-            <p>One or more verified snapshots are missing. Use “Download reviewed models & run” to fetch only pinned public artifacts.</p>
+            <p>One or more verified snapshots are missing. Use “{DOWNLOAD_SESSION_MODELS_LABEL}” to fetch only pinned public artifacts.</p>
           )}
           {job.outcomes.length > 0 && (
             <div className="model-evaluation-results__grid">
@@ -498,34 +507,38 @@ export function ResearchLab({ transport }: { transport: PromptEnhancerTransport 
         <span>{failedModels} unsafe candidate{failedModels === 1 ? "" : "s"} already blocked</span>
       </aside>
 
-      <div className="research-view-switcher" role="tablist" aria-label="Research catalog view">
-        {([
-          ["metrics", "Metric roadmap"],
-          ["methods", "Method stack"],
-          ["models", "Model candidates"],
-        ] as const).map(([key, label]) => (
-          <button
-            aria-controls={`research-${key}`}
-            aria-selected={view === key}
-            key={key}
-            onClick={() => setView(key)}
-            role="tab"
-            type="button"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <TabList
+        className="research-view-switcher"
+        idPrefix={RESEARCH_TAB_PREFIX}
+        label="Research catalog view"
+        onChange={setView}
+        tabs={RESEARCH_TABS}
+        value={view}
+      />
 
-      <div id={`research-${view}`} role="tabpanel">
-        {view === "metrics" ? (
-          <MetricsView catalog={catalog} transport={transport} />
-        ) : view === "methods" ? (
-          <MethodsView catalog={catalog} />
-        ) : (
-          <ModelsView catalog={catalog} transport={transport} />
-        )}
-      </div>
+      {RESEARCH_TABS.map(({ id }) => {
+        const selected = view === id;
+        return (
+          <div
+            aria-labelledby={tabId(RESEARCH_TAB_PREFIX, id)}
+            hidden={!selected}
+            id={tabPanelId(RESEARCH_TAB_PREFIX, id)}
+            key={id}
+            role="tabpanel"
+            tabIndex={0}
+          >
+            {selected && (
+              id === "metrics" ? (
+                <MetricsView catalog={catalog} transport={transport} />
+              ) : id === "methods" ? (
+                <MethodsView catalog={catalog} />
+              ) : (
+                <ModelsView catalog={catalog} transport={transport} />
+              )
+            )}
+          </div>
+        );
+      })}
     </section>
   );
 }

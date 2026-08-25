@@ -2,6 +2,23 @@
 
 export type RadarReading = { key: string; label: string; value: number | null; higherIsBetter: boolean };
 
+export function promptMetricQualityValue(value: number | null, higherIsBetter: boolean): number | null {
+  if (value === null) return null;
+  return higherIsBetter ? value : 1 - value;
+}
+
+function qualityPercentLabel(value: number, higherIsBetter: boolean): string {
+  const quality = promptMetricQualityValue(value, higherIsBetter) ?? 0;
+  const qualityPercent = Math.round(quality * 100);
+  return `${qualityPercent}%${higherIsBetter ? "" : " quality"}`;
+}
+
+function qualityDetailLabel(value: number, higherIsBetter: boolean): string {
+  const oriented = qualityPercentLabel(value, higherIsBetter);
+  if (higherIsBetter) return oriented;
+  return `${oriented} (raw ${Math.round(value * 100)}%; lower is better)`;
+}
+
 function polar(cx: number, cy: number, r: number, index: number, total: number): [number, number] {
   const angle = -Math.PI / 2 + (index / total) * Math.PI * 2;
   return [cx + r * Math.cos(angle), cy + r * Math.sin(angle)];
@@ -16,7 +33,7 @@ export function PromptMetricRadar({ readings }: { readings: RadarReading[] }) {
   const total = Math.max(readings.length, 3);
   const rings = [0.25, 0.5, 0.75, 1];
   const points = readings.map((reading, index) => {
-    const normalized = reading.value === null ? 0 : reading.higherIsBetter ? reading.value : 1 - reading.value;
+    const normalized = promptMetricQualityValue(reading.value, reading.higherIsBetter) ?? 0;
     return { ...reading, normalized, point: polar(cx, cy, radius * normalized, index, total), labelPoint: polar(cx, cy, radius + 26, index, total) };
   });
   const known = points.filter((p) => p.value !== null);
@@ -40,10 +57,10 @@ export function PromptMetricRadar({ readings }: { readings: RadarReading[] }) {
         {points.map((p) => (
           <g key={p.key}>
             <circle className={p.value === null ? "prompt-plot__dot prompt-plot__dot--unknown" : "prompt-plot__dot"} cx={p.point[0]} cy={p.point[1]} r={p.value === null ? 3 : 4.5}>
-              <title>{p.label}: {p.value === null ? "not measurable" : `${Math.round(p.value * 100)}%`}</title>
+              <title>{p.label}: {p.value === null ? "not measurable" : qualityDetailLabel(p.value, p.higherIsBetter)}</title>
             </circle>
             <text className="prompt-plot__label" textAnchor={p.labelPoint[0] < cx - 5 ? "end" : p.labelPoint[0] > cx + 5 ? "start" : "middle"} x={p.labelPoint[0]} y={p.labelPoint[1] + 4}>
-              {p.label}{p.value === null ? " (n/a)" : ` ${Math.round(p.value * 100)}%`}
+              {p.label}{p.value === null ? " (n/a)" : ` ${qualityPercentLabel(p.value, p.higherIsBetter)}`}
             </text>
           </g>
         ))}
@@ -53,7 +70,12 @@ export function PromptMetricRadar({ readings }: { readings: RadarReading[] }) {
   );
 }
 
-export type TrendSeries = { key: string; label: string; points: { x: number; value: number | null; at: string }[] };
+export type TrendSeries = {
+  key: string;
+  label: string;
+  higherIsBetter: boolean;
+  points: { x: number; value: number | null; at: string }[];
+};
 
 /** Trend of each prompt metric across the stored checks (oldest left, newest right). */
 export function PromptMetricTrend({ series }: { series: TrendSeries[] }) {
@@ -77,22 +99,26 @@ export function PromptMetricTrend({ series }: { series: TrendSeries[] }) {
           const segments: string[] = [];
           let current: string[] = [];
           s.points.forEach((p, index) => {
-            if (p.value === null) {
+            const quality = promptMetricQualityValue(p.value, s.higherIsBetter);
+            if (quality === null) {
               if (current.length) segments.push(current.join(" "));
               current = [];
             } else {
-              current.push(`${xFor(index).toFixed(1)},${yFor(p.value).toFixed(1)}`);
+              current.push(`${xFor(index).toFixed(1)},${yFor(quality).toFixed(1)}`);
             }
           });
           if (current.length) segments.push(current.join(" "));
           return (
             <g key={s.key} className={`prompt-plot__series prompt-plot__series--${seriesIndex}`}>
               {segments.map((segment, i) => <polyline key={i} fill="none" points={segment} />)}
-              {s.points.map((p, index) => p.value === null ? null : (
-                <circle key={index} cx={xFor(index)} cy={yFor(p.value)} r={2.5}>
-                  <title>{s.label} · {new Date(p.at).toLocaleString()} · {Math.round(p.value * 100)}%</title>
-                </circle>
-              ))}
+              {s.points.map((p, index) => {
+                const quality = promptMetricQualityValue(p.value, s.higherIsBetter);
+                return p.value === null || quality === null ? null : (
+                  <circle key={index} cx={xFor(index)} cy={yFor(quality)} r={2.5}>
+                    <title>{s.label} · {new Date(p.at).toLocaleString()} · {qualityDetailLabel(p.value, s.higherIsBetter)}</title>
+                  </circle>
+                );
+              })}
             </g>
           );
         })}
@@ -100,7 +126,7 @@ export function PromptMetricTrend({ series }: { series: TrendSeries[] }) {
         <text className="prompt-plot__tick" textAnchor="end" x={width - pad.right} y={height - 6}>newest</text>
       </svg>
       <figcaption className="prompt-plot__legend">
-        {series.map((s, index) => <span key={s.key} className={`prompt-plot__legend-item prompt-plot__series--${index}`}><i /> {s.label}</span>)}
+        {series.map((s, index) => <span key={s.key} className={`prompt-plot__legend-item prompt-plot__series--${index}`}><i /> {s.label}{s.higherIsBetter ? "" : " · quality (raw lower is better)"}</span>)}
       </figcaption>
     </figure>
   );

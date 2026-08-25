@@ -24,9 +24,10 @@ import type {
 } from "../shared/platform/runtimeMode";
 import { DiscoveryInbox } from "../features/discovery-inbox/DiscoveryInbox";
 import type { ProjectWorkspaceRoute } from "../features/project-workspace";
-import { Icon } from "../shared/ui/Icon";
+import { Icon, type IconName } from "../shared/ui/Icon";
 import { ThemeToggle } from "../shared/ui/ThemeToggle";
-import { LoadingState } from "../shared/ui/AsyncState";
+import { ErrorState, LoadingState } from "../shared/ui/AsyncState";
+import { EmptyState } from "../shared/ui/EmptyState";
 
 const AnalysisJobCentreScreen = lazy(() =>
   import("../features/analysis-job-centre").then((module) => ({
@@ -100,6 +101,24 @@ const SocialHubScreen = lazy(() =>
   })),
 );
 
+const PRIMARY_NAV_ICONS = {
+  overview: "dashboard",
+  projects: "folder",
+  sessions: "clock",
+  calibration: "sliders",
+  models: "cpu",
+  agent: "bot",
+  promptChecks: "check",
+  discovery: "branch",
+  reviewedTasks: "tasks",
+  taskFlow: "board",
+  team: "users",
+  social: "chat",
+  localSources: "database",
+  analysisJobs: "activity",
+  research: "flask",
+} as const satisfies Record<string, IconName>;
+
 interface RouteErrorBoundaryProps {
   children: ReactNode;
   onExit: () => void;
@@ -138,22 +157,12 @@ export class RouteErrorBoundary extends Component<
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <div className="async-state async-state--error" role="alert">
-        <span className="async-state__icon"><Icon name="x" /></span>
-        <div>
-          <strong>This screen could not be loaded</strong>
-          <p>
-            Its local route bundle failed safely. No provider error or session content is shown.
-          </p>
-        </div>
-        <button
-          className="button button--secondary"
-          onClick={this.props.onExit}
-          type="button"
-        >
-          Return to Discovery
-        </button>
-      </div>
+      <ErrorState
+        actionLabel="Return to Discovery"
+        message="Its local route bundle failed safely. No provider error or session content is shown."
+        onRetry={this.props.onExit}
+        title="This screen could not be loaded"
+      />
     );
   }
 }
@@ -262,6 +271,7 @@ export function App({
     identity: routeIdentity,
     projectWorkspace: isProjectWorkspaceRoute(route),
   });
+  const latestTaskControllerRef = useRef<AbortController | null>(null);
   const [navigationNotice, setNavigationNotice] = useState("");
   const [undecidedCount, setUndecidedCount] = useState<number | null>(null);
   const [serviceState, setServiceState] = useState<RuntimeServiceState>(() =>
@@ -272,6 +282,14 @@ export function App({
     runtime.mode === "synthetic_demo" ? "synthetic" : "codex";
 
   useEffect(() => platform.subscribe(setRoute), [platform]);
+
+  useEffect(() => {
+    setNavigationNotice("");
+    return () => {
+      latestTaskControllerRef.current?.abort();
+      latestTaskControllerRef.current = null;
+    };
+  }, [routeIdentity, transport]);
 
   useLayoutEffect(() => {
     document.title = `${routeTitle(route)} · Prompt Enhancer`;
@@ -305,13 +323,20 @@ export function App({
   }, [runtime]);
 
   function navigate(next: AppRoute) {
+    latestTaskControllerRef.current?.abort();
+    latestTaskControllerRef.current = null;
+    setNavigationNotice("");
     platform.navigate(next);
   }
 
   async function openLatestTask() {
+    latestTaskControllerRef.current?.abort();
+    const controller = new AbortController();
+    latestTaskControllerRef.current = controller;
     setNavigationNotice("");
     try {
-      const response = await transport.listTaskRevisions();
+      const response = await transport.listTaskRevisions(undefined, controller.signal);
+      if (controller.signal.aborted || latestTaskControllerRef.current !== controller) return;
       const latest = response.tasks[0];
       if (!latest) {
         setNavigationNotice("No reviewed task is available yet.");
@@ -319,7 +344,12 @@ export function App({
       }
       navigate({ name: "task", taskId: latest.task_id, revision: latest.revision });
     } catch {
+      if (controller.signal.aborted || latestTaskControllerRef.current !== controller) return;
       setNavigationNotice("The task index could not be loaded.");
+    } finally {
+      if (latestTaskControllerRef.current === controller) {
+        latestTaskControllerRef.current = null;
+      }
     }
   }
 
@@ -379,7 +409,7 @@ export function App({
             onClick={() => navigate({ name: "overview" })}
             type="button"
           >
-            <Icon name="layers" />
+            <Icon name={PRIMARY_NAV_ICONS.overview} />
             <span>Overview</span>
           </button>
           <button
@@ -398,7 +428,7 @@ export function App({
             onClick={() => navigate({ name: "projects" })}
             type="button"
           >
-            <Icon name="layers" />
+            <Icon name={PRIMARY_NAV_ICONS.projects} />
             <span>Projects</span>
           </button>
           <button
@@ -407,7 +437,7 @@ export function App({
             onClick={() => navigate({ name: "sessions" })}
             type="button"
           >
-            <Icon name="clock" />
+            <Icon name={PRIMARY_NAV_ICONS.sessions} />
             <span>Sessions</span>
           </button>
           <button
@@ -416,7 +446,7 @@ export function App({
             onClick={() => navigate({ name: "calibration" })}
             type="button"
           >
-            <Icon name="check" />
+            <Icon name={PRIMARY_NAV_ICONS.calibration} />
             <span>Calibration</span>
           </button>
           <button
@@ -425,7 +455,7 @@ export function App({
             onClick={() => navigate({ name: "models" })}
             type="button"
           >
-            <Icon name="layers" />
+            <Icon name={PRIMARY_NAV_ICONS.models} />
             <span>Models</span>
           </button>
           <button
@@ -434,7 +464,7 @@ export function App({
             onClick={() => navigate({ name: "agent" })}
             type="button"
           >
-            <Icon name="layers" />
+            <Icon name={PRIMARY_NAV_ICONS.agent} />
             <span>Agent</span>
           </button>
           <button
@@ -443,7 +473,7 @@ export function App({
             onClick={() => navigate({ name: "prompt_checks" })}
             type="button"
           >
-            <Icon name="check" />
+            <Icon name={PRIMARY_NAV_ICONS.promptChecks} />
             <span>Prompt check</span>
           </button>
           <button
@@ -452,7 +482,7 @@ export function App({
             onClick={() => navigate({ name: "discovery" })}
             type="button"
           >
-            <Icon name="branch" />
+            <Icon name={PRIMARY_NAV_ICONS.discovery} />
             <span>Discovery</span>
             {undecidedCount !== null && (
               <span
@@ -469,7 +499,7 @@ export function App({
             onClick={() => void openLatestTask()}
             type="button"
           >
-            <Icon name="tasks" />
+            <Icon name={PRIMARY_NAV_ICONS.reviewedTasks} />
             <span>Reviewed tasks</span>
           </button>
           <button
@@ -478,7 +508,7 @@ export function App({
             onClick={() => navigate({ name: "task_flow" })}
             type="button"
           >
-            <Icon name="board" />
+            <Icon name={PRIMARY_NAV_ICONS.taskFlow} />
             <span>Task flow</span>
           </button>
           <button
@@ -487,7 +517,7 @@ export function App({
             onClick={() => navigate({ name: "team" })}
             type="button"
           >
-            <Icon name="users" />
+            <Icon name={PRIMARY_NAV_ICONS.team} />
             <span>Team analytics</span>
           </button>
           <button
@@ -496,7 +526,7 @@ export function App({
             onClick={() => navigate({ name: "social" })}
             type="button"
           >
-            <Icon name="chat" />
+            <Icon name={PRIMARY_NAV_ICONS.social} />
             <span>Social</span>
           </button>
           {runtime.mode === "local_real" && (
@@ -506,7 +536,7 @@ export function App({
               onClick={() => navigate({ name: "local_sources" })}
               type="button"
             >
-              <Icon name="layers" />
+              <Icon name={PRIMARY_NAV_ICONS.localSources} />
               <span>Data source</span>
             </button>
           )}
@@ -516,7 +546,7 @@ export function App({
             onClick={() => navigate({ name: "analysis_jobs" })}
             type="button"
           >
-            <Icon name="activity" />
+            <Icon name={PRIMARY_NAV_ICONS.analysisJobs} />
             <span>Job centre</span>
           </button>
           <button
@@ -525,7 +555,7 @@ export function App({
             onClick={() => navigate({ name: "research" })}
             type="button"
           >
-            <Icon name="layers" />
+            <Icon name={PRIMARY_NAV_ICONS.research} />
             <span>Methods & models</span>
           </button>
         </nav>
@@ -566,7 +596,6 @@ export function App({
             <span className="avatar" aria-label="Local profile">L</span>
           </div>
         </header>
-        <p aria-live="polite" className="sr-only">{navigationNotice}</p>
         {navigationNotice && <div className="navigation-notice" role="status">{navigationNotice}</div>}
         <main id="main-content" tabIndex={-1}>
           <RouteErrorBoundary
@@ -621,20 +650,20 @@ export function App({
                   <LocalSourcesScreen navigate={navigate} transport={transport} />
                 ) : (
                   <section className="local-sources-page">
-                    <div className="async-state" role="status">
-                      <span className="privacy-status__icon"><Icon name="lock" /></span>
-                      <strong>Local sources are disabled in synthetic preview</strong>
-                      <span>
-                        Run the integrated loopback build to grant and inspect local-source access.
-                      </span>
-                      <button
-                        className="button button--secondary"
-                        onClick={() => navigate({ name: "discovery" })}
-                        type="button"
-                      >
-                        Return to Discovery
-                      </button>
-                    </div>
+                    <EmptyState
+                      action={(
+                        <button
+                          className="button button--secondary"
+                          onClick={() => navigate({ name: "discovery" })}
+                          type="button"
+                        >
+                          Return to Discovery
+                        </button>
+                      )}
+                      description="Run the integrated loopback build to grant and inspect local-source access."
+                      title="Local sources are disabled in synthetic preview"
+                      tone="closed"
+                    />
                   </section>
                 )
               ) : route.name === "analysis_jobs" ? (

@@ -255,11 +255,14 @@ describe("FirstRunPanel", () => {
       acceptOnboarding,
     }} />);
     expect(await screen.findByRole("heading", { name: /could not find Codex or Claude Code/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Yes, load everything" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Nothing to load yet");
+    const loadButton = screen.getByRole("button", { name: "Yes, load everything" });
+    expect(loadButton).toBeDisabled();
+    expect(screen.getByText(/enter a Claude Code folder above, before loading/)).toBeVisible();
+    expect(acceptOnboarding).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("Claude Code folder"), { target: { value: "D:/not-a-home" } });
     await waitFor(() => expect((screen.getByLabelText("Claude Code folder") as HTMLInputElement).value).toBe("D:/not-a-home"));
-    fireEvent.click(screen.getByRole("button", { name: "Yes, load everything" }));
+    expect(loadButton).toBeEnabled();
+    fireEvent.click(loadButton);
     await waitFor(() => expect(acceptOnboarding).toHaveBeenCalledWith(
       { providers: ["claude_code"], claude_home: "D:/not-a-home" },
       expect.any(AbortSignal),

@@ -63,7 +63,17 @@ function PresenceControl({ snapshot, dispatch, now }: {
   const selectId = useId();
   const me = personById(snapshot, snapshot.me_person_id);
   const sharing = me?.presence.sharing === "shared";
-  const level = me?.presence.level ?? "online";
+  const [lastExplicitLevel, setLastExplicitLevel] = useState<SocialPresenceLevel>(() => (
+    me?.presence.sharing === "shared" && me.presence.level !== null ? me.presence.level : "offline"
+  ));
+  useEffect(() => {
+    if (me?.presence.sharing === "shared" && me.presence.level !== null) {
+      setLastExplicitLevel(me.presence.level);
+    }
+  }, [me?.presence.level, me?.presence.sharing]);
+  const level = sharing && me?.presence.level !== null && me?.presence.level !== undefined
+    ? me.presence.level
+    : lastExplicitLevel;
   return (
     <fieldset className="social-presence" data-presence-source="self_declared_opt_in" data-sharing={sharing ? "shared" : "not_shared"}>
       <legend>Your presence · opt-in, coarse, self-declared</legend>
@@ -81,7 +91,11 @@ function PresenceControl({ snapshot, dispatch, now }: {
         <select
           disabled={!sharing}
           id={selectId}
-          onChange={(event) => dispatch({ type: "set_presence", sharing: "shared", level: event.target.value as SocialPresenceLevel, at: now() })}
+          onChange={(event) => {
+            const next = event.target.value as SocialPresenceLevel;
+            setLastExplicitLevel(next);
+            dispatch({ type: "set_presence", sharing: "shared", level: next, at: now() });
+          }}
           value={level}
         >
           {PRESENCE_LEVELS.map((candidate) => (
