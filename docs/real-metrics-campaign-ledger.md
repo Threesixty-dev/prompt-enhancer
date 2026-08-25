@@ -1659,6 +1659,22 @@ The local analyzer, its SQLite system of record, and its historical migrations
 are untouched; the control plane imports none of them, and with the setting off
 the application composes no control-plane service and exposes no route.
 
+## Checkpoint 9D code-only cross-surface audit
+
+Exactly twenty isolated Claude CLI invocations reviewed one immutable
+repository-code snapshot with the requested Opus 5 / max configuration and
+read/search-only tools. Nine returned accepted structured reviews and eleven
+ended capped without a verdict; no capped run was counted as an approval or
+retried. The 21 unique candidates were independently classified into 17
+defects and four enhancements. The bounded external cost was $17.70.
+
+No provider session, transcript, prompt, tool output, credential, runtime
+database, local configuration, or sensitive derived metric entered the
+snapshot or the reviewer boundary. The resulting repairs and their frozen
+validation evidence are recorded in
+[Checkpoint 12](checkpoint-12-handoff.md). Human calibration and card-by-card
+visual approval remain explicitly outside this evidence.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
@@ -1674,11 +1690,11 @@ the application composes no control-plane service and exposes no route.
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |
 | Qwen embedding challenger | `Qwen/Qwen3-Embedding-0.6B` at `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` | Synthetic exploratory challenger; not product-enabled |
 | BGE reranker challenger | `BAAI/bge-reranker-v2-m3` at `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e` | Synthetic exploratory challenger; not product-enabled |
-| Claude Code hook capture | `claude-code-hooks.v1`; receiver `claude-code-hook-receiver-1`; adapter `claude-code-hooks-adapter-1`; source schema `claude-code-hooks.receipt-clock.v1`; decoder `claude-code.hooks.operational-events` v2; migrations 45-46 | Prospective, content-free, consent-gated operational events with receiver-clock timing; no transcript access, no task-outcome inference |
+| Claude Code hook capture | `claude-code-hooks.v1`; receiver `claude-code-hook-receiver-1`; adapter `claude-code-hooks-adapter-1`; source schema `claude-code-hooks.receipt-clock.v1`; decoder `claude-code.hooks.operational-events` v2; migrations 45-46 plus schema M60 time-basis admission | Prospective, content-free, consent-gated operational events with explicitly receiver-observed receipt timing; provider-reported telemetry remains separate; no transcript access or task-outcome inference |
 | Claude Code telemetry capture | `claude-code-otlp.v1`; loopback OTLP/HTTP JSON receiver at `/otlp/v1/{logs,metrics}`; separate write-only ingest token | Per-request tokens, model, duration, and provider-reported cost; six documented cumulative counters; eleven allowlisted attributes; provider-reported facts, not calibration evidence |
 | Claude Opus review target | Exact requested and served model must be recorded by a reviewed BYOK/API runner | Not implemented; no private-session review is authorized |
 | Claude Fable review target | Exact requested and served model plus retention acknowledgement must be recorded | Not implemented; synthetic architecture review only until the remote approval boundary exists |
-| Annotation paths (ADR 0017) | `annotation.v1`; agent surface `/v1/annotation/*` behind a per-person allowance switch; central server `/central/v1/annotations/batch` with `central-annotations.sqlite3`; labels stored as `agent:<name>` / `central:<model>` judgments, prompt `judge-v1` | Judgments, never metric values; central submit is the one explicit place session windows cross a boundary; verified live on real sessions with orca27b-iq3m |
+| Annotation paths (ADR 0017) | `annotation.v1`; agent surface `/v1/annotation/*` behind a per-person allowance switch; pre-send `/v1/annotation/remote/disclosure`; central server `/central/v1/annotations/batch` with `central-annotations.sqlite3`; labels stored as `agent:<name>` / `central:<model>` judgments; current profiles `judge-v3-untrusted-json-anchor-15k` and `judge-v3-untrusted-json-anchor-6k` | Judgments, never metric values; exact destination/retention/model policy must be disclosed before central submit; canonical windows are untrusted JSON with an anchored task request; objective evidence remains authoritative |
 | Shared team folders (ADR 0018) | `shared-folders.v1`; owner surface `/v1/shared-folders/*`; peer surface `/p2p/v1/{share}/manifest|files` with `X-Share-Token` (stored as SHA-256); `shared-folders.sqlite3` registry + per-link last-synced hashes; egress: `application.shared_folders` registered as approved-provider-request (peer URL typed by the person) | Working files the person chose, never the app home; conflict copies instead of silent overwrites; verified live: agent edited a joined copy, pushed back, conflict and revocation exercised |
 
 Full local model revisions, weight digests, tokenizer pins, licenses, bounds,

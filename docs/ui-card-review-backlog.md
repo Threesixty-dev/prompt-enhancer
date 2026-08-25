@@ -1,6 +1,6 @@
 # UI card review backlog
 
-Status: frozen inventory; UI-03 through UI-10 implemented; user visual review pending
+Status: Checkpoint 9D objective audit complete; UI-03 through UI-20 user visual review pending
 
 The initial inventory was assembled from the route map, component tree, CSS,
 tests, and current diff because localhost browser automation was unavailable at
@@ -13,6 +13,13 @@ Checkpoint 9B has now landed objective route/focus, asynchronous ownership,
 confirmation-dialog, and timeline-control corrections. Those correctness
 changes do not visually approve UI-03 through UI-10; their card-by-card owner
 review remains pending.
+
+Checkpoint 9D adds a code-only cross-surface audit of state truth, consent,
+focus, navigation icons, asynchronous request ownership, prompt-check chart
+direction, model-judge prompting, timestamp provenance, and schema migration.
+Its deterministic and synthetic-browser evidence closes objective defects but
+does not visually approve any card. The owner review boundary therefore remains
+unchanged.
 
 The application currently contains 18 routed or window shells and roughly 60
 distinct card, panel, drawer, and dialog work units. The current r7 tranche
