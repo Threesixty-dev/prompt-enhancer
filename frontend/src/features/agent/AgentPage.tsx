@@ -49,10 +49,12 @@ function summarizeArguments(tool: string | null | undefined, args: Record<string
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
-> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "activateLocalModel" | "checkPrompt" | "getUserPresenceCapability" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
+> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "checkPrompt" | "getUserPresenceCapability" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
 
 type ModelCatalogState = "unavailable" | "loading" | "ready" | "error";
 type ModelFeedbackTarget = "selection" | "session";
+type ModelActionKind = "start" | "stop" | null;
+type SessionLookupState = "idle" | "loading" | "missing" | "error";
 
 function runtimeStateLabel(state: LocalModelStatus["runtime"]["state"]): string {
   return state === "running" ? "running" : state === "starting" ? "starting" : state === "failed" ? "failed" : "stopped";
@@ -82,6 +84,7 @@ export function AgentPage({
     transport.getLocalModels === undefined ? "unavailable" : "loading",
   );
   const [modelActionAlias, setModelActionAlias] = useState("");
+  const [modelActionKind, setModelActionKind] = useState<ModelActionKind>(null);
   const [modelRefreshBusy, setModelRefreshBusy] = useState(false);
   const [modelFeedbackTarget, setModelFeedbackTarget] = useState<ModelFeedbackTarget>("selection");
   const [modelNotice, setModelNotice] = useState("");
@@ -111,6 +114,7 @@ export function AgentPage({
   const [creatingSession, setCreatingSession] = useState(false);
   const [createMessage, setCreateMessage] = useState("");
   const [conversationMessage, setConversationMessage] = useState("");
+  const [sessionLookupState, setSessionLookupState] = useState<SessionLookupState>(sessionId ? "loading" : "idle");
   const [streamNotice, setStreamNotice] = useState("");
   const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
@@ -272,7 +276,46 @@ export function AgentPage({
       lastSeq.current = 0;
       followOutput.current = true;
     }
+    if (wanted) setSessionLookupState("idle");
   }, [sessions, sessionId, current]);
+
+  // A dedicated Agent window addresses one session directly. If the session
+  // list is stale or bounded, resolve that route explicitly and report why it
+  // cannot be restored instead of rendering an unexplained empty card.
+  useEffect(() => {
+    if (!sessionId) {
+      setSessionLookupState("idle");
+      return;
+    }
+    if (sessions === null) {
+      setSessionLookupState("loading");
+      return;
+    }
+    if (sessions.some((session) => session.session_id === sessionId)) return;
+
+    const controller = new AbortController();
+    setSessionLookupState("loading");
+    void Promise.resolve(transport.getAgentSession(sessionId, controller.signal))
+      .then((view) => {
+        if (controller.signal.aborted) return;
+        if (!view || view.session_id !== sessionId) {
+          setSessionLookupState("missing");
+          return;
+        }
+        setCurrent(view);
+        setEvents([]);
+        setHistoryGap(false);
+        setStreamNotice("");
+        lastSeq.current = 0;
+        followOutput.current = true;
+        setSessionLookupState("idle");
+      })
+      .catch((caught) => {
+        if (controller.signal.aborted) return;
+        setSessionLookupState(caught instanceof TransportError && caught.status === 404 ? "missing" : "error");
+      });
+    return () => controller.abort();
+  }, [sessionId, sessions, transport]);
 
   const pending = useMemo(() => {
     if (!current?.pending_approval_id) return null;
@@ -381,6 +424,28 @@ export function AgentPage({
   const currentModelBlocked = modelCatalogState === "loading"
     || (modelCatalogState === "ready" && currentModel?.runtime.state !== "running");
   const liveStreams = useMemo(() => coalesceLiveStreams(events), [events]);
+  const reasoningEnabled = current?.settings.parameters.enable_thinking ?? false;
+  const hasLiveReasoning = [...liveStreams.values()].some((stream) => Boolean(stream.reasoning));
+  const hasVisibleReasoning = events.some((event) => Boolean(event.reasoning)) || hasLiveReasoning;
+  const toolCallCount = events.filter((event) => event.kind === "tool_call").length;
+  const lastActivity = [...events].reverse().find((event) => event.kind !== "done" && event.kind !== "assistant_delta");
+  const activityState = pending
+    ? { detail: "A protected action needs your decision.", label: "Approval needed", tone: "attention" }
+    : current?.running
+      ? hasLiveReasoning
+        ? { detail: "The model reasoning stream is visible below.", label: "Reasoning", tone: "working" }
+        : liveStreams.size > 0
+          ? { detail: "The response is streaming below.", label: "Responding", tone: "working" }
+          : { detail: "Waiting for the next model or tool event.", label: "Working", tone: "working" }
+      : modelCatalogState === "loading"
+        ? { detail: "Verifying the exact session model runtime.", label: "Checking model", tone: "paused" }
+        : modelCatalogState === "error" || modelCatalogState === "unavailable"
+          ? { detail: "The model will be verified again before the next turn.", label: "Model unverified", tone: "attention" }
+          : currentModelBlocked
+            ? { detail: "Start the session model to continue.", label: "Model stopped", tone: "paused" }
+            : lastActivity?.kind === "error"
+              ? { detail: "The last run needs attention before retrying.", label: "Needs attention", tone: "error" }
+              : { detail: "Ready for your next request.", label: "Ready", tone: "ready" };
   const handleWorkspaceDirty = useCallback((value: boolean) => setWorkspaceDirty(value), []);
 
   useEffect(() => {
@@ -428,6 +493,7 @@ export function AgentPage({
     const activate = transport.activateLocalModel;
     if (!activate || !alias || modelActionAlias) return;
     setModelActionAlias(alias);
+    setModelActionKind("start");
     setModelFeedbackTarget(target);
     setModelError("");
     setModelNotice("");
@@ -452,6 +518,50 @@ export function AgentPage({
       setModelError("The model could not be started. Review its runtime settings on the Models page, then retry.");
     } finally {
       setModelActionAlias("");
+      setModelActionKind(null);
+    }
+  }
+
+  async function deactivateModel(alias: string, target: ModelFeedbackTarget): Promise<void> {
+    const deactivate = transport.deactivateLocalModel;
+    if (!deactivate || !alias || modelActionAlias) return;
+    if (target === "session" && current?.running) {
+      setModelFeedbackTarget("session");
+      setModelError("Stop the active response before stopping its model.");
+      return;
+    }
+    setModelActionAlias(alias);
+    setModelActionKind("stop");
+    setModelFeedbackTarget(target);
+    setModelError("");
+    setModelNotice("");
+    try {
+      const openSessions = await transport.listAgentSessions();
+      setSessions(openSessions);
+      const modelHasActiveTurn = openSessions.some((session) => (
+        session.model_alias ?? session.settings.model_alias
+      ) === alias && session.running);
+      if (modelHasActiveTurn) {
+        setModelError("Stop every active response using this model before stopping its shared runtime.");
+        return;
+      }
+      const status = await deactivate(alias);
+      if (status.record.alias !== alias || status.runtime.state !== "stopped") {
+        throw new Error("model_deactivation_incomplete");
+      }
+      setModels((previous) => previous === null ? previous : {
+        ...previous,
+        models: previous.models.map((model) => model.record.alias === alias ? status : model),
+      });
+      setModelCatalogState("ready");
+      setModelNotice(`${status.record.display_name} stopped. Sessions using it remain open but cannot send until it is restarted.`);
+      setCreateMessage("");
+      setConversationMessage("");
+    } catch {
+      setModelError("The model could not be stopped. Review its runtime on the Models page, then retry.");
+    } finally {
+      setModelActionAlias("");
+      setModelActionKind(null);
     }
   }
 
@@ -622,7 +732,18 @@ export function AgentPage({
 
   async function stop() {
     if (!current) return;
-    try { setCurrent(await transport.stopAgentSession(current.session_id)); } catch { /* ignore */ }
+    try {
+      setConversationMessage("");
+      setCurrent(await transport.stopAgentSession(current.session_id));
+    } catch {
+      setConversationMessage("The active response could not be stopped. Its live status will continue to refresh.");
+    }
+  }
+
+  function openCurrentWindow(): void {
+    if (!current) return;
+    const opened = openAgentWindow(current.session_id);
+    if (!opened) setConversationMessage("The separate Agent window could not be opened. Allow popups for this local app, then retry.");
   }
 
   async function closeSession(id: string) {
@@ -652,10 +773,6 @@ export function AgentPage({
               Nothing leaves this machine and nothing is stored beyond the server's memory.
             </p>
           )}
-        </div>
-        <div className="agent__head-actions">
-          {current && !windowMode && <button className="button button--ghost" onClick={() => { openAgentWindow(current.session_id); }} type="button">Open in its own window</button>}
-          {current && current.running && <button className="button button--ghost" onClick={() => void stop()} type="button">Stop</button>}
         </div>
       </header>
 
@@ -752,7 +869,7 @@ export function AgentPage({
                       onClick={() => void activateModel(selectedModel.record.alias, "selection")}
                       type="button"
                     >
-                      {modelActionAlias === selectedModel.record.alias ? "Starting model…" : "Start selected model"}
+                      {modelActionAlias === selectedModel.record.alias && modelActionKind === "start" ? "Starting model…" : "Start selected model"}
                     </button>
                   )}
                   {(modelCatalogState === "error" || selectedModel?.runtime.state === "starting") && transport.getLocalModels && (
@@ -873,7 +990,22 @@ export function AgentPage({
           )}
           <section className="agent__main" aria-label="Agent conversation">
           {!current ? (
-            <p className="agent__note">{windowMode ? "This window has no session. Open one from the Agent page." : "Start a session on the left, then ask for something: explore the repo, fix a failing test, draft a document."}</p>
+            <div className="agent__empty">
+              <p className="agent__note" role="status">
+                {windowMode && sessionLookupState === "loading"
+                  ? "Opening this Agent session…"
+                  : windowMode && sessionLookupState === "missing"
+                    ? "This in-memory session is no longer available. It may have been closed or cleared when the local app restarted."
+                    : windowMode && sessionLookupState === "error"
+                      ? "This Agent window could not reach its session. Return to the Agent page and open it again."
+                      : windowMode
+                        ? "This window has no session. Open one from the Agent page."
+                        : "Start a session on the left, then ask for something: explore the repo, fix a failing test, draft a document."}
+              </p>
+              {windowMode && (sessionLookupState === "missing" || sessionLookupState === "error") && (
+                <a className="button button--ghost" href="/agent">Return to Agent</a>
+              )}
+            </div>
           ) : (
             <>
               <div className="agent__session-header">
@@ -885,6 +1017,27 @@ export function AgentPage({
                     {" · "}{current.settings.allow_writes ? "writes" : "no writes"} · {current.settings.allow_commands ? "commands" : "no commands"} · {current.settings.allow_web ? "web" : "no web"}
                   </span>
                 </div>
+                <section aria-label="Agent activity status" className="agent__activity-overview">
+                  <div className="agent__run-state" data-tone={activityState.tone}>
+                    <span aria-hidden="true" className="agent__run-dot" />
+                    <span>
+                      <strong>{activityState.label}</strong>
+                      <small>{activityState.detail}</small>
+                    </span>
+                  </div>
+                  <div aria-label="Session activity facts" className="agent__run-facts">
+                    <span>{current.turns} {current.turns === 1 ? "turn" : "turns"}</span>
+                    <span>{toolCallCount} {toolCallCount === 1 ? "action" : "actions"}</span>
+                    <span data-reasoning={hasVisibleReasoning ? "visible" : reasoningEnabled ? "enabled" : "off"}>
+                      {hasVisibleReasoning ? "Reasoning visible" : reasoningEnabled ? "Reasoning enabled" : "Reasoning off"}
+                    </span>
+                  </div>
+                  <div className="agent__run-actions">
+                    {!windowMode && (
+                      <button className="button button--ghost" onClick={openCurrentWindow} type="button">Open separate window</button>
+                    )}
+                  </div>
+                </section>
                 <div
                   className="agent__model-readiness"
                   data-state={currentModel?.runtime.state ?? modelCatalogState}
@@ -904,28 +1057,44 @@ export function AgentPage({
                               ? `${currentModel.record.display_name} · running · ready for messages`
                               : `${currentModel.record.display_name} · ${runtimeStateLabel(currentModel.runtime.state)} · start it before sending`}
                   </span>
-                  {currentModel && currentModel.runtime.state !== "running" && transport.activateLocalModel && (
-                    <button
-                      className="button button--ghost"
-                      disabled={Boolean(modelActionAlias) || currentModel.runtime.state === "starting"}
-                      onClick={() => void activateModel(currentModel.record.alias, "session")}
-                      type="button"
-                    >
-                      {modelActionAlias === currentModel.record.alias ? "Starting model…" : "Start session model"}
-                    </button>
-                  )}
-                  {(modelCatalogState === "error" || currentModel?.runtime.state === "starting") && transport.getLocalModels && (
-                    <button
-                      className="button button--ghost"
-                      disabled={modelRefreshBusy}
-                      onClick={() => void refreshModelStatus("session")}
-                      type="button"
-                    >
-                      {modelRefreshBusy ? "Refreshing…" : "Refresh model status"}
-                    </button>
-                  )}
-                  {modelCatalogState === "ready" && currentModel === null && (
-                    <a className="button button--ghost" href="/models">Open Models</a>
+                  <div className="agent__model-actions">
+                    {currentModel && currentModel.runtime.state !== "running" && transport.activateLocalModel && (
+                      <button
+                        className="button button--ghost"
+                        disabled={Boolean(modelActionAlias) || currentModel.runtime.state === "starting"}
+                        onClick={() => void activateModel(currentModel.record.alias, "session")}
+                        type="button"
+                      >
+                        {modelActionAlias === currentModel.record.alias && modelActionKind === "start" ? "Starting model…" : "Start session model"}
+                      </button>
+                    )}
+                    {currentModel?.runtime.state === "running" && transport.deactivateLocalModel && (
+                      <button
+                        className="button button--ghost"
+                        disabled={Boolean(modelActionAlias) || current.running}
+                        onClick={() => void deactivateModel(currentModel.record.alias, "session")}
+                        title={current.running ? "Stop the active response first" : "Stop this shared local runtime; sessions stay open"}
+                        type="button"
+                      >
+                        {modelActionAlias === currentModel.record.alias && modelActionKind === "stop" ? "Stopping model…" : "Stop model"}
+                      </button>
+                    )}
+                    {(modelCatalogState === "error" || currentModel?.runtime.state === "starting") && transport.getLocalModels && (
+                      <button
+                        className="button button--ghost"
+                        disabled={modelRefreshBusy}
+                        onClick={() => void refreshModelStatus("session")}
+                        type="button"
+                      >
+                        {modelRefreshBusy ? "Refreshing…" : "Refresh model status"}
+                      </button>
+                    )}
+                    {modelCatalogState === "ready" && currentModel === null && (
+                      <a className="button button--ghost" href="/models">Open Models</a>
+                    )}
+                  </div>
+                  {current.running && currentModel?.runtime.state === "running" && transport.deactivateLocalModel && (
+                    <span className="agent__action-note">Stop the active response before stopping its model.</span>
                   )}
                   {modelFeedbackTarget === "session" && modelError && <p className="agent__error" role="alert">{modelError}</p>}
                   {modelFeedbackTarget === "session" && modelNotice && <p className="agent__notice" role="status">{modelNotice}</p>}
@@ -946,27 +1115,38 @@ export function AgentPage({
                   followOutput.current = node.scrollHeight - node.scrollTop - node.clientHeight < 64;
                 }}
               >
-                {historyGap && <p className="agent__status" role="status">Earlier in-memory events expired; completed replies below remain authoritative.</p>}
-                {events.map((event) => {
-                  if (event.kind !== "assistant_delta") return <EventRow key={event.seq} event={event} />;
-                  if (!event.stream_id) return null;
-                  const live = liveStreams.get(event.stream_id);
-                  return live && live.firstSeq === event.seq
-                    ? <LiveAssistant key={event.stream_id} content={live.content} reasoning={live.reasoning} />
-                    : null;
-                })}
-                {current.turns === 0 && !current.running && !pending && !events.some((event) => event.kind === "user" || event.kind === "assistant" || event.kind === "assistant_delta") && (
-                  <p className="agent__status">
-                    {modelCatalogState === "loading"
-                      ? "Session created. Checking the model before your first message…"
-                      : currentModelBlocked
-                        ? currentModel === null
-                          ? "Session created. Open Models and start a local model to continue."
-                          : "Session created. Start the session model above to continue."
-                        : "Session ready. Write your first request below."}
-                  </p>
-                )}
-                {current.running && !pending && liveStreams.size === 0 && <p className="agent__thinking">Working…</p>}
+                <header className="agent__log-head">
+                  <span>
+                    <small>Conversation</small>
+                    <strong>Messages and agent activity</strong>
+                  </span>
+                  <span className="agent__activity-badge" data-tone={activityState.tone}>{activityState.label}</span>
+                </header>
+                <div aria-label="Agent activity" className="agent__timeline" role="region">
+                  {historyGap && <p className="agent__status" role="status">Earlier in-memory events expired; completed replies below remain authoritative.</p>}
+                  {events.map((event) => {
+                    if (event.kind !== "assistant_delta") return <EventRow key={event.seq} event={event} reasoningEnabled={reasoningEnabled} />;
+                    if (!event.stream_id) return null;
+                    const live = liveStreams.get(event.stream_id);
+                    return live && live.firstSeq === event.seq
+                      ? <LiveAssistant key={event.stream_id} content={live.content} reasoning={live.reasoning} />
+                      : null;
+                  })}
+                  {current.turns === 0 && !current.running && !pending && !events.some((event) => event.kind === "user" || event.kind === "assistant" || event.kind === "assistant_delta") && (
+                    <p className="agent__status">
+                      {modelCatalogState === "loading"
+                        ? "Session created. Checking the model before your first message…"
+                        : currentModelBlocked
+                          ? currentModel === null
+                            ? "Session created. Open Models and start a local model to continue."
+                            : "Session created. Start the session model above to continue."
+                          : reasoningEnabled
+                            ? "Session ready. Reasoning will appear here when the model exposes it. Write your first request below."
+                            : "Session ready. Write your first request below. Reasoning is off for this session."}
+                    </p>
+                  )}
+                  {current.running && !pending && liveStreams.size === 0 && <p className="agent__thinking">Working… waiting for model activity</p>}
+                </div>
               </div>
               {streamNotice && (
                 <div className="agent__status">
@@ -1034,7 +1214,11 @@ export function AgentPage({
                       {promptCheckBusy ? "Checking…" : "Check & improve"}
                     </button>
                   )}
-                  <button className="button button--primary" disabled={busy || promptCheckBusy || current.running || currentModelBlocked || !draft.trim()} type="submit">Send</button>
+                  {current.running ? (
+                    <button className="button button--danger-ghost" onClick={() => void stop()} type="button">Stop response</button>
+                  ) : (
+                    <button className="button button--primary" disabled={busy || promptCheckBusy || currentModelBlocked || !draft.trim()} type="submit">Send</button>
+                  )}
                 </div>
                 <div aria-live="polite" className="agent__prompt-check-status">
                   {promptCheckError && <p className="agent__error" role="alert">{promptCheckError}</p>}
@@ -1083,21 +1267,22 @@ function coalesceLiveStreams(events: AgentEvent[]): Map<string, LiveStreamView> 
 function LiveAssistant({ content, reasoning }: { content: string; reasoning: string }) {
   return (
     <article className="agent__turn agent__turn--assistant agent__turn--live" aria-label="Agent response streaming">
-      <header>Agent · streaming</header>
-      {reasoning && <details className="agent__reasoning" open><summary>Model reasoning · thinking mode</summary><pre>{reasoning}</pre></details>}
+      <header><span>Agent</span><span className="agent__event-badge">Streaming</span></header>
+      {reasoning && <details className="agent__reasoning" open><summary><span>Reasoning</span><small>live · model-provided</small></summary><pre>{reasoning}</pre></details>}
       {content && <pre>{content}</pre>}
     </article>
   );
 }
 
-function EventRow({ event }: { event: AgentEvent }) {
+function EventRow({ event, reasoningEnabled }: { event: AgentEvent; reasoningEnabled: boolean }) {
   if (event.kind === "user") return <article className="agent__turn agent__turn--user"><header>You</header><pre>{event.text}</pre></article>;
   if (event.kind === "assistant") {
-    const suffix = event.stream_status === "stopped" ? " · stopped" : event.stream_status === "failed" ? " · interrupted" : "";
+    const status = event.stream_status === "stopped" ? "Stopped" : event.stream_status === "failed" ? "Interrupted" : "Complete";
     return (
       <article className="agent__turn agent__turn--assistant" data-stream-status={event.stream_status ?? "whole"}>
-        <header>Agent{suffix}</header>
-        {event.reasoning && <details className="agent__reasoning"><summary>Model reasoning · thinking mode</summary><pre>{event.reasoning}</pre></details>}
+        <header><span>Agent</span><span className="agent__event-badge">{status}</span></header>
+        {event.reasoning && <details className="agent__reasoning"><summary><span>Reasoning</span><small>model-provided · expand</small></summary><pre>{event.reasoning}</pre></details>}
+        {!event.reasoning && reasoningEnabled && <p className="agent__reasoning-inline">No separate reasoning trace was exposed for this response.</p>}
         {event.text ? <pre>{event.text}</pre> : !event.reasoning ? <p className="agent__status">No assistant text was completed.</p> : null}
       </article>
     );
@@ -1105,7 +1290,8 @@ function EventRow({ event }: { event: AgentEvent }) {
   if (event.kind === "assistant_delta") return null;
   if (event.kind === "tool_call") {
     return (
-      <article className="agent__tool" data-tool={event.tool ?? ""}>
+      <article aria-label={`Agent action: ${TOOL_LABELS[event.tool ?? ""] ?? event.tool ?? "tool"}`} className="agent__tool" data-tool={event.tool ?? ""}>
+        <span className="agent__event-badge">Action</span>
         <span className="agent__tool-name">{TOOL_LABELS[event.tool ?? ""] ?? event.tool}</span>
         <code>{summarizeArguments(event.tool, event.arguments as Record<string, unknown> | null)}</code>
       </article>
@@ -1114,14 +1300,14 @@ function EventRow({ event }: { event: AgentEvent }) {
   if (event.kind === "tool_result") {
     return (
       <details className="agent__result" data-ok={event.ok ? "true" : "false"}>
-        <summary>{event.ok ? "result" : "failed"} · {TOOL_LABELS[event.tool ?? ""] ?? event.tool}</summary>
+        <summary><span className="agent__event-badge">{event.ok ? "Completed" : "Failed"}</span><span>{TOOL_LABELS[event.tool ?? ""] ?? event.tool}</span></summary>
         <pre>{event.text}</pre>
       </details>
     );
   }
-  if (event.kind === "approval_required") return <p className="agent__status">Waiting for your approval: {TOOL_LABELS[event.tool ?? ""] ?? event.tool}</p>;
-  if (event.kind === "approval_resolved") return <p className="agent__status">{event.ok ? "Approved" : "Denied"}: {TOOL_LABELS[event.tool ?? ""] ?? event.tool}{event.text ? ` (${event.text})` : ""}</p>;
-  if (event.kind === "error") return <p className="agent__error" role="alert">{event.text}</p>;
-  if (event.kind === "status") return <p className="agent__status">{event.text}</p>;
+  if (event.kind === "approval_required") return <p className="agent__activity-event" data-tone="attention"><span className="agent__event-badge">Approval</span>Waiting for your decision: {TOOL_LABELS[event.tool ?? ""] ?? event.tool}</p>;
+  if (event.kind === "approval_resolved") return <p className="agent__activity-event" data-tone={event.ok ? "ready" : "attention"}><span className="agent__event-badge">{event.ok ? "Approved" : "Denied"}</span>{TOOL_LABELS[event.tool ?? ""] ?? event.tool}{event.text ? ` (${event.text})` : ""}</p>;
+  if (event.kind === "error") return <p className="agent__activity-event agent__error" data-tone="error" role="alert"><span className="agent__event-badge">Error</span>{event.text}</p>;
+  if (event.kind === "status") return <p className="agent__activity-event agent__status"><span className="agent__event-badge">Status</span>{event.text}</p>;
   return null;
 }

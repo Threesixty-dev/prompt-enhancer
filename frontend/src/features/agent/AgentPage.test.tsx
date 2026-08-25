@@ -210,10 +210,46 @@ describe("AgentPage", () => {
     render(<AgentPage transport={transport} />);
     const live = await screen.findByLabelText("Agent response streaming");
     expect(live.textContent).toContain("Hello");
+    expect(screen.getByRole("form", { name: "Message composer" })).toContainElement(
+      screen.getByRole("button", { name: "Stop response" }),
+    );
     finishStream?.();
     await waitFor(() => expect(screen.queryByLabelText("Agent response streaming")).toBeNull());
     expect(screen.getByText("Hello")).toBeTruthy();
     expect(transport.getAgentEvents).not.toHaveBeenCalled();
+  });
+
+  it("renders reasoning and tool execution as explicit coding-agent activity", async () => {
+    const current = view({
+      last_seq: 4,
+      turns: 1,
+      settings: {
+        ...view().settings,
+        parameters: { ...view().settings.parameters, enable_thinking: true },
+      },
+    });
+    const activity = [
+      event(1, "user", { text: "Inspect the synthetic project" }),
+      event(2, "assistant", { text: "I inspected the requested file.", reasoning: "I should read the target before proposing a change." }),
+      event(3, "tool_call", { tool: "read_file", arguments: { path: "src/example.ts" }, call_id: "synthetic-call" }),
+      event(4, "tool_result", { tool: "read_file", call_id: "synthetic-call", ok: true, text: "synthetic result" }),
+    ];
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: activity, running: false, pending_approval_id: null, last_seq: 4, first_seq: 1 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByRole("region", { name: "Agent activity" })).toBeVisible();
+    expect(await screen.findByText("Reasoning visible")).toBeVisible();
+    expect(screen.getByText("model-provided · expand")).toBeVisible();
+    expect(screen.getByLabelText("Agent action: Read file")).toHaveTextContent("src/example.ts");
+    expect(screen.getByText("Completed").closest("summary")).toHaveTextContent("Read file");
   });
 
   it("creates a session, sends a message, shows tool activity and approves a write with its diff", async () => {
@@ -254,7 +290,7 @@ describe("AgentPage", () => {
     fireEvent.change(screen.getByLabelText("Message to the agent"), { target: { value: "Add a noqa comment" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(transport.sendAgentMessage).toHaveBeenCalledWith(SESSION, "Add a noqa comment"));
-    await screen.findByText("Read file");
+    await screen.findByLabelText("Agent action: Read file");
     const approvalDialog = await screen.findByRole("alertdialog", { name: "Approval needed" });
     expect(approvalDialog.getAttribute("aria-modal")).toBe("true");
     expect(document.activeElement).toBe(approvalDialog);
@@ -264,7 +300,7 @@ describe("AgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(transport.decideAgentApproval).toHaveBeenCalledWith(SESSION, APPROVAL, true));
     await screen.findByText("Done - comment added.");
-    expect(screen.getByText(/Approved: Write file/)).toBeTruthy();
+    expect(screen.getByText("Approved").closest(".agent__activity-event")).toHaveTextContent("Write file");
   });
 
   it("shows stopped models truthfully, starts the selection in place, then creates the exact session", async () => {
@@ -339,6 +375,55 @@ describe("AgentPage", () => {
     fireEvent.change(composer, { target: { value: "Inspect the synthetic project" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(transport.sendAgentMessage).toHaveBeenCalledWith(SESSION, "Inspect the synthetic project"));
+  });
+
+  it("stops the exact session model without closing the session and exposes restart recovery", async () => {
+    const current = view({ turns: 2 });
+    const running = modelStatus("running");
+    const stopped = modelStatus("stopped");
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(running)),
+      activateLocalModel: vi.fn(async () => running),
+      deactivateLocalModel: vi.fn(async () => stopped),
+    };
+
+    render(<AgentPage transport={transport} />);
+
+    const stopModel = await screen.findByRole("button", { name: "Stop model" });
+    expect(stopModel).toBeEnabled();
+    fireEvent.click(stopModel);
+
+    await waitFor(() => expect(transport.deactivateLocalModel).toHaveBeenCalledWith(MODEL_ALIAS));
+    expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
+    expect(screen.getByText(/sessions using it remain open but cannot send until it is restarted/i)).toBeVisible();
+    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start session model" })).toBeEnabled();
+    expect(transport.deleteAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("does not stop a shared model while another session is actively using it", async () => {
+    const current = view({ turns: 2 });
+    const other = view({ session_id: "d".repeat(32), running: true, turns: 1 });
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current, other]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+      deactivateLocalModel: vi.fn(async () => modelStatus("stopped")),
+    };
+
+    render(<AgentPage transport={transport} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Stop model" }));
+    expect(await screen.findByText(/Stop every active response using this model/i)).toBeVisible();
+    expect(transport.deactivateLocalModel).not.toHaveBeenCalled();
   });
 
   it("polls a starting model until it becomes ready instead of leaving the session blocked", async () => {
@@ -441,6 +526,43 @@ describe("AgentPage", () => {
     expect(container.querySelector(".agent__workbench")).toHaveAttribute("data-has-workspace", "false");
     expect(screen.queryByText("Files and reviewed changes")).toBeNull();
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+  });
+
+  it("resolves a dedicated window directly when the session list does not contain its route session", async () => {
+    const current = view({ turns: 1 });
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(),
+      getAgentSession: vi.fn(async () => current),
+      deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+
+    render(<AgentPage sessionId={SESSION} transport={transport} windowMode />);
+
+    expect(await screen.findByLabelText("Message to the agent")).toBeVisible();
+    expect(transport.getAgentSession).toHaveBeenCalledWith(SESSION, expect.any(AbortSignal));
+    expect(screen.queryByText(/This window has no session/)).toBeNull();
+  });
+
+  it("explains when a dedicated in-memory session no longer exists", async () => {
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(),
+      getAgentSession: vi.fn(async () => { throw new TransportError("synthetic missing session", 404); }),
+      deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(), getAgentEvents: vi.fn(),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+
+    render(<AgentPage sessionId={SESSION} transport={transport} windowMode />);
+
+    expect(await screen.findByText(/in-memory session is no longer available/i)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Return to Agent" })).toHaveAttribute("href", "/agent");
   });
 
   it("gives a model-less own-window session an explicit recovery path", async () => {
@@ -579,7 +701,7 @@ describe("AgentPage", () => {
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
     fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalled());
-    expect(await screen.findByText("Session ready. Write your first request below.")).toBeVisible();
+    expect(await screen.findByText(/Session ready\. Write your first request below\./)).toBeVisible();
     expect(screen.getByLabelText("Message to the agent")).toHaveFocus();
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
     const settings = transport.createAgentSession.mock.calls[0][0];

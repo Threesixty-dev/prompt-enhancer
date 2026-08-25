@@ -17,4 +17,10 @@ describe("AgentPage layout contract", () => {
     expect(agentPageCss).toMatch(/@media \(max-width:\s*1380px\)[\s\S]*?\.agent__workbench\[data-has-workspace="true"\] > \.agent__main\s*\{\s*grid-row:\s*1;/);
     expect(agentPageCss).toMatch(/@media \(max-width:\s*900px\)[\s\S]*?\.agent__layout--session:not\(\.agent__layout--window\) > \.agent__workbench\s*\{\s*grid-row:\s*1;/);
   });
+
+  it("keeps the activity overview, timeline, and responsive chat hierarchy explicit", () => {
+    expect(agentPageCss).toMatch(/\.agent__activity-overview\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:/);
+    expect(agentPageCss).toMatch(/\.agent__timeline::before\s*\{[^}]*background:\s*var\(--line-strong\);[^}]*content:\s*"";/);
+    expect(agentPageCss).toMatch(/@media \(max-width:\s*900px\)[\s\S]*?\.agent__activity-overview\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+  });
 });
