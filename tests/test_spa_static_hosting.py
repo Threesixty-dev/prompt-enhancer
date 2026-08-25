@@ -8,6 +8,9 @@ import pytest
 from prompt_enhancer.api import create_app
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.interfaces.http.spa_routes import is_spa_navigation_path
+from prompt_enhancer.interfaces.http.desktop_identity import (
+    DESKTOP_OWNED_INSTANCE_PATH_PREFIX,
+)
 
 
 API_TOKEN = "synthetic-local-api-token-with-safe-length"
@@ -358,3 +361,34 @@ def test_spa_fallback_preserves_api_auth_health_and_security_headers(
     assert api_missing.status_code == 404
     assert health.status_code == 200
     assert health.headers["content-type"].startswith("application/json")
+
+
+def test_owned_desktop_readiness_route_precedes_spa_fallback(tmp_path: Path) -> None:
+    readiness_path = f"{DESKTOP_OWNED_INSTANCE_PATH_PREFIX}{'s' * 43}"
+    static_root = tmp_path / "synthetic-dashboard"
+    static_root.mkdir()
+    (static_root / "index.html").write_text(
+        "<!doctype html><script type='module' src='/assets/app-safehash.js'></script>",
+        encoding="utf-8",
+    )
+    assets = static_root / "assets"
+    assets.mkdir()
+    (assets / "app-safehash.js").write_text("synthetic", encoding="utf-8")
+    app = create_app(
+        settings=AppSettings(home=tmp_path / "app-home"),
+        database=StaticReadStore(),
+        api_token=API_TOKEN,
+        static_directory=static_root,
+        desktop_owned_readiness_path=readiness_path,
+    )
+
+    with TestClient(app, base_url=ORIGIN) as client:
+        ready = client.get(readiness_path)
+        another_instance = client.get(
+            f"{DESKTOP_OWNED_INSTANCE_PATH_PREFIX}{'a' * 43}"
+        )
+
+    assert ready.status_code == 204
+    assert ready.content == b""
+    assert ready.headers["cache-control"] == "no-store"
+    assert another_instance.status_code == 404

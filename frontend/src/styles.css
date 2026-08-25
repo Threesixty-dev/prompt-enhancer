@@ -1588,7 +1588,19 @@ body {
 }
 button, input, select { font: inherit; }
 button { color: inherit; }
-button:not(:disabled), select:not(:disabled), input:not(:disabled) { cursor: pointer; }
+button:not(:disabled),
+select:not(:disabled),
+input:is(
+  [type="button"],
+  [type="checkbox"],
+  [type="color"],
+  [type="file"],
+  [type="image"],
+  [type="radio"],
+  [type="range"],
+  [type="reset"],
+  [type="submit"]
+):not(:disabled) { cursor: pointer; }
 button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;

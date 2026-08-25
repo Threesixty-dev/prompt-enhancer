@@ -14,6 +14,17 @@
 .agent__new h2, .agent__sessions h2 { margin: 0; font-size: 0.95rem; }
 .agent__new label { display: grid; gap: 0.25rem; font-size: 0.82rem; }
 .agent__new input[type="text"], .agent__new select { width: 100%; font: inherit; padding: 0.45rem 0.6rem; border-radius: 0.5rem; border: 1px solid var(--line-strong); }
+.agent__workspace-field { display: grid; gap: 0.3rem; }
+.agent__workspace-field > label { font-size: 0.82rem; font-weight: 650; }
+.agent__workspace-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.45rem; align-items: stretch; }
+.agent__workspace-entry input { min-width: 0; box-sizing: border-box; }
+.agent__workspace-entry .button { min-height: 2.5rem; }
+.agent__workspace-field [role="status"]:empty { display: none; }
+.agent__permissions { display: grid; gap: 0.5rem; min-width: 0; margin: 0; padding: 0.65rem 0.75rem; border: 1px solid var(--line); border-radius: 0.6rem; }
+.agent__permissions legend { padding: 0 0.25rem; font-size: 0.82rem; font-weight: 700; }
+.agent__permissions:disabled { color: var(--ink-500); }
+.agent__permission-state { display: grid; gap: 0.4rem; justify-items: start; }
+.agent__permission-state code { font-size: 0.76rem; }
 .agent__toggle { display: flex !important; gap: 0.45rem; align-items: flex-start; grid-auto-flow: column; font-size: 0.8rem; }
 .agent__sessions ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
 .agent__sessions li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.25rem; align-items: center; border-radius: 0.5rem; }

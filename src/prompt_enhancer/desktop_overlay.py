@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import importlib
 import ipaddress
 import json
+from pathlib import PureWindowsPath
 import socket
 from threading import Thread
 import time
@@ -26,6 +27,8 @@ from .interfaces.http.desktop_identity import (
     DESKTOP_IDENTITY_PATH,
     DESKTOP_IDENTITY_VERSION,
     canonical_loopback_origin,
+    is_desktop_owned_instance_path,
+    new_desktop_owned_instance_path,
     new_desktop_challenge,
     verify_desktop_identity_proof,
 )
@@ -38,6 +41,8 @@ from .privacy import load_or_create_api_token
 
 
 _OVERLAY_PATH = "/overlay/model-ensemble"
+_AGENT_PATH = "/agent"
+_FOLDER_PICKER_VERSION = "native-folder-picker-v1"
 _PROBE_TIMEOUT_SECONDS = 1.0
 _STARTUP_TIMEOUT_SECONDS = 20.0
 _STARTUP_POLL_SECONDS = 0.1
@@ -77,6 +82,7 @@ class _OwnedServer:
     server: Any
     thread: Thread
     user_presence: UserPresenceApprovalManager
+    readiness_path: str
 
     def stop(self) -> None:
         """Stop only the Uvicorn instance created by this desktop host."""
@@ -229,6 +235,91 @@ class _DesktopWindowApi:
             return False
 
 
+class _DesktopAgentWindowApi(_DesktopWindowApi):
+    """Owned Agent bridge with one explicit, user-driven folder chooser.
+
+    Unlike the content-free confirmation bridge, a successful folder choice
+    returns the path the person selected.  The value is never logged or kept
+    by this bridge, and the local-agent service remains authoritative for all
+    protected-root, drive-root, reparse-point, and workspace validation.
+    """
+
+    def __init__(
+        self,
+        user_presence: UserPresenceApprovalManager,
+        expected_origin: str,
+        folder_dialog_type: Any | None,
+    ) -> None:
+        super().__init__(user_presence, expected_origin)
+        self._folder_dialog_type = folder_dialog_type
+
+    @staticmethod
+    def _folder_picker_response(
+        status: str,
+        path: str | None = None,
+    ) -> dict[str, Any]:
+        if status == "selected" and path is not None:
+            return {
+                "version": _FOLDER_PICKER_VERSION,
+                "status": "selected",
+                "path": path,
+            }
+        return {
+            "version": _FOLDER_PICKER_VERSION,
+            "status": status,
+        }
+
+    def _window_route_is_agent(self, window: Any) -> bool:
+        if not self._window_origin_is_expected(window):
+            return False
+        try:
+            current = urllib.parse.urlsplit(window.get_current_url())
+        except (AttributeError, TypeError, ValueError):
+            return False
+        return (
+            current.path == _AGENT_PATH
+            and current.query == ""
+            and current.fragment == ""
+        )
+
+    def choose_workspace_folder(self) -> dict[str, Any]:
+        """Open the owned native folder dialog and return the exact v1 shape."""
+
+        window = self._window
+        if (
+            window is None
+            or self._folder_dialog_type is None
+            or not self._window_route_is_agent(window)
+        ):
+            return self._folder_picker_response("unavailable")
+        try:
+            selected = window.create_file_dialog(
+                self._folder_dialog_type,
+                allow_multiple=False,
+            )
+        except Exception:
+            return self._folder_picker_response("unavailable")
+        if not self._window_route_is_agent(window):
+            return self._folder_picker_response("unavailable")
+        if selected is None or selected == () or selected == []:
+            return self._folder_picker_response("cancelled")
+        if (
+            not isinstance(selected, (tuple, list))
+            or len(selected) != 1
+            or not isinstance(selected[0], str)
+        ):
+            return self._folder_picker_response("unavailable")
+        path = selected[0]
+        if (
+            not path
+            or len(path) > 1024
+            or "\0" in path
+            or not PureWindowsPath(path).is_absolute()
+        ):
+            return self._folder_picker_response("unavailable")
+        return self._folder_picker_response("selected", path)
+
+
 def _loopback_origin(host: str, port: int) -> str:
     try:
         return canonical_loopback_origin(host, port)
@@ -367,9 +458,38 @@ def _verify_service_identity(origin: str, token: str) -> bool:
         return False
 
 
+def _verify_owned_service_instance(origin: str, readiness_path: str) -> bool:
+    """Prove readiness belongs to this exact in-process server instance.
+
+    Persistent desktop identity intentionally allows the metrics overlay to
+    attach to another trusted Prompt Enhancer process.  Protected Agent mode
+    needs a stronger property: the HTTP dependency and native bridge must share
+    the same approval manager.  A per-launch, unguessable exact route closes the
+    bind race without putting the persistent API token on the wire.
+    """
+
+    if not is_desktop_owned_instance_path(readiness_path):
+        return False
+    request = urllib.request.Request(
+        f"{origin}{readiness_path}",
+        method="GET",
+        headers={"Accept": "application/json"},
+    )
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _NoRedirect(),
+    )
+    try:
+        with opener.open(request, timeout=_PROBE_TIMEOUT_SECONDS) as response:
+            if response.status != 204:
+                return False
+            return response.read(1) == b""
+    except Exception:
+        return False
+
+
 def _start_owned_server(settings: AppSettings) -> _OwnedServer:
     import uvicorn
-
     from .bootstrap import bootstrap_local_application
 
     application = bootstrap_local_application(settings)
@@ -389,11 +509,14 @@ def _start_owned_server(settings: AppSettings) -> _OwnedServer:
                 detail="native user-presence confirmation required",
             )
 
+    readiness_path = new_desktop_owned_instance_path()
+    http_app = application.create_http_app(
+        user_presence_confirmation=verify_user_presence,
+        user_presence_confirmation_mode="native_bridge_bound_token",
+        desktop_owned_readiness_path=readiness_path,
+    )
     configuration = uvicorn.Config(
-        application.create_http_app(
-            user_presence_confirmation=verify_user_presence,
-            user_presence_confirmation_mode="native_bridge_bound_token",
-        ),
+        http_app,
         host=settings.host,
         port=settings.port,
         access_log=False,
@@ -410,6 +533,7 @@ def _start_owned_server(settings: AppSettings) -> _OwnedServer:
         server=server,
         thread=thread,
         user_presence=user_presence,
+        readiness_path=readiness_path,
     )
 
 
@@ -421,7 +545,11 @@ def _wait_for_owned_service(
     deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         for _address, origin in endpoints:
-            if _verify_service_identity(origin, token):
+            if _verify_service_identity(
+                origin, token
+            ) and _verify_owned_service_instance(
+                origin, owned.readiness_path
+            ):
                 return origin
         if not owned.thread.is_alive():
             break
@@ -436,6 +564,17 @@ def _load_webview() -> ModuleType:
         raise DesktopOverlayDependencyError(
             "desktop support is not installed; install the desktop extra"
         ) from None
+
+
+def _native_folder_dialog_type(webview: ModuleType) -> Any | None:
+    """Resolve pywebview 6's folder enum with a narrow legacy fallback."""
+
+    file_dialog = getattr(webview, "FileDialog", None)
+    current = None if file_dialog is None else getattr(file_dialog, "FOLDER", None)
+    if current is not None:
+        return current
+    legacy = getattr(webview, "FOLDER_DIALOG", None)
+    return legacy if legacy is not None else None
 
 
 def _open_overlay_window(
@@ -459,6 +598,41 @@ def _open_overlay_window(
         shadow=True,
         on_top=True,
         confirm_close=False,
+        background_color="#F4F8F7",
+        text_select=True,
+    )
+    if window is None:
+        raise DesktopOverlayDependencyError("desktop window could not be created")
+    window_api._bind(window)
+    webview.start(gui="edgechromium", debug=False)
+
+
+def _open_agent_window(
+    webview: ModuleType,
+    url: str,
+    user_presence: UserPresenceApprovalManager,
+) -> None:
+    """Open the full Agent surface with the owned native safety bridge."""
+
+    parsed_url = urllib.parse.urlsplit(url)
+    expected_origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    window_api = _DesktopAgentWindowApi(
+        user_presence,
+        expected_origin,
+        _native_folder_dialog_type(webview),
+    )
+    window = webview.create_window(
+        "Prompt Enhancer - Agent workspace",
+        url=url,
+        js_api=window_api,
+        width=1280,
+        height=900,
+        min_size=(840, 640),
+        resizable=True,
+        frameless=False,
+        shadow=True,
+        on_top=False,
+        confirm_close=True,
         background_color="#F4F8F7",
         text_select=True,
     )
@@ -510,6 +684,39 @@ def run_desktop_overlay(settings: AppSettings) -> None:
             owned.stop()
 
 
+def run_desktop_agent(settings: AppSettings) -> None:
+    """Own the loopback server and open Agent with protected actions enabled.
+
+    Unlike the read-only-compatible metrics overlay, the Agent window never
+    attaches to an existing listener.  The native window and HTTP dependency
+    must share the same in-process one-shot approval manager, so an occupied
+    configured port is a hard stop even when that listener proves its identity.
+    """
+
+    if not sys_platform_is_windows():
+        raise DesktopOverlayError("desktop Agent is currently available only on Windows")
+    endpoints = _exact_loopback_endpoints(settings.host, settings.port)
+    if any(_port_is_open(address, settings.port) for address, _origin in endpoints):
+        raise DesktopOverlayServiceError(
+            "desktop Agent protected mode requires an unoccupied configured loopback port"
+        )
+    token = load_or_create_api_token(settings.api_token_path)
+    owned = _start_owned_server(settings)
+    try:
+        origin = _wait_for_owned_service(endpoints, token, owned)
+    except Exception:
+        owned.stop()
+        raise
+    try:
+        _open_agent_window(
+            _load_webview(),
+            f"{origin}{_AGENT_PATH}",
+            owned.user_presence,
+        )
+    finally:
+        owned.stop()
+
+
 def _show_safe_desktop_error() -> None:
     """Show one content-free native error when the GUI entry point cannot start."""
 
@@ -528,6 +735,25 @@ def _show_safe_desktop_error() -> None:
         return
 
 
+def _show_safe_agent_error() -> None:
+    """Show one content-free native error for the protected Agent launcher."""
+
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            (
+                "Prompt Enhancer could not open the protected Agent window. "
+                "If the local service is already running, close it and try again."
+            ),
+            "Prompt Enhancer",
+            0x10,
+        )
+    except Exception:
+        return
+
+
 def desktop_main() -> int:
     """Console-free Windows entry point for the React/WebView overlay."""
 
@@ -535,6 +761,17 @@ def desktop_main() -> int:
         run_desktop_overlay(AppSettings.from_env())
     except Exception:
         _show_safe_desktop_error()
+        return 1
+    return 0
+
+
+def agent_desktop_main() -> int:
+    """Console-free Windows entry point for the protected Agent window."""
+
+    try:
+        run_desktop_agent(AppSettings.from_env())
+    except Exception:
+        _show_safe_agent_error()
         return 1
     return 0
 
@@ -551,6 +788,8 @@ __all__ = [
     "DesktopOverlayDependencyError",
     "DesktopOverlayError",
     "DesktopOverlayServiceError",
+    "agent_desktop_main",
     "desktop_main",
+    "run_desktop_agent",
     "run_desktop_overlay",
 ]

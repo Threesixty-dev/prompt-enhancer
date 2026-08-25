@@ -32,11 +32,17 @@ from ...config import is_loopback_host
 
 
 DESKTOP_IDENTITY_PATH = "/auth/desktop-identity"
+DESKTOP_OWNED_INSTANCE_PATH_PREFIX = "/auth/desktop-owned-instance/"
 DESKTOP_CHALLENGE_HEADER = "X-Prompt-Enhancer-Desktop-Challenge"
 DESKTOP_IDENTITY_VERSION = 1
 DESKTOP_CHALLENGE_BYTES = 32
+_DESKTOP_OWNED_INSTANCE_BYTES = 32
+_DESKTOP_OWNED_INSTANCE_LENGTH = 43
 _DESKTOP_KEY_CONTEXT = b"prompt-enhancer/desktop-identity/v1"
 _HEX_DIGITS = frozenset("0123456789abcdef")
+_BASE64URL_DIGITS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
 
 
 def canonical_loopback_origin(host: str, port: int) -> str:
@@ -135,6 +141,28 @@ def new_desktop_challenge() -> str:
     return secrets.token_hex(DESKTOP_CHALLENGE_BYTES)
 
 
+def new_desktop_owned_instance_path() -> str:
+    """Return an unguessable exact route for one launcher-owned server."""
+
+    return (
+        DESKTOP_OWNED_INSTANCE_PATH_PREFIX
+        + secrets.token_urlsafe(_DESKTOP_OWNED_INSTANCE_BYTES)
+    )
+
+
+def is_desktop_owned_instance_path(value: object) -> bool:
+    """Accept only the exact route shape produced by this module."""
+
+    if not isinstance(value, str) or not value.startswith(
+        DESKTOP_OWNED_INSTANCE_PATH_PREFIX
+    ):
+        return False
+    identifier = value.removeprefix(DESKTOP_OWNED_INSTANCE_PATH_PREFIX)
+    return len(identifier) == _DESKTOP_OWNED_INSTANCE_LENGTH and all(
+        character in _BASE64URL_DIGITS for character in identifier
+    )
+
+
 def parse_desktop_challenge(value: str | None) -> bytes | None:
     """Accept only a full-length lowercase-hex challenge; anything else is None."""
 
@@ -185,10 +213,13 @@ __all__ = [
     "DESKTOP_CHALLENGE_HEADER",
     "DESKTOP_IDENTITY_PATH",
     "DESKTOP_IDENTITY_VERSION",
+    "DESKTOP_OWNED_INSTANCE_PATH_PREFIX",
     "canonical_loopback_origin",
     "desktop_identity_proof",
     "exact_request_loopback_origin",
+    "is_desktop_owned_instance_path",
     "new_desktop_challenge",
+    "new_desktop_owned_instance_path",
     "parse_desktop_challenge",
     "verify_desktop_identity_proof",
 ]

@@ -28,6 +28,10 @@ def _parser() -> argparse.ArgumentParser:
         "desktop",
         help="open the native always-on-top live-metrics window",
     )
+    subparsers.add_parser(
+        "agent-desktop",
+        help="open the owned native Agent window with protected-action approvals",
+    )
 
     grant = subparsers.add_parser(
         "codex-consent-grant",
@@ -484,6 +488,13 @@ def _run_desktop(settings: AppSettings) -> int:
     return 0
 
 
+def _run_agent_desktop(settings: AppSettings) -> int:
+    from .desktop_overlay import run_desktop_agent
+
+    run_desktop_agent(settings)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -520,6 +531,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "status": _run_status,
             "serve": _run_serve,
             "desktop": _run_desktop,
+            "agent-desktop": _run_agent_desktop,
         }
         return handlers[args.command](settings)
     except (OSError, RuntimeError, ValueError):

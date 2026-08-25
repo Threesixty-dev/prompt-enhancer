@@ -2474,6 +2474,7 @@ describe("native user-presence transport binding", () => {
     const transport = createHttpTransport({
       fetch: fetchMock as unknown as typeof fetch,
       origin: "http://127.0.0.1:4173",
+      userPresenceBridgeAvailable: () => true,
     });
 
     await expect(transport.getUserPresenceCapability!()).resolves.toEqual({
@@ -2488,6 +2489,63 @@ describe("native user-presence transport binding", () => {
     });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toBe("/auth/session");
+  });
+
+  it("waits for the bounded native bridge-ready event when the server tuple is available", async () => {
+    let bridgeReady = false;
+    const bridgeAvailable = vi.fn(() => bridgeReady);
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceBridgeAvailable: bridgeAvailable,
+      userPresenceBridgeReadyTimeoutMs: 1_000,
+    });
+
+    const capability = transport.getUserPresenceCapability!();
+    await vi.waitFor(() => expect(bridgeAvailable).toHaveBeenCalled());
+    bridgeReady = true;
+    globalThis.dispatchEvent(new Event("pywebviewready"));
+    await expect(capability).resolves.toEqual({
+      contract_version: "native-user-presence-capability-v1",
+      confirmation_available: true,
+      mode: "native_bridge_bound_token",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed after the bounded bridge-ready wait", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceBridgeAvailable: () => false,
+      userPresenceBridgeReadyTimeoutMs: 1,
+    });
+
+    await expect(transport.getUserPresenceCapability!()).resolves.toEqual({
+      contract_version: "native-user-presence-capability-v1",
+      confirmation_available: false,
+      mode: "unavailable",
+    });
+  });
+
+  it("closes the abort race before the bridge-ready listener is registered", async () => {
+    const controller = new AbortController();
+    const bridgeAvailable = vi.fn(() => {
+      controller.abort();
+      return false;
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceBridgeAvailable: bridgeAvailable,
+      userPresenceBridgeReadyTimeoutMs: 10_000,
+    });
+
+    await expect(transport.getUserPresenceCapability!(controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(bridgeAvailable).toHaveBeenCalledOnce();
   });
 
   it("fails closed when the server capability field has the wrong type", async () => {

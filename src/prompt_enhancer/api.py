@@ -128,6 +128,7 @@ from .interfaces.http.desktop_identity import (
     DESKTOP_IDENTITY_VERSION,
     desktop_identity_proof,
     exact_request_loopback_origin,
+    is_desktop_owned_instance_path,
     parse_desktop_challenge,
 )
 from .interfaces.http.analysis_routes import (
@@ -517,12 +518,17 @@ def create_app(
     browser_session_manager: BrowserSessionManager | None = None,
     user_presence_confirmation: Callable[[Request, bytes], None] | None = None,
     user_presence_confirmation_mode: Literal["native_bridge_bound_token"] | None = None,
+    desktop_owned_readiness_path: str | None = None,
 ) -> FastAPI:
     """Build the local API without enabling CORS or any remote integrations."""
 
     resolved_settings = settings or AppSettings.from_env()
     if user_presence_confirmation_mode not in {None, "native_bridge_bound_token"}:
         raise ValueError("unsupported user-presence confirmation mode")
+    if desktop_owned_readiness_path is not None and not is_desktop_owned_instance_path(
+        desktop_owned_readiness_path
+    ):
+        raise ValueError("invalid desktop-owned readiness path")
     if user_presence_confirmation is None:
         if user_presence_confirmation_mode is not None:
             raise ValueError("user-presence mode requires an adapter")
@@ -888,6 +894,17 @@ def create_app(
                 request.app.state.api_token, origin, parsed_challenge
             ),
         }
+
+    if desktop_owned_readiness_path is not None:
+
+        @app.get(desktop_owned_readiness_path, include_in_schema=False)
+        def desktop_owned_instance_ready() -> Response:
+            """Prove this exact launcher-owned composition reached readiness."""
+
+            return Response(
+                status_code=204,
+                headers={"Cache-Control": "no-store"},
+            )
 
     @app.get(
         "/v1/capabilities",

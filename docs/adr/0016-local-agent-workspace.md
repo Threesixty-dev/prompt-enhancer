@@ -58,7 +58,13 @@ of the app: nothing happens to the person's machine without their say-so.
    stream, approvals, stop, and session-bound workspace tree/file/preview/apply)
    under the app token; the *Agent* page (folder, model, permissions,
    sessions list, transcript with tool cards, approval dialog with diff,
-   composer, stop) and a chrome-less popup `/agent/window/{id}`. The same page
+   composer, stop) and a chrome-less popup `/agent/window/{id}`. A dedicated
+   Windows `prompt-enhancer-agent` launcher opens `/agent`, owns the loopback
+   server and native confirmation manager together, and refuses to attach to
+   an already-running listener. Its explicit Browse action uses an
+   exact-origin, exact-`/agent` native folder dialog; cancel/unavailable results
+   are content-free and the chosen path remains subject to the service's full
+   workspace validation. The same page
    now includes a typed file tree and dependency-free UTF-8 text editor beside
    the chat. Manual edits use a server-created diff plus a short-lived,
    single-use, content-free capability and require owned-window native confirmation to

@@ -152,6 +152,7 @@ import {
 } from "./metricOperabilityContract";
 import { parseControlPlaneReadiness } from "./controlPlaneReadiness";
 import { parseCandidateDecisionsResponse } from "./taskDecisionContract";
+import { hasNativeUserPresenceBridge } from "../platform/nativeDesktopBridge";
 import {
   TaskLifecyclePayloadError,
   parseTaskLifecycleListResponse,
@@ -2134,6 +2135,10 @@ export function createHttpTransport(options: {
     path: string;
     bodySha256: string;
   }) => Promise<string>;
+  /** Test/host injection. Production verifies the live pywebview bridge. */
+  userPresenceBridgeAvailable?: () => boolean;
+  /** Test/host injection for the bounded pywebview-ready wait. */
+  userPresenceBridgeReadyTimeoutMs?: number;
 } = {}): LocalRuntimeTransport {
   const fetchRequest = options.fetch ?? globalThis.fetch.bind(globalThis);
   const origin = options.origin ?? globalThis.location.origin;
@@ -2220,6 +2225,59 @@ export function createHttpTransport(options: {
   }
 
   const approveUserPresence = options.userPresenceApproval ?? desktopUserPresenceApproval;
+  const bridgeAvailable = options.userPresenceBridgeAvailable
+    ?? (options.userPresenceApproval === undefined
+      ? hasNativeUserPresenceBridge
+      : () => true);
+  const userPresenceBridgeIsAvailable = (): boolean => {
+    try {
+      return bridgeAvailable() === true;
+    } catch {
+      return false;
+    }
+  };
+  const bridgeReadyTimeoutMs = Math.max(
+    0,
+    options.userPresenceBridgeReadyTimeoutMs ?? 800,
+  );
+  const waitForUserPresenceBridge = async (signal?: AbortSignal): Promise<boolean> => {
+    signal?.throwIfAborted();
+    if (userPresenceBridgeIsAvailable()) return true;
+    if (
+      typeof globalThis.addEventListener !== "function"
+      || typeof globalThis.removeEventListener !== "function"
+    ) {
+      return false;
+    }
+
+    return new Promise<boolean>((resolve, reject) => {
+      let settled = false;
+      const finish = (available: boolean) => {
+        if (settled) return;
+        settled = true;
+        globalThis.clearTimeout(timeout);
+        globalThis.removeEventListener("pywebviewready", handleReady);
+        signal?.removeEventListener("abort", handleAbort);
+        resolve(available);
+      };
+      const handleReady = () => finish(userPresenceBridgeIsAvailable());
+      const handleAbort = () => {
+        if (settled) return;
+        settled = true;
+        globalThis.clearTimeout(timeout);
+        globalThis.removeEventListener("pywebviewready", handleReady);
+        signal?.removeEventListener("abort", handleAbort);
+        reject(signal?.reason ?? new DOMException("The operation was aborted", "AbortError"));
+      };
+      const timeout = globalThis.setTimeout(() => finish(false), bridgeReadyTimeoutMs);
+      globalThis.addEventListener("pywebviewready", handleReady);
+      signal?.addEventListener("abort", handleAbort, { once: true });
+
+      // Close the check/listener race without polling.
+      if (signal?.aborted) handleAbort();
+      else if (userPresenceBridgeIsAvailable()) finish(true);
+    });
+  };
 
   async function bootstrapBrowserSession(): Promise<string> {
     const target = assertSameOriginRelativePath("/auth/session", origin);
@@ -2317,7 +2375,10 @@ export function createHttpTransport(options: {
       if (method !== "POST" || typeof init.body !== "string") {
         throw new TransportError("Native user-presence request was invalid", 503);
       }
-      if (sessionAuth?.userPresenceMode === "native_bridge_bound_token") {
+      if (
+        sessionAuth?.userPresenceMode === "native_bridge_bound_token"
+        && userPresenceBridgeIsAvailable()
+      ) {
         userPresenceToken = await approveUserPresence({
           method: "POST",
           path,
@@ -2385,10 +2446,14 @@ export function createHttpTransport(options: {
     runtimeKind: "local_loopback",
     async getUserPresenceCapability(signal) {
       await ensureBrowserSession(signal);
+      const serverCapabilityAvailable = sessionAuth?.userPresenceAvailable === true
+        && sessionAuth.userPresenceMode === "native_bridge_bound_token";
+      const confirmationAvailable = serverCapabilityAvailable
+        && await waitForUserPresenceBridge(signal);
       return {
         contract_version: "native-user-presence-capability-v1",
-        confirmation_available: sessionAuth?.userPresenceAvailable === true,
-        mode: sessionAuth?.userPresenceMode ?? "unavailable",
+        confirmation_available: confirmationAvailable,
+        mode: confirmationAvailable ? "native_bridge_bound_token" : "unavailable",
       };
     },
     async getControlPlaneReadiness(signal) {

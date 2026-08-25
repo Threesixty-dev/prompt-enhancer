@@ -9,6 +9,9 @@ import pytest
 from prompt_enhancer import cli
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer import desktop_overlay
+from prompt_enhancer.interfaces.http.desktop_identity import (
+    DESKTOP_OWNED_INSTANCE_PATH_PREFIX,
+)
 
 
 TOKEN = "example_desktop_overlay_token_123456789"
@@ -18,6 +21,8 @@ class FakeWindow:
     def __init__(self) -> None:
         self.calls: list[str] = []
         self.current_url = "about:blank"
+        self.folder_dialog_calls: list[tuple[object, bool]] = []
+        self.folder_dialog_result: object = None
 
     def get_current_url(self) -> str:
         return self.current_url
@@ -34,8 +39,20 @@ class FakeWindow:
     def destroy(self) -> None:
         self.calls.append("destroy")
 
+    def create_file_dialog(
+        self,
+        dialog_type: object,
+        *,
+        allow_multiple: bool,
+    ) -> object:
+        self.folder_dialog_calls.append((dialog_type, allow_multiple))
+        return self.folder_dialog_result
+
 
 class FakeWebview:
+    FileDialog = SimpleNamespace(FOLDER="synthetic-folder-dialog")
+    FOLDER_DIALOG = "legacy-synthetic-folder-dialog"
+
     def __init__(self, *, fail_start: bool = False) -> None:
         self.created: list[tuple[tuple[object, ...], dict[str, object]]] = []
         self.started: list[dict[str, object]] = []
@@ -58,6 +75,9 @@ class FakeOwnedServer:
         self.stops = 0
         self.thread = SimpleNamespace(is_alive=lambda: True)
         self.user_presence = desktop_overlay.UserPresenceApprovalManager()
+        self.readiness_path = (
+            f"{DESKTOP_OWNED_INSTANCE_PATH_PREFIX}{'s' * 43}"
+        )
 
     def stop(self) -> None:
         self.stops += 1
@@ -235,6 +255,118 @@ def test_starts_and_stops_only_an_owned_server(
     assert webview.created[0][1]["js_api"]._user_presence is owned.user_presence
 
 
+def test_protected_agent_refuses_to_attach_to_an_existing_service(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prepare_common(monkeypatch, service_open=True, trusted=True)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_start_owned_server",
+        lambda _settings: pytest.fail("protected Agent must not attach or start"),
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_load_webview",
+        lambda: pytest.fail("protected Agent must not render an attached service"),
+    )
+
+    with pytest.raises(
+        desktop_overlay.DesktopOverlayServiceError,
+        match="requires an unoccupied configured loopback port",
+    ):
+        desktop_overlay.run_desktop_agent(settings(tmp_path))
+
+
+def test_protected_agent_refuses_trusted_listener_that_wins_startup_race(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prepare_common(monkeypatch, service_open=False, trusted=True)
+    owned = FakeOwnedServer()
+    owned.thread = SimpleNamespace(is_alive=lambda: False)
+    monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings: owned)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_verify_owned_service_instance",
+        lambda _origin, _readiness_path: False,
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_load_webview",
+        lambda: pytest.fail("a racing listener must never get the native bridge"),
+    )
+
+    with pytest.raises(
+        desktop_overlay.DesktopOverlayServiceError,
+        match="did not become ready",
+    ):
+        desktop_overlay.run_desktop_agent(settings(tmp_path))
+
+    assert owned.stops == 1
+
+
+def test_protected_agent_owns_server_manager_and_opens_full_agent_route(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prepare_common(monkeypatch, service_open=False, trusted=False)
+    owned = FakeOwnedServer()
+    webview = FakeWebview()
+    monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings: owned)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_wait_for_owned_service",
+        lambda endpoints, supplied, candidate: (
+            endpoints[0][1]
+            if supplied == TOKEN and candidate is owned
+            else pytest.fail("owned Agent readiness binding changed")
+        ),
+    )
+    monkeypatch.setattr(desktop_overlay, "_load_webview", lambda: webview)
+
+    desktop_overlay.run_desktop_agent(settings(tmp_path))
+
+    assert owned.stops == 1
+    assert len(webview.created) == 1
+    args, options = webview.created[0]
+    assert args == ("Prompt Enhancer - Agent workspace",)
+    assert options["url"] == "http://127.0.0.1:18765/agent"
+    assert options["frameless"] is False
+    assert options["on_top"] is False
+    assert options["min_size"] == (840, 640)
+    assert TOKEN not in str(args)
+    assert TOKEN not in str(options)
+    window_api = options["js_api"]
+    assert isinstance(window_api, desktop_overlay._DesktopAgentWindowApi)
+    assert window_api._user_presence is owned.user_presence
+    assert window_api._folder_dialog_type == FakeWebview.FileDialog.FOLDER
+    assert webview.started == [{"gui": "edgechromium", "debug": False}]
+
+
+def test_protected_agent_stops_owned_server_when_native_loop_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prepare_common(monkeypatch, service_open=False, trusted=False)
+    owned = FakeOwnedServer()
+    monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings: owned)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_wait_for_owned_service",
+        lambda endpoints, *_args: endpoints[0][1],
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_load_webview",
+        lambda: FakeWebview(fail_start=True),
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic GUI failure"):
+        desktop_overlay.run_desktop_agent(settings(tmp_path))
+    assert owned.stops == 1
+
+
 def test_owned_server_stops_when_native_loop_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -401,6 +533,157 @@ def test_native_confirmation_rechecks_origin_after_the_modal() -> None:
     }
 
 
+def test_native_folder_picker_returns_only_the_exact_selected_contract() -> None:
+    expected_origin = "http://127.0.0.1:18765"
+    window = FakeWindow()
+    window.current_url = f"{expected_origin}/agent"
+    window.folder_dialog_result = (r"D:\example\project",)
+    window_api = desktop_overlay._DesktopAgentWindowApi(
+        desktop_overlay.UserPresenceApprovalManager(),
+        expected_origin,
+        FakeWebview.FileDialog.FOLDER,
+    )
+    window_api._bind(window)
+
+    response = window_api.choose_workspace_folder()
+
+    assert response == {
+        "version": "native-folder-picker-v1",
+        "status": "selected",
+        "path": r"D:\example\project",
+    }
+    assert set(response) == {"version", "status", "path"}
+    assert window.folder_dialog_calls == [(FakeWebview.FileDialog.FOLDER, False)]
+
+
+def test_native_folder_picker_cancel_is_exact_and_content_free() -> None:
+    expected_origin = "http://127.0.0.1:18765"
+    window = FakeWindow()
+    window.current_url = f"{expected_origin}/agent"
+    window.folder_dialog_result = None
+    window_api = desktop_overlay._DesktopAgentWindowApi(
+        desktop_overlay.UserPresenceApprovalManager(),
+        expected_origin,
+        FakeWebview.FileDialog.FOLDER,
+    )
+    window_api._bind(window)
+
+    response = window_api.choose_workspace_folder()
+
+    assert response == {
+        "version": "native-folder-picker-v1",
+        "status": "cancelled",
+    }
+    assert set(response) == {"version", "status"}
+
+
+def test_native_folder_picker_dialog_failure_is_content_free_unavailable() -> None:
+    expected_origin = "http://127.0.0.1:18765"
+
+    def fail_dialog(_dialog_type: object, *, allow_multiple: bool) -> object:
+        assert allow_multiple is False
+        raise RuntimeError("synthetic native detail")
+
+    window = SimpleNamespace(
+        get_current_url=lambda: f"{expected_origin}/agent",
+        create_file_dialog=fail_dialog,
+    )
+    window_api = desktop_overlay._DesktopAgentWindowApi(
+        desktop_overlay.UserPresenceApprovalManager(),
+        expected_origin,
+        FakeWebview.FileDialog.FOLDER,
+    )
+    window_api._bind(window)
+
+    response = window_api.choose_workspace_folder()
+
+    assert response == {
+        "version": "native-folder-picker-v1",
+        "status": "unavailable",
+    }
+    assert "synthetic native detail" not in str(response)
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        "D:\\example\\project",
+        ("relative\\project",),
+        ("D:\\one", "D:\\two"),
+        (123,),
+    ],
+)
+def test_native_folder_picker_malformed_results_fail_closed(selection: object) -> None:
+    expected_origin = "http://127.0.0.1:18765"
+    window = FakeWindow()
+    window.current_url = f"{expected_origin}/agent"
+    window.folder_dialog_result = selection
+    window_api = desktop_overlay._DesktopAgentWindowApi(
+        desktop_overlay.UserPresenceApprovalManager(),
+        expected_origin,
+        FakeWebview.FileDialog.FOLDER,
+    )
+    window_api._bind(window)
+
+    assert window_api.choose_workspace_folder() == {
+        "version": "native-folder-picker-v1",
+        "status": "unavailable",
+    }
+
+
+def test_native_folder_picker_rechecks_agent_route_after_selection() -> None:
+    expected_origin = "http://127.0.0.1:18765"
+    current = [f"{expected_origin}/agent"]
+
+    def select_then_navigate(_dialog_type: object, *, allow_multiple: bool) -> object:
+        assert allow_multiple is False
+        current[0] = f"{expected_origin}/overview"
+        return (r"D:\example\private-project",)
+
+    window = SimpleNamespace(
+        get_current_url=lambda: current[0],
+        create_file_dialog=select_then_navigate,
+    )
+    window_api = desktop_overlay._DesktopAgentWindowApi(
+        desktop_overlay.UserPresenceApprovalManager(),
+        expected_origin,
+        FakeWebview.FileDialog.FOLDER,
+    )
+    window_api._bind(window)
+
+    assert window_api.choose_workspace_folder() == {
+        "version": "native-folder-picker-v1",
+        "status": "unavailable",
+    }
+
+
+def test_native_folder_picker_rejects_another_same_origin_route() -> None:
+    expected_origin = "http://127.0.0.1:18765"
+    window = FakeWindow()
+    window.current_url = f"{expected_origin}/overview"
+    window.folder_dialog_result = (r"D:\example\project",)
+    window_api = desktop_overlay._DesktopAgentWindowApi(
+        desktop_overlay.UserPresenceApprovalManager(),
+        expected_origin,
+        FakeWebview.FileDialog.FOLDER,
+    )
+    window_api._bind(window)
+
+    assert window_api.choose_workspace_folder() == {
+        "version": "native-folder-picker-v1",
+        "status": "unavailable",
+    }
+    assert window.folder_dialog_calls == []
+
+
+def test_metrics_overlay_does_not_expose_workspace_folder_picker() -> None:
+    api = desktop_overlay._DesktopWindowApi(
+        desktop_overlay.UserPresenceApprovalManager(),
+        "http://127.0.0.1:18765",
+    )
+    assert not hasattr(api, "choose_workspace_folder")
+
+
 def test_failed_owned_startup_is_stopped_before_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -435,6 +718,18 @@ def test_missing_optional_webview_is_a_safe_dependency_error(
         desktop_overlay._load_webview()
 
 
+def test_folder_dialog_type_prefers_pywebview_v6_and_has_legacy_fallback() -> None:
+    current = SimpleNamespace(
+        FileDialog=SimpleNamespace(FOLDER="current-folder"),
+        FOLDER_DIALOG="legacy-folder",
+    )
+    legacy = SimpleNamespace(FOLDER_DIALOG="legacy-folder")
+
+    assert desktop_overlay._native_folder_dialog_type(current) == "current-folder"
+    assert desktop_overlay._native_folder_dialog_type(legacy) == "legacy-folder"
+    assert desktop_overlay._native_folder_dialog_type(SimpleNamespace()) is None
+
+
 def test_cli_desktop_has_no_identifier_arguments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -449,6 +744,22 @@ def test_cli_desktop_has_no_identifier_arguments(
     assert len(seen) == 1
     with pytest.raises(SystemExit):
         cli._parser().parse_args(["desktop", "--session-id", "0" * 64])
+
+
+def test_cli_agent_desktop_has_no_path_or_identifier_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[AppSettings] = []
+    monkeypatch.setattr(
+        desktop_overlay,
+        "run_desktop_agent",
+        lambda value: seen.append(value),
+    )
+
+    assert cli.main(["agent-desktop"]) == 0
+    assert len(seen) == 1
+    with pytest.raises(SystemExit):
+        cli._parser().parse_args(["agent-desktop", "--workspace", "D:\\example"])
 
 
 def test_run_desktop_delegates_without_rendering_settings(
@@ -467,10 +778,29 @@ def test_run_desktop_delegates_without_rendering_settings(
     assert calls == [selected]
 
 
-def test_parser_exposes_only_the_plain_desktop_command() -> None:
+def test_run_agent_desktop_delegates_without_rendering_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected = settings(tmp_path)
+    calls: list[AppSettings] = []
+    monkeypatch.setattr(
+        desktop_overlay,
+        "run_desktop_agent",
+        lambda value: calls.append(value),
+    )
+
+    assert cli._run_agent_desktop(selected) == 0
+    assert calls == [selected]
+
+
+def test_parser_exposes_plain_desktop_commands_without_extra_authority() -> None:
     parsed = cli._parser().parse_args(["desktop"])
     assert isinstance(parsed, argparse.Namespace)
     assert vars(parsed) == {"command": "desktop"}
+    agent = cli._parser().parse_args(["agent-desktop"])
+    assert isinstance(agent, argparse.Namespace)
+    assert vars(agent) == {"command": "agent-desktop"}
 
 
 def test_console_free_entry_loads_settings_and_opens_overlay(
@@ -499,4 +829,33 @@ def test_console_free_entry_reports_only_a_safe_native_error(
     monkeypatch.setattr(desktop_overlay, "_show_safe_desktop_error", lambda: notices.append(True))
 
     assert desktop_overlay.desktop_main() == 1
+    assert notices == [True]
+
+
+def test_console_free_agent_entry_loads_settings_and_opens_owned_agent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected = settings(tmp_path)
+    calls: list[AppSettings] = []
+    monkeypatch.setattr(AppSettings, "from_env", lambda: selected)
+    monkeypatch.setattr(desktop_overlay, "run_desktop_agent", calls.append)
+
+    assert desktop_overlay.agent_desktop_main() == 0
+    assert calls == [selected]
+
+
+def test_console_free_agent_entry_reports_only_a_safe_native_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notices: list[bool] = []
+    monkeypatch.setattr(
+        desktop_overlay,
+        "run_desktop_agent",
+        lambda _settings: (_ for _ in ()).throw(RuntimeError("example private detail")),
+    )
+    monkeypatch.setattr(AppSettings, "from_env", lambda: object())
+    monkeypatch.setattr(desktop_overlay, "_show_safe_agent_error", lambda: notices.append(True))
+
+    assert desktop_overlay.agent_desktop_main() == 1
     assert notices == [True]

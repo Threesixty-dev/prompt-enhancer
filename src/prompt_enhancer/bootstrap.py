@@ -1262,6 +1262,7 @@ class LocalApplication:
         *,
         user_presence_confirmation=None,
         user_presence_confirmation_mode=None,
+        desktop_owned_readiness_path=None,
     ) -> FastAPI:
         """Construct the authenticated HTTP adapter without exposing its token."""
 
@@ -1509,6 +1510,7 @@ class LocalApplication:
             static_directory=static_directory,
             user_presence_confirmation=user_presence_confirmation,
             user_presence_confirmation_mode=user_presence_confirmation_mode,
+            desktop_owned_readiness_path=desktop_owned_readiness_path,
         )
 
 

@@ -1,10 +1,33 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import type { AgentEvent, AgentSessionView, PromptCheckRequest, PromptCheckResult } from "../../shared/api/contracts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentEvent, AgentSessionView, AgentSettings, PromptCheckRequest, PromptCheckResult } from "../../shared/api/contracts";
+import { TransportError } from "../../shared/api/httpTransport";
 import { AgentPage } from "./AgentPage";
+import "../../styles.css";
 
 const SESSION = "a".repeat(32);
 const APPROVAL = "b".repeat(32);
+const originalPywebview = Object.getOwnPropertyDescriptor(globalThis, "pywebview");
+
+function userPresenceCapability(available: boolean) {
+  return {
+    contract_version: "native-user-presence-capability-v1" as const,
+    confirmation_available: available,
+    mode: available ? "native_bridge_bound_token" as const : "unavailable" as const,
+  };
+}
+
+function installNativeFolderPicker(choose: () => Promise<unknown>): void {
+  Object.defineProperty(globalThis, "pywebview", {
+    configurable: true,
+    value: { api: { choose_workspace_folder: choose } },
+  });
+}
+
+afterEach(() => {
+  if (originalPywebview) Object.defineProperty(globalThis, "pywebview", originalPywebview);
+  else Reflect.deleteProperty(globalThis, "pywebview");
+});
 
 function view(overrides: Partial<AgentSessionView> = {}): AgentSessionView {
   return {
@@ -155,6 +178,7 @@ describe("AgentPage", () => {
     let current = view();
     const transport = {
       ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(true)),
       listAgentSessions: vi.fn(async () => (current ? [current] : [])),
       createAgentSession: vi.fn(async () => { current = view(); return current; }),
       getAgentSession: vi.fn(async () => current),
@@ -190,6 +214,7 @@ describe("AgentPage", () => {
     expect(document.activeElement).toBe(approvalDialog);
     expect(screen.getByText("Approval needed for Write file.")).toBeTruthy();
     expect(screen.getByText(/return a \+ b\s+# noqa/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(transport.decideAgentApproval).toHaveBeenCalledWith(SESSION, APPROVAL, true));
     await screen.findByText("Done - comment added.");
@@ -199,20 +224,177 @@ describe("AgentPage", () => {
   it("explains when the agent is unavailable and lets a new session be created", async () => {
     const transport = {
       ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(false)),
       listAgentSessions: vi.fn(async () => []),
-      createAgentSession: vi.fn(async (settings: { workspace: string; allow_web?: boolean }) => view({ settings: { ...view().settings, workspace: settings.workspace } })),
+      createAgentSession: vi.fn(async (settings: AgentSettings) => view({ settings: { ...view().settings, workspace: settings.workspace } })),
       getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
       getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
       decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
     };
     render(<AgentPage transport={transport} />);
     await screen.findByText(/No session yet/);
+    await screen.findByText(/This browser can start read-only sessions/);
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalled());
     const settings = transport.createAgentSession.mock.calls[0][0];
     expect(settings.workspace).toBe("D:\\example\\project");
+    expect(settings.allow_writes).toBe(false);
+    expect(settings.allow_commands).toBe(false);
     expect(settings.allow_web).toBe(false);
+  });
+
+  it("uses the native folder picker without reading files and preserves the path on cancel", async () => {
+    const choose = vi.fn()
+      .mockResolvedValueOnce({
+        version: "native-folder-picker-v1",
+        status: "selected",
+        path: "D:\\example\\chosen-workspace",
+      })
+      .mockResolvedValueOnce({
+        version: "native-folder-picker-v1",
+        status: "cancelled",
+      });
+    installNativeFolderPicker(choose);
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async (_settings: AgentSettings) => view({
+        settings: { ...view().settings, workspace: "D:\\example\\chosen-workspace", allow_writes: false, allow_commands: false, allow_web: false },
+      })),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const workspace = screen.getByLabelText("Workspace folder");
+    const browse = screen.getByRole("button", { name: "Browse…" });
+    expect(browse).toBeEnabled();
+    expect(getComputedStyle(workspace).cursor).not.toBe("pointer");
+    expect(getComputedStyle(browse).cursor).toBe("pointer");
+
+    fireEvent.click(browse);
+    await waitFor(() => expect(workspace).toHaveValue("D:\\example\\chosen-workspace"));
+    expect(screen.getByText("Workspace folder selected.")).toBeVisible();
+
+    fireEvent.click(browse);
+    await screen.findByText("Folder selection cancelled. The workspace path was not changed.");
+    expect(workspace).toHaveValue("D:\\example\\chosen-workspace");
+    expect(choose).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
+    expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
+      workspace: "D:\\example\\chosen-workspace",
+      allow_writes: false,
+      allow_commands: false,
+      allow_web: false,
+    });
+  });
+
+  it("enables Browse when the native bridge becomes ready after the form renders", async () => {
+    Reflect.deleteProperty(globalThis, "pywebview");
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+    expect(screen.getByRole("button", { name: "Browse…" })).toBeDisabled();
+
+    installNativeFolderPicker(vi.fn().mockResolvedValue({
+      version: "native-folder-picker-v1",
+      status: "cancelled",
+    }));
+    window.dispatchEvent(new Event("pywebviewready"));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Browse…" })).toBeEnabled());
+  });
+
+  it("keeps protected scopes off while checking, then enables explicit choices only", async () => {
+    let resolveCapability!: (value: ReturnType<typeof userPresenceCapability>) => void;
+    const capability = new Promise<ReturnType<typeof userPresenceCapability>>((resolve) => {
+      resolveCapability = resolve;
+    });
+    const transport = {
+      ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(() => capability),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async (_settings: AgentSettings) => view()),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
+    expect(screen.getByText("Checking whether native confirmation is available…")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start read-only session" })).toBeDisabled();
+    expect(screen.getByLabelText(/May write files/i)).toBeDisabled();
+
+    await act(async () => resolveCapability(userPresenceCapability(true)));
+    await waitFor(() => expect(screen.getByLabelText(/May write files/i)).toBeEnabled());
+    expect(screen.getByLabelText(/May write files/i)).not.toBeChecked();
+    expect(screen.getByLabelText(/May run commands/i)).not.toBeChecked();
+    expect(screen.getByLabelText(/May fetch web pages/i)).not.toBeChecked();
+
+    fireEvent.click(screen.getByLabelText(/May write files/i));
+    fireEvent.click(screen.getByLabelText(/May fetch web pages/i));
+    fireEvent.click(screen.getByRole("button", { name: "Start session" }));
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
+    expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
+      workspace: "D:\\example\\project",
+      allow_writes: true,
+      allow_commands: false,
+      allow_web: true,
+    });
+  });
+
+  it("fails closed on a capability error and exposes a retry plus the Windows launcher", async () => {
+    const getUserPresenceCapability = vi.fn()
+      .mockRejectedValueOnce(new Error("synthetic capability failure"))
+      .mockResolvedValueOnce(userPresenceCapability(false));
+    const transport = {
+      ...workspaceMethods(),
+      getUserPresenceCapability,
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Native confirmation could not be verified");
+    expect(screen.getByLabelText(/May write files/i)).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry confirmation check" }));
+
+    await screen.findByText(/This browser can start read-only sessions/);
+    expect(screen.getByText("prompt-enhancer agent-desktop")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start read-only session" })).toBeDisabled();
+    expect(getUserPresenceCapability).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [422, /not an existing folder/i],
+    [403, /outside the allowed workspace roots/i],
+  ])("associates a %s workspace failure with the folder field", async (status, expected) => {
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async () => { throw new TransportError("synthetic rejection", status); }),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const workspace = screen.getByLabelText("Workspace folder");
+    fireEvent.change(workspace, { target: { value: "D:\\example\\rejected" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent(expected);
+    expect(workspace).toHaveAttribute("aria-invalid", "true");
+    expect(workspace).toHaveAttribute("aria-errormessage", error.id);
+    expect(workspace).toHaveFocus();
   });
 
   it("sends the chosen model parameters and standing instructions", async () => {
@@ -231,7 +413,7 @@ describe("AgentPage", () => {
     fireEvent.change(screen.getByLabelText("Max tokens"), { target: { value: "2048" } });
     fireEvent.click(screen.getByLabelText(/Thinking mode/));
     fireEvent.change(screen.getByLabelText("Standing instructions"), { target: { value: "Answer in Polish." } });
-    fireEvent.click(screen.getByRole("button", { name: "Start session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalled());
     const settings = (transport.createAgentSession.mock.calls[0] as unknown[])[0] as {
       parameters: { temperature: number; max_tokens: number; enable_thinking: boolean };

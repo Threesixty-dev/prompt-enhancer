@@ -208,6 +208,30 @@ stops only a server instance that the window started itself. `python -m
 prompt_enhancer desktop` remains available as a terminal-oriented diagnostic
 command.
 
+The protected local Agent uses a separate owned desktop composition:
+
+```powershell
+prompt-enhancer-agent
+# terminal-oriented equivalent
+prompt-enhancer agent-desktop
+```
+
+This launcher opens the full `/agent` surface and must start and own the
+loopback service for the window lifetime. It deliberately refuses to attach
+when the configured port is already occupied, including by an authenticated
+`prompt-enhancer serve` process, because the native window and HTTP approval
+dependency must share one in-process, one-shot user-presence manager. Stop the
+existing service before launching the protected Agent. The ordinary browser
+surface remains read-only for protected actions.
+
+Inside the owned Agent window, **Browse** uses a narrow native folder dialog.
+The bridge is available only while that window remains on the exact `/agent`
+route at the expected loopback origin, returns only the folder explicitly
+selected by the person, and does not log or retain the path. Cancel and
+unavailable results are content-free. The local-agent service still performs
+the authoritative absolute-path, protected-root, drive-root, reparse-point,
+and workspace checks.
+
 See [the live metric radar pipeline](docs/live-metric-radar-pipeline.md) for all
 twenty contracts, zero-versus-missing semantics, model routing, distribution and
 trajectory contracts, resource ceilings, and the remaining calibration gates.

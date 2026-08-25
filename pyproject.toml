@@ -38,6 +38,7 @@ prompt-enhancer = "prompt_enhancer.cli:main"
 
 [project.gui-scripts]
 prompt-enhancer-desktop = "prompt_enhancer.desktop_overlay:desktop_main"
+prompt-enhancer-agent = "prompt_enhancer.desktop_overlay:agent_desktop_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

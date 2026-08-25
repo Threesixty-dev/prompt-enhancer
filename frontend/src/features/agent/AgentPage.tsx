@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentEvent, AgentEvents, AgentSessionView, AgentSettings, LocalModelsOverview, PromptCheckResult, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import {
+  chooseNativeWorkspaceFolder,
+  hasNativeWorkspaceFolderPicker,
+} from "../../shared/platform/nativeDesktopBridge";
 import { TeamFoldersPanel } from "./TeamFoldersPanel";
 import { AgentWorkspacePane } from "./AgentWorkspacePane";
 import { AgentPromptCheckResult, agentPromptContext } from "./AgentPromptCheck";
@@ -11,6 +15,7 @@ const IDLE_POLL_MS = 4000;
 const STREAM_RETRY_MS = 350;
 const MAX_STREAM_RETRY_MS = 5600;
 const MAX_STREAM_FAILURES = 5;
+type UserPresenceState = "checking" | "available" | "unavailable" | "error";
 const TOOL_LABELS: Record<string, string> = {
   read_file: "Read file",
   list_dir: "List folder",
@@ -65,13 +70,15 @@ export function AgentPage({
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [models, setModels] = useState<LocalModelsOverview | null>(null);
   const [workspace, setWorkspace] = useState("");
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [folderPickerAvailable, setFolderPickerAvailable] = useState(
+    hasNativeWorkspaceFolderPicker,
+  );
+  const [folderPickerBusy, setFolderPickerBusy] = useState(false);
+  const [folderPickerNotice, setFolderPickerNotice] = useState("");
   const [modelAlias, setModelAlias] = useState("");
-  const [allowWrites, setAllowWrites] = useState(
-    transport.getUserPresenceCapability === undefined,
-  );
-  const [allowCommands, setAllowCommands] = useState(
-    transport.getUserPresenceCapability === undefined,
-  );
+  const [allowWrites, setAllowWrites] = useState(false);
+  const [allowCommands, setAllowCommands] = useState(false);
   const [allowWeb, setAllowWeb] = useState(false);
   const [temperature, setTemperature] = useState(0.2);
   const [topP, setTopP] = useState(0.95);
@@ -84,17 +91,20 @@ export function AgentPage({
   const [promptCheckNotice, setPromptCheckNotice] = useState("");
   const [promptCheckResult, setPromptCheckResult] = useState<PromptCheckResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
   const [message, setMessage] = useState("");
   const [streamNotice, setStreamNotice] = useState("");
   const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [historyGap, setHistoryGap] = useState(false);
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
-  const [userPresenceAvailable, setUserPresenceAvailable] = useState(
-    transport.getUserPresenceCapability === undefined,
+  const [userPresenceState, setUserPresenceState] = useState<UserPresenceState>(
+    transport.getUserPresenceCapability === undefined ? "unavailable" : "checking",
   );
+  const [userPresenceRetryNonce, setUserPresenceRetryNonce] = useState(0);
   const lastSeq = useRef(0);
   const logRef = useRef<HTMLDivElement | null>(null);
   const approvalRef = useRef<HTMLDivElement | null>(null);
+  const workspaceInputRef = useRef<HTMLInputElement | null>(null);
   const followOutput = useRef(true);
   const promptCheckController = useRef<AbortController | null>(null);
 
@@ -124,35 +134,55 @@ export function AgentPage({
     const controller = new AbortController();
     void refreshSessions(controller.signal);
     transport.getLocalModels?.(controller.signal).then((value) => { if (!controller.signal.aborted) setModels(value); }).catch(() => undefined);
-    if (transport.getUserPresenceCapability === undefined) {
-      setUserPresenceAvailable(true);
-    } else {
-      setUserPresenceAvailable(false);
-      transport.getUserPresenceCapability(controller.signal)
-        .then((value) => {
-          if (!controller.signal.aborted) {
-            setUserPresenceAvailable(value.confirmation_available);
-            if (value.confirmation_available) {
-              setAllowWrites(true);
-              setAllowCommands(true);
-            } else {
-              setAllowWrites(false);
-              setAllowCommands(false);
-              setAllowWeb(false);
-            }
-          }
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) {
-            setUserPresenceAvailable(false);
-            setAllowWrites(false);
-            setAllowCommands(false);
-            setAllowWeb(false);
-          }
-        });
-    }
     return () => controller.abort();
   }, [refreshSessions, transport]);
+
+  useEffect(() => {
+    const getCapability = transport.getUserPresenceCapability;
+    if (getCapability === undefined) {
+      setUserPresenceState("unavailable");
+      setAllowWrites(false);
+      setAllowCommands(false);
+      setAllowWeb(false);
+      return;
+    }
+    const controller = new AbortController();
+    setUserPresenceState("checking");
+    getCapability(controller.signal)
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        const available = value.contract_version === "native-user-presence-capability-v1"
+          && value.confirmation_available === true
+          && value.mode === "native_bridge_bound_token";
+        setUserPresenceState(available ? "available" : "unavailable");
+        if (!available) {
+          setAllowWrites(false);
+          setAllowCommands(false);
+          setAllowWeb(false);
+        }
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setUserPresenceState("error");
+        setAllowWrites(false);
+        setAllowCommands(false);
+        setAllowWeb(false);
+      });
+    return () => controller.abort();
+  }, [transport, userPresenceRetryNonce]);
+
+  useEffect(() => {
+    const handleNativeBridgeReady = () => {
+      setFolderPickerAvailable(hasNativeWorkspaceFolderPicker());
+      setUserPresenceRetryNonce((value) => value + 1);
+    };
+    window.addEventListener("pywebviewready", handleNativeBridgeReady);
+    // Close the render/effect registration race without polling.
+    setFolderPickerAvailable(hasNativeWorkspaceFolderPicker());
+    return () => window.removeEventListener("pywebviewready", handleNativeBridgeReady);
+  }, []);
+
+  const userPresenceAvailable = userPresenceState === "available";
 
   useEffect(() => () => promptCheckController.current?.abort(), []);
 
@@ -269,21 +299,54 @@ export function AgentPage({
     return !workspaceDirty || window.confirm("Discard the unsaved manual workspace edit?");
   }
 
+  function changeWorkspace(value: string): void {
+    setWorkspace(value);
+    setWorkspaceError("");
+    setFolderPickerNotice("");
+  }
+
+  async function browseForWorkspace(): Promise<void> {
+    if (folderPickerBusy || !folderPickerAvailable) return;
+    setFolderPickerBusy(true);
+    setWorkspaceError("");
+    setFolderPickerNotice("");
+    try {
+      const selected = await chooseNativeWorkspaceFolder();
+      if (selected.status === "selected") {
+        setWorkspace(selected.path);
+        setFolderPickerNotice("Workspace folder selected.");
+      } else if (selected.status === "cancelled") {
+        setFolderPickerNotice("Folder selection cancelled. The workspace path was not changed.");
+      } else {
+        setFolderPickerAvailable(false);
+        setFolderPickerNotice("Native folder selection is unavailable here. Enter or paste an absolute path.");
+      }
+    } catch {
+      setWorkspaceError("The native folder picker did not return a valid folder. Enter or paste an absolute path.");
+      workspaceInputRef.current?.focus();
+    } finally {
+      setFolderPickerBusy(false);
+    }
+  }
+
   async function createSession() {
     const path = workspace.trim();
-    if (!path) return;
+    if (!path || busy || creatingSession || userPresenceState === "checking") return;
     if (!mayLeaveWorkspace()) return;
     setBusy(true);
+    setCreatingSession(true);
     setMessage("");
+    setWorkspaceError("");
     try {
+      const protectedActionsAvailable = userPresenceState === "available";
       const settings: AgentSettings = {
         workspace: path,
         model_alias: modelAlias || null,
         parameters: { temperature, top_p: topP, max_tokens: maxTokens, enable_thinking: thinking },
         instructions: instructions.trim() || null,
-        allow_writes: allowWrites,
-        allow_commands: allowCommands,
-        allow_web: allowWeb,
+        allow_writes: protectedActionsAvailable && allowWrites,
+        allow_commands: protectedActionsAvailable && allowCommands,
+        allow_web: protectedActionsAvailable && allowWeb,
         max_steps: 10,
         command_timeout_seconds: 120,
       };
@@ -297,8 +360,18 @@ export function AgentPage({
       followOutput.current = true;
     } catch (caught) {
       const status = caught instanceof TransportError ? caught.status : null;
-      setMessage(status === 422 ? "That is not an existing folder (use an absolute path, not a drive root)." : status === 403 ? "That folder is outside the allowed roots." : status === 409 ? "Too many open sessions - close one first." : "The session could not be created.");
+      if (status === 422 || status === 403) {
+        setWorkspaceError(status === 422
+          ? "That is not an existing folder. Use an absolute path, not a drive root."
+          : "That folder is outside the allowed workspace roots.");
+        workspaceInputRef.current?.focus();
+      } else {
+        setMessage(status === 409
+          ? "Too many open sessions - close one first."
+          : "The session could not be created.");
+      }
     } finally {
+      setCreatingSession(false);
       setBusy(false);
     }
   }
@@ -429,12 +502,45 @@ export function AgentPage({
       <div className={`agent__layout${windowMode ? " agent__layout--window" : ""}`}>
         {!windowMode && (
           <aside className="agent__side">
-            <form className="agent__new" onSubmit={(event) => { event.preventDefault(); void createSession(); }}>
+            <form aria-busy={creatingSession} className="agent__new" onSubmit={(event) => { event.preventDefault(); void createSession(); }}>
               <h2>New session</h2>
-              <label>
-                <span>Workspace folder (absolute path)</span>
-                <input aria-label="Workspace folder" onChange={(e) => setWorkspace(e.currentTarget.value)} placeholder="D:\\projects\\example" type="text" value={workspace} />
-              </label>
+              <div className="agent__workspace-field">
+                <label htmlFor="agent-workspace-folder">Workspace folder (absolute path)</label>
+                <div className="agent__workspace-entry">
+                  <input
+                    aria-describedby="agent-workspace-help agent-workspace-picker-status"
+                    aria-errormessage={workspaceError ? "agent-workspace-error" : undefined}
+                    aria-invalid={workspaceError ? "true" : undefined}
+                    aria-label="Workspace folder"
+                    autoComplete="off"
+                    id="agent-workspace-folder"
+                    onChange={(event) => changeWorkspace(event.currentTarget.value)}
+                    placeholder="D:\\projects\\example"
+                    ref={workspaceInputRef}
+                    spellCheck={false}
+                    type="text"
+                    value={workspace}
+                  />
+                  <button
+                    className="button button--ghost"
+                    disabled={!folderPickerAvailable || folderPickerBusy || creatingSession}
+                    onClick={() => void browseForWorkspace()}
+                    title={folderPickerAvailable ? "Choose a local workspace folder" : "Available in the native desktop window"}
+                    type="button"
+                  >
+                    {folderPickerBusy ? "Choosing…" : "Browse…"}
+                  </button>
+                </div>
+                <p className="agent__note" id="agent-workspace-help">
+                  {folderPickerAvailable
+                    ? "Choose a folder, or enter or paste its absolute path. The picker does not read its files."
+                    : "Folder browsing is unavailable in this browser. Enter or paste an absolute path."}
+                </p>
+                <p className="agent__note" id="agent-workspace-picker-status" role="status">
+                  {folderPickerNotice}
+                </p>
+                {workspaceError && <p className="agent__error" id="agent-workspace-error" role="alert">{workspaceError}</p>}
+              </div>
               <label>
                 <span>Model</span>
                 <select aria-label="Agent model" onChange={(e) => setModelAlias(e.currentTarget.value)} value={modelAlias}>
@@ -464,11 +570,45 @@ export function AgentPage({
                   <textarea aria-label="Standing instructions" onChange={(e) => setInstructions(e.currentTarget.value)} placeholder="e.g. Answer in Polish. Keep documents as Markdown in docs/." rows={2} value={instructions} />
                 </label>
               </details>
-              <label className="agent__toggle"><input checked={allowWrites} disabled={!userPresenceAvailable} onChange={(e) => setAllowWrites(e.currentTarget.checked)} type="checkbox" /><span>May write files (each write needs approval, diff shown)</span></label>
-              <label className="agent__toggle"><input checked={allowCommands} disabled={!userPresenceAvailable} onChange={(e) => setAllowCommands(e.currentTarget.checked)} type="checkbox" /><span>May run commands (each command needs approval)</span></label>
-              <label className="agent__toggle"><input checked={allowWeb} disabled={!userPresenceAvailable} onChange={(e) => setAllowWeb(e.currentTarget.checked)} type="checkbox" /><span>May fetch web pages (each fetch needs approval)</span></label>
-              {!userPresenceAvailable && <p className="agent__note">Native confirmation is unavailable in this server/window composition. New sessions stay read-only; protected actions cannot be approved here.</p>}
-              <button className="button button--primary" disabled={busy || !workspace.trim()} type="submit">Start session</button>
+              <fieldset
+                aria-describedby="agent-permission-status"
+                className="agent__permissions"
+                disabled={!userPresenceAvailable}
+              >
+                <legend>Protected actions</legend>
+                <label className="agent__toggle"><input checked={allowWrites} onChange={(e) => setAllowWrites(e.currentTarget.checked)} type="checkbox" /><span>May write files (each write needs approval, diff shown)</span></label>
+                <label className="agent__toggle"><input checked={allowCommands} onChange={(e) => setAllowCommands(e.currentTarget.checked)} type="checkbox" /><span>May run commands (each command needs approval)</span></label>
+                <label className="agent__toggle"><input checked={allowWeb} onChange={(e) => setAllowWeb(e.currentTarget.checked)} type="checkbox" /><span>May fetch web pages (each fetch needs approval)</span></label>
+              </fieldset>
+              <div className="agent__permission-state">
+                <p
+                  className="agent__note"
+                  id="agent-permission-status"
+                  role={userPresenceState === "error" ? "alert" : "status"}
+                >
+                  {userPresenceState === "checking"
+                    ? "Checking whether native confirmation is available…"
+                    : userPresenceState === "available"
+                      ? "Optional. Every selected protected action still requires a separate native confirmation."
+                      : userPresenceState === "error"
+                        ? "Native confirmation could not be verified. New sessions stay read-only."
+                        : <>
+                            This browser can start read-only sessions. For Browse and protected actions on Windows, stop the current <code>serve</code> process and run <code>prompt-enhancer agent-desktop</code>.
+                          </>}
+                </p>
+                {userPresenceState === "error" && transport.getUserPresenceCapability && (
+                  <button className="button button--ghost" onClick={() => setUserPresenceRetryNonce((value) => value + 1)} type="button">
+                    Retry confirmation check
+                  </button>
+                )}
+              </div>
+              <button
+                className="button button--primary"
+                disabled={busy || creatingSession || folderPickerBusy || userPresenceState === "checking" || !workspace.trim()}
+                type="submit"
+              >
+                {creatingSession ? "Starting…" : userPresenceAvailable ? "Start session" : "Start read-only session"}
+              </button>
               {message && !current && <p className="agent__error" role="alert">{message}</p>}
             </form>
             <section className="agent__sessions" aria-labelledby="agent-sessions-title">
@@ -487,7 +627,7 @@ export function AgentPage({
                 </ul>
               )}
             </section>
-            <TeamFoldersPanel onUseAsWorkspace={(path) => setWorkspace(path)} transport={transport} />
+            <TeamFoldersPanel onUseAsWorkspace={changeWorkspace} transport={transport} />
           </aside>
         )}
 
