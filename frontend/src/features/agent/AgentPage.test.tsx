@@ -346,6 +346,74 @@ describe("AgentPage", () => {
     });
   });
 
+  it("pins the displayed active running model when the default model option is used", async () => {
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async (settings: AgentSettings) => view({
+        settings: { ...view().settings, workspace: settings.workspace, model_alias: settings.model_alias },
+        model_alias: settings.model_alias,
+      })),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByText(/running and ready/)).toBeVisible();
+    expect(screen.getByLabelText("Agent model")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
+    expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
+      workspace: "D:\\example\\project",
+      model_alias: MODEL_ALIAS,
+    });
+  });
+
+  it("blocks stale model and session controls when the local app disconnects", async () => {
+    const current = view();
+    const transport = {
+      ...workspaceMethods(),
+      getRuntimeHealth: vi.fn(async () => { throw new TypeError("synthetic connection failure"); }),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Local app disconnected");
+    const composer = await screen.findByLabelText("Message to the agent");
+    expect(composer).toBeDisabled();
+    expect(composer).toHaveAttribute("placeholder", expect.stringMatching(/local app is disconnected/i));
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\second-project" } });
+    expect(screen.getByRole("button", { name: "Local app disconnected" })).toBeDisabled();
+  });
+
+  it("clears a ghost session after an authoritative refresh reports it gone", async () => {
+    const current = view();
+    const base = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+    const rendered = render(<AgentPage transport={base} />);
+    expect(await screen.findByLabelText("Message to the agent")).toBeVisible();
+
+    const refreshed = { ...base, listAgentSessions: vi.fn(async () => []) };
+    rendered.rerender(<AgentPage transport={refreshed} />);
+
+    await waitFor(() => expect(screen.queryByLabelText("Message to the agent")).toBeNull());
+    expect(screen.getByText(/Start a session on the left/)).toBeVisible();
+  });
+
   it("blocks an existing session while its model is stopped and enables the composer after activation", async () => {
     const current = view();
     const stopped = modelStatus("stopped");

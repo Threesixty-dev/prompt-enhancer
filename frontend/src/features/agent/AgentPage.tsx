@@ -5,6 +5,7 @@ import {
   chooseNativeWorkspaceFolder,
   hasNativeWorkspaceFolderPicker,
 } from "../../shared/platform/nativeDesktopBridge";
+import type { LocalRuntimeTransport } from "../../shared/platform/runtimeMode";
 import { TeamFoldersPanel } from "./TeamFoldersPanel";
 import { AgentWorkspacePane } from "./AgentWorkspacePane";
 import { AgentPromptCheckResult, agentPromptContext } from "./AgentPromptCheck";
@@ -17,6 +18,7 @@ const MAX_STREAM_RETRY_MS = 5600;
 const MAX_STREAM_FAILURES = 5;
 const MODEL_START_POLL_MS = 1500;
 const MAX_MODEL_START_POLLS = 20;
+const CONNECTION_POLL_MS = 3000;
 type UserPresenceState = "checking" | "available" | "unavailable" | "error";
 const TOOL_LABELS: Record<string, string> = {
   read_file: "Read file",
@@ -49,12 +51,14 @@ function summarizeArguments(tool: string | null | undefined, args: Record<string
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
-> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "checkPrompt" | "getUserPresenceCapability" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
+> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "checkPrompt" | "getUserPresenceCapability" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>
+  & Partial<Pick<LocalRuntimeTransport, "getRuntimeHealth">>;
 
 type ModelCatalogState = "unavailable" | "loading" | "ready" | "error";
 type ModelFeedbackTarget = "selection" | "session";
 type ModelActionKind = "start" | "stop" | null;
 type SessionLookupState = "idle" | "loading" | "missing" | "error";
+type ConnectionState = "unverified" | "checking" | "connected" | "disconnected";
 
 function runtimeStateLabel(state: LocalModelStatus["runtime"]["state"]): string {
   return state === "running" ? "running" : state === "starting" ? "starting" : state === "failed" ? "failed" : "stopped";
@@ -77,6 +81,9 @@ export function AgentPage({
 }) {
   const [sessions, setSessions] = useState<AgentSessionView[] | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>(
+    transport.getRuntimeHealth === undefined ? "unverified" : "checking",
+  );
   const [current, setCurrent] = useState<AgentSessionView | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [models, setModels] = useState<LocalModelsOverview | null>(null);
@@ -151,7 +158,7 @@ export function AgentPage({
     } catch (caught) {
       if (signal?.aborted) return;
       if (caught instanceof TransportError && caught.status === 404) setUnavailable(true);
-      else setSessions([]);
+      else setSessions((previous) => previous ?? []);
     }
   }, [transport]);
 
@@ -180,6 +187,44 @@ export function AgentPage({
     void refreshModels(controller.signal);
     return () => controller.abort();
   }, [refreshModels, refreshSessions]);
+
+  useEffect(() => {
+    const getRuntimeHealth = transport.getRuntimeHealth;
+    if (getRuntimeHealth === undefined) {
+      setConnectionState("unverified");
+      return;
+    }
+    const controller = new AbortController();
+    let cancelled = false;
+    let handle = 0;
+    let wasDisconnected = false;
+
+    const check = async () => {
+      try {
+        await getRuntimeHealth(controller.signal);
+        if (cancelled) return;
+        const recovered = wasDisconnected;
+        wasDisconnected = false;
+        setConnectionState("connected");
+        if (recovered) {
+          void refreshSessions();
+          void refreshModels();
+        }
+      } catch {
+        if (cancelled || controller.signal.aborted) return;
+        wasDisconnected = true;
+        setConnectionState("disconnected");
+      }
+      if (!cancelled) handle = window.setTimeout(() => { void check(); }, CONNECTION_POLL_MS);
+    };
+
+    void check();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(handle);
+    };
+  }, [refreshModels, refreshSessions, transport.getRuntimeHealth]);
 
   useEffect(() => {
     if (transport.getLocalModels === undefined) return;
@@ -267,9 +312,20 @@ export function AgentPage({
   // Pick the session from the route, or the newest one.
   useEffect(() => {
     if (!sessions) return;
-    const wanted = sessionId ? sessions.find((s) => s.session_id === sessionId) : current ? sessions.find((s) => s.session_id === current.session_id) : sessions[0];
+    const currentFromList = current ? sessions.find((s) => s.session_id === current.session_id) : undefined;
+    const wanted = sessionId
+      ? sessions.find((s) => s.session_id === sessionId)
+      : currentFromList ?? sessions[0];
     if (wanted && wanted.session_id !== current?.session_id) {
       setCurrent(wanted);
+      setEvents([]);
+      setHistoryGap(false);
+      setStreamNotice("");
+      lastSeq.current = 0;
+      followOutput.current = true;
+    }
+    if (!wanted && !sessionId && current) {
+      setCurrent(null);
       setEvents([]);
       setHistoryGap(false);
       setStreamNotice("");
@@ -299,6 +355,7 @@ export function AgentPage({
       .then((view) => {
         if (controller.signal.aborted) return;
         if (!view || view.session_id !== sessionId) {
+          setCurrent(null);
           setSessionLookupState("missing");
           return;
         }
@@ -312,7 +369,9 @@ export function AgentPage({
       })
       .catch((caught) => {
         if (controller.signal.aborted) return;
-        setSessionLookupState(caught instanceof TransportError && caught.status === 404 ? "missing" : "error");
+        const missing = caught instanceof TransportError && caught.status === 404;
+        if (missing) setCurrent(null);
+        setSessionLookupState(missing ? "missing" : "error");
       });
     return () => controller.abort();
   }, [sessionId, sessions, transport]);
@@ -419,9 +478,10 @@ export function AgentPage({
       ? (models?.models ?? []).find((model) => model.record.alias === currentModelAlias) ?? null
       : runningModels[0] ?? null;
   }, [current, currentModelAlias, models, runningModels]);
-  const selectedModelBlocked = modelCatalogState === "loading"
+  const connectionDisconnected = connectionState === "disconnected";
+  const selectedModelBlocked = connectionDisconnected || modelCatalogState === "loading"
     || (modelCatalogState === "ready" && selectedModel?.runtime.state !== "running");
-  const currentModelBlocked = modelCatalogState === "loading"
+  const currentModelBlocked = connectionDisconnected || modelCatalogState === "loading"
     || (modelCatalogState === "ready" && currentModel?.runtime.state !== "running");
   const liveStreams = useMemo(() => coalesceLiveStreams(events), [events]);
   const reasoningEnabled = current?.settings.parameters.enable_thinking ?? false;
@@ -595,7 +655,7 @@ export function AgentPage({
       const protectedActionsAvailable = userPresenceState === "available";
       const settings: AgentSettings = {
         workspace: path,
-        model_alias: modelAlias || null,
+        model_alias: modelAlias || selectedModel?.record.alias || null,
         parameters: { temperature, top_p: topP, max_tokens: maxTokens, enable_thinking: thinking },
         instructions: instructions.trim() || null,
         allow_writes: protectedActionsAvailable && allowWrites,
@@ -616,7 +676,10 @@ export function AgentPage({
     } catch (caught) {
       const status = caught instanceof TransportError ? caught.status : null;
       const reason = caught instanceof TransportError ? caught.reasonCode : null;
-      if (status === 422 || status === 403) {
+      if (caught instanceof TypeError && transport.getRuntimeHealth !== undefined) {
+        setConnectionState("disconnected");
+        setCreateMessage("The local app disconnected before the session could start. Reopen the protected Agent window; this page will reconnect automatically.");
+      } else if (status === 422 || status === 403) {
         setWorkspaceError(status === 422
           ? "That is not an existing folder. Use an absolute path, not a drive root."
           : "That folder is outside the allowed workspace roots.");
@@ -652,14 +715,19 @@ export function AgentPage({
       clearPromptCheck();
     } catch (caught) {
       const reason = caught instanceof TransportError ? caught.reasonCode : null;
-      if (reason === "model_not_ready" || reason === "no_active_model") void refreshModels();
-      setConversationMessage(reason === "model_not_ready"
-        ? "This session's model is stopped. Start the session model, then send again."
-        : reason === "no_active_model"
-          ? "No local model is running. Start a model, then send again."
-          : reason === "turn_in_progress"
-            ? "The agent is already working on a turn. Wait for it to finish or stop it first."
-            : "The message could not be sent.");
+      if (caught instanceof TypeError && transport.getRuntimeHealth !== undefined) {
+        setConnectionState("disconnected");
+        setConversationMessage("The local app disconnected before it received this message. Your draft is still here; reopen the protected Agent window and retry after reconnection.");
+      } else {
+        if (reason === "model_not_ready" || reason === "no_active_model") void refreshModels();
+        setConversationMessage(reason === "model_not_ready"
+          ? "This session's model is stopped. Start the session model, then send again."
+          : reason === "no_active_model"
+            ? "No local model is running. Start a model, then send again."
+            : reason === "turn_in_progress"
+              ? "The agent is already working on a turn. Wait for it to finish or stop it first."
+              : "The message could not be sent.");
+      }
     } finally {
       setBusy(false);
     }
@@ -776,6 +844,15 @@ export function AgentPage({
         </div>
       </header>
 
+      {connectionDisconnected && (
+        <div className="agent__connection-error" role="alert">
+          <strong>Local app disconnected</strong>
+          <span>
+            The page is still visible, but its local server is no longer running. Reopen the protected Agent desktop window and keep it open; this page will reconnect automatically. Sessions held by the closed process cannot be restored.
+          </span>
+        </div>
+      )}
+
       <div className={`agent__layout${windowMode ? " agent__layout--window" : ""}${current ? " agent__layout--session" : ""}`}>
         {!windowMode && (
           <aside className="agent__side">
@@ -848,7 +925,9 @@ export function AgentPage({
                 </label>
                 <div className="agent__model-state" id="agent-model-status">
                   <p className="agent__note" role="status">
-                    {modelCatalogState === "loading"
+                    {connectionDisconnected
+                      ? "The local app is disconnected; cached model status is not usable."
+                      : modelCatalogState === "loading"
                       ? "Checking which local models are ready…"
                       : modelCatalogState === "error"
                         ? "Model status could not be refreshed. The server will verify it before the first message."
@@ -865,7 +944,7 @@ export function AgentPage({
                   {modelAlias && selectedModel && selectedModel.runtime.state !== "running" && transport.activateLocalModel && (
                     <button
                       className="button button--ghost"
-                      disabled={Boolean(modelActionAlias) || selectedModel.runtime.state === "starting"}
+                      disabled={connectionDisconnected || Boolean(modelActionAlias) || selectedModel.runtime.state === "starting"}
                       onClick={() => void activateModel(selectedModel.record.alias, "selection")}
                       type="button"
                     >
@@ -930,7 +1009,7 @@ export function AgentPage({
                   {userPresenceState === "checking"
                     ? "Checking whether native confirmation is available…"
                     : userPresenceState === "available"
-                      ? "Optional. Every selected protected action still requires a separate native confirmation."
+                      ? "Optional. Every selected protected action still requires a separate native confirmation. Keep this protected Agent window open; closing it stops its models and in-memory sessions."
                       : userPresenceState === "error"
                         ? "Native confirmation could not be verified. New sessions stay read-only."
                         : <>
@@ -951,7 +1030,9 @@ export function AgentPage({
               >
                 {creatingSession
                   ? "Starting session…"
-                  : selectedModelBlocked
+                  : connectionDisconnected
+                    ? "Local app disconnected"
+                    : selectedModelBlocked
                     ? "Start model first"
                     : userPresenceAvailable ? "Start session" : "Start read-only session"}
               </button>
@@ -1043,7 +1124,9 @@ export function AgentPage({
                   data-state={currentModel?.runtime.state ?? modelCatalogState}
                 >
                   <span id="agent-session-model-status" role="status">
-                    {modelCatalogState === "loading"
+                    {connectionDisconnected
+                      ? "The local app is disconnected. Reopen the protected Agent desktop window before sending."
+                      : modelCatalogState === "loading"
                       ? "Checking the session model…"
                       : modelCatalogState === "error"
                         ? "Model status could not be refreshed; it will be verified before the next turn."
@@ -1193,7 +1276,9 @@ export function AgentPage({
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }}
                   placeholder={current.running
                     ? "The agent is working…"
-                    : currentModelBlocked
+                    : connectionDisconnected
+                      ? "The local app is disconnected; reopen it before writing a message"
+                      : currentModelBlocked
                       ? currentModel === null
                         ? "Open Models and start a local model to write a message"
                         : "Start the session model to write a message"
