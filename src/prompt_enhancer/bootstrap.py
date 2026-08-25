@@ -426,6 +426,12 @@ class LocalApplication:
                     return item.record.alias
             return None
 
+        def model_ready(alias: str) -> bool:
+            try:
+                return models.status(alias).runtime.state is RuntimeState.RUNNING
+            except Exception:
+                return False
+
         user_home = Path.home()
         codex_home = Path(os.environ.get("CODEX_HOME", user_home / ".codex")).expanduser()
         protected_roots = (
@@ -449,6 +455,7 @@ class LocalApplication:
             chat=models.chat,
             open_chat=models.open_chat,
             active_model=active_model,
+            model_ready=model_ready,
             forbidden_roots=protected_roots,
         )
 

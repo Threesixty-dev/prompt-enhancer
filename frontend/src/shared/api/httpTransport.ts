@@ -275,6 +275,10 @@ export type SafeTransportReasonCode =
   | "claude_home_invalid"
   | "claude_home_override_unsupported"
   | "claude_code_not_installed"
+  | "model_not_ready"
+  | "no_active_model"
+  | "too_many_sessions"
+  | "turn_in_progress"
   | "codex_not_installed";
 
 const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
@@ -326,6 +330,10 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "claude_home_invalid",
   "claude_home_override_unsupported",
   "claude_code_not_installed",
+  "model_not_ready",
+  "no_active_model",
+  "too_many_sessions",
+  "turn_in_progress",
   "codex_not_installed",
 ]);
 
@@ -2684,7 +2692,7 @@ export function createHttpTransport(options: {
       return request<AgentSessionView[]>("/v1/agent/sessions", { method: "GET" }, signal);
     },
     createAgentSession(settings, signal) {
-      return request<AgentSessionView>("/v1/agent/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }, signal);
+      return request<AgentSessionView>("/v1/agent/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }, signal, true);
     },
     getAgentSession(sessionId, signal) {
       return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" }, signal);
@@ -2693,7 +2701,7 @@ export function createHttpTransport(options: {
       await request<unknown>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }, signal);
     },
     sendAgentMessage(sessionId, text, signal) {
-      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }, signal);
+      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }, signal, true);
     },
     async getAgentEvents(sessionId, after, signal) {
       const value = await request<unknown>(

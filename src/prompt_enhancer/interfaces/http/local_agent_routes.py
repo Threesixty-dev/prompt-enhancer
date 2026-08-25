@@ -59,6 +59,7 @@ _STATUS = {
     "session_not_found": 404,
     "turn_in_progress": 409,
     "no_active_model": 409,
+    "model_not_ready": 409,
     "approval_not_pending": 409,
 }
 _SESSION_ID = r"^[0-9a-f]{32}$"

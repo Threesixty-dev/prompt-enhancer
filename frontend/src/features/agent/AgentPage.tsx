@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentEvent, AgentEvents, AgentSessionView, AgentSettings, LocalModelsOverview, PromptCheckResult, PromptEnhancerTransport } from "../../shared/api/contracts";
+import type { AgentEvent, AgentEvents, AgentSessionView, AgentSettings, LocalModelStatus, LocalModelsOverview, PromptCheckResult, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import {
   chooseNativeWorkspaceFolder,
@@ -15,6 +15,8 @@ const IDLE_POLL_MS = 4000;
 const STREAM_RETRY_MS = 350;
 const MAX_STREAM_RETRY_MS = 5600;
 const MAX_STREAM_FAILURES = 5;
+const MODEL_START_POLL_MS = 1500;
+const MAX_MODEL_START_POLLS = 20;
 type UserPresenceState = "checking" | "available" | "unavailable" | "error";
 const TOOL_LABELS: Record<string, string> = {
   read_file: "Read file",
@@ -47,7 +49,14 @@ function summarizeArguments(tool: string | null | undefined, args: Record<string
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
-> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "checkPrompt" | "getUserPresenceCapability" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
+> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "activateLocalModel" | "checkPrompt" | "getUserPresenceCapability" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
+
+type ModelCatalogState = "unavailable" | "loading" | "ready" | "error";
+type ModelFeedbackTarget = "selection" | "session";
+
+function runtimeStateLabel(state: LocalModelStatus["runtime"]["state"]): string {
+  return state === "running" ? "running" : state === "starting" ? "starting" : state === "failed" ? "failed" : "stopped";
+}
 
 /**
  * Agent workspace: a local model works inside one folder through tools. Reads
@@ -69,6 +78,14 @@ export function AgentPage({
   const [current, setCurrent] = useState<AgentSessionView | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [models, setModels] = useState<LocalModelsOverview | null>(null);
+  const [modelCatalogState, setModelCatalogState] = useState<ModelCatalogState>(
+    transport.getLocalModels === undefined ? "unavailable" : "loading",
+  );
+  const [modelActionAlias, setModelActionAlias] = useState("");
+  const [modelRefreshBusy, setModelRefreshBusy] = useState(false);
+  const [modelFeedbackTarget, setModelFeedbackTarget] = useState<ModelFeedbackTarget>("selection");
+  const [modelNotice, setModelNotice] = useState("");
+  const [modelError, setModelError] = useState("");
   const [workspace, setWorkspace] = useState("");
   const [workspaceError, setWorkspaceError] = useState("");
   const [folderPickerAvailable, setFolderPickerAvailable] = useState(
@@ -92,9 +109,11 @@ export function AgentPage({
   const [promptCheckResult, setPromptCheckResult] = useState<PromptCheckResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
-  const [message, setMessage] = useState("");
+  const [createMessage, setCreateMessage] = useState("");
+  const [conversationMessage, setConversationMessage] = useState("");
   const [streamNotice, setStreamNotice] = useState("");
   const [streamRetryNonce, setStreamRetryNonce] = useState(0);
+  const [composerFocusNonce, setComposerFocusNonce] = useState(0);
   const [historyGap, setHistoryGap] = useState(false);
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
   const [userPresenceState, setUserPresenceState] = useState<UserPresenceState>(
@@ -105,6 +124,8 @@ export function AgentPage({
   const logRef = useRef<HTMLDivElement | null>(null);
   const approvalRef = useRef<HTMLDivElement | null>(null);
   const workspaceInputRef = useRef<HTMLInputElement | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const modelStartPolls = useRef(0);
   const followOutput = useRef(true);
   const promptCheckController = useRef<AbortController | null>(null);
 
@@ -130,12 +151,53 @@ export function AgentPage({
     }
   }, [transport]);
 
+  const refreshModels = useCallback(async (signal?: AbortSignal): Promise<LocalModelsOverview | null> => {
+    const getLocalModels = transport.getLocalModels;
+    if (getLocalModels === undefined) {
+      setModelCatalogState("unavailable");
+      return null;
+    }
+    try {
+      const value = await getLocalModels(signal);
+      if (signal?.aborted) return null;
+      setModels(value);
+      setModelCatalogState("ready");
+      return value;
+    } catch {
+      if (signal?.aborted) return null;
+      setModelCatalogState("error");
+      return null;
+    }
+  }, [transport]);
+
   useEffect(() => {
     const controller = new AbortController();
     void refreshSessions(controller.signal);
-    transport.getLocalModels?.(controller.signal).then((value) => { if (!controller.signal.aborted) setModels(value); }).catch(() => undefined);
+    void refreshModels(controller.signal);
     return () => controller.abort();
-  }, [refreshSessions, transport]);
+  }, [refreshModels, refreshSessions]);
+
+  useEffect(() => {
+    if (transport.getLocalModels === undefined) return;
+    const handleFocus = () => { void refreshModels(); };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [refreshModels, transport.getLocalModels]);
+
+  useEffect(() => {
+    const hasStartingModel = modelCatalogState === "ready"
+      && (models?.models ?? []).some((model) => model.runtime.state === "starting");
+    if (!hasStartingModel) {
+      modelStartPolls.current = 0;
+      return;
+    }
+    if (modelStartPolls.current >= MAX_MODEL_START_POLLS) return;
+    const handle = window.setTimeout(() => {
+      modelStartPolls.current += 1;
+      void refreshModels();
+    }, MODEL_START_POLL_MS);
+    return () => window.clearTimeout(handle);
+  }, [modelCatalogState, models, refreshModels]);
 
   useEffect(() => {
     const getCapability = transport.getUserPresenceCapability;
@@ -188,7 +250,15 @@ export function AgentPage({
 
   useEffect(() => {
     clearPromptCheck();
+    setConversationMessage("");
   }, [clearPromptCheck, current?.session_id]);
+
+  useEffect(() => {
+    if (!current || composerFocusNonce === 0) return;
+    const composer = composerInputRef.current;
+    composer?.scrollIntoView?.({ block: "nearest" });
+    composer?.focus({ preventScroll: true });
+  }, [composerFocusNonce, current?.session_id]);
 
   // Pick the session from the route, or the newest one.
   useEffect(() => {
@@ -233,6 +303,7 @@ export function AgentPage({
           return compactTerminalDeltas([...previous, ...fresh.filter((event) => event.seq > priorSeq)]);
         });
         lastSeq.current = fresh[fresh.length - 1].seq;
+        if (fresh.some((event) => event.kind === "error")) void refreshModels();
       }
       setCurrent((previous) => previous && previous.session_id === page.session_id
         ? { ...previous, running: page.running, pending_approval_id: page.pending_approval_id ?? null, last_seq: page.last_seq }
@@ -284,7 +355,7 @@ export function AgentPage({
       void tick().then(schedule);
     }
     return () => { cancelled = true; controller.abort(); window.clearTimeout(handle); };
-  }, [current?.session_id, current?.running, streamRetryNonce, transport]);
+  }, [current?.session_id, current?.running, refreshModels, streamRetryNonce, transport]);
 
   useEffect(() => {
     const node = logRef.current;
@@ -292,8 +363,32 @@ export function AgentPage({
   }, [events]);
 
   const runningModels = useMemo(() => (models?.models ?? []).filter((m) => m.runtime.state === "running"), [models]);
+  const selectedModel = useMemo(
+    () => modelAlias
+      ? (models?.models ?? []).find((model) => model.record.alias === modelAlias) ?? null
+      : runningModels[0] ?? null,
+    [modelAlias, models, runningModels],
+  );
+  const currentModelAlias = current?.model_alias ?? current?.settings.model_alias ?? null;
+  const currentModel = useMemo(() => {
+    if (!current) return null;
+    return currentModelAlias
+      ? (models?.models ?? []).find((model) => model.record.alias === currentModelAlias) ?? null
+      : runningModels[0] ?? null;
+  }, [current, currentModelAlias, models, runningModels]);
+  const selectedModelBlocked = modelCatalogState === "loading"
+    || (modelCatalogState === "ready" && selectedModel?.runtime.state !== "running");
+  const currentModelBlocked = modelCatalogState === "loading"
+    || (modelCatalogState === "ready" && currentModel?.runtime.state !== "running");
   const liveStreams = useMemo(() => coalesceLiveStreams(events), [events]);
   const handleWorkspaceDirty = useCallback((value: boolean) => setWorkspaceDirty(value), []);
+
+  useEffect(() => {
+    if (!windowMode || !current || current.running || currentModelBlocked) return;
+    const composer = composerInputRef.current;
+    composer?.scrollIntoView?.({ block: "nearest" });
+    composer?.focus({ preventScroll: true });
+  }, [current?.session_id, current?.running, currentModelBlocked, windowMode]);
 
   function mayLeaveWorkspace(): boolean {
     return !workspaceDirty || window.confirm("Discard the unsaved manual workspace edit?");
@@ -329,13 +424,62 @@ export function AgentPage({
     }
   }
 
+  async function activateModel(alias: string, target: ModelFeedbackTarget): Promise<void> {
+    const activate = transport.activateLocalModel;
+    if (!activate || !alias || modelActionAlias) return;
+    setModelActionAlias(alias);
+    setModelFeedbackTarget(target);
+    setModelError("");
+    setModelNotice("");
+    try {
+      const status = await activate(alias, {
+        remember: true,
+        fast_attention: true,
+        tool_calling: true,
+      });
+      if (status.record.alias !== alias || status.runtime.state !== "running") {
+        throw new Error("model_activation_incomplete");
+      }
+      setModels((previous) => previous === null ? previous : {
+        ...previous,
+        models: previous.models.map((model) => model.record.alias === alias ? status : model),
+      });
+      setModelCatalogState("ready");
+      setModelNotice(`${status.record.display_name} is running and ready for the agent.`);
+      setCreateMessage("");
+      setConversationMessage("");
+    } catch {
+      setModelError("The model could not be started. Review its runtime settings on the Models page, then retry.");
+    } finally {
+      setModelActionAlias("");
+    }
+  }
+
+  async function refreshModelStatus(target: ModelFeedbackTarget): Promise<void> {
+    if (modelRefreshBusy || transport.getLocalModels === undefined) return;
+    setModelRefreshBusy(true);
+    setModelFeedbackTarget(target);
+    setModelError("");
+    setModelNotice("");
+    try {
+      const overview = await refreshModels();
+      if (overview === null) {
+        setModelError("Model status could not be refreshed. Check the Models page or retry here.");
+      }
+    } finally {
+      setModelRefreshBusy(false);
+    }
+  }
+
   async function createSession() {
     const path = workspace.trim();
-    if (!path || busy || creatingSession || userPresenceState === "checking") return;
+    if (!path || busy || creatingSession || userPresenceState === "checking" || selectedModelBlocked) return;
     if (!mayLeaveWorkspace()) return;
     setBusy(true);
     setCreatingSession(true);
-    setMessage("");
+    setCreateMessage("");
+    setModelFeedbackTarget("selection");
+    setModelError("");
     setWorkspaceError("");
     try {
       const protectedActionsAvailable = userPresenceState === "available";
@@ -353,6 +497,7 @@ export function AgentPage({
       const created = await transport.createAgentSession(settings);
       await refreshSessions();
       setCurrent(created);
+      setComposerFocusNonce((value) => value + 1);
       setEvents([]);
       setHistoryGap(false);
       setStreamNotice("");
@@ -360,15 +505,23 @@ export function AgentPage({
       followOutput.current = true;
     } catch (caught) {
       const status = caught instanceof TransportError ? caught.status : null;
+      const reason = caught instanceof TransportError ? caught.reasonCode : null;
       if (status === 422 || status === 403) {
         setWorkspaceError(status === 422
           ? "That is not an existing folder. Use an absolute path, not a drive root."
           : "That folder is outside the allowed workspace roots.");
         workspaceInputRef.current?.focus();
+      } else if (reason === "model_not_ready" || reason === "no_active_model") {
+        void refreshModels();
+        setModelError(reason === "model_not_ready"
+          ? "The selected model is not running. Start it here, then create the session."
+          : "No local model is running. Choose an installed model and start it first.");
       } else {
-        setMessage(status === 409
+        setCreateMessage(reason === "too_many_sessions"
           ? "Too many open sessions - close one first."
-          : "The session could not be created.");
+          : status === 409
+            ? "Local state changed while the session was starting. Refresh the model status and retry."
+            : "The session could not be created.");
       }
     } finally {
       setCreatingSession(false);
@@ -378,9 +531,9 @@ export function AgentPage({
 
   async function send() {
     const text = draft.trim();
-    if (!current || !text || busy || promptCheckBusy) return;
+    if (!current || !text || busy || promptCheckBusy || currentModelBlocked) return;
     setBusy(true);
-    setMessage("");
+    setConversationMessage("");
     followOutput.current = true;
     try {
       const view = await transport.sendAgentMessage(current.session_id, text);
@@ -388,8 +541,15 @@ export function AgentPage({
       setDraft("");
       clearPromptCheck();
     } catch (caught) {
-      const status = caught instanceof TransportError ? caught.status : null;
-      setMessage(status === 409 ? "No local model is active (activate one on the Models page), or a turn is still running." : "The message could not be sent.");
+      const reason = caught instanceof TransportError ? caught.reasonCode : null;
+      if (reason === "model_not_ready" || reason === "no_active_model") void refreshModels();
+      setConversationMessage(reason === "model_not_ready"
+        ? "This session's model is stopped. Start the session model, then send again."
+        : reason === "no_active_model"
+          ? "No local model is running. Start a model, then send again."
+          : reason === "turn_in_progress"
+            ? "The agent is already working on a turn. Wait for it to finish or stop it first."
+            : "The message could not be sent.");
     } finally {
       setBusy(false);
     }
@@ -452,7 +612,7 @@ export function AgentPage({
       setCurrent(view);
     } catch (caught) {
       const status = caught instanceof TransportError ? caught.status : null;
-      setMessage(status === 503
+      setConversationMessage(status === 503
         ? "Native user-presence confirmation is unavailable in this app composition. The agent action remains pending."
         : status === 403
           ? "The native confirmation was declined or expired. The agent action remains pending."
@@ -472,7 +632,7 @@ export function AgentPage({
       if (current?.session_id === id) { setCurrent(null); setEvents([]); setHistoryGap(false); setStreamNotice(""); lastSeq.current = 0; }
       await refreshSessions();
     } catch {
-      setMessage("The session could not be closed.");
+      setConversationMessage("The session could not be closed.");
     }
   }
 
@@ -499,7 +659,7 @@ export function AgentPage({
         </div>
       </header>
 
-      <div className={`agent__layout${windowMode ? " agent__layout--window" : ""}`}>
+      <div className={`agent__layout${windowMode ? " agent__layout--window" : ""}${current ? " agent__layout--session" : ""}`}>
         {!windowMode && (
           <aside className="agent__side">
             <form aria-busy={creatingSession} className="agent__new" onSubmit={(event) => { event.preventDefault(); void createSession(); }}>
@@ -541,13 +701,77 @@ export function AgentPage({
                 </p>
                 {workspaceError && <p className="agent__error" id="agent-workspace-error" role="alert">{workspaceError}</p>}
               </div>
-              <label>
-                <span>Model</span>
-                <select aria-label="Agent model" onChange={(e) => setModelAlias(e.currentTarget.value)} value={modelAlias}>
-                  <option value="">Active model{runningModels.length ? ` (${runningModels[0].record.alias})` : ""}</option>
-                  {(models?.models ?? []).map((m) => <option key={m.record.alias} value={m.record.alias}>{m.record.display_name}{m.runtime.state === "running" ? " · running" : ""}</option>)}
-                </select>
-              </label>
+              <div className="agent__model-control">
+                <label>
+                  <span>Model</span>
+                  <select
+                    aria-describedby="agent-model-status"
+                    aria-label="Agent model"
+                    onChange={(event) => {
+                      setModelAlias(event.currentTarget.value);
+                      setModelFeedbackTarget("selection");
+                      setModelError("");
+                      setModelNotice("");
+                    }}
+                    value={modelAlias}
+                  >
+                    <option value="">
+                      {modelCatalogState === "loading"
+                        ? "Checking active model…"
+                        : runningModels.length > 0
+                          ? `Active model · ${runningModels[0].record.display_name} · running`
+                          : "No active model running"}
+                    </option>
+                    {(models?.models ?? []).map((model) => (
+                      <option key={model.record.alias} value={model.record.alias}>
+                        {model.record.display_name} · {runtimeStateLabel(model.runtime.state)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="agent__model-state" id="agent-model-status">
+                  <p className="agent__note" role="status">
+                    {modelCatalogState === "loading"
+                      ? "Checking which local models are ready…"
+                      : modelCatalogState === "error"
+                        ? "Model status could not be refreshed. The server will verify it before the first message."
+                        : modelCatalogState === "unavailable"
+                          ? "Model status will be verified when the session starts."
+                            : selectedModel === null
+                            ? modelAlias
+                              ? "That model is not registered. Choose an installed model."
+                              : "No model is running. Choose an installed model, then start it."
+                            : selectedModel.runtime.state === "running"
+                              ? `${selectedModel.record.display_name} is running and ready.`
+                              : `${selectedModel.record.display_name} is ${runtimeStateLabel(selectedModel.runtime.state)} and cannot run a session yet.`}
+                  </p>
+                  {modelAlias && selectedModel && selectedModel.runtime.state !== "running" && transport.activateLocalModel && (
+                    <button
+                      className="button button--ghost"
+                      disabled={Boolean(modelActionAlias) || selectedModel.runtime.state === "starting"}
+                      onClick={() => void activateModel(selectedModel.record.alias, "selection")}
+                      type="button"
+                    >
+                      {modelActionAlias === selectedModel.record.alias ? "Starting model…" : "Start selected model"}
+                    </button>
+                  )}
+                  {(modelCatalogState === "error" || selectedModel?.runtime.state === "starting") && transport.getLocalModels && (
+                    <button
+                      className="button button--ghost"
+                      disabled={modelRefreshBusy}
+                      onClick={() => void refreshModelStatus("selection")}
+                      type="button"
+                    >
+                      {modelRefreshBusy ? "Refreshing…" : "Refresh model status"}
+                    </button>
+                  )}
+                  {modelCatalogState === "ready" && selectedModel === null && (
+                    <a className="button button--ghost" href="/models">Open Models</a>
+                  )}
+                  {modelFeedbackTarget === "selection" && modelError && <p className="agent__error" role="alert">{modelError}</p>}
+                  {modelFeedbackTarget === "selection" && modelNotice && <p className="agent__notice" role="status">{modelNotice}</p>}
+                </div>
+              </div>
               <details className="agent__parameters">
                 <summary>Model parameters</summary>
                 <div className="agent__parameters-grid">
@@ -603,13 +827,18 @@ export function AgentPage({
                 )}
               </div>
               <button
+                aria-describedby={createMessage ? "agent-create-error" : undefined}
                 className="button button--primary"
-                disabled={busy || creatingSession || folderPickerBusy || userPresenceState === "checking" || !workspace.trim()}
+                disabled={busy || creatingSession || folderPickerBusy || userPresenceState === "checking" || selectedModelBlocked || !workspace.trim()}
                 type="submit"
               >
-                {creatingSession ? "Starting…" : userPresenceAvailable ? "Start session" : "Start read-only session"}
+                {creatingSession
+                  ? "Starting session…"
+                  : selectedModelBlocked
+                    ? "Start model first"
+                    : userPresenceAvailable ? "Start session" : "Start read-only session"}
               </button>
-              {message && !current && <p className="agent__error" role="alert">{message}</p>}
+              {createMessage && <p className="agent__error" id="agent-create-error" role="alert">{createMessage}</p>}
             </form>
             <section className="agent__sessions" aria-labelledby="agent-sessions-title">
               <h2 id="agent-sessions-title">Sessions</h2>
@@ -631,8 +860,8 @@ export function AgentPage({
           </aside>
         )}
 
-        <div className="agent__workbench" data-has-workspace={current ? "true" : "false"}>
-          {current && (
+        <div className="agent__workbench" data-has-workspace={current && !windowMode ? "true" : "false"}>
+          {current && !windowMode && (
             <AgentWorkspacePane
               key={current.session_id}
               onDirtyChange={handleWorkspaceDirty}
@@ -647,13 +876,60 @@ export function AgentPage({
             <p className="agent__note">{windowMode ? "This window has no session. Open one from the Agent page." : "Start a session on the left, then ask for something: explore the repo, fix a failing test, draft a document."}</p>
           ) : (
             <>
-              <div className="agent__meta">
-                <code>{current.settings.workspace}</code>
-                <span>
-                  {current.model_alias ?? "no model"}
-                  {current.settings.parameters ? " · t=" + current.settings.parameters.temperature.toFixed(2) + " · " + String(current.settings.parameters.max_tokens) + " tok" + (current.settings.parameters.enable_thinking ? " · thinking" : "") : ""}
-                  {" · "}{current.settings.allow_writes ? "writes" : "no writes"} · {current.settings.allow_commands ? "commands" : "no commands"} · {current.settings.allow_web ? "web" : "no web"}
-                </span>
+              <div className="agent__session-header">
+                <div className="agent__meta">
+                  <code>{current.settings.workspace}</code>
+                  <span>
+                    {current.model_alias ?? "no model"}
+                    {current.settings.parameters ? " · t=" + current.settings.parameters.temperature.toFixed(2) + " · " + String(current.settings.parameters.max_tokens) + " tok" + (current.settings.parameters.enable_thinking ? " · thinking" : "") : ""}
+                    {" · "}{current.settings.allow_writes ? "writes" : "no writes"} · {current.settings.allow_commands ? "commands" : "no commands"} · {current.settings.allow_web ? "web" : "no web"}
+                  </span>
+                </div>
+                <div
+                  className="agent__model-readiness"
+                  data-state={currentModel?.runtime.state ?? modelCatalogState}
+                >
+                  <span id="agent-session-model-status" role="status">
+                    {modelCatalogState === "loading"
+                      ? "Checking the session model…"
+                      : modelCatalogState === "error"
+                        ? "Model status could not be refreshed; it will be verified before the next turn."
+                        : modelCatalogState === "unavailable"
+                          ? "The session model will be verified before the next turn."
+                          : currentModel === null
+                            ? currentModelAlias
+                              ? "The session model is not registered and cannot receive a message."
+                              : "No local model is running for this session. Start one on the Models page."
+                            : currentModel.runtime.state === "running"
+                              ? `${currentModel.record.display_name} · running · ready for messages`
+                              : `${currentModel.record.display_name} · ${runtimeStateLabel(currentModel.runtime.state)} · start it before sending`}
+                  </span>
+                  {currentModel && currentModel.runtime.state !== "running" && transport.activateLocalModel && (
+                    <button
+                      className="button button--ghost"
+                      disabled={Boolean(modelActionAlias) || currentModel.runtime.state === "starting"}
+                      onClick={() => void activateModel(currentModel.record.alias, "session")}
+                      type="button"
+                    >
+                      {modelActionAlias === currentModel.record.alias ? "Starting model…" : "Start session model"}
+                    </button>
+                  )}
+                  {(modelCatalogState === "error" || currentModel?.runtime.state === "starting") && transport.getLocalModels && (
+                    <button
+                      className="button button--ghost"
+                      disabled={modelRefreshBusy}
+                      onClick={() => void refreshModelStatus("session")}
+                      type="button"
+                    >
+                      {modelRefreshBusy ? "Refreshing…" : "Refresh model status"}
+                    </button>
+                  )}
+                  {modelCatalogState === "ready" && currentModel === null && (
+                    <a className="button button--ghost" href="/models">Open Models</a>
+                  )}
+                  {modelFeedbackTarget === "session" && modelError && <p className="agent__error" role="alert">{modelError}</p>}
+                  {modelFeedbackTarget === "session" && modelNotice && <p className="agent__notice" role="status">{modelNotice}</p>}
+                </div>
               </div>
               <p className="sr-only" aria-live="polite">
                 {pending
@@ -679,6 +955,17 @@ export function AgentPage({
                     ? <LiveAssistant key={event.stream_id} content={live.content} reasoning={live.reasoning} />
                     : null;
                 })}
+                {current.turns === 0 && !current.running && !pending && !events.some((event) => event.kind === "user" || event.kind === "assistant" || event.kind === "assistant_delta") && (
+                  <p className="agent__status">
+                    {modelCatalogState === "loading"
+                      ? "Session created. Checking the model before your first message…"
+                      : currentModelBlocked
+                        ? currentModel === null
+                          ? "Session created. Open Models and start a local model to continue."
+                          : "Session created. Start the session model above to continue."
+                        : "Session ready. Write your first request below."}
+                  </p>
+                )}
                 {current.running && !pending && liveStreams.size === 0 && <p className="agent__thinking">Working…</p>}
               </div>
               {streamNotice && (
@@ -716,13 +1003,22 @@ export function AgentPage({
                   </div>
                 </div>
               )}
-              <form className="agent__compose" onSubmit={(event) => { event.preventDefault(); void send(); }}>
+              <form aria-label="Message composer" className="agent__compose" onSubmit={(event) => { event.preventDefault(); void send(); }}>
+                <label className="agent__compose-label" htmlFor="agent-message">Message to the agent</label>
                 <textarea
-                  aria-label="Message to the agent"
-                  disabled={current.running}
+                  aria-describedby={`agent-session-model-status${conversationMessage ? " agent-message-error" : ""}`}
+                  disabled={current.running || currentModelBlocked}
+                  id="agent-message"
                   onChange={(e) => changeDraft(e.currentTarget.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }}
-                  placeholder={current.running ? "The agent is working…" : "What should the agent do? Ctrl+Enter sends"}
+                  placeholder={current.running
+                    ? "The agent is working…"
+                    : currentModelBlocked
+                      ? currentModel === null
+                        ? "Open Models and start a local model to write a message"
+                        : "Start the session model to write a message"
+                      : "What should the agent do? Ctrl+Enter sends"}
+                  ref={composerInputRef}
                   rows={3}
                   value={draft}
                 />
@@ -738,7 +1034,7 @@ export function AgentPage({
                       {promptCheckBusy ? "Checking…" : "Check & improve"}
                     </button>
                   )}
-                  <button className="button button--primary" disabled={busy || promptCheckBusy || current.running || !draft.trim()} type="submit">Send</button>
+                  <button className="button button--primary" disabled={busy || promptCheckBusy || current.running || currentModelBlocked || !draft.trim()} type="submit">Send</button>
                 </div>
                 <div aria-live="polite" className="agent__prompt-check-status">
                   {promptCheckError && <p className="agent__error" role="alert">{promptCheckError}</p>}
@@ -748,7 +1044,7 @@ export function AgentPage({
               </form>
             </>
           )}
-          {message && <p className="agent__error" role="alert">{message}</p>}
+          {conversationMessage && <p className="agent__error" id="agent-message-error" role="alert">{conversationMessage}</p>}
           </section>
         </div>
       </div>

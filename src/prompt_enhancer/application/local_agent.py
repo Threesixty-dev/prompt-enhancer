@@ -297,6 +297,7 @@ class LocalAgentService:
         chat: Callable[[str, bytes], tuple[int, bytes, str]],
         open_chat: Callable[[str, bytes], AgentChatUpstream] | None = None,
         active_model: Callable[[], str | None],
+        model_ready: Callable[[str], bool] | None = None,
         allowed_roots: tuple[Path, ...] | None = None,
         forbidden_roots: tuple[Path, ...] = (),
         fetcher: Callable[[str], str] | None = None,
@@ -308,6 +309,7 @@ class LocalAgentService:
         self._chat = chat
         self._open_chat = open_chat
         self._active_model = active_model
+        self._model_ready = model_ready
         self._allowed_roots = tuple(root.resolve() for root in allowed_roots) if allowed_roots else None
         self._forbidden_roots = tuple(root.expanduser().resolve() for root in forbidden_roots)
         self._fetcher = fetcher
@@ -345,6 +347,8 @@ class LocalAgentService:
             raise LocalAgentError("workspace_not_allowed")
         if root.anchor == str(root):
             raise LocalAgentError("workspace_is_a_drive_root")
+        if settings.model_alias is not None and not self._is_model_ready(settings.model_alias):
+            raise LocalAgentError("model_not_ready")
         with self._lock:
             if len(self._sessions) >= MAX_SESSIONS:
                 raise LocalAgentError("too_many_sessions")
@@ -446,7 +450,15 @@ class LocalAgentService:
 
     def send(self, session_id: str, message: SendMessage) -> AgentSessionView:
         session = self._session(session_id)
-        alias = session.settings.model_alias or self._active_model()
+        configured_alias = session.settings.model_alias
+        if configured_alias is not None:
+            if not self._is_model_ready(configured_alias):
+                raise LocalAgentError("model_not_ready")
+            alias = configured_alias
+        else:
+            alias = self._active_model()
+            if alias is not None and not self._is_model_ready(alias):
+                raise LocalAgentError("model_not_ready")
         with session.lock:
             if session.running:
                 raise LocalAgentError("turn_in_progress")
@@ -461,6 +473,22 @@ class LocalAgentService:
         session.thread = thread
         thread.start()
         return self._view(session)
+
+    def _is_model_ready(self, alias: str) -> bool:
+        """Fail closed unless the requested alias is running at this instant.
+
+        The injected readiness boundary lets the application check the exact
+        selected alias instead of treating a registered model as a live model.
+        Lightweight adapters that only provide ``active_model`` retain the
+        same invariant by requiring an exact alias match.
+        """
+
+        try:
+            if self._model_ready is not None:
+                return bool(self._model_ready(alias))
+            return self._active_model() == alias
+        except Exception:  # noqa: BLE001 - readiness uncertainty must deny the turn
+            return False
 
     def stop(self, session_id: str) -> AgentSessionView:
         session = self._session(session_id)
@@ -819,12 +847,24 @@ class LocalAgentService:
                     text = (
                         "model reply exceeded the local safety limit"
                         if error.code == "model_reply_too_large"
-                        else "model reply was not usable"
+                        else (
+                            "The local model stopped or became unreachable. "
+                            "Start the session model, then send the request again."
+                            if error.code in {"model_not_active", "model_not_ready", "runtime_unreachable"}
+                            else "model reply was not usable"
+                        )
                     )
                     self._emit(session, "error", text=text)
                     break
                 except Exception as error:  # noqa: BLE001 - reported as an event
-                    self._emit(session, "error", text=f"model unreachable ({error.__class__.__name__})")
+                    code = getattr(error, "code", None)
+                    text = (
+                        "The local model stopped or became unreachable. "
+                        "Start the session model, then send the request again."
+                        if code in {"model_not_active", "model_not_ready", "runtime_unreachable"}
+                        else "The local model became unreachable. Check its runtime, then send the request again."
+                    )
+                    self._emit(session, "error", text=text)
                     break
                 if status != 200:
                     self._emit(session, "error", text=f"model error (HTTP {status})")

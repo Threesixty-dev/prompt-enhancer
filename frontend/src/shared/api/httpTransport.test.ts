@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
+  AgentSettings,
   AnalysisJobState,
   AutomationGrantRecord,
   AutomationGrantScope,
@@ -68,6 +69,23 @@ const AUTH_RESPONSE = {
   user_presence_confirmation_mode: "native_bridge_bound_token",
 } as const;
 const USER_PRESENCE_TOKEN = "u".repeat(48);
+const AGENT_SETTINGS: AgentSettings = {
+  workspace: "D:\\example\\workspace",
+  model_alias: "synthetic-model",
+  parameters: {
+    temperature: 0.2,
+    top_p: 0.95,
+    max_tokens: 1400,
+    enable_thinking: false,
+  },
+  instructions: null,
+  allow_writes: false,
+  allow_commands: false,
+  allow_web: false,
+  max_steps: 10,
+  command_timeout_seconds: 120,
+  title: null,
+};
 
 async function sha256(value: string): Promise<string> {
   const digest = new Uint8Array(
@@ -2296,6 +2314,42 @@ describe("same-origin HTTP transport", () => {
       selection_mode: "all_analyzed_work",
     });
   });
+});
+
+describe("local agent model-readiness transport", () => {
+  it("preserves the allowlisted model-not-ready reason when session creation is rejected", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: { code: "model_not_ready" } }, 409));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.createAgentSession(AGENT_SETTINGS)).rejects.toMatchObject({
+      status: 409,
+      reasonCode: "model_not_ready",
+    });
+  });
+
+  it.each(["model_not_ready", "no_active_model", "turn_in_progress"] as const)(
+    "preserves the %s reason when a message is rejected",
+    async (reasonCode) => {
+    const sessionId = "a".repeat(32);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: { code: reasonCode } }, 409));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.sendAgentMessage(sessionId, "Synthetic request")).rejects.toMatchObject({
+      status: 409,
+      reasonCode,
+    });
+    },
+  );
 });
 
 describe("local agent event streaming transport", () => {

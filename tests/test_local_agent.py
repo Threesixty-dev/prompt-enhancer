@@ -810,6 +810,100 @@ def test_session_guards(tmp_path: Path) -> None:
     assert forbidden.value.code == "workspace_not_allowed"
 
 
+def test_selected_model_must_be_ready_when_session_starts_and_each_turn_begins(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    ready_aliases = {"synthetic-ready"}
+    chat_calls: list[str] = []
+
+    def chat(alias: str, _body: bytes) -> tuple[int, bytes, str]:
+        chat_calls.append(alias)
+        return 200, b'{"choices":[{"message":{"content":"ok"}}]}', "application/json"
+
+    service = LocalAgentService(
+        chat=chat,
+        active_model=lambda: None,
+        model_ready=lambda alias: alias in ready_aliases,
+        clock=lambda: T0,
+    )
+
+    with pytest.raises(LocalAgentError) as stopped:
+        service.create(
+            AgentSettings(workspace=str(root), model_alias="synthetic-stopped")
+        )
+    assert stopped.value.code == "model_not_ready"
+    assert service.list() == ()
+
+    session = service.create(
+        AgentSettings(workspace=str(root), model_alias="synthetic-ready")
+    )
+    ready_aliases.clear()  # The runtime can stop after session creation.
+    with pytest.raises(LocalAgentError) as stopped_before_turn:
+        service.send(session.session_id, SendMessage(text="hello"))
+    assert stopped_before_turn.value.code == "model_not_ready"
+    assert service.get(session.session_id).turns == 0
+    assert [event.kind for event in service.events(session.session_id).events] == [
+        "status"
+    ]
+    assert chat_calls == []
+
+
+def test_selected_model_readiness_errors_fail_closed(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+
+    def unavailable(_alias: str) -> bool:
+        raise RuntimeError("synthetic readiness failure")
+
+    service = LocalAgentService(
+        chat=lambda _alias, _body: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        model_ready=unavailable,
+    )
+    with pytest.raises(LocalAgentError) as raised:
+        service.create(
+            AgentSettings(workspace=str(root), model_alias="synthetic-model")
+        )
+    assert raised.value.code == "model_not_ready"
+    assert service.list() == ()
+
+
+def test_runtime_exit_after_readiness_check_emits_actionable_safe_event(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+
+    class SyntheticRuntimeExit(RuntimeError):
+        code = "model_not_active"
+
+    def open_chat(_alias: str, _body: bytes) -> ChatUpstream:
+        raise SyntheticRuntimeExit("synthetic runtime exit")
+
+    service = LocalAgentService(
+        chat=lambda _alias, _body: (200, b"{}", "application/json"),
+        open_chat=open_chat,
+        active_model=lambda: "synthetic-ready",
+        model_ready=lambda alias: alias == "synthetic-ready",
+        clock=lambda: T0,
+    )
+    session = service.create(
+        AgentSettings(workspace=str(root), model_alias="synthetic-ready")
+    )
+    service.send(session.session_id, SendMessage(text="synthetic request"))
+    assert _wait(lambda: not service.get(session.session_id).running)
+
+    errors = [
+        event
+        for event in service.events(session.session_id).events
+        if event.kind == "error"
+    ]
+    assert [event.text for event in errors] == [
+        "The local model stopped or became unreachable. "
+        "Start the session model, then send the request again."
+    ]
+    assert "synthetic runtime exit" not in (errors[0].text or "")
+
+
 def test_http_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _workspace(tmp_path)
     settings = AppSettings(home=tmp_path / "home")
@@ -818,7 +912,8 @@ def test_http_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     chat, _ = _stub_model([{"content": "Hi! I can see README.md."}])
     from prompt_enhancer.application.local_agent import LocalAgentService as _Service
 
-    service = _Service(chat=chat, active_model=lambda: "stub", clock=lambda: T0)
+    active_alias: list[str | None] = ["stub"]
+    service = _Service(chat=chat, active_model=lambda: active_alias[0], clock=lambda: T0)
     type(application).create_local_agent_service = lambda self, local_model_service=None: service  # type: ignore[method-assign]
     client = TestClient(
         application.create_http_app(
@@ -829,6 +924,35 @@ def test_http_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     headers = {API_TOKEN_HEADER: settings.api_token_path.read_text(encoding="utf-8").strip()}
     assert client.get("/v1/capabilities", headers=headers).json()["local_agent"] is True
     assert client.post("/v1/agent/sessions", json={"workspace": str(root)}).status_code == 401
+    stopped = client.post(
+        "/v1/agent/sessions",
+        headers=headers,
+        json={"workspace": str(root), "model_alias": "synthetic-stopped"},
+    )
+    assert stopped.status_code == 409
+    assert stopped.json() == {"detail": {"code": "model_not_ready"}}
+    runtime_race = client.post(
+        "/v1/agent/sessions",
+        headers=headers,
+        json={"workspace": str(root), "model_alias": "stub"},
+    )
+    assert runtime_race.status_code == 201
+    runtime_race_id = runtime_race.json()["session_id"]
+    active_alias[0] = None
+    stopped_turn = client.post(
+        f"/v1/agent/sessions/{runtime_race_id}/messages",
+        headers=headers,
+        json={"text": "synthetic prompt"},
+    )
+    assert stopped_turn.status_code == 409
+    assert stopped_turn.json() == {"detail": {"code": "model_not_ready"}}
+    assert client.get(
+        f"/v1/agent/sessions/{runtime_race_id}", headers=headers
+    ).json()["turns"] == 0
+    assert client.delete(
+        f"/v1/agent/sessions/{runtime_race_id}", headers=headers
+    ).status_code == 204
+    active_alias[0] = "stub"
     created = client.post("/v1/agent/sessions", headers=headers, json={"workspace": str(root), "title": "demo"})
     assert created.status_code == 201, created.text
     session_id = created.json()["session_id"]

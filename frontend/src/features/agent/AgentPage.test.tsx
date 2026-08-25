@@ -1,13 +1,15 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentEvent, AgentSessionView, AgentSettings, PromptCheckRequest, PromptCheckResult } from "../../shared/api/contracts";
+import type { AgentEvent, AgentSessionView, AgentSettings, LocalModelStatus, LocalModelsOverview, PromptCheckRequest, PromptCheckResult } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { AgentPage } from "./AgentPage";
 import "../../styles.css";
 
 const SESSION = "a".repeat(32);
 const APPROVAL = "b".repeat(32);
+const MODEL_ALIAS = "orca27b-iq3m";
 const originalPywebview = Object.getOwnPropertyDescriptor(globalThis, "pywebview");
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
 
 function userPresenceCapability(available: boolean) {
   return {
@@ -27,6 +29,8 @@ function installNativeFolderPicker(choose: () => Promise<unknown>): void {
 afterEach(() => {
   if (originalPywebview) Object.defineProperty(globalThis, "pywebview", originalPywebview);
   else Reflect.deleteProperty(globalThis, "pywebview");
+  if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoView);
+  else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
 });
 
 function view(overrides: Partial<AgentSessionView> = {}): AgentSessionView {
@@ -38,7 +42,7 @@ function view(overrides: Partial<AgentSessionView> = {}): AgentSessionView {
     running: false,
     last_seq: 0,
     pending_approval_id: null,
-    model_alias: "orca27b-iq3m",
+    model_alias: MODEL_ALIAS,
     turns: 0,
     ...overrides,
   };
@@ -46,6 +50,45 @@ function view(overrides: Partial<AgentSessionView> = {}): AgentSessionView {
 
 function event(seq: number, kind: AgentEvent["kind"], extra: Partial<AgentEvent> = {}): AgentEvent {
   return { seq, at: "2026-08-20T01:00:00Z", kind, text: null, tool: null, arguments: null, call_id: null, approval_id: null, ok: null, preview: null, ...extra };
+}
+
+function modelStatus(
+  state: LocalModelStatus["runtime"]["state"],
+  alias = MODEL_ALIAS,
+  displayName = "Synthetic Local Model",
+): LocalModelStatus {
+  return {
+    endpoint_path: `/v1/local-models/${alias}/chat`,
+    record: {
+      added_at: "2026-08-20T00:00:00Z",
+      alias,
+      context_size: 8192,
+      default_device: "cpu",
+      display_name: displayName,
+      format: "gguf",
+      path: "D:\\example\\models\\synthetic-model.gguf",
+      provenance_verified: true,
+    },
+    runtime: { state },
+  };
+}
+
+function modelsOverview(...models: LocalModelStatus[]): LocalModelsOverview {
+  return {
+    contract_version: "local-models.v1",
+    runtime_available: true,
+    storage_root: "D:\\example\\models",
+    downloads: [],
+    hardware: {
+      gpu_name: null,
+      gpu_memory_mb: null,
+      gpu_memory_free_mb: null,
+      ram_mb: null,
+      llama_server_path: null,
+      llama_server_version: null,
+    },
+    models,
+  };
 }
 
 function workspaceMethods() {
@@ -201,10 +244,13 @@ describe("AgentPage", () => {
         return current;
       }),
       stopAgentSession: vi.fn(async () => current),
-      getLocalModels: vi.fn(async () => ({ contract_version: "local-models.v1" as const, runtime_available: true, storage_root: "D:/x", downloads: [], hardware: { gpu_name: null, gpu_memory_mb: null, gpu_memory_free_mb: null, ram_mb: null, llama_server_path: null, llama_server_version: null }, models: [] })),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
     };
     render(<AgentPage transport={transport} />);
     await screen.findByText(/Session ready/);
+    const composer = screen.getByRole("form", { name: "Message composer" });
+    expect(composer).toHaveTextContent("Message to the agent");
+    expect(screen.getByLabelText("Message to the agent")).toBeVisible();
     fireEvent.change(screen.getByLabelText("Message to the agent"), { target: { value: "Add a noqa comment" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(transport.sendAgentMessage).toHaveBeenCalledWith(SESSION, "Add a noqa comment"));
@@ -221,7 +267,303 @@ describe("AgentPage", () => {
     expect(screen.getByText(/Approved: Write file/)).toBeTruthy();
   });
 
+  it("shows stopped models truthfully, starts the selection in place, then creates the exact session", async () => {
+    const stopped = modelStatus("stopped", MODEL_ALIAS, "Synthetic 27B");
+    const running = modelStatus("running", MODEL_ALIAS, "Synthetic 27B");
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async (settings: AgentSettings) => view({
+        settings: { ...view().settings, workspace: settings.workspace, model_alias: settings.model_alias },
+        model_alias: settings.model_alias,
+      })),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(stopped)),
+      activateLocalModel: vi.fn(async () => running),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByRole("option", { name: "Synthetic 27B · stopped" })).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
+    fireEvent.change(screen.getByLabelText("Agent model"), { target: { value: MODEL_ALIAS } });
+
+    expect(screen.getByText("Synthetic 27B is stopped and cannot run a session yet.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start model first" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Start selected model" }));
+
+    await waitFor(() => expect(transport.activateLocalModel).toHaveBeenCalledWith(MODEL_ALIAS, {
+      remember: true,
+      fast_attention: true,
+      tool_calling: true,
+    }));
+    expect(await screen.findByText("Synthetic 27B is running and ready for the agent.")).toBeVisible();
+    const start = screen.getByRole("button", { name: "Start read-only session" });
+    expect(start).toBeEnabled();
+    fireEvent.click(start);
+
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
+    expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
+      workspace: "D:\\example\\project",
+      model_alias: MODEL_ALIAS,
+    });
+  });
+
+  it("blocks an existing session while its model is stopped and enables the composer after activation", async () => {
+    const current = view();
+    const stopped = modelStatus("stopped");
+    const running = modelStatus("running");
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(),
+      sendAgentMessage: vi.fn(async () => view({ turns: 1 })),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(stopped)),
+      activateLocalModel: vi.fn(async () => running),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
+    const composer = screen.getByLabelText("Message to the agent");
+    expect(composer).toBeDisabled();
+    expect(composer).toHaveAttribute("placeholder", "Start the session model to write a message");
+
+    fireEvent.click(screen.getByRole("button", { name: "Start session model" }));
+    await waitFor(() => expect(transport.activateLocalModel).toHaveBeenCalledOnce());
+    expect(await screen.findByText(/running · ready for messages/)).toBeVisible();
+    expect(composer).toBeEnabled();
+
+    fireEvent.change(composer, { target: { value: "Inspect the synthetic project" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(transport.sendAgentMessage).toHaveBeenCalledWith(SESSION, "Inspect the synthetic project"));
+  });
+
+  it("polls a starting model until it becomes ready instead of leaving the session blocked", async () => {
+    const current = view();
+    const getLocalModels = vi.fn()
+      .mockResolvedValueOnce(modelsOverview(modelStatus("starting")))
+      .mockResolvedValue(modelsOverview(modelStatus("running")));
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels,
+      activateLocalModel: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByText(/starting · start it before sending/)).toBeVisible();
+    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Refresh model status" }).length).toBeGreaterThan(0);
+
+    expect(await screen.findByText(/running · ready for messages/, {}, { timeout: 3000 })).toBeVisible();
+    expect(getLocalModels).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
+  });
+
+  it("refreshes a stopped model when the Agent window regains focus", async () => {
+    const current = view();
+    const getLocalModels = vi.fn()
+      .mockResolvedValueOnce(modelsOverview(modelStatus("stopped")))
+      .mockResolvedValue(modelsOverview(modelStatus("running")));
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels,
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
+    window.dispatchEvent(new Event("focus"));
+
+    expect(await screen.findByText(/running · ready for messages/)).toBeVisible();
+    expect(getLocalModels).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes readiness after an asynchronous runtime failure event", async () => {
+    const current = view({ running: true, turns: 1 });
+    const getLocalModels = vi.fn()
+      .mockResolvedValueOnce(modelsOverview(modelStatus("running")))
+      .mockResolvedValue(modelsOverview(modelStatus("stopped")));
+    const runtimeError = event(1, "error", {
+      text: "The local model stopped or became unreachable. Start the session model, then send the request again.",
+    });
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async (_id: string, after: number) => ({
+        contract_version: "local-agent.v2" as const,
+        session_id: SESSION,
+        events: after < 1 ? [runtimeError, event(2, "done")] : [],
+        running: false,
+        pending_approval_id: null,
+        last_seq: 2,
+        first_seq: 1,
+      })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels,
+      activateLocalModel: vi.fn(async () => modelStatus("running")),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
+    expect(getLocalModels).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Start session model" })).toBeEnabled();
+    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+  });
+
+  it("keeps the own-window composition chat-only, focused, and associated with model status", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    const current = view();
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+    const { container } = render(<AgentPage sessionId={SESSION} transport={transport} windowMode />);
+
+    const composer = await screen.findByLabelText("Message to the agent");
+    await waitFor(() => expect(composer).toHaveFocus());
+    expect(composer).toHaveAttribute("aria-describedby", "agent-session-model-status");
+    expect(container.querySelector(".agent__workbench")).toHaveAttribute("data-has-workspace", "false");
+    expect(screen.queryByText("Files and reviewed changes")).toBeNull();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+  });
+
+  it("gives a model-less own-window session an explicit recovery path", async () => {
+    const current = view({
+      model_alias: null,
+      settings: { ...view().settings, model_alias: null },
+    });
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview()),
+    };
+    render(<AgentPage sessionId={SESSION} transport={transport} windowMode />);
+
+    expect(await screen.findByText("No local model is running for this session. Start one on the Models page.")).toBeVisible();
+    const recovery = screen.getByRole("link", { name: "Open Models" });
+    expect(recovery).toHaveAttribute("href", "/models");
+    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+  });
+
+  it("keeps session-creation capacity feedback beside the New session form", async () => {
+    const current = view();
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(async () => { throw new TransportError("synthetic rejection", 409, "too_many_sessions"); }),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+    render(<AgentPage transport={transport} />);
+
+    await screen.findByText(/running · ready for messages/);
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\second-project" } });
+    const start = screen.getByRole("button", { name: "Start read-only session" });
+    fireEvent.click(start);
+
+    const error = await screen.findByText("Too many open sessions - close one first.");
+    expect(start.closest("form")).toContainElement(error);
+    expect(start).toHaveAttribute("aria-describedby", "agent-create-error");
+    expect(screen.getByLabelText("Message to the agent")).toHaveAttribute("aria-describedby", "agent-session-model-status");
+  });
+
+  it("explains a model-readiness race instead of misreporting session capacity", async () => {
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async () => { throw new TransportError("synthetic rejection", 409, "model_not_ready"); }),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+    render(<AgentPage transport={transport} />);
+
+    await screen.findByText(/running and ready/);
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("selected model is not running");
+    expect(document.body).not.toHaveTextContent("Too many open sessions");
+  });
+
+  it.each([
+    ["model_not_ready" as const, /session's model is stopped/i],
+    ["no_active_model" as const, /No local model is running/i],
+    ["turn_in_progress" as const, /already working on a turn/i],
+  ])("shows an actionable %s send failure", async (reasonCode, expected) => {
+    const current = view();
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(),
+      sendAgentMessage: vi.fn(async () => { throw new TransportError("synthetic rejection", 409, reasonCode); }),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const composer = await screen.findByLabelText("Message to the agent");
+    await waitFor(() => expect(composer).toBeEnabled());
+    fireEvent.change(composer, { target: { value: "Synthetic request" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(expected);
+  });
+
+  it("clears turn feedback when the user switches to a different session", async () => {
+    const first = view({ settings: { ...view().settings, title: "Session A" } });
+    const second = view({
+      session_id: "d".repeat(32),
+      settings: { ...view().settings, title: "Session B" },
+    });
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => [first, second]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(),
+      sendAgentMessage: vi.fn(async () => { throw new TransportError("synthetic rejection", 409, "model_not_ready"); }),
+      getAgentEvents: vi.fn(async (sessionId: string) => ({ contract_version: "local-agent.v2" as const, session_id: sessionId, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const composer = await screen.findByLabelText("Message to the agent");
+    await waitFor(() => expect(composer).toBeEnabled());
+    fireEvent.change(composer, { target: { value: "Synthetic request" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("session's model is stopped");
+    expect(composer).toHaveAttribute("aria-describedby", "agent-session-model-status agent-message-error");
+
+    fireEvent.click(screen.getByText("Session B").closest("button")!);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByLabelText("Message to the agent")).toHaveAttribute("aria-describedby", "agent-session-model-status");
+  });
+
   it("explains when the agent is unavailable and lets a new session be created", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
     const transport = {
       ...workspaceMethods(),
       getUserPresenceCapability: vi.fn(async () => userPresenceCapability(false)),
@@ -237,6 +579,9 @@ describe("AgentPage", () => {
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
     fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalled());
+    expect(await screen.findByText("Session ready. Write your first request below.")).toBeVisible();
+    expect(screen.getByLabelText("Message to the agent")).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
     const settings = transport.createAgentSession.mock.calls[0][0];
     expect(settings.workspace).toBe("D:\\example\\project");
     expect(settings.allow_writes).toBe(false);
