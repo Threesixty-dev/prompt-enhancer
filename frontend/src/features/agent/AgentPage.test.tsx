@@ -325,25 +325,23 @@ describe("AgentPage", () => {
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
     fireEvent.change(screen.getByLabelText("Agent model"), { target: { value: MODEL_ALIAS } });
 
-    expect(screen.getByText("Synthetic 27B is stopped and cannot run a session yet.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Start model first" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Start selected model" }));
+    expect(screen.getByText("Synthetic 27B is stopped. Opening the chat will start it automatically.")).toBeVisible();
+    const start = screen.getByRole("button", { name: "Start model & open read-only chat" });
+    expect(start).toBeEnabled();
+    fireEvent.click(start);
 
     await waitFor(() => expect(transport.activateLocalModel).toHaveBeenCalledWith(MODEL_ALIAS, {
       remember: true,
       fast_attention: true,
       tool_calling: true,
     }));
-    expect(await screen.findByText("Synthetic 27B is running and ready for the agent.")).toBeVisible();
-    const start = screen.getByRole("button", { name: "Start read-only session" });
-    expect(start).toBeEnabled();
-    fireEvent.click(start);
-
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
     expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
       workspace: "D:\\example\\project",
       model_alias: MODEL_ALIAS,
     });
+    expect(await screen.findByLabelText("Message to the agent")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeVisible();
   });
 
   it("pins the displayed active running model when the default model option is used", async () => {
@@ -364,13 +362,58 @@ describe("AgentPage", () => {
     expect(await screen.findByText(/running and ready/)).toBeVisible();
     expect(screen.getByLabelText("Agent model")).toHaveValue("");
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
 
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
     expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
       workspace: "D:\\example\\project",
       model_alias: MODEL_ALIAS,
     });
+  });
+
+  it("keeps a successfully created chat selected when the session list is temporarily unavailable", async () => {
+    const created = view();
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions: vi.fn(async () => { throw new TypeError("synthetic list failure"); }),
+      createAgentSession: vi.fn(async () => created),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByText(/Sessions could not be refreshed/)).toBeVisible();
+    expect(screen.queryByText("No session yet.")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Open read-only chat" }));
+
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
+    expect(await screen.findByLabelText("Message to the agent")).toBeEnabled();
+    expect(screen.getByRole("form", { name: "Message composer" })).toBeVisible();
+    expect(transport.listAgentSessions).toHaveBeenCalledOnce();
+  });
+
+  it("shows session-list failures distinctly and recovers through retry", async () => {
+    const listAgentSessions = vi.fn()
+      .mockRejectedValueOnce(new TypeError("synthetic list failure"))
+      .mockResolvedValueOnce([]);
+    const transport = {
+      ...workspaceMethods(),
+      listAgentSessions,
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByText(/Sessions could not be refreshed/)).toBeVisible();
+    expect(screen.queryByText("No session yet.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry sessions" }));
+
+    expect(await screen.findByText("No session yet.")).toBeVisible();
+    expect(screen.queryByText(/Sessions could not be refreshed/)).toBeNull();
+    expect(listAgentSessions).toHaveBeenCalledTimes(2);
   });
 
   it("blocks stale model and session controls when the local app disconnects", async () => {
@@ -411,7 +454,7 @@ describe("AgentPage", () => {
     rendered.rerender(<AgentPage transport={refreshed} />);
 
     await waitFor(() => expect(screen.queryByLabelText("Message to the agent")).toBeNull());
-    expect(screen.getByText(/Start a session on the left/)).toBeVisible();
+    expect(screen.getByText(/Choose a workspace folder on the left/)).toBeVisible();
   });
 
   it("blocks an existing session while its model is stopped and enables the composer after activation", async () => {
@@ -669,7 +712,7 @@ describe("AgentPage", () => {
 
     await screen.findByText(/running · ready for messages/);
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\second-project" } });
-    const start = screen.getByRole("button", { name: "Start read-only session" });
+    const start = screen.getByRole("button", { name: "Open read-only chat" });
     fireEvent.click(start);
 
     const error = await screen.findByText("Too many open sessions - close one first.");
@@ -691,7 +734,7 @@ describe("AgentPage", () => {
 
     await screen.findByText(/running and ready/);
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("selected model is not running");
     expect(document.body).not.toHaveTextContent("Too many open sessions");
@@ -767,7 +810,7 @@ describe("AgentPage", () => {
     await screen.findByText(/No session yet/);
     await screen.findByText(/This browser can start read-only sessions/);
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalled());
     expect(await screen.findByText(/Session ready\. Write your first request below\./)).toBeVisible();
     expect(screen.getByLabelText("Message to the agent")).toHaveFocus();
@@ -817,7 +860,7 @@ describe("AgentPage", () => {
     expect(workspace).toHaveValue("D:\\example\\chosen-workspace");
     expect(choose).toHaveBeenCalledTimes(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
     expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
       workspace: "D:\\example\\chosen-workspace",
@@ -864,7 +907,7 @@ describe("AgentPage", () => {
 
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
     expect(screen.getByText("Checking whether native confirmation is available…")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Start read-only session" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open read-only chat" })).toBeDisabled();
     expect(screen.getByLabelText(/May write files/i)).toBeDisabled();
 
     await act(async () => resolveCapability(userPresenceCapability(true)));
@@ -875,7 +918,7 @@ describe("AgentPage", () => {
 
     fireEvent.click(screen.getByLabelText(/May write files/i));
     fireEvent.click(screen.getByLabelText(/May fetch web pages/i));
-    fireEvent.click(screen.getByRole("button", { name: "Start session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open chat session" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
     expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
       workspace: "D:\\example\\project",
@@ -904,7 +947,7 @@ describe("AgentPage", () => {
 
     await screen.findByText(/This browser can start read-only sessions/);
     expect(screen.getByText("prompt-enhancer agent-desktop")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Start read-only session" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Choose workspace to open chat" })).toBeDisabled();
     expect(getUserPresenceCapability).toHaveBeenCalledTimes(2);
   });
 
@@ -923,7 +966,7 @@ describe("AgentPage", () => {
 
     const workspace = screen.getByLabelText("Workspace folder");
     fireEvent.change(workspace, { target: { value: "D:\\example\\rejected" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
 
     const error = await screen.findByRole("alert");
     expect(error).toHaveTextContent(expected);
@@ -948,7 +991,7 @@ describe("AgentPage", () => {
     fireEvent.change(screen.getByLabelText("Max tokens"), { target: { value: "2048" } });
     fireEvent.click(screen.getByLabelText(/Thinking mode/));
     fireEvent.change(screen.getByLabelText("Standing instructions"), { target: { value: "Answer in Polish." } });
-    fireEvent.click(screen.getByRole("button", { name: "Start read-only session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalled());
     const settings = (transport.createAgentSession.mock.calls[0] as unknown[])[0] as {
       parameters: { temperature: number; max_tokens: number; enable_thinking: boolean };

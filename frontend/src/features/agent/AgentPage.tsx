@@ -80,6 +80,7 @@ export function AgentPage({
   windowMode?: boolean;
 }) {
   const [sessions, setSessions] = useState<AgentSessionView[] | null>(null);
+  const [sessionListError, setSessionListError] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(
     transport.getRuntimeHealth === undefined ? "unverified" : "checking",
@@ -154,11 +155,15 @@ export function AgentPage({
       const list = await transport.listAgentSessions(signal);
       if (signal?.aborted) return;
       setSessions(list);
+      setSessionListError(false);
       setUnavailable(false);
     } catch (caught) {
       if (signal?.aborted) return;
       if (caught instanceof TransportError && caught.status === 404) setUnavailable(true);
-      else setSessions((previous) => previous ?? []);
+      else {
+        setSessionListError(true);
+        setSessions((previous) => previous ?? []);
+      }
     }
   }, [transport]);
 
@@ -479,8 +484,15 @@ export function AgentPage({
       : runningModels[0] ?? null;
   }, [current, currentModelAlias, models, runningModels]);
   const connectionDisconnected = connectionState === "disconnected";
-  const selectedModelBlocked = connectionDisconnected || modelCatalogState === "loading"
-    || (modelCatalogState === "ready" && selectedModel?.runtime.state !== "running");
+  const selectedModelNeedsActivation = modelCatalogState === "ready"
+    && selectedModel !== null
+    && selectedModel.runtime.state !== "running";
+  const selectedModelUnavailableForSession = connectionDisconnected
+    || Boolean(modelActionAlias)
+    || modelCatalogState === "loading"
+    || (modelCatalogState === "ready" && selectedModel === null)
+    || (selectedModelNeedsActivation
+      && (selectedModel?.runtime.state === "starting" || transport.activateLocalModel === undefined));
   const currentModelBlocked = connectionDisconnected || modelCatalogState === "loading"
     || (modelCatalogState === "ready" && currentModel?.runtime.state !== "running");
   const liveStreams = useMemo(() => coalesceLiveStreams(events), [events]);
@@ -549,9 +561,9 @@ export function AgentPage({
     }
   }
 
-  async function activateModel(alias: string, target: ModelFeedbackTarget): Promise<void> {
+  async function activateModel(alias: string, target: ModelFeedbackTarget): Promise<LocalModelStatus | null> {
     const activate = transport.activateLocalModel;
-    if (!activate || !alias || modelActionAlias) return;
+    if (!activate || !alias || modelActionAlias) return null;
     setModelActionAlias(alias);
     setModelActionKind("start");
     setModelFeedbackTarget(target);
@@ -574,8 +586,10 @@ export function AgentPage({
       setModelNotice(`${status.record.display_name} is running and ready for the agent.`);
       setCreateMessage("");
       setConversationMessage("");
+      return status;
     } catch {
       setModelError("The model could not be started. Review its runtime settings on the Models page, then retry.");
+      return null;
     } finally {
       setModelActionAlias("");
       setModelActionKind(null);
@@ -643,7 +657,7 @@ export function AgentPage({
 
   async function createSession() {
     const path = workspace.trim();
-    if (!path || busy || creatingSession || userPresenceState === "checking" || selectedModelBlocked) return;
+    if (!path || busy || creatingSession || userPresenceState === "checking" || selectedModelUnavailableForSession) return;
     if (!mayLeaveWorkspace()) return;
     setBusy(true);
     setCreatingSession(true);
@@ -652,10 +666,18 @@ export function AgentPage({
     setModelError("");
     setWorkspaceError("");
     try {
+      let sessionModel = selectedModel;
+      if (selectedModelNeedsActivation && selectedModel) {
+        sessionModel = await activateModel(selectedModel.record.alias, "selection");
+        if (!sessionModel) {
+          setCreateMessage("The chat could not open because the selected model did not start.");
+          return;
+        }
+      }
       const protectedActionsAvailable = userPresenceState === "available";
       const settings: AgentSettings = {
         workspace: path,
-        model_alias: modelAlias || selectedModel?.record.alias || null,
+        model_alias: modelAlias || sessionModel?.record.alias || null,
         parameters: { temperature, top_p: topP, max_tokens: maxTokens, enable_thinking: thinking },
         instructions: instructions.trim() || null,
         allow_writes: protectedActionsAvailable && allowWrites,
@@ -665,7 +687,13 @@ export function AgentPage({
         command_timeout_seconds: 120,
       };
       const created = await transport.createAgentSession(settings);
-      await refreshSessions();
+      // The create response is authoritative. Merging it locally avoids losing
+      // a valid chat when the immediately-following list request is stale or
+      // temporarily unavailable.
+      setSessions((previous) => [
+        created,
+        ...(previous ?? []).filter((session) => session.session_id !== created.session_id),
+      ]);
       setCurrent(created);
       setComposerFocusNonce((value) => value + 1);
       setEvents([]);
@@ -939,18 +967,12 @@ export function AgentPage({
                               : "No model is running. Choose an installed model, then start it."
                             : selectedModel.runtime.state === "running"
                               ? `${selectedModel.record.display_name} is running and ready.`
-                              : `${selectedModel.record.display_name} is ${runtimeStateLabel(selectedModel.runtime.state)} and cannot run a session yet.`}
+                              : selectedModel.runtime.state === "starting"
+                                ? `${selectedModel.record.display_name} is starting. The chat will be available when it is ready.`
+                                : transport.activateLocalModel
+                                  ? `${selectedModel.record.display_name} is ${runtimeStateLabel(selectedModel.runtime.state)}. Opening the chat will start it automatically.`
+                                  : `${selectedModel.record.display_name} is ${runtimeStateLabel(selectedModel.runtime.state)} and must be started on the Models page.`}
                   </p>
-                  {modelAlias && selectedModel && selectedModel.runtime.state !== "running" && transport.activateLocalModel && (
-                    <button
-                      className="button button--ghost"
-                      disabled={connectionDisconnected || Boolean(modelActionAlias) || selectedModel.runtime.state === "starting"}
-                      onClick={() => void activateModel(selectedModel.record.alias, "selection")}
-                      type="button"
-                    >
-                      {modelActionAlias === selectedModel.record.alias && modelActionKind === "start" ? "Starting model…" : "Start selected model"}
-                    </button>
-                  )}
                   {(modelCatalogState === "error" || selectedModel?.runtime.state === "starting") && transport.getLocalModels && (
                     <button
                       className="button button--ghost"
@@ -1022,25 +1044,46 @@ export function AgentPage({
                   </button>
                 )}
               </div>
+              <p className="agent__launch-note" role="status">
+                {selectedModelNeedsActivation && transport.activateLocalModel
+                  ? "One action will start the selected model, create the session, and focus the message box."
+                  : "Opening chat creates the session and focuses the message box; the model runtime remains separate and reusable."}
+              </p>
               <button
                 aria-describedby={createMessage ? "agent-create-error" : undefined}
                 className="button button--primary"
-                disabled={busy || creatingSession || folderPickerBusy || userPresenceState === "checking" || selectedModelBlocked || !workspace.trim()}
+                disabled={busy || creatingSession || folderPickerBusy || userPresenceState === "checking" || selectedModelUnavailableForSession || !workspace.trim()}
                 type="submit"
               >
                 {creatingSession
-                  ? "Starting session…"
+                  ? selectedModelNeedsActivation ? "Starting model & opening chat…" : "Opening chat…"
                   : connectionDisconnected
                     ? "Local app disconnected"
-                    : selectedModelBlocked
-                    ? "Start model first"
-                    : userPresenceAvailable ? "Start session" : "Start read-only session"}
+                    : !workspace.trim()
+                      ? "Choose workspace to open chat"
+                    : modelCatalogState === "loading"
+                      ? "Checking model…"
+                      : modelCatalogState === "ready" && selectedModel === null
+                        ? "Choose a model first"
+                        : selectedModel?.runtime.state === "starting"
+                          ? "Model is starting…"
+                          : selectedModelNeedsActivation && transport.activateLocalModel === undefined
+                            ? "Start model first"
+                            : selectedModelNeedsActivation
+                              ? userPresenceAvailable ? "Start model & open chat" : "Start model & open read-only chat"
+                              : userPresenceAvailable ? "Open chat session" : "Open read-only chat"}
               </button>
               {createMessage && <p className="agent__error" id="agent-create-error" role="alert">{createMessage}</p>}
             </form>
             <section className="agent__sessions" aria-labelledby="agent-sessions-title">
               <h2 id="agent-sessions-title">Sessions</h2>
-              {sessions === null ? <p className="agent__note">Loading…</p> : sessions.length === 0 ? <p className="agent__note">No session yet.</p> : (
+              {sessionListError && (
+                <div className="agent__session-list-error" role="alert">
+                  <p>Sessions could not be refreshed. Any chat already open remains usable.</p>
+                  <button className="button button--ghost" onClick={() => void refreshSessions()} type="button">Retry sessions</button>
+                </div>
+              )}
+              {sessions === null ? <p className="agent__note">Loading…</p> : sessions.length === 0 && !sessionListError ? <p className="agent__note">No session yet.</p> : sessions.length > 0 ? (
                 <ul>
                   {sessions.map((s) => (
                     <li key={s.session_id} data-current={s.session_id === current?.session_id ? "true" : undefined}>
@@ -1052,7 +1095,7 @@ export function AgentPage({
                     </li>
                   ))}
                 </ul>
-              )}
+              ) : null}
             </section>
             <TeamFoldersPanel onUseAsWorkspace={changeWorkspace} transport={transport} />
           </aside>
@@ -1081,7 +1124,11 @@ export function AgentPage({
                       ? "This Agent window could not reach its session. Return to the Agent page and open it again."
                       : windowMode
                         ? "This window has no session. Open one from the Agent page."
-                        : "Start a session on the left, then ask for something: explore the repo, fix a failing test, draft a document."}
+                        : !workspace.trim()
+                          ? "Choose a workspace folder on the left. Then open chat; the selected model will start automatically if needed."
+                          : selectedModelUnavailableForSession
+                            ? "Choose a ready local model on the left, then open chat."
+                            : "Open chat on the left. The message box will appear here and receive focus."}
               </p>
               {windowMode && (sessionLookupState === "missing" || sessionLookupState === "error") && (
                 <a className="button button--ghost" href="/agent">Return to Agent</a>
