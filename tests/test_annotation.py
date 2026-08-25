@@ -14,6 +14,10 @@ from fastapi.testclient import TestClient
 
 from prompt_enhancer.api import API_TOKEN_HEADER
 from prompt_enhancer.application.analysis.calibration_ratings import CALIBRATION_METRIC_KEYS
+from prompt_enhancer.application.analysis.model_judge import (
+    JUDGE_PROMPT_VERSION,
+    JUDGE_WINDOW_SCHEMA_VERSION,
+)
 from prompt_enhancer.application.local_models import HardwareSummary
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
@@ -77,7 +81,8 @@ def test_agent_annotation_path_behind_allowance(tmp_path: Path, monkeypatch) -> 
     body = meta.json()
     assert set(body["questions"]) == set(CALIBRATION_METRIC_KEYS)
     assert set(body["labels"]) == {"low", "medium", "high", "cannot_judge"}
-    assert "JSON" in body["reply_format"] and body["prompt_version"] == "judge-v1"
+    assert "JSON" in body["reply_format"]
+    assert body["prompt_version"] == JUDGE_PROMPT_VERSION
 
     # Flip the allowance on.
     flipped = client.post("/v1/annotation/allowance", headers=headers, json={"agent_allowed": True})
@@ -94,7 +99,10 @@ def test_agent_annotation_path_behind_allowance(tmp_path: Path, monkeypatch) -> 
     # The window is the redacted analysis window, never the raw transcript.
     window = client.get(f"/v1/annotation/work/{session_id}", headers=headers)
     assert window.status_code == 200, window.text
-    assert "USER:" in window.json()["window"] and set(window.json()["questions"]) == set(CALIBRATION_METRIC_KEYS)
+    rendered_window = json.loads(window.json()["window"])
+    assert rendered_window["task_anchor_retained"] is True
+    assert rendered_window["records"][0]["role"] == "user"
+    assert set(window.json()["questions"]) == set(CALIBRATION_METRIC_KEYS)
     fingerprint = window.json()["window_fingerprint"]
     assert len(fingerprint) == 64 and fingerprint != "0" * 64
 
@@ -126,7 +134,22 @@ def test_agent_annotation_path_behind_allowance(tmp_path: Path, monkeypatch) -> 
 def test_annotate_remotely_via_embedded_central_server(tmp_path: Path, monkeypatch) -> None:
     application, settings, client, headers = _bootstrap(tmp_path, monkeypatch)
 
-    # No model running on the central side yet -> the batch fails closed.
+    # The read-only disclosure names the exact boundary before any batch can be sent.
+    assert client.get("/v1/annotation/remote/disclosure").status_code == 401
+    disclosure = client.get("/v1/annotation/remote/disclosure", headers=headers)
+    assert disclosure.status_code == 200, disclosure.text
+    assert disclosure.json() == {
+        "contract_version": "annotation.v1",
+        "destination": "embedded central server (this machine)",
+        "redacted_windows_retained": True,
+        "pseudonymous_session_ids_retained": True,
+        "pseudonymous_project_ids_retained": True,
+        "raw_transcripts_sent": False,
+        "model_policy": "configured_active_model_at_submission",
+        "active_model_alias": None,
+    }
+
+    # No configured model is active on the central side yet -> the batch fails closed.
     weights = tmp_path / "tiny.gguf"
     weights.write_bytes(b"GGUF" + b"\0" * 4092)
     assert client.post("/v1/local-models", headers=headers, json={"alias": "stub-central", "path": str(weights)}).status_code == 201
@@ -135,6 +158,11 @@ def test_annotate_remotely_via_embedded_central_server(tmp_path: Path, monkeypat
 
     assert client.post("/v1/local-models/stub-central/activate", headers=headers, json={"device": "cpu"}).status_code == 200
     try:
+        active_disclosure = client.get("/v1/annotation/remote/disclosure", headers=headers)
+        assert active_disclosure.status_code == 200
+        assert active_disclosure.json()["active_model_alias"] == "stub-central"
+        assert active_disclosure.json()["destination"] == disclosure.json()["destination"]
+
         # The explicit "annotate remotely" action: redacted windows + pseudonymous ids to the central server.
         result = client.post("/v1/annotation/remote/submit", headers=headers, json={"limit": 2})
         assert result.status_code == 200, result.text
@@ -152,7 +180,8 @@ def test_annotate_remotely_via_embedded_central_server(tmp_path: Path, monkeypat
         for user_label, provider, window_chars, labels_json, model_identity, prompt_version in rows:
             assert user_label == "owner" and provider == "claude_code" and window_chars > 0
             assert set(json.loads(labels_json)) == set(CALIBRATION_METRIC_KEYS)
-            assert model_identity == "stub-central" and prompt_version == "judge-v1"
+            assert model_identity == "stub-central"
+            assert prompt_version == JUDGE_PROMPT_VERSION
 
         # Returned labels are recorded locally as central:<model> judgments - same comparable store.
         local = application.database.model_judgment_repository().list(model_alias="central:stub-central")
@@ -163,9 +192,31 @@ def test_annotate_remotely_via_embedded_central_server(tmp_path: Path, monkeypat
         assert second.status_code == 200 and second.json()["submitted"] == 0 and second.json()["annotated"] == 0
 
         # The central route can also be called directly (this is what the VPS will expose).
+        direct_window = json.dumps(
+            {
+                "schema": JUDGE_WINDOW_SCHEMA_VERSION,
+                "authority": "untrusted_evidence",
+                "available": True,
+                "task_anchor_retained": True,
+                "earlier_records_omitted": False,
+                "records": [
+                    {
+                        "sequence": 0,
+                        "role": "user",
+                        "content": "Please fix the synthetic retry test.",
+                    },
+                    {
+                        "sequence": 1,
+                        "role": "agent",
+                        "content": "Done; synthetic tests pass.",
+                    },
+                ],
+            },
+            separators=(",", ":"),
+        )
         direct = client.post("/central/v1/annotations/batch", headers=headers, json={
             "user_label": "someone.else",
-            "items": [{"session_id": "f" * 64, "provider": "codex", "window": "USER: please fix the flaky retry test\nAGENT: done, tests pass"}],
+            "items": [{"session_id": "f" * 64, "provider": "codex", "window": direct_window}],
         })
         assert direct.status_code == 200, direct.text
         assert direct.json()["stored"] == 1 and direct.json()["annotations"][0]["session_id"] == "f" * 64

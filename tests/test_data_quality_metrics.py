@@ -274,9 +274,44 @@ def test_task_readiness_metrics_aggregate_safe_events_without_false_confidence()
     assert timestamp_rate.confidence is None
 
 
-def test_operational_metric_packs_are_version_three_without_engine_family_change() -> None:
-    assert DEFAULT_METRIC_PACK.version == 3
-    assert DEFAULT_TASK_METRIC_PACK.version == 3
+def test_receiver_observed_timestamps_are_not_provider_direct() -> None:
+    session = _session(complete=False)
+    events = (
+        _event(session, "a", EventKind.TURN_START, 0),
+        _event(
+            session,
+            "b",
+            EventKind.TOOL_START,
+            1,
+            time_basis=EventTimeBasis.RECEIVER_OBSERVED,
+        ),
+        _event(
+            session,
+            "c",
+            EventKind.TURN_END,
+            2,
+            time_basis=EventTimeBasis.TURN_COMPLETED,
+        ),
+    )
+
+    session_metric = next(
+        metric
+        for metric in compute_session_metrics(session, events)
+        if metric.key == "data_quality.direct_event_timestamp_rate"
+    )
+    task_metric = next(
+        result.observation
+        for result in compute_task_metrics((TaskSessionEvidence(session, events),))
+        if result.observation.key == "task.data_quality.direct_event_timestamp_rate"
+    )
+
+    assert session_metric.version == 2 and session_metric.numeric_value == pytest.approx(1 / 3)
+    assert task_metric.version == 2 and task_metric.numeric_value == pytest.approx(1 / 3)
+
+
+def test_operational_metric_packs_are_version_four_without_engine_family_change() -> None:
+    assert DEFAULT_METRIC_PACK.version == 4
+    assert DEFAULT_TASK_METRIC_PACK.version == 4
     assert tuple(
         definition.key for definition in TASK_METRIC_DEFINITIONS
     ) == DEFAULT_TASK_METRIC_PACK.metric_keys

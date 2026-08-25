@@ -233,7 +233,7 @@ UNKNOWN_EVENT_KIND_RATE_DEFINITION = MetricDefinition(
 )
 DIRECT_EVENT_TIMESTAMP_RATE_DEFINITION = MetricDefinition(
     "data_quality.direct_event_timestamp_rate",
-    1,
+    2,
     "data_quality",
     "Direct event timestamp rate",
     (
@@ -739,7 +739,7 @@ DETERMINISTIC_FEATURE_EXTRACTORS = (
 
 DEFAULT_METRIC_PACK = MetricPack(
     key=DEFAULT_METRIC_PACK_KEY,
-    version=3,
+    version=4,
     metric_keys=tuple(
         calculator.definition.key for calculator in DETERMINISTIC_CALCULATORS
     ),

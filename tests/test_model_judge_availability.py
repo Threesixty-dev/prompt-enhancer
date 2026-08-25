@@ -11,21 +11,30 @@ import threading
 from fastapi import FastAPI, HTTPException
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 import pytest
 
 from prompt_enhancer.api import API_TOKEN_HEADER, create_app
 from prompt_enhancer.application.analysis.calibration_ratings import (
+    CALIBRATION_METRIC_KEYS,
     CalibrationSampleEmptyError,
     RatingLabel,
 )
 from prompt_enhancer.application.analysis.model_judge import (
+    JUDGE_PROMPT_VERSION,
+    JUDGE_RETRY_PROMPT_VERSION,
     JudgeSweepStatus,
     MODEL_JUDGE_CATALOG_UNAVAILABLE,
     ModelJudgeError,
     ModelJudgeService,
     ModelJudgeSweepFailureCode,
     ModelJudgment,
+)
+from prompt_enhancer.application.analysis.text_contracts import (
+    EphemeralRedactedMessage,
+    TextLanguage,
+    TextMessageKind,
+    TextRole,
 )
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
@@ -38,6 +47,24 @@ from prompt_enhancer.interfaces.http.model_judge_routes import (
 SESSION_ID = "a" * 64
 WINDOW_FINGERPRINT = "b" * 64
 TOKEN = "example_model_judge_availability_token_123456789"
+
+
+def _synthetic_window(
+    fingerprint: str = WINDOW_FINGERPRINT,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        analysis_window_fingerprint=fingerprint,
+        messages=(
+            EphemeralRedactedMessage(
+                message_id="c" * 64,
+                sequence=0,
+                role=TextRole.USER,
+                kind=TextMessageKind.REQUEST,
+                language=TextLanguage.ENGLISH,
+                text=SecretStr("Review the synthetic fixture."),
+            ),
+        ),
+    )
 
 
 class _Repository:
@@ -186,6 +213,56 @@ def _judge_service(active_model, rows: tuple[ModelJudgment, ...] = ()) -> ModelJ
     )
 
 
+def _stored_judgments(
+    *,
+    keys: tuple[str, ...] = CALIBRATION_METRIC_KEYS,
+    model_identity: str = "synthetic-model.gguf",
+    prompt_version: str = JUDGE_PROMPT_VERSION,
+    window_fingerprint: str = WINDOW_FINGERPRINT,
+) -> tuple[ModelJudgment, ...]:
+    return tuple(
+        ModelJudgment(
+            session_id=SESSION_ID,
+            metric_key=key,
+            label=RatingLabel.HIGH,
+            model_alias="synthetic-model",
+            model_identity=model_identity,
+            prompt_version=prompt_version,
+            window_fingerprint=window_fingerprint,
+            judged_at=datetime(2026, 8, 24, 10, 0, tzinfo=UTC),
+        )
+        for key in keys
+    )
+
+
+def _freshness_service(
+    rows: tuple[ModelJudgment, ...],
+    *,
+    active_identity: str = "synthetic-model.gguf",
+    current_fingerprint: str = WINDOW_FINGERPRINT,
+) -> tuple[ModelJudgeService, list[str]]:
+    service = ModelJudgeService(
+        repository=_Repository(rows),
+        ratings=_Ratings(),
+        access=object(),
+        source_factory=lambda _provider: object(),
+        chat=lambda _alias, _body: (500, b"{}", "application/json"),
+        active_model=lambda: ("synthetic-model", active_identity),
+        session_lookup=lambda _session_id: SimpleNamespace(provider="codex"),
+    )
+    window_calls: list[str] = []
+
+    def current_window(_provider, session_id):  # type: ignore[no-untyped-def]
+        window_calls.append(session_id)
+        return _synthetic_window(current_fingerprint)
+
+    service._window = current_window  # type: ignore[method-assign]  # noqa: SLF001
+    service.judge = (  # type: ignore[method-assign]
+        lambda _session_id: SimpleNamespace(raw_valid=True)
+    )
+    return service, window_calls
+
+
 def _wait_for_finished_sweep(service: ModelJudgeService) -> JudgeSweepStatus:
     for _ in range(100):
         status = service.sweep_status()
@@ -193,6 +270,77 @@ def _wait_for_finished_sweep(service: ModelJudgeService) -> JudgeSweepStatus:
             return status
         threading.Event().wait(0.01)
     raise AssertionError("synthetic model-judge sweep did not finish")
+
+
+@pytest.mark.parametrize(
+    "prompt_version", (JUDGE_PROMPT_VERSION, JUDGE_RETRY_PROMPT_VERSION)
+)
+def test_sweep_accepts_only_complete_matching_current_judgment_sets(
+    prompt_version: str,
+) -> None:
+    service, window_calls = _freshness_service(
+        _stored_judgments(prompt_version=prompt_version)
+    )
+
+    status = service.start_sweep((SESSION_ID,))
+
+    assert status.total == 0
+    assert status.running is False
+    assert window_calls == [SESSION_ID]
+
+
+@pytest.mark.parametrize(
+    ("rows", "current_fingerprint"),
+    [
+        (_stored_judgments(keys=CALIBRATION_METRIC_KEYS[:-1]), WINDOW_FINGERPRINT),
+        (
+            _stored_judgments(model_identity="superseded-model.gguf"),
+            WINDOW_FINGERPRINT,
+        ),
+        (_stored_judgments(window_fingerprint="d" * 64), WINDOW_FINGERPRINT),
+    ],
+    ids=("partial-keys", "changed-identity", "changed-window"),
+)
+def test_sweep_rejudges_partial_identity_or_window_mismatches(
+    rows: tuple[ModelJudgment, ...], current_fingerprint: str
+) -> None:
+    service, _window_calls = _freshness_service(
+        rows, current_fingerprint=current_fingerprint
+    )
+
+    launched = service.start_sweep((SESSION_ID,))
+    finished = _wait_for_finished_sweep(service)
+
+    assert launched.total == 1
+    assert finished.done == 1
+    assert finished.failed == 0
+
+
+def test_sweep_window_freshness_failure_uses_closed_worker_accounting() -> None:
+    service = ModelJudgeService(
+        repository=_Repository(_stored_judgments()),
+        ratings=_Ratings(),
+        access=object(),
+        source_factory=lambda _provider: object(),
+        chat=lambda _alias, _body: (_ for _ in ()).throw(
+            AssertionError("chat must not run without a window")
+        ),
+        active_model=lambda: ("synthetic-model", "synthetic-model.gguf"),
+        session_lookup=lambda _session_id: SimpleNamespace(provider="codex"),
+    )
+    service._window = (  # type: ignore[method-assign]  # noqa: SLF001
+        lambda _provider, _session_id: (_ for _ in ()).throw(
+            ModelJudgeError("window_unavailable")
+        )
+    )
+
+    launched = service.start_sweep((SESSION_ID,))
+    finished = _wait_for_finished_sweep(service)
+
+    assert launched.total == 1
+    assert finished.done == 1
+    assert finished.failed == 1
+    assert finished.last_error_code is ModelJudgeSweepFailureCode.WINDOW_UNAVAILABLE
 
 
 def test_sample_catalog_failure_is_typed_and_never_starts_a_sweep() -> None:
@@ -591,7 +739,7 @@ def test_async_adapter_error_codes_are_closed_before_public_sweep_status(
         session_lookup=lambda _session_id: SimpleNamespace(provider="codex"),
     )
     service._window = (  # type: ignore[method-assign]  # noqa: SLF001
-        lambda _provider, _session_id: SimpleNamespace(messages=())
+        lambda _provider, _session_id: _synthetic_window()
     )
 
     service.start_sweep((SESSION_ID,))

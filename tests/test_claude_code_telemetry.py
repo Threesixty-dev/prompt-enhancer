@@ -23,7 +23,14 @@ from prompt_enhancer.application.providers import CapabilityKey, CompatibilityRe
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.database import Database
-from prompt_enhancer.domain import DataTier, EventKind, Provider, UsageCounterKind, UsageScope
+from prompt_enhancer.domain import (
+    DataTier,
+    EventKind,
+    EventTimeBasis,
+    Provider,
+    UsageCounterKind,
+    UsageScope,
+)
 from prompt_enhancer.infrastructure.providers.claude_code_hooks import telemetry as telemetry_module
 from prompt_enhancer.infrastructure.providers.claude_code_hooks.adapter import (
     CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR,
@@ -303,8 +310,17 @@ def test_end_to_end_usage_reaches_token_metrics_without_canary(composed) -> None
     assert row["provider_version"] == "2.1.0"
     session_id = row["session_id"]
     events = application.database.get_session_events(session_id)
+    hook_events = [e for e in events if e.kind is not EventKind.USAGE]
     usage_events = [e for e in events if e.kind is EventKind.USAGE]
+    assert hook_events and all(
+        event.time_basis is EventTimeBasis.RECEIVER_OBSERVED
+        for event in hook_events
+    )
     assert len(usage_events) == 3
+    assert all(
+        event.time_basis is EventTimeBasis.PROVIDER_REPORTED
+        for event in usage_events
+    )
     assert usage_events[0].usage is not None
     assert usage_events[0].usage.input_tokens == 1200 and usage_events[0].usage.output_tokens == 340
     assert usage_events[0].usage.cached_input_tokens == 800 and usage_events[0].usage.model_id == "claude-opus-5"
@@ -314,6 +330,13 @@ def test_end_to_end_usage_reaches_token_metrics_without_canary(composed) -> None
 
     # Deterministic token metrics now have numbers for this Claude session.
     metrics_rows = application.database.get_session_metrics(session_id)
+    timestamp_rate = next(
+        metric
+        for metric in metrics_rows
+        if metric["key"] == "data_quality.direct_event_timestamp_rate"
+    )
+    assert timestamp_rate["version"] == 2
+    assert timestamp_rate["numeric_value"] == pytest.approx(3 / 5)
     token_metrics = {m["key"]: m for m in metrics_rows if "token" in str(m["key"])}
     assert token_metrics, [m["key"] for m in metrics_rows]
     assert any(m.get("numeric_value") not in (None, 0) for m in token_metrics.values())
@@ -548,6 +571,7 @@ def test_telemetry_only_session_is_listed_with_cumulative_usage(composed) -> Non
     assert len(snapshot.events) == 1
     usage = snapshot.events[0]
     assert usage.kind is EventKind.USAGE and usage.usage is not None
+    assert usage.time_basis is EventTimeBasis.PROVIDER_REPORTED
     assert usage.usage.counter_kind is UsageCounterKind.CUMULATIVE and usage.usage.scope is UsageScope.THREAD
     assert usage.usage.input_tokens == 2700 and usage.usage.output_tokens == 840
 

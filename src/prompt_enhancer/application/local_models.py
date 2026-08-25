@@ -953,12 +953,14 @@ class LocalModelService:
     def overview(self) -> LocalModelsOverview:
         binary = self._llama_server()
         hardware = self._hardware(binary)
+        with self._lock:
+            downloads = tuple(self._downloads.values())
         return LocalModelsOverview(
             hardware=hardware,
             runtime_available=binary is not None,
             storage_root=str(self._registry.root),
             models=tuple(self.status(record.alias, record=record) for record in self._registry.list()),
-            downloads=tuple(sorted(self._downloads.values(), key=lambda d: d.started_at)),
+            downloads=tuple(sorted(downloads, key=lambda d: d.started_at)),
         )
 
     def status(self, alias: str, *, record: LocalModelRecord | None = None) -> LocalModelStatus:

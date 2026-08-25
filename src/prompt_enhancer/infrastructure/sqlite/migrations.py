@@ -17069,3 +17069,94 @@ BEGIN SELECT RAISE(ABORT,'metric V2 r8 seal requires parent privacy deletion'); 
 COMMIT;
 """
 
+
+MIGRATION_60 = r"""
+BEGIN IMMEDIATE;
+
+-- Hook command events carry a loopback receiver timestamp, not a timestamp
+-- reported by Claude Code. Rebuild the small canonical event graph so the
+-- time-basis constraint can name that provenance without rewriting any old
+-- row. Rename every direct child before the parent so SQLite keeps the legacy
+-- foreign-key graph internally consistent throughout the transaction.
+ALTER TABLE usage_records RENAME TO usage_records_v59;
+ALTER TABLE analysis_result_evidence RENAME TO analysis_result_evidence_v59;
+ALTER TABLE events RENAME TO events_v59;
+
+CREATE TABLE events (
+    event_id TEXT PRIMARY KEY
+        CHECK(length(event_id) = 64 AND event_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    sequence INTEGER NOT NULL CHECK(sequence >= 0),
+    occurred_at TEXT NOT NULL,
+    duration_ms INTEGER CHECK(duration_ms IS NULL OR duration_ms >= 0),
+    success INTEGER CHECK(success IS NULL OR success IN (0, 1)),
+    tool_category TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    time_basis TEXT NOT NULL DEFAULT 'provider_reported'
+        CHECK(time_basis IN (
+            'provider_reported', 'receiver_observed', 'turn_started',
+            'turn_completed', 'session_started'
+        )),
+    UNIQUE(session_id, sequence)
+);
+
+INSERT INTO events(
+    event_id,session_id,kind,sequence,occurred_at,duration_ms,success,
+    tool_category,created_at,updated_at,time_basis
+)
+SELECT event_id,session_id,kind,sequence,occurred_at,duration_ms,success,
+       tool_category,created_at,updated_at,time_basis
+FROM events_v59;
+
+CREATE TABLE usage_records (
+    event_id TEXT PRIMARY KEY REFERENCES events(event_id) ON DELETE CASCADE,
+    input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens >= 0),
+    cached_input_tokens INTEGER CHECK(cached_input_tokens IS NULL OR cached_input_tokens >= 0),
+    cache_creation_tokens INTEGER CHECK(cache_creation_tokens IS NULL OR cache_creation_tokens >= 0),
+    output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens >= 0),
+    reasoning_output_tokens INTEGER CHECK(reasoning_output_tokens IS NULL OR reasoning_output_tokens >= 0),
+    total_tokens INTEGER CHECK(total_tokens IS NULL OR total_tokens >= 0),
+    model_id TEXT,
+    provider_reported INTEGER NOT NULL CHECK(provider_reported IN (0, 1)),
+    counter_kind TEXT NOT NULL DEFAULT 'unknown'
+        CHECK(counter_kind IN ('delta', 'cumulative', 'unknown')),
+    scope TEXT NOT NULL DEFAULT 'unknown'
+        CHECK(scope IN ('request', 'turn', 'thread', 'unknown'))
+);
+
+INSERT INTO usage_records(
+    event_id,input_tokens,cached_input_tokens,cache_creation_tokens,
+    output_tokens,reasoning_output_tokens,total_tokens,model_id,
+    provider_reported,counter_kind,scope
+)
+SELECT event_id,input_tokens,cached_input_tokens,cache_creation_tokens,
+       output_tokens,reasoning_output_tokens,total_tokens,model_id,
+       provider_reported,counter_kind,scope
+FROM usage_records_v59;
+
+CREATE TABLE analysis_result_evidence (
+    run_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    event_id TEXT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+    PRIMARY KEY(run_id, key, version, event_id),
+    UNIQUE(run_id, key, version, ordinal),
+    FOREIGN KEY(run_id, key, version)
+        REFERENCES analysis_results(run_id, key, version) ON DELETE CASCADE
+);
+
+INSERT INTO analysis_result_evidence(run_id,key,version,event_id,ordinal)
+SELECT run_id,key,version,event_id,ordinal
+FROM analysis_result_evidence_v59;
+
+DROP TABLE usage_records_v59;
+DROP TABLE analysis_result_evidence_v59;
+DROP TABLE events_v59;
+CREATE INDEX events_session_idx ON events(session_id, sequence);
+
+COMMIT;
+"""
+

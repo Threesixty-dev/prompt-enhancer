@@ -864,6 +864,7 @@ desktop = [
 ]
 dev = [
     { name = "httpx" },
+    { name = "huggingface-hub" },
     { name = "pytest" },
 ]
 models = [
@@ -882,6 +883,7 @@ requires-dist = [
     { name = "bitsandbytes", marker = "extra == 'models'", specifier = ">=0.50.1,<1" },
     { name = "fastapi", specifier = ">=0.116.1,<1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1,<1" },
+    { name = "huggingface-hub", marker = "extra == 'dev'", specifier = ">=0.36.2,<1" },
     { name = "huggingface-hub", marker = "extra == 'models'", specifier = ">=0.36.2,<1" },
     { name = "pydantic", specifier = ">=2.11.7,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.1,<9" },

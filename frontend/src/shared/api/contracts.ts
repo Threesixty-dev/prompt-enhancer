@@ -113,6 +113,7 @@ export type PeerLink = Schemas["PeerLink"];
 export type PeerLinkList = Schemas["PeerLinkList"];
 export type FolderSyncReport = Schemas["SyncReport"];
 export type AnnotationMetaprompt = Schemas["Metaprompt"];
+export type RemoteAnnotationDisclosure = Schemas["RemoteAnnotationDisclosure"];
 export type RemoteAnnotationResult = Schemas["RemoteSubmitResult"];
 export type SessionJudgments = Schemas["SessionJudgments"];
 export type SessionInterpretation = Schemas["SessionInterpretation"];
@@ -1362,6 +1363,7 @@ export interface PromptEnhancerTransport {
   getAnnotationAllowance(signal?: AbortSignal): Promise<AnnotationAllowance>;
   setAnnotationAllowance(agentAllowed: boolean, signal?: AbortSignal): Promise<AnnotationAllowance>;
   getAnnotationMetaprompt(signal?: AbortSignal): Promise<AnnotationMetaprompt>;
+  getRemoteAnnotationDisclosure(signal?: AbortSignal): Promise<RemoteAnnotationDisclosure>;
   annotateRemotely(limit: number, signal?: AbortSignal): Promise<RemoteAnnotationResult>;
   /** Shared team folders (ADR 0018): share, revoke, join a peer's folder, pull/push. */
   shareFolder(path: string, name: string, signal?: AbortSignal): Promise<SharedFolder>;

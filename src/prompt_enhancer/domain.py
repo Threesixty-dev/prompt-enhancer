@@ -101,6 +101,7 @@ class EventTimeBasis(StrEnum):
     """How precisely an event's ordering timestamp was observed."""
 
     PROVIDER_REPORTED = "provider_reported"
+    RECEIVER_OBSERVED = "receiver_observed"
     TURN_STARTED = "turn_started"
     TURN_COMPLETED = "turn_completed"
     SESSION_STARTED = "session_started"

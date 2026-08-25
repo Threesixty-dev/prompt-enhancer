@@ -501,6 +501,7 @@ class LocalApplication:
             destination="embedded central server (this machine)",
             user_label="owner",
             list_sessions=self.database.list_sessions,
+            active_model=active_model,
         )
         return service, central, remote_client
 

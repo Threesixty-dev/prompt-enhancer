@@ -15,6 +15,7 @@ from ...application.annotation import (
     CentralBatch,
     CentralBatchResult,
     Metaprompt,
+    RemoteAnnotationDisclosure,
     RemoteAnnotationClient,
     RemoteSubmitRequest,
     RemoteSubmitResult,
@@ -94,6 +95,12 @@ def create_annotation_router(
             raise _failure(error) from None
 
     if remote_client is not None:
+        @router.get("/remote/disclosure", response_model=RemoteAnnotationDisclosure)
+        def remote_disclosure() -> RemoteAnnotationDisclosure:
+            """Read-only disclosure required before the first remote annotation batch."""
+
+            return remote_client.disclosure()
+
         @router.post("/remote/submit", response_model=RemoteSubmitResult)
         def remote_submit(payload: RemoteSubmitRequest) -> RemoteSubmitResult:
             """Explicit 'annotate remotely': redacted windows + pseudonymous ids go to the central server."""

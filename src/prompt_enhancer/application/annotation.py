@@ -7,8 +7,8 @@ ordinary model judgments (``agent:<name>``).
 
 Path B (central): a separate, explicit action submits redacted windows plus
 pseudonymous ids to the central server (embedded locally today, VPS later,
-same code as login will use). The central side annotates with the strongest
-model it has and stores submission + labels - the dataset the owner's SaaS
+same code as login will use). The central side annotates with its configured
+active model and stores submission + labels - the dataset the owner's SaaS
 collects from consenting, logged-in users. Labels come back locally as
 ``central:<model>`` judgments.
 """
@@ -30,12 +30,15 @@ from ..domain import PSEUDONYM_PATTERN, Provider, StrictModel
 from .analysis.calibration_ratings import CALIBRATION_METRIC_KEYS, RatingLabel
 from .analysis.model_judge import (
     JUDGE_PROMPT_VERSION,
+    JUDGE_WINDOW_SCHEMA_VERSION,
+    MAX_WINDOW_CHARACTERS,
     ZERO_WINDOW_FINGERPRINT,
     ModelJudgeError,
     ModelJudgeService,
     ModelJudgment,
     _QUESTIONS,
     _SYSTEM_PROMPT,
+    _judge_user_prompt,
     parse_judge_reply,
     render_window,
 )
@@ -114,6 +117,19 @@ class SubmitResult(StrictModel):
 
 class RemoteSubmitRequest(StrictModel):
     limit: int = Field(default=5, ge=1, le=MAX_BATCH)
+
+
+class RemoteAnnotationDisclosure(StrictModel):
+    """Closed pre-send disclosure for the explicit remote annotation action."""
+
+    contract_version: Literal[ANNOTATION_CONTRACT_VERSION] = ANNOTATION_CONTRACT_VERSION
+    destination: str = Field(min_length=1, max_length=2_048)
+    redacted_windows_retained: Literal[True] = True
+    pseudonymous_session_ids_retained: Literal[True] = True
+    pseudonymous_project_ids_retained: Literal[True] = True
+    raw_transcripts_sent: Literal[False] = False
+    model_policy: Literal["configured_active_model_at_submission"] = "configured_active_model_at_submission"
+    active_model_alias: str | None = Field(default=None, pattern=_MODEL_NAME.pattern)
 
 
 class RemoteSubmitResult(StrictModel):
@@ -299,6 +315,61 @@ class CentralBatchResult(StrictModel):
     prompt_version: str = JUDGE_PROMPT_VERSION
 
 
+def _is_canonical_judge_window(value: str) -> bool:
+    """Accept only the bounded JSON envelope produced by ``render_window``."""
+
+    if len(value) > MAX_WINDOW_CHARACTERS:
+        return False
+    try:
+        payload = json.loads(value)
+    except ValueError:
+        return False
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema",
+        "authority",
+        "available",
+        "task_anchor_retained",
+        "earlier_records_omitted",
+        "records",
+    }:
+        return False
+    records = payload.get("records")
+    if (
+        payload.get("schema") != JUDGE_WINDOW_SCHEMA_VERSION
+        or payload.get("authority") != "untrusted_evidence"
+        or payload.get("available") is not True
+        or payload.get("task_anchor_retained") is not True
+        or not isinstance(payload.get("earlier_records_omitted"), bool)
+        or not isinstance(records, list)
+        or not records
+    ):
+        return False
+    sequences: list[int] = []
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {
+            "sequence",
+            "role",
+            "content",
+        }:
+            return False
+        sequence = record.get("sequence")
+        if (
+            isinstance(sequence, bool)
+            or not isinstance(sequence, int)
+            or sequence < 0
+            or record.get("role") not in {"user", "agent", "plan"}
+            or not isinstance(record.get("content"), str)
+            or not str(record["content"]).strip()
+        ):
+            return False
+        sequences.append(sequence)
+    return (
+        records[0]["role"] == "user"
+        and sequences == sorted(sequences)
+        and len(sequences) == len(set(sequences))
+    )
+
+
 class CentralAnnotationStore:
     """The central dataset: submissions + labels, one sqlite file (VPS-ready)."""
 
@@ -352,7 +423,7 @@ class CentralAnnotationStore:
 
 
 class CentralAnnotationServer:
-    """Annotates submitted windows with the strongest configured model and stores the dataset."""
+    """Annotates submitted windows with the configured active model and stores the dataset."""
 
     def __init__(
         self,
@@ -374,11 +445,16 @@ class CentralAnnotationServer:
         annotations: list[CentralAnnotation] = []
         stored = 0
         for item in batch.items:
+            if not _is_canonical_judge_window(item.window):
+                continue
             body = json.dumps(
                 {
                     "messages": [
                         {"role": "system", "content": _SYSTEM_PROMPT},
-                        {"role": "user", "content": "Questions:\n" + "\n".join(f"- {k}: {q}" for k, q in _QUESTIONS.items()) + "\n\nTranscript window:\n" + item.window[:15_000]},
+                        {
+                            "role": "user",
+                            "content": _judge_user_prompt(item.window),
+                        },
                     ],
                     "temperature": 0,
                     "max_tokens": 220,
@@ -410,6 +486,7 @@ class RemoteAnnotationClient:
         destination: str,
         user_label: str,
         list_sessions: Callable[..., list[dict[str, object]]],
+        active_model: Callable[[], str | None] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._service = service
@@ -417,7 +494,16 @@ class RemoteAnnotationClient:
         self._destination = destination
         self._user_label = user_label
         self._list_sessions = list_sessions
+        self._active_model = active_model or (lambda: None)
         self._clock = clock or (lambda: datetime.now(UTC))
+
+    def disclosure(self) -> RemoteAnnotationDisclosure:
+        """Describe the exact remote boundary without reading or submitting session data."""
+
+        return RemoteAnnotationDisclosure(
+            destination=self._destination,
+            active_model_alias=self._active_model(),
+        )
 
     def submit_batch(self, request: RemoteSubmitRequest) -> RemoteSubmitResult:
         judge = self._service._judge  # noqa: SLF001 - same composition unit
@@ -491,6 +577,7 @@ __all__ = (
     "CentralBatchItem",
     "CentralBatchResult",
     "Metaprompt",
+    "RemoteAnnotationDisclosure",
     "RemoteAnnotationClient",
     "RemoteSubmitRequest",
     "RemoteSubmitResult",

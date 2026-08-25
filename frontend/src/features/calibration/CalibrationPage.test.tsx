@@ -7,6 +7,7 @@ import type {
   JudgeAgreementReport,
   JudgeSweepStatus,
   RatingSubmission,
+  RemoteAnnotationDisclosure,
   RemoteAnnotationResult,
   SessionTranscript,
 } from "../../shared/api/contracts";
@@ -87,6 +88,20 @@ function sweep(overrides: Partial<JudgeSweepStatus> = {}): JudgeSweepStatus {
   };
 }
 
+function remoteDisclosure(overrides: Partial<RemoteAnnotationDisclosure> = {}): RemoteAnnotationDisclosure {
+  return {
+    contract_version: "annotation.v1",
+    destination: "embedded central server (this machine)",
+    redacted_windows_retained: true,
+    pseudonymous_session_ids_retained: true,
+    pseudonymous_project_ids_retained: true,
+    raw_transcripts_sent: false,
+    model_policy: "configured_active_model_at_submission",
+    active_model_alias: "synthetic-central-model",
+    ...overrides,
+  };
+}
+
 function baseTransport(sampleValue: unknown = sample()) {
   return {
     getCalibrationSample: vi.fn(async () => sampleValue as CalibrationSample),
@@ -110,8 +125,9 @@ function annotationTransport(
       agent_allowed: false,
       note: "Whatever model the agent runs on will see that content.",
     })),
+    getRemoteAnnotationDisclosure: vi.fn(async () => remoteDisclosure()),
     annotateRemotely,
-  } as never;
+  };
 }
 
 describe("CalibrationPage", () => {
@@ -429,6 +445,7 @@ describe("CalibrationPage", () => {
       getAnnotationAllowance: vi.fn(async () => ({ contract_version: "annotation.v1" as const, agent_allowed: allowed, note: "Whatever model the agent runs on will see that content." })),
       setAnnotationAllowance,
       getAnnotationMetaprompt: vi.fn(),
+      getRemoteAnnotationDisclosure: vi.fn(async () => remoteDisclosure({ active_model_alias: "orca27b-iq3m" })),
       annotateRemotely,
     } as never;
 
@@ -450,7 +467,9 @@ describe("CalibrationPage", () => {
     expect(annotateRemotely).not.toHaveBeenCalled();
     const dialog = await screen.findByRole("dialog", { name: "Send sessions for remote annotation?" });
     expect(dialog).toHaveAccessibleDescription("Nothing is sent until you explicitly choose Send.");
-    expect(screen.getByText(/Destination: embedded central server \(this machine\)/)).toBeInTheDocument();
+    expect(screen.getAllByText(/embedded central server \(this machine\)/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/configured active model at submission time/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/orca27b-iq3m/i).length).toBeGreaterThan(0);
     const cancel = screen.getByRole("button", { name: "Cancel" });
     await waitFor(() => expect(cancel).toHaveFocus());
     const send = screen.getByRole("button", { name: "Send" });
@@ -476,5 +495,64 @@ describe("CalibrationPage", () => {
     await waitFor(() => expect(annotateRemotely).toHaveBeenCalledWith(5, expect.any(AbortSignal)));
     await screen.findByText(/Sent 2 sessions to embedded central server/);
     await screen.findByText("central:orca27b-iq3m");
+  });
+
+  it.each([
+    ["unavailable", vi.fn(async () => { throw new TransportError("unavailable", 503); })],
+    ["malformed", vi.fn(async () => ({ ...remoteDisclosure(), raw_transcripts_sent: true }))],
+  ])("fails closed when the remote disclosure is %s", async (_case, getRemoteAnnotationDisclosure) => {
+    const annotateRemotely = vi.fn();
+    const transport = {
+      ...annotationTransport(annotateRemotely),
+      getRemoteAnnotationDisclosure,
+    } as never;
+
+    render(<CalibrationPage transport={transport} />);
+    await screen.findByText("More ways to annotate");
+    await screen.findByRole("alert");
+
+    expect(screen.getByText(/pre-send disclosure could not be verified/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Annotate remotely/ })).toBeDisabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(annotateRemotely).not.toHaveBeenCalled();
+  });
+
+  it("does not get stuck loading when the runtime omits the disclosure method", async () => {
+    const annotateRemotely = vi.fn();
+    const transport = {
+      ...annotationTransport(annotateRemotely),
+      getRemoteAnnotationDisclosure: undefined,
+    } as never;
+
+    render(<CalibrationPage transport={transport} />);
+    await screen.findByRole("alert");
+
+    expect(screen.queryByText(/Verifying the remote annotation destination/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Annotate remotely/ })).toBeDisabled();
+    expect(annotateRemotely).not.toHaveBeenCalled();
+  });
+
+  it("shows a verified destination but keeps sending disabled when no configured model is active", async () => {
+    const annotateRemotely = vi.fn();
+    const getRemoteAnnotationDisclosure = vi.fn()
+      .mockResolvedValueOnce(remoteDisclosure({ active_model_alias: null }))
+      .mockResolvedValue(remoteDisclosure({ active_model_alias: "synthetic-central-model" }));
+    const transport = {
+      ...annotationTransport(annotateRemotely),
+      getRemoteAnnotationDisclosure,
+    } as never;
+
+    render(<CalibrationPage transport={transport} />);
+    await screen.findByText("More ways to annotate");
+    await screen.findByText(/No model is active there now/i);
+
+    expect(screen.getByText("embedded central server (this machine)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Annotate remotely/ })).toBeDisabled();
+    expect(annotateRemotely).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Check for an active model/ }));
+    await screen.findByText("synthetic-central-model");
+    expect(getRemoteAnnotationDisclosure).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: /Annotate remotely/ })).toBeEnabled();
   });
 });

@@ -154,7 +154,7 @@ TASK_UNKNOWN_EVENT_KIND_RATE = MetricDefinition(
 )
 TASK_DIRECT_EVENT_TIMESTAMP_RATE = MetricDefinition(
     key="task.data_quality.direct_event_timestamp_rate",
-    version=1,
+    version=2,
     dimension="data_quality",
     display_name="Direct event timestamp rate",
     description=(
@@ -184,7 +184,7 @@ TASK_METRIC_DEFINITIONS = (
 )
 DEFAULT_TASK_METRIC_PACK = MetricPack(
     key=DEFAULT_TASK_METRIC_PACK_KEY,
-    version=3,
+    version=4,
     metric_keys=tuple(definition.key for definition in TASK_METRIC_DEFINITIONS),
 )
 

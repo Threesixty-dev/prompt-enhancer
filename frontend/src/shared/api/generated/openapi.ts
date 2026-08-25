@@ -383,6 +383,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/annotation/remote/disclosure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Remote Disclosure
+         * @description Read-only disclosure required before the first remote annotation batch.
+         */
+        get: operations["remote_disclosure_v1_annotation_remote_disclosure_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/annotation/remote/submit": {
         parameters: {
             query?: never;
@@ -4333,7 +4353,7 @@ export interface components {
             model_identity?: string | null;
             /**
              * Prompt Version
-             * @default judge-v1
+             * @default judge-v3-untrusted-json-anchor-15k
              */
             prompt_version: string;
             /** Stored */
@@ -9200,6 +9220,52 @@ export interface components {
          * @enum {string}
          */
         RejectionReason: "not_a_task" | "wrong_grouping" | "duplicate" | "other";
+        /**
+         * RemoteAnnotationDisclosure
+         * @description Closed pre-send disclosure for the explicit remote annotation action.
+         */
+        RemoteAnnotationDisclosure: {
+            /** Active Model Alias */
+            active_model_alias?: string | null;
+            /**
+             * Contract Version
+             * @default annotation.v1
+             * @constant
+             */
+            contract_version: "annotation.v1";
+            /** Destination */
+            destination: string;
+            /**
+             * Model Policy
+             * @default configured_active_model_at_submission
+             * @constant
+             */
+            model_policy: "configured_active_model_at_submission";
+            /**
+             * Pseudonymous Project Ids Retained
+             * @default true
+             * @constant
+             */
+            pseudonymous_project_ids_retained: true;
+            /**
+             * Pseudonymous Session Ids Retained
+             * @default true
+             * @constant
+             */
+            pseudonymous_session_ids_retained: true;
+            /**
+             * Raw Transcripts Sent
+             * @default false
+             * @constant
+             */
+            raw_transcripts_sent: false;
+            /**
+             * Redacted Windows Retained
+             * @default true
+             * @constant
+             */
+            redacted_windows_retained: true;
+        };
         /** RemoteFile */
         RemoteFile: {
             /**
@@ -13990,6 +14056,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Metaprompt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remote_disclosure_v1_annotation_remote_disclosure_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteAnnotationDisclosure"];
                 };
             };
             /** @description Validation Error */

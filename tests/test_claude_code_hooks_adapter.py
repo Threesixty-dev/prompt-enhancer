@@ -33,6 +33,7 @@ from prompt_enhancer.database import Database
 from prompt_enhancer.domain import (
     DataTier,
     EventKind,
+    EventTimeBasis,
     Provider,
     SessionState,
     ToolCategory,
@@ -152,6 +153,10 @@ def test_adapter_requires_probe_and_scopes_reads_to_the_snapshot(home: Path) -> 
     assert unpaired.tool_category is ToolCategory.FILE_WRITE
     assert unpaired.success is None and unpaired.duration_ms is None
     assert all(e.usage is None for e in snapshot.events)
+    assert all(
+        event.time_basis is EventTimeBasis.RECEIVER_OBSERVED
+        for event in snapshot.events
+    )
 
     # A session that was not listed in this snapshot cannot be read.
     stranger = session.model_copy(update={"source_session_id": session.source_session_id.__class__("f" * 64)})
@@ -230,6 +235,9 @@ def test_end_to_end_ingestion_persists_pseudonymous_content_free_rows(home: Path
         EventKind.TOOL_END, EventKind.TOOL_START, EventKind.TURN_END, EventKind.SESSION_END,
     ]
     assert events[3].duration_ms == 1000 and events[3].success is True
+    assert all(
+        event.time_basis is EventTimeBasis.RECEIVER_OBSERVED for event in events
+    )
     # Second ingestion is idempotent.
     again = application.create_ingestion_service().ingest(
         ClaudeCodeHookAdapter(application.database.claude_hook_ledger())

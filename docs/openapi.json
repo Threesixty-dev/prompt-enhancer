@@ -3530,7 +3530,7 @@
             "title": "Model Identity"
           },
           "prompt_version": {
-            "default": "judge-v1",
+            "default": "judge-v3-untrusted-json-anchor-15k",
             "title": "Prompt Version",
             "type": "string"
           },
@@ -15985,6 +15985,71 @@
         "title": "RejectionReason",
         "type": "string"
       },
+      "RemoteAnnotationDisclosure": {
+        "additionalProperties": false,
+        "description": "Closed pre-send disclosure for the explicit remote annotation action.",
+        "properties": {
+          "active_model_alias": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:/+-]{0,119}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Model Alias"
+          },
+          "contract_version": {
+            "const": "annotation.v1",
+            "default": "annotation.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "destination": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Destination",
+            "type": "string"
+          },
+          "model_policy": {
+            "const": "configured_active_model_at_submission",
+            "default": "configured_active_model_at_submission",
+            "title": "Model Policy",
+            "type": "string"
+          },
+          "pseudonymous_project_ids_retained": {
+            "const": true,
+            "default": true,
+            "title": "Pseudonymous Project Ids Retained",
+            "type": "boolean"
+          },
+          "pseudonymous_session_ids_retained": {
+            "const": true,
+            "default": true,
+            "title": "Pseudonymous Session Ids Retained",
+            "type": "boolean"
+          },
+          "raw_transcripts_sent": {
+            "const": false,
+            "default": false,
+            "title": "Raw Transcripts Sent",
+            "type": "boolean"
+          },
+          "redacted_windows_retained": {
+            "const": true,
+            "default": true,
+            "title": "Redacted Windows Retained",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "destination"
+        ],
+        "title": "RemoteAnnotationDisclosure",
+        "type": "object"
+      },
       "RemoteFile": {
         "additionalProperties": false,
         "properties": {
@@ -27058,6 +27123,72 @@
           }
         },
         "summary": "Get Metaprompt",
+        "tags": [
+          "annotation"
+        ]
+      }
+    },
+    "/v1/annotation/remote/disclosure": {
+      "get": {
+        "description": "Read-only disclosure required before the first remote annotation batch.",
+        "operationId": "remote_disclosure_v1_annotation_remote_disclosure_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteAnnotationDisclosure"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remote Disclosure",
         "tags": [
           "annotation"
         ]

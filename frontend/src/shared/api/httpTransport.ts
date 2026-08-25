@@ -100,6 +100,7 @@ import type {
   SharedFolder,
   SharedFolderList,
   AnnotationMetaprompt,
+  RemoteAnnotationDisclosure,
   RemoteAnnotationResult,
   SessionJudgments,
   SessionInterpretation,
@@ -2849,6 +2850,9 @@ export function createHttpTransport(options: {
     },
     getAnnotationMetaprompt(signal) {
       return request<AnnotationMetaprompt>("/v1/annotation/metaprompt", { method: "GET" }, signal);
+    },
+    getRemoteAnnotationDisclosure(signal) {
+      return request<RemoteAnnotationDisclosure>("/v1/annotation/remote/disclosure", { method: "GET" }, signal);
     },
     annotateRemotely(limit, signal) {
       return request<RemoteAnnotationResult>(

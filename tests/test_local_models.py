@@ -22,6 +22,7 @@ from prompt_enhancer.application.local_models import (
     AddLocalModel,
     DeviceMode,
     DownloadRequest,
+    DownloadStatus,
     HardwareSummary,
     LICENSE_POLICY_VERSION,
     LlamaServerProcess,
@@ -784,6 +785,81 @@ def test_download_reports_partial_bytes_while_the_hub_writes(tmp_path: Path, mon
     assert final.state == "completed", final
     assert seen and seen[0] == 2048  # the partial file was reported before completion
     assert final.bytes_done == 4096
+
+
+def test_overview_snapshots_downloads_while_holding_the_service_lock(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    values_entered = threading.Event()
+    release_values = threading.Event()
+    mutation_started = threading.Event()
+    mutation_entered = threading.Event()
+    overview_errors: list[BaseException] = []
+    overviews = []
+
+    first = DownloadStatus(
+        download_id="synthetic-first",
+        repo_id="example/first",
+        filename="first.gguf",
+        alias="first",
+        state="queued",
+        bytes_total=1,
+        bytes_done=0,
+        started_at=T0,
+    )
+    second = first.model_copy(
+        update={
+            "download_id": "synthetic-second",
+            "repo_id": "example/second",
+            "filename": "second.gguf",
+            "alias": "second",
+        }
+    )
+
+    class CoordinatedDownloads(dict[str, DownloadStatus]):
+        def values(self):  # type: ignore[override]
+            values_entered.set()
+            if not release_values.wait(2):
+                raise AssertionError("synthetic overview snapshot was not released")
+            return super().values()
+
+    with service._lock:  # noqa: SLF001 - deterministic lock regression
+        service._downloads = CoordinatedDownloads(  # noqa: SLF001
+            {first.download_id: first}
+        )
+
+    def read_overview() -> None:
+        try:
+            overviews.append(service.overview())
+        except BaseException as error:  # noqa: BLE001 - asserted below
+            overview_errors.append(error)
+
+    def mutate_downloads() -> None:
+        mutation_started.set()
+        with service._lock:  # noqa: SLF001 - deterministic concurrent writer
+            mutation_entered.set()
+            service._downloads[second.download_id] = second  # noqa: SLF001
+
+    reader = threading.Thread(target=read_overview, daemon=True)
+    reader.start()
+    assert values_entered.wait(2)
+    writer = threading.Thread(target=mutate_downloads, daemon=True)
+    writer.start()
+    assert mutation_started.wait(2)
+    try:
+        assert not mutation_entered.wait(0.2)
+    finally:
+        release_values.set()
+    reader.join(timeout=2)
+    writer.join(timeout=2)
+
+    assert not reader.is_alive() and not writer.is_alive()
+    assert not overview_errors
+    assert mutation_entered.is_set()
+    assert len(overviews) == 1
+    assert overviews[0].downloads == (first,)
+    assert service.overview().downloads == (first, second)
 
 
 def test_http_routes_and_capability(tmp_path: Path, monkeypatch) -> None:

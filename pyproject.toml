@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "huggingface-hub>=0.36.2,<1",
   "httpx>=0.28.1,<1",
   "pytest>=8.4.1,<9",
 ]

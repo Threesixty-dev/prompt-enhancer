@@ -610,6 +610,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async getAnnotationMetaprompt() {
       throw new TransportError("Annotation is unavailable in synthetic preview", 404);
     },
+    async getRemoteAnnotationDisclosure() {
+      throw new TransportError("Remote annotation disclosure is unavailable in synthetic preview", 404);
+    },
     async annotateRemotely() {
       throw new TransportError("Annotation is unavailable in synthetic preview", 404);
     },

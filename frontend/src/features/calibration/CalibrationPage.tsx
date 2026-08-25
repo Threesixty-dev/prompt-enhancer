@@ -6,6 +6,7 @@ import type {
   CalibrationSampleMember,
   AnnotationAllowance,
   JudgeAgreementReport,
+  RemoteAnnotationDisclosure,
   RemoteAnnotationResult,
   JudgeSweepStatus,
   PromptEnhancerTransport,
@@ -45,6 +46,7 @@ const PSEUDONYM = /^[a-f0-9]{64}$/;
 const PROVIDERS = new Set(["codex", "claude_code", "synthetic"]);
 const ISO_DATETIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
 const MAX_SAMPLE_SIZE = 1_000;
+const REMOTE_MODEL_ALIAS = /^[A-Za-z0-9][A-Za-z0-9 ._:/+-]{0,119}$/;
 
 type OwnedRequestKind = "load" | "command";
 type OwnedRequest = {
@@ -105,6 +107,19 @@ function isDateTime(value: unknown): value is string {
     || calendarDate.getUTCDate() !== day
   ) return false;
   return Number.isFinite(Date.parse(value));
+}
+
+export function safeRemoteAnnotationDisclosure(value: unknown): value is RemoteAnnotationDisclosure {
+  if (!isRecord(value)) return false;
+  const activeModel = value.active_model_alias;
+  return value.contract_version === "annotation.v1"
+    && isBoundedString(value.destination, 2_048)
+    && value.redacted_windows_retained === true
+    && value.pseudonymous_session_ids_retained === true
+    && value.pseudonymous_project_ids_retained === true
+    && value.raw_transcripts_sent === false
+    && value.model_policy === "configured_active_model_at_submission"
+    && (activeModel === null || (typeof activeModel === "string" && REMOTE_MODEL_ALIAS.test(activeModel)));
 }
 
 export function safeCalibrationSample(value: unknown): value is CalibrationSample {
@@ -169,7 +184,7 @@ export function CalibrationPage({
   transport: Pick<
     PromptEnhancerTransport,
     "getCalibrationSample" | "submitCalibrationRatings" | "getCalibrationRatings" | "getCalibrationProgress" | "getCalibrationExport" | "getSessionTranscript"
-  > & Partial<Pick<PromptEnhancerTransport, "judgeSessionWithModel" | "startModelJudgeSweep" | "getModelJudgeSweep" | "getModelJudgeAgreement" | "getAnnotationAllowance" | "setAnnotationAllowance" | "getAnnotationMetaprompt" | "annotateRemotely">>;
+  > & Partial<Pick<PromptEnhancerTransport, "judgeSessionWithModel" | "startModelJudgeSweep" | "getModelJudgeSweep" | "getModelJudgeAgreement" | "getAnnotationAllowance" | "setAnnotationAllowance" | "getAnnotationMetaprompt" | "getRemoteAnnotationDisclosure" | "annotateRemotely">>;
 }) {
   const [agreement, setAgreement] = useState<JudgeAgreementReport | null>(null);
   const [sweep, setSweep] = useState<JudgeSweepStatus | null>(null);
@@ -178,6 +193,8 @@ export function CalibrationPage({
   const [annotationMessage, setAnnotationMessage] = useState("");
   const [remoteConfirm, setRemoteConfirm] = useState(false);
   const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteDisclosure, setRemoteDisclosure] = useState<RemoteAnnotationDisclosure | null>(null);
+  const [remoteDisclosureState, setRemoteDisclosureState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [remoteResult, setRemoteResult] = useState<RemoteAnnotationResult | null>(null);
   const [rater, setRater] = useState<string>(() => {
     try { return localStorage.getItem(RATER_KEY) ?? ""; } catch { return ""; }
@@ -194,6 +211,7 @@ export function CalibrationPage({
   const [exportText, setExportText] = useState("");
   const judgeRequestRef = useRef<OwnedRequest | null>(null);
   const allowanceRequestRef = useRef<OwnedRequest | null>(null);
+  const disclosureRequestRef = useRef<OwnedRequest | null>(null);
   const remoteRequestRef = useRef<OwnedRequest | null>(null);
   const remoteCancelRef = useRef<HTMLButtonElement>(null);
 
@@ -260,6 +278,35 @@ export function CalibrationPage({
     }
   }, [transport]);
 
+  const loadRemoteDisclosure = useCallback(async () => {
+    setRemoteDisclosure(null);
+    if (!transport.getRemoteAnnotationDisclosure) {
+      setRemoteDisclosureState("unavailable");
+      return;
+    }
+    const request = beginOwnedRequest(disclosureRequestRef, "load");
+    if (!request) return;
+    setRemoteDisclosureState("loading");
+    try {
+      const value = await transport.getRemoteAnnotationDisclosure(request.controller.signal);
+      if (!ownsRequest(disclosureRequestRef, request)) return;
+      if (!safeRemoteAnnotationDisclosure(value)) {
+        setRemoteDisclosure(null);
+        setRemoteDisclosureState("unavailable");
+        return;
+      }
+      setRemoteDisclosure(value);
+      setRemoteDisclosureState("ready");
+    } catch {
+      if (ownsRequest(disclosureRequestRef, request)) {
+        setRemoteDisclosure(null);
+        setRemoteDisclosureState("unavailable");
+      }
+    } finally {
+      finishOwnedRequest(disclosureRequestRef, request);
+    }
+  }, [transport]);
+
   useEffect(() => {
     void loadJudge();
     void loadAllowance();
@@ -273,6 +320,11 @@ export function CalibrationPage({
       cancelOwnedRequest(allowanceRequestRef);
     };
   }, [loadAllowance, loadJudge]);
+
+  useEffect(() => {
+    void loadRemoteDisclosure();
+    return () => cancelOwnedRequest(disclosureRequestRef);
+  }, [loadRemoteDisclosure]);
 
   useEffect(() => {
     setAgreement(null);
@@ -434,7 +486,7 @@ export function CalibrationPage({
   };
 
   const annotateRemotely = async () => {
-    if (!transport.annotateRemotely) return;
+    if (!transport.annotateRemotely || !remoteDisclosure?.active_model_alias) return;
     const request = beginOwnedRequest(remoteRequestRef, "command");
     if (!request) return;
     setRemoteBusy(true);
@@ -472,8 +524,8 @@ export function CalibrationPage({
           <h1 id="calibration-title">Rate sessions</h1>
           <p className="calibration__lede">
             Read the session, answer three questions, move on. Model values are hidden here on purpose; your
-            answers are the human reference the metrics are later checked against. Everything stays on this
-            machine - the export is labels and pseudonyms only.
+            answers are the human reference the metrics are later checked against. Ratings and exports stay on this
+            machine; only the separate, explicit remote annotation action below crosses the disclosed boundary.
           </p>
         </div>
         <div className="calibration__rater">
@@ -667,10 +719,38 @@ export function CalibrationPage({
             <div className="calibration__annotation-path">
               <h3>Annotate remotely on the central server</h3>
               <p className="calibration__note">
-                Sends up to 5 not-yet-submitted sessions - redacted windows plus pseudonymous session and project ids, never raw transcripts - to the central annotation server, which annotates them with its strongest model and keeps the submissions as the training dataset.
+                This optional action can send up to 5 not-yet-submitted sessions only after its destination, retained data, and configured active model are disclosed below.
               </p>
+              {remoteDisclosureState === "loading" && (
+                <p className="calibration__note" role="status">Verifying the remote annotation destination and policy…</p>
+              )}
+              {remoteDisclosureState === "unavailable" && (
+                <div role="alert">
+                  <p className="calibration__note">Remote annotation is disabled because its pre-send disclosure could not be verified. Nothing can be sent.</p>
+                  <button className="button button--ghost" onClick={() => void loadRemoteDisclosure()} type="button">Retry disclosure</button>
+                </div>
+              )}
+              {remoteDisclosureState === "ready" && remoteDisclosure && (
+                <div className="calibration__remote-disclosure">
+                  <p className="calibration__note">Destination: <code>{remoteDisclosure.destination}</code>.</p>
+                  <p className="calibration__note">
+                    It retains redacted windows plus pseudonymous session and project ids as its annotation training dataset. Raw transcripts are not sent.
+                  </p>
+                  <p className="calibration__note">
+                    Model policy: use the model configured and active at submission time.
+                    {remoteDisclosure.active_model_alias
+                      ? <> Active now: <code>{remoteDisclosure.active_model_alias}</code>.</>
+                      : " No model is active there now, so sending is disabled."}
+                  </p>
+                  {!remoteDisclosure.active_model_alias && (
+                    <button className="button button--ghost" onClick={() => void loadRemoteDisclosure()} type="button">
+                      Check for an active model
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="calibration__actions">
-                <button className="button button--ghost" disabled={remoteBusy} onClick={() => setRemoteConfirm(true)} type="button">
+                <button className="button button--ghost" disabled={remoteBusy || !remoteDisclosure?.active_model_alias} onClick={() => setRemoteConfirm(true)} type="button">
                   Annotate remotely…
                 </button>
               </div>
@@ -682,7 +762,7 @@ export function CalibrationPage({
                     <button className="button button--ghost" disabled={remoteBusy} onClick={closeRemoteConfirm} ref={remoteCancelRef} type="button">
                       Cancel
                     </button>
-                    <button className="button" disabled={remoteBusy} onClick={() => void annotateRemotely()} type="button">
+                    <button className="button" disabled={remoteBusy || !remoteDisclosure?.active_model_alias} onClick={() => void annotateRemotely()} type="button">
                       {remoteBusy ? "Sending…" : "Send"}
                     </button>
                   </>
@@ -694,9 +774,14 @@ export function CalibrationPage({
                 tone="danger"
               >
                 <div className="calibration__remote-confirmation">
-                  <p className="calibration__note">Destination: embedded central server (this machine).</p>
+                  <p className="calibration__note">
+                    Destination: <code>{remoteDisclosure?.destination}</code>.
+                  </p>
                   <p className="calibration__note">
                     Up to 5 not-yet-submitted redacted windows and their pseudonymous session and project ids will be retained as the central annotation training dataset. Raw transcripts are never sent.
+                  </p>
+                  <p className="calibration__note">
+                    The destination uses its configured active model at submission time. Active now: <code>{remoteDisclosure?.active_model_alias}</code>.
                   </p>
                 </div>
               </Dialog>

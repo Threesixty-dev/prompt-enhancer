@@ -186,7 +186,7 @@ def _source_event(event: LedgerEvent) -> SourceEvent:
         occurred_at=event.received_at,
         # The provider supplies no timestamp; the receiver stamps the receipt
         # of a synchronous hook.  SOURCE_SCHEMA_VERSION names that clock.
-        time_basis=EventTimeBasis.PROVIDER_REPORTED,
+        time_basis=EventTimeBasis.RECEIVER_OBSERVED,
         duration_ms=event.duration_ms,
         success=event.success,
         tool_category=event.tool_category,

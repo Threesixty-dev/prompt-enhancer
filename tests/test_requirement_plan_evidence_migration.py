@@ -60,9 +60,9 @@ def test_populated_v54_upgrades_to_v55_without_backfill_or_m54_drift(tmp_path) -
         versions = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 59
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 59
-        assert tuple(row[0] for row in versions) == tuple(range(1, 60))
+        assert SCHEMA_VERSION == 60
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 60
+        assert tuple(row[0] for row in versions) == tuple(range(1, 61))
         assert versions[53][1] == MIGRATION_54_FROZEN_SHA256
         assert versions[54][1] == hashlib.sha256(
             migrations.MIGRATION_55.encode()
@@ -109,7 +109,7 @@ def test_failed_v55_rolls_back_schema_ledger_and_user_version_together(tmp_path)
 
 
 def test_database_registry_appends_v55_after_byte_frozen_v54() -> None:
-    assert SCHEMA_VERSION == 59
+    assert SCHEMA_VERSION == 60
     assert hashlib.sha256(migrations.MIGRATION_54.encode()).hexdigest() == (
         MIGRATION_54_FROZEN_SHA256
     )
