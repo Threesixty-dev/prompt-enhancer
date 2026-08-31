@@ -19,6 +19,7 @@ import {
   MODEL_ENSEMBLE_MESSAGE_WINDOWS,
 } from "./modelEnsembleConstants";
 import { useTrajectorySelection } from "./useTrajectorySelection";
+import { MODEL_CLEANUP_RECOVERY, useModelCleanupWarning, watchPauseCopy } from "./modelEnsembleFailureCopy";
 import {
   CANONICAL_POLL_IDLE_MS,
   CANONICAL_POLL_RETRY_MS,
@@ -104,12 +105,15 @@ function watchFailureCopy(code: string | null): string {
 }
 
 function watchStatus(snapshot: ModelEnsembleWatchSnapshot): string {
+  if (watchPauseCopy(snapshot.watch) !== null) return "Automatic updates paused · local runtime needs attention";
   switch (snapshot.watch.state) {
     case "queued": return "Waiting for the local model lane";
     case "running": return snapshot.watch.last_error_code === null
       ? `Updating · local pipeline ${snapshot.watch.progress_completed}/${snapshot.watch.progress_total}`
       : `Retrying · local pipeline ${snapshot.watch.progress_completed}/${snapshot.watch.progress_total}`;
-    case "failed": return "Update failed · retaining the last valid receipt";
+    case "failed": return snapshot.latest_run === null
+      ? "Update failed · no completed receipt"
+      : "Update failed · retaining the last valid receipt";
     case "idle": return snapshot.latest_run === null
       ? "Waiting for the first completed receipt"
       : `Up to date · completed ${shortTime(snapshot.latest_run.completed_at)} UTC`;
@@ -119,6 +123,8 @@ function watchStatus(snapshot: ModelEnsembleWatchSnapshot): string {
 
 function watchDetail(snapshot: ModelEnsembleWatchSnapshot): string {
   const prefix = `Newest ${snapshot.watch.max_messages} messages`;
+  const paused = watchPauseCopy(snapshot.watch);
+  if (paused !== null) return `${prefix} · ${paused}`;
   if (snapshot.watch.state === "running") {
     const retry = snapshot.watch.last_error_code === null
       ? ""
@@ -132,18 +138,23 @@ function watchDetail(snapshot: ModelEnsembleWatchSnapshot): string {
     return `${prefix} · waiting for the serial local model lane${retry}`;
   }
   if (snapshot.watch.state === "failed") {
-    return `${prefix} · ${watchFailureCopy(snapshot.watch.last_error_code)} · automatic retry ${shortTime(snapshot.watch.next_check_at)} UTC`;
+    const retry = snapshot.watch.quarantined === false
+      ? `automatic retry ${shortTime(snapshot.watch.next_check_at)} UTC`
+      : "automatic retry status unavailable";
+    return `${prefix} · ${watchFailureCopy(snapshot.watch.last_error_code)} · ${retry}`;
   }
+  if (snapshot.watch.state === "disabled") return `${prefix} · continuous updates are stopped`;
   return `${prefix} · next observation ${shortTime(snapshot.watch.next_check_at)} UTC · serial local lane`;
 }
 
 function canonicalStatus(head: ModelEnsembleCanonicalHead | null, snapshot: ModelEnsembleWatchSnapshot): string {
+  if (watchPauseCopy(snapshot.watch) !== null) return watchStatus(snapshot);
   const attempt = head?.latest_attempt;
   if (attempt === null || attempt === undefined) return watchStatus(snapshot);
   if (attempt.state === "running") return `Updating · ${attempt.progress_completed}/${attempt.progress_total} pipeline steps`;
   if (snapshot.watch.state === "queued") return "Queued · waiting for the local model lane";
-  if (attempt.state === "failed") return "Update failed · retaining the last valid snapshot";
-  if (attempt.state === "cancelled") return "Analysis cancelled · last valid snapshot retained";
+  if (attempt.state === "failed") return snapshot.latest_run === null ? "Update failed · no completed snapshot" : "Update failed · retaining the last valid snapshot";
+  if (attempt.state === "cancelled") return snapshot.latest_run === null ? "Analysis cancelled · no completed snapshot" : "Analysis cancelled · last valid snapshot retained";
   if (attempt.state === "partial") return `Updated with ${attempt.warning_count} warning${attempt.warning_count === 1 ? "" : "s"}`;
   return snapshot.latest_run === null ? "Waiting for the first sealed snapshot" : `Up to date · completed ${shortTime(snapshot.latest_run.completed_at)} UTC`;
 }
@@ -219,6 +230,7 @@ export function ModelEnsembleOverlay({
   teamControlPlane?: TeamControlPlanePort | null;
 }) {
   const [snapshot, setSnapshot] = useState<ModelEnsembleWatchSnapshot | null>(null);
+  const cleanupWarning = useModelCleanupWarning(snapshot?.watch);
   const [canonicalHead, setCanonicalHead] = useState<ModelEnsembleCanonicalHead | null>(null);
   const [trajectory, setTrajectory] = useState<ModelEnsembleTrajectoryPage | null>(null);
   const [trajectoryError, setTrajectoryError] = useState(false);
@@ -792,7 +804,7 @@ export function ModelEnsembleOverlay({
     ? METRIC_DEFINITIONS_OUT_OF_DATE_TITLE
     : disconnected
       ? "Reconnecting · last receipt retained"
-      : snapshot === null ? "No active watch" : canonicalStatus(canonicalHead, snapshot);
+      : snapshot === null ? cleanupWarning ? "No active watch · model cleanup still unconfirmed" : "No active watch" : canonicalStatus(canonicalHead, snapshot);
   const progressTotal = canonicalHead?.latest_attempt?.progress_total ?? snapshot?.watch.progress_total ?? 0;
   const progressCompleted = canonicalHead?.latest_attempt?.progress_completed ?? snapshot?.watch.progress_completed ?? 0;
 
@@ -950,8 +962,7 @@ export function ModelEnsembleOverlay({
         <MetricDefinitionsOutOfDateAlert compact mismatch={definitionsOutOfDate} />
       ) : snapshot === null ? (
         <section className="model-ensemble__empty" role="status">
-          No live watch is active. Choose a project, session, and message window above;
-          reading starts only after you explicitly enable it.
+          {cleanupWarning ? MODEL_CLEANUP_RECOVERY : "No live watch is active. Choose a project, session, and message window above; reading starts only after you explicitly enable it."}
         </section>
       ) : (
         <>

@@ -7,6 +7,7 @@ import hmac
 import re
 from html.parser import HTMLParser
 from pathlib import Path
+from threading import Lock
 from typing import Annotated, Any, Callable, Literal, Mapping, Protocol, Sequence
 from urllib.parse import urlsplit
 
@@ -495,6 +496,11 @@ def create_app(
     all_session_ids=None,
     prompt_check_service=None,
     local_agent_service=None,
+    agent_hardening_service=None,
+    agent_mcp_connection_service=None,
+    mcp_registry_catalog_service=None,
+    mcp_server_management_service=None,
+    mcp_managed_runtime_service=None,
     annotation_service=None,
     shared_folder_service=None,
     peer_folder_client=None,
@@ -559,9 +565,50 @@ def create_app(
         ("local_source_refresh_worker", local_source_refresh_worker),
     )
 
+    from .application.runtime_lifecycle import RuntimeComponent, RuntimeLifecycleReport
+
+    runtime_lifecycle = RuntimeLifecycleReport()
+    started: list[tuple[RuntimeComponentName, Any]] = []
+    cleanup_lock = Lock()
+
+    def stop_runtime_components() -> None:
+        # Both ASGI lifespan and the owning desktop's emergency exit use this
+        # exact cleanup. A forced server exit must not bypass model unloading.
+        with cleanup_lock:
+            if runtime_lifecycle.cleanup_finished:
+                return
+            cleanup_failures: list[RuntimeComponent] = []
+            for name, worker in reversed(started):
+                try:
+                    worker.stop()
+                except Exception:
+                    cleanup_failures.append(RuntimeComponent(name))
+            # Release model sockets before waiting for Agent turns that may be
+            # blocked reading them. Evaluation jobs own a separate model tree.
+            for component, service in (
+                (RuntimeComponent.LOCAL_MODEL_SERVICE, local_model_service),
+                (RuntimeComponent.LOCAL_AGENT_SERVICE, local_agent_service),
+                (
+                    RuntimeComponent.MCP_MANAGED_RUNTIME_SERVICE,
+                    mcp_managed_runtime_service,
+                ),
+                (RuntimeComponent.MODEL_EVALUATION_SERVICE, model_evaluation_service),
+            ):
+                if service is None:
+                    continue
+                try:
+                    service.shutdown()
+                except Exception:
+                    cleanup_failures.append(component)
+            runtime_lifecycle.shutdown_failures = tuple(cleanup_failures)
+            runtime_lifecycle.cleanup_finished = True
+
     @asynccontextmanager
     async def local_lifespan(_app: FastAPI):
-        started: list[Any] = []
+        runtime_lifecycle.startup_failure = None
+        runtime_lifecycle.shutdown_failures = ()
+        runtime_lifecycle.cleanup_finished = False
+        started.clear()
         primary_failed = False
         try:
             for _name, worker in runtime_workers:
@@ -569,35 +616,22 @@ def create_app(
                     continue
                 # Stop is required to be idempotent, so registering before
                 # start also covers a start method that launches and then fails.
-                started.append(worker)
+                started.append((_name, worker))
                 start_failed = False
                 try:
                     worker.start()
                 except Exception:
                     start_failed = True
                 if start_failed:
+                    runtime_lifecycle.startup_failure = RuntimeComponent(_name)
                     raise RuntimeError("runtime_component_start_failed")
             yield
         except BaseException:
             primary_failed = True
             raise
         finally:
-            cleanup_failed = False
-            for worker in reversed(started):
-                try:
-                    worker.stop()
-                except Exception:
-                    # Cleanup remains exhaustive and exception text may carry
-                    # private adapter details. Report only one fixed failure
-                    # after every configured component has been attempted.
-                    cleanup_failed = True
-            if local_model_service is not None:
-                # Never leave a model runtime running after the app exits.
-                try:
-                    local_model_service.shutdown()
-                except Exception:
-                    cleanup_failed = True
-            if cleanup_failed and not primary_failed:
+            stop_runtime_components()
+            if runtime_lifecycle.shutdown_failures and not primary_failed:
                 raise RuntimeError("runtime_component_shutdown_failed")
 
     app = FastAPI(
@@ -613,6 +647,8 @@ def create_app(
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.state.database = database
     app.state.runtime_workers = runtime_workers
+    app.state.runtime_lifecycle = runtime_lifecycle
+    app.state.stop_runtime_components = stop_runtime_components
 
     def _session_provider(session_id: str) -> Provider:
         return _resolve_session_provider(database, session_id)
@@ -670,7 +706,11 @@ def create_app(
                 "/requirement-action-evidence",
                 "/requirement-verification-evidence",
                 "/declared-task-profile",
-                "/agent/sessions",
+                "/agent/",
+                "/integrations/agent-mcp/",
+                "/integrations/mcp-store/",
+                "/diagnostics/agent-hardening",
+                "/v1/calibration/",
             )
         ):
             response.headers["Cache-Control"] = "no-store, private"
@@ -1230,6 +1270,88 @@ def create_app(
                 require_local_token,
                 require_browser_user_confirmation,
                 local_agent_service,
+            )
+        )
+    if agent_hardening_service is not None:
+        from .interfaces.http.agent_hardening_routes import (
+            create_agent_hardening_router,
+        )
+
+        app.include_router(
+            create_agent_hardening_router(
+                require_local_token,
+                require_browser_user_confirmation,
+                agent_hardening_service,
+            )
+        )
+    if agent_mcp_connection_service is not None:
+        from .application.agent_controller_client import AgentControllerClient
+        from .application.agent_mcp_connections import AgentMcpPrincipal
+        from .application.agent_mcp_surface import AgentMcpSurface
+        from .application.local_agent_limits import LocalAgentError
+        from .infrastructure.agent_controller_http import (
+            LoopbackAgentControllerTransport,
+        )
+        from .interfaces.http.agent_mcp_routes import create_agent_mcp_router
+
+        def create_http_agent_mcp_surface(
+            base_url: str,
+            principal: AgentMcpPrincipal,
+        ) -> AgentMcpSurface:
+            return AgentMcpSurface(
+                AgentControllerClient(
+                    LoopbackAgentControllerTransport(base_url, resolved_token)
+                ),
+                allow_model_lifecycle=principal.allow_model_lifecycle,
+                scope_project_id=principal.project_id,
+                controller_connection_id=principal.connection_id,
+                controller_ownership=agent_mcp_connection_service.ownership,
+            )
+
+        def agent_controller_session_settled(session_id: str) -> bool:
+            if local_agent_service is None:
+                return False
+            try:
+                session = local_agent_service.get(session_id)
+            except LocalAgentError as error:
+                return error.code == "session_not_found"
+            return not (
+                session.running
+                or session.closing
+                or session.stopping
+                or session.cleanup_unconfirmed
+                or session.pending_approval_id is not None
+            )
+
+        app.include_router(
+            create_agent_mcp_router(
+                require_local_token,
+                require_browser_user_confirmation,
+                agent_mcp_connection_service,
+                create_http_agent_mcp_surface,
+                agent_controller_session_settled,
+            )
+        )
+    if mcp_registry_catalog_service is not None:
+        from .interfaces.http.mcp_registry_routes import create_mcp_registry_router
+
+        app.include_router(
+            create_mcp_registry_router(
+                require_local_token,
+                mcp_registry_catalog_service,
+            )
+        )
+    if mcp_server_management_service is not None:
+        from .interfaces.http.mcp_server_management_routes import (
+            create_mcp_server_management_router,
+        )
+
+        app.include_router(
+            create_mcp_server_management_router(
+                require_local_token,
+                require_browser_user_confirmation,
+                mcp_server_management_service,
+                mcp_managed_runtime_service,
             )
         )
     if requirement_plan_evidence_service is not None:

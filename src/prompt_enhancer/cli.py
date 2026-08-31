@@ -32,6 +32,154 @@ def _parser() -> argparse.ArgumentParser:
         "agent-desktop",
         help="open the owned native Agent window with protected-action approvals",
     )
+    controller = subparsers.add_parser(
+        "agent-controller",
+        help=(
+            "perform one bounded loopback Agent-controller action without "
+            "starting the app or another agent; the explicit runtime action "
+            "can request model load or unload"
+        ),
+    )
+    controller.add_argument(
+        "--base-url",
+        default=None,
+        help="optional loopback HTTP origin; defaults to configured host and port",
+    )
+    controller.add_argument(
+        "--request-timeout-seconds",
+        type=float,
+        default=10.0,
+        help="bounded timeout for each loopback exchange (0.1 to 60 seconds)",
+    )
+    controller_actions = controller.add_subparsers(
+        dest="agent_controller_command",
+        required=True,
+    )
+    controller_actions.add_parser(
+        "discover",
+        help="verify and return the content-free v8 controller manifest",
+    )
+    controller_invoke = controller_actions.add_parser(
+        "invoke",
+        help="invoke one manifest-declared JSON operation from a stdin envelope",
+    )
+    controller_invoke.add_argument(
+        "--acknowledge-sensitive-context-egress",
+        action="store_true",
+        help="confirm this request may return selected sensitive local data",
+    )
+    controller_open = controller_actions.add_parser(
+        "open",
+        help=(
+            "create or select one durable project and open one validated live chat"
+        ),
+    )
+    controller_open.add_argument(
+        "--acknowledge-sensitive-context-egress",
+        action="store_true",
+        help="confirm this request may return selected sensitive local data",
+    )
+    controller_close = controller_actions.add_parser(
+        "close",
+        help=(
+            "close one exact idle live chat while retaining durable metadata and history"
+        ),
+    )
+    controller_close.add_argument(
+        "--acknowledge-sensitive-context-egress",
+        action="store_true",
+        help="confirm this request may return selected sensitive local data",
+    )
+    controller_runtime = controller_actions.add_parser(
+        "runtime",
+        help=(
+            "ensure one registered model is ready or stopped with bounded "
+            "revision-safe reconciliation"
+        ),
+    )
+    controller_runtime.add_argument(
+        "--acknowledge-sensitive-context-egress",
+        action="store_true",
+        help="confirm this request may return selected sensitive local data",
+    )
+    controller_runtime.add_argument(
+        "--acknowledge-model-lifecycle",
+        action="store_true",
+        help="explicitly authorize this request to load, switch, or stop a local model",
+    )
+    controller_turn = controller_actions.add_parser(
+        "turn",
+        help="submit exactly one message and run the finite event-polling loop",
+    )
+    controller_turn.add_argument(
+        "--acknowledge-sensitive-context-egress",
+        action="store_true",
+        help="confirm this request may return selected sensitive local data",
+    )
+    controller_turn.add_argument("--deadline-seconds", type=float, default=120.0)
+    controller_turn.add_argument("--poll-interval-seconds", type=float, default=0.1)
+    controller_turn.add_argument("--drain-timeout-seconds", type=float, default=5.0)
+    controller_wait = controller_actions.add_parser(
+        "wait",
+        help=(
+            "continue bounded observation from a prior cursor without "
+            "submitting a message or requesting Stop"
+        ),
+    )
+    controller_wait.add_argument(
+        "--acknowledge-sensitive-context-egress",
+        action="store_true",
+        help="confirm this request may return selected sensitive local data",
+    )
+    controller_wait.add_argument("--deadline-seconds", type=float, default=120.0)
+    controller_wait.add_argument("--poll-interval-seconds", type=float, default=0.1)
+    subparsers.add_parser(
+        "agent-controller-config",
+        help="print the token-free provider-neutral controller command contract",
+    )
+    agent_mcp = subparsers.add_parser(
+        "agent-mcp",
+        help=(
+            "serve the already-running local Agent controller as standard MCP "
+            "tools; starts no app, model, agent, shell, or terminal"
+        ),
+    )
+    agent_mcp.add_argument(
+        "--base-url",
+        default=None,
+        help="optional loopback HTTP origin; defaults to configured host and port",
+    )
+    agent_mcp.add_argument(
+        "--request-timeout-seconds",
+        type=float,
+        default=10.0,
+        help="bounded timeout for each loopback exchange (0.1 to 60 seconds)",
+    )
+    agent_mcp.add_argument(
+        "--acknowledge-sensitive-context-egress",
+        action="store_true",
+        help="authorize selected local Agent values to enter the connected model context",
+    )
+    agent_mcp.add_argument(
+        "--acknowledge-model-lifecycle",
+        action="store_true",
+        help="also advertise the explicitly gated local-model load/switch/stop tool",
+    )
+    agent_mcp_config = subparsers.add_parser(
+        "agent-mcp-config",
+        help="print token-free direct HTTP Claude Code and Codex configuration snippets",
+    )
+    agent_mcp_config.add_argument(
+        "--transport",
+        choices=("http", "stdio"),
+        default="http",
+        help="direct loopback HTTP by default; stdio is an advanced fallback",
+    )
+    agent_mcp_config.add_argument(
+        "--with-model-lifecycle",
+        action="store_true",
+        help="include model lifecycle only for the advanced stdio fallback",
+    )
 
     grant = subparsers.add_parser(
         "codex-consent-grant",
@@ -489,9 +637,9 @@ def _run_desktop(settings: AppSettings) -> int:
 
 
 def _run_agent_desktop(settings: AppSettings) -> int:
-    from .desktop_overlay import run_desktop_agent
+    from .desktop_overlay import launch_desktop_agent
 
-    run_desktop_agent(settings)
+    launch_desktop_agent(settings)
     return 0
 
 
@@ -525,6 +673,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_claude_prompt_check(settings)
         if args.command == "claude-prompt-check-config":
             return _run_claude_prompt_check_config(settings)
+        if args.command == "agent-controller":
+            from .interfaces.agent_controller_cli import run_agent_controller
+
+            return run_agent_controller(settings, args)
+        if args.command == "agent-controller-config":
+            from .interfaces.agent_controller_cli import run_agent_controller_config
+
+            return run_agent_controller_config()
+        if args.command == "agent-mcp":
+            from .interfaces.agent_mcp import run_agent_mcp
+
+            return run_agent_mcp(settings, args)
+        if args.command == "agent-mcp-config":
+            from .interfaces.agent_mcp import run_agent_mcp_config
+
+            return run_agent_mcp_config(
+                settings,
+                transport=str(args.transport),
+                with_model_lifecycle=bool(args.with_model_lifecycle)
+            )
         handlers = {
             "init": _run_init,
             "demo": _run_demo,

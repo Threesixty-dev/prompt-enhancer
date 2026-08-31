@@ -42,6 +42,7 @@ _STATUS = {
     "window_fingerprint_unavailable": 409,
     "window_session_mismatch": 409,
     "window_provider_mismatch": 409,
+    "case_fingerprint_mismatch": 409,
     "no_central_model": 409,
 }
 

@@ -24,7 +24,8 @@ export type AppRoute =
       sessionId: string;
       category: MetricCategory;
     }
-  | { name: "task"; taskId: string; revision: number };
+  | { name: "task"; taskId: string; revision: number }
+  | { name: "not_found" };
 
 export interface PlatformAdapter {
   currentRoute(): AppRoute;
@@ -51,6 +52,35 @@ export const METRIC_ROUTE_CATEGORIES = [
 
 export type MetricCategory = (typeof METRIC_ROUTE_CATEGORIES)[number];
 
+export const APP_ROUTE_NAMES = [
+  "discovery",
+  "local_sources",
+  "analysis_jobs",
+  "research",
+  "team",
+  "social",
+  "task_flow",
+  "projects",
+  "sessions",
+  "calibration",
+  "models",
+  "prompt_checks",
+  "overview",
+  "agent",
+  "project_overview",
+  "live",
+  "project_sessions",
+  "project_automation",
+  "project_metrics",
+  "session_metrics",
+  "task",
+  "not_found",
+] as const satisfies readonly AppRoute["name"][];
+
+type MissingAppRouteName = Exclude<AppRoute["name"], (typeof APP_ROUTE_NAMES)[number]>;
+const appRouteNamesAreExhaustive: MissingAppRouteName extends never ? true : never = true;
+void appRouteNamesAreExhaustive;
+
 const METRIC_CATEGORY = new Set<string>(METRIC_ROUTE_CATEGORIES);
 
 export function isMetricCategory(value: string): value is MetricCategory {
@@ -58,6 +88,7 @@ export function isMetricCategory(value: string): value is MetricCategory {
 }
 
 export function parseRoute(pathname: string): AppRoute {
+  if (/^\/$/.test(pathname)) return { name: "discovery" };
   if (/^\/local-sources\/?$/.test(pathname)) return { name: "local_sources" };
   if (/^\/analysis-jobs\/?$/.test(pathname)) return { name: "analysis_jobs" };
   if (/^\/research\/methods\/?$/.test(pathname)) return { name: "research" };
@@ -71,6 +102,7 @@ export function parseRoute(pathname: string): AppRoute {
   if (/^\/prompt-checks\/?$/.test(pathname)) return { name: "prompt_checks" };
   if (/^\/overview\/?$/.test(pathname)) return { name: "overview" };
   if (/^\/agent\/?$/.test(pathname)) return { name: "agent" };
+  if (/^\/not-found\/?$/.test(pathname)) return { name: "not_found" };
   const agentWindow = pathname.match(/^\/agent\/window(?:\/([0-9a-f]{32}))?\/?$/);
   if (agentWindow) return agentWindow[1] ? { name: "agent", sessionId: agentWindow[1], window: true } : { name: "agent", window: true };
   const promptCheckSessionMatch = pathname.match(/^\/prompt-checks\/for\/([a-f0-9]{64})\/?$/);
@@ -137,7 +169,7 @@ export function parseRoute(pathname: string): AppRoute {
       return { name: "task", taskId: match[1], revision };
     }
   }
-  return { name: "discovery" };
+  return { name: "not_found" };
 }
 
 export function routePath(route: AppRoute): string {
@@ -155,6 +187,7 @@ export function routePath(route: AppRoute): string {
   if (route.name === "prompt_checks") return route.checkId ? `/prompt-checks/${route.checkId}` : route.sessionId ? `/prompt-checks/for/${route.sessionId}` : "/prompt-checks";
   if (route.name === "overview") return "/overview";
   if (route.name === "agent") return route.window ? (route.sessionId ? `/agent/window/${route.sessionId}` : "/agent/window") : "/agent";
+  if (route.name === "not_found") return "/not-found";
   if (route.name === "project_overview") {
     assertPseudonym(route.projectId);
     return `/projects/${route.projectId}/overview`;
@@ -186,7 +219,8 @@ export function routePath(route: AppRoute): string {
     assertMetricCategory(route.category);
     return `/projects/${route.projectId}/sessions/${route.sessionId}/metrics/${route.category}`;
   }
-  return `/tasks/${route.taskId}/revisions/${route.revision}`;
+  if (route.name === "task") return `/tasks/${route.taskId}/revisions/${route.revision}`;
+  return assertUnreachableRoute(route);
 }
 
 function assertPseudonym(value: string): void {
@@ -199,4 +233,8 @@ function assertMetricCategory(value: string): asserts value is MetricCategory {
   if (!isMetricCategory(value)) {
     throw new TypeError("Metric category is not allowlisted.");
   }
+}
+
+function assertUnreachableRoute(route: never): never {
+  throw new TypeError(`Unsupported route family: ${String(route)}`);
 }

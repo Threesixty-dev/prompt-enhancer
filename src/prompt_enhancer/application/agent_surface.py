@@ -41,11 +41,22 @@ class SessionCatalog(Protocol):
 
 
 class AgentSurfaceError(ValueError):
-    """A closed, content-free failure code for a tool call."""
+    """A closed, content-free failure code for a tool call.
 
-    def __init__(self, code: str) -> None:
+    ``details`` is deliberately opt-in.  Surfaces may use it only for small,
+    preselected machine facts (for example an HTTP status and whether retrying
+    is safe); exception text and local values must never be copied into it.
+    """
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        details: Mapping[str, object] | None = None,
+    ) -> None:
         super().__init__(code)
         self.code = code
+        self.details = dict(details or {})
 
 
 # ----- tool inputs -----

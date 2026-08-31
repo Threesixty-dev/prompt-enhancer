@@ -10,7 +10,13 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.116.1,<1",
+  # MIT-licensed official MCP SDK. Keep the protocol/runtime revision exact;
+  # Store host behavior is contract-tested against this release.
+  "mcp==2.1.1",
+  # Managed MCP calls validate the exact reviewed input/output contracts.
+  "jsonschema>=4.26,<5",
   "pydantic>=2.11.7,<3",
+  "regex==2026.7.19",
   "uvicorn>=0.35,<1",
 ]
 

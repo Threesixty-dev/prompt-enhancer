@@ -31,7 +31,7 @@ describe("scoped analytics and task flow routes", () => {
     expect(routePath({ name: "task_flow" })).toBe("/tasks/flow");
     expect(parseRoute("/team")).toEqual({ name: "team" });
     expect(parseRoute("/tasks/flow/")).toEqual({ name: "task_flow" });
-    expect(parseRoute("/tasks/flow/extra")).toEqual({ name: "discovery" });
+    expect(parseRoute("/tasks/flow/extra")).toEqual({ name: "not_found" });
   });
 
   it("navigates to Team analytics with the synthetic port and a scoped trail", async () => {
@@ -103,7 +103,7 @@ describe("social hub route", () => {
   it("round-trips /social and opens the fictional social workspace in the synthetic preview", async () => {
     expect(routePath({ name: "social" })).toBe("/social");
     expect(parseRoute("/social/")).toEqual({ name: "social" });
-    expect(parseRoute("/social/extra")).toEqual({ name: "discovery" });
+    expect(parseRoute("/social/extra")).toEqual({ name: "not_found" });
     render(
       <App
         platform={createMemoryPlatform()}

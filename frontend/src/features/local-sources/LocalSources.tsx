@@ -111,6 +111,12 @@ export function LocalSources({
   );
   const overviewControllerRef = useRef<AbortController | null>(null);
   const overviewGenerationRef = useRef(0);
+  const [overviewStale, setOverviewStale] = useState(false);
+  const [overviewRefreshing, setOverviewRefreshing] = useState(false);
+  const sourceOwner = useRef({ transport, version: 0 });
+  if (sourceOwner.current.transport !== transport) {
+    sourceOwner.current = { transport, version: sourceOwner.current.version + 1 };
+  }
 
   const refreshOverview = useCallback(
     async (): Promise<boolean> => {
@@ -168,13 +174,40 @@ export function LocalSources({
   }, [refreshOverview]);
 
   useEffect(() => {
+    setOverviewStale(false);
+    setOverviewRefreshing(false);
+    setOperation(null);
+    setLabelEditor(null);
+    setLabelDraft("");
+    setNotice("");
+    setSelectedProjects(new Set());
+    setSelectedSessions(new Set());
     void loadOverview();
     return () => {
+      sourceOwner.current.version += 1;
       overviewGenerationRef.current += 1;
       overviewControllerRef.current?.abort();
       overviewControllerRef.current = null;
     };
   }, [loadOverview]);
+
+  async function refreshAcknowledgedOverview(): Promise<boolean> {
+    const owner = sourceOwner.current.version;
+    setOverviewStale(true);
+    setOverviewRefreshing(true);
+    try {
+      if (await refreshOverview()) {
+        setOverviewStale(false);
+        setError("");
+        return true;
+      }
+    } catch {
+      if (sourceOwner.current.version === owner) setError("The label change was acknowledged, but refreshed source metadata is unavailable. Reload metadata before editing labels again; the change will not be repeated.");
+    } finally {
+      if (sourceOwner.current.version === owner) setOverviewRefreshing(false);
+    }
+    return false;
+  }
 
   const groupedSessions = useMemo(() => {
     const groups = new Map<string, CodexSession[]>();
@@ -276,6 +309,8 @@ export function LocalSources({
     }
   }
   async function enrichLabels() {
+    if (operation !== null || overviewStale) return;
+    const owner = sourceOwner.current.version;
     if (selectedProjects.size === 0 && selectedSessions.size === 0) {
       setError("Select at least one project or session.");
       return;
@@ -289,12 +324,14 @@ export function LocalSources({
         session_ids: [...selectedSessions],
         max_sessions: labelMaxSessions,
       });
-      await refreshOverview();
+      if (sourceOwner.current.version !== owner) return;
       setNotice(labelReportSummary(report));
+      await refreshAcknowledgedOverview();
     } catch {
+      if (sourceOwner.current.version !== owner) return;
       setError("Missing Codex labels could not be read from bounded summaries.");
     } finally {
-      setOperation(null);
+      if (sourceOwner.current.version === owner) setOperation(null);
     }
   }
 
@@ -305,6 +342,7 @@ export function LocalSources({
     origin: DisplayLabelOrigin,
     revision: number,
   ) {
+    if (overviewStale || operation !== null) return;
     setError("");
     setLabelDraft(currentValue);
     setLabelEditor({
@@ -317,7 +355,8 @@ export function LocalSources({
   }
 
   async function saveManualLabel() {
-    if (!labelEditor) return;
+    if (!labelEditor || overviewStale || operation !== null) return;
+    const owner = sourceOwner.current.version;
     const value = labelDraft.trim();
     const maxLength = labelEditor.entityKind === "project" ? 120 : 160;
     if (value.length === 0 || value.length > maxLength) {
@@ -335,7 +374,7 @@ export function LocalSources({
         value,
         labelEditor.revision,
       );
-      await refreshOverview();
+      if (sourceOwner.current.version !== owner) return;
       setLabelEditor(null);
       setLabelDraft("");
       setNotice(
@@ -343,15 +382,18 @@ export function LocalSources({
           labelEditor.entityKind +
           " label saved. The Codex task was not renamed.",
       );
+      await refreshAcknowledgedOverview();
     } catch {
+      if (sourceOwner.current.version !== owner) return;
       setError("The local label could not be saved. Reopen it and try again.");
     } finally {
-      setOperation(null);
+      if (sourceOwner.current.version === owner) setOperation(null);
     }
   }
 
   async function clearManualLabel() {
-    if (!labelEditor || labelEditor.origin !== "manual") return;
+    if (!labelEditor || labelEditor.origin !== "manual" || overviewStale || operation !== null) return;
+    const owner = sourceOwner.current.version;
 
     setOperation("manual-label");
     setError("");
@@ -362,18 +404,17 @@ export function LocalSources({
         labelEditor.entityId,
         labelEditor.revision,
       );
-      await refreshOverview();
+      if (sourceOwner.current.version !== owner) return;
       setLabelEditor(null);
       setLabelDraft("");
-      setNotice(
-        "Manual " +
-          labelEditor.entityKind +
-          " label cleared. Any available Codex label is visible again.",
-      );
+      const receipt = "Manual " + labelEditor.entityKind + " label cleared.";
+      setNotice(receipt);
+      if (await refreshAcknowledgedOverview()) setNotice(receipt + " Any available Codex label is visible again.");
     } catch {
+      if (sourceOwner.current.version !== owner) return;
       setError("The local label could not be cleared. Reopen it and try again.");
     } finally {
-      setOperation(null);
+      if (sourceOwner.current.version === owner) setOperation(null);
     }
   }
 
@@ -453,6 +494,11 @@ export function LocalSources({
       <div aria-live="polite" className="notice-region">
         {notice && <div className="success-notice local-source-notice"><Icon name="check" /><span>{notice}</span></div>}
         {error && <p className="local-source-error" role="alert">{error}</p>}
+        {overviewStale && (
+          <button className="button button--secondary" disabled={overviewRefreshing} onClick={() => void refreshAcknowledgedOverview()} type="button">
+            {overviewRefreshing ? "Reloading source metadata…" : "Reload source metadata"}
+          </button>
+        )}
       </div>
 
       <div className="source-overview">
@@ -653,6 +699,13 @@ export function LocalSources({
               </select>
             </label>
             <button
+              aria-describedby={
+                !status.consent_active ||
+                operation !== null ||
+                (selectedProjects.size === 0 && selectedSessions.size === 0)
+                  ? "local-source-analysis-disabled-reason"
+                  : undefined
+              }
               className="button button--primary"
               disabled={
                 !status.consent_active ||
@@ -664,6 +717,19 @@ export function LocalSources({
             >
               {operation === "analyze" ? "Importing operational metrics..." : "Import operational metrics"}
             </button>
+            {(
+              !status.consent_active ||
+              operation !== null ||
+              (selectedProjects.size === 0 && selectedSessions.size === 0)
+            ) && (
+              <span className="sr-only" id="local-source-analysis-disabled-reason">
+                {!status.consent_active
+                  ? "Grant local-history access before importing operational metrics."
+                  : operation !== null
+                    ? "Wait for the current local-source operation to finish."
+                    : "Select at least one project or session before importing operational metrics."}
+              </span>
+            )}
           </div>
         </div>
         <div className="label-discovery" role="note">
@@ -693,9 +759,18 @@ export function LocalSources({
               </select>
             </label>
             <button
+              aria-describedby={
+                !status.consent_active ||
+                overviewStale ||
+                operation !== null ||
+                (selectedProjects.size === 0 && selectedSessions.size === 0)
+                  ? "local-source-labels-disabled-reason"
+                  : undefined
+              }
               className="button button--secondary"
               disabled={
                 !status.consent_active ||
+                overviewStale ||
                 operation !== null ||
                 (selectedProjects.size === 0 && selectedSessions.size === 0)
               }
@@ -704,6 +779,22 @@ export function LocalSources({
             >
               {operation === "labels" ? "Reading summaries..." : "Find missing labels"}
             </button>
+            {(
+              !status.consent_active ||
+              overviewStale ||
+              operation !== null ||
+              (selectedProjects.size === 0 && selectedSessions.size === 0)
+            ) && (
+              <span className="sr-only" id="local-source-labels-disabled-reason">
+                {!status.consent_active
+                  ? "Grant local-history access before reading summaries for missing labels."
+                  : overviewStale
+                    ? "Reload source metadata before reading summaries for missing labels."
+                    : operation !== null
+                      ? "Wait for the current local-source operation to finish."
+                      : "Select at least one project or session before reading summaries for missing labels."}
+              </span>
+            )}
           </div>
         </div>
 
@@ -821,7 +912,7 @@ export function LocalSources({
                       <button
                         aria-label="Edit local project label"
                         className="button button--secondary button--compact"
-                        disabled={operation !== null}
+                        disabled={operation !== null || overviewStale}
                         onClick={() =>
                           beginLabelEdit(
                             "project",
@@ -863,7 +954,7 @@ export function LocalSources({
                           <button
                             aria-label="Edit local session label"
                             className="button button--secondary button--compact"
-                            disabled={operation !== null}
+                            disabled={operation !== null || overviewStale}
                             onClick={() =>
                               beginLabelEdit(
                                 "session",

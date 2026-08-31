@@ -85,9 +85,11 @@ export function packRows(items: { start: number; end: number }[], maxRows: numbe
  * no text, no paths.
  */
 export function SessionTimelinePane({
+  refreshToken,
   sessionId,
   transport,
 }: {
+  refreshToken?: number;
   sessionId: string;
   transport: Pick<PromptEnhancerTransport, "getSessionTimeline">;
 }) {
@@ -96,27 +98,56 @@ export function SessionTimelinePane({
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [view, setView] = useState<[number, number] | null>(null);
   const [brush, setBrush] = useState<[number, number] | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const timelineRef = useRef<SessionTimeline | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    const controller = new AbortController();
+  // A new owner (session or transport) must never see the previous owner's
+  // data or view state, even for one render: reset synchronously.
+  const [scope, setScope] = useState<{ sessionId: string; transport: unknown }>({ sessionId, transport });
+  if (scope.sessionId !== sessionId || scope.transport !== transport) {
+    setScope({ sessionId, transport });
+    timelineRef.current = null;
     setState("loading");
     setTimeline(null);
     setView(null);
     setHidden(new Set());
+    setBrush(null);
+    setRefreshFailed(false);
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const isRefresh = timelineRef.current !== null;
+    if (!isRefresh) setState("loading");
     transport.getSessionTimeline(sessionId, controller.signal)
       .then((value) => {
         if (controller.signal.aborted) return;
-        if (!safeTimeline(value)) { setState("error"); return; }
+        if (!safeTimeline(value) || value.session_id !== sessionId) {
+          // Reject stale or unverifiable completions; a refresh keeps the last good view.
+          if (isRefresh) setRefreshFailed(true); else setState("error");
+          return;
+        }
+        timelineRef.current = value;
         setTimeline(value);
+        setRefreshFailed(false);
         setState("ready");
       })
       .catch((caught: unknown) => {
         if (controller.signal.aborted) return;
+        if (caught instanceof TransportError && [403, 404, 410].includes(caught.status)) {
+          timelineRef.current = null;
+          setTimeline(null);
+          setRefreshFailed(false);
+          setState(caught.status === 403 ? "error" : "missing");
+          return;
+        }
+        if (isRefresh) { setRefreshFailed(true); return; } // keep the last good view
         setState(caught instanceof TransportError && caught.status === 404 ? "missing" : "error");
       });
     return () => controller.abort();
-  }, [sessionId, transport]);
+  }, [refreshToken, retryNonce, sessionId, transport]);
 
   const model = useMemo(() => {
     if (!timeline) return null;
@@ -144,8 +175,14 @@ export function SessionTimelinePane({
   if (state === "loading") return <section className="session-timeline" aria-busy="true"><p className="session-timeline__note">Drawing the timeline…</p></section>;
   if (state === "missing") return null;
   if (state === "error" || !timeline || !model) {
-    return <section className="session-timeline"><p className="session-timeline__note" role="alert">The timeline could not be verified.</p></section>;
+    return <section className="session-timeline"><p className="session-timeline__note" role="alert">The timeline could not be verified.</p><button onClick={() => setRetryNonce((value) => value + 1)} type="button">Retry timeline</button></section>;
   }
+  const refreshNote = refreshFailed ? (
+    <p className="session-timeline__note" role="alert">
+      The last refresh failed; showing the last verified timeline.{" "}
+      <button onClick={() => setRetryNonce((value) => value + 1)} type="button">Retry</button>
+    </p>
+  ) : null;
   if (timeline.turns.length === 0 && timeline.tools.length === 0 && timeline.markers.length === 0) {
     return (
       <section className="session-timeline">
@@ -155,6 +192,7 @@ export function SessionTimelinePane({
             <h2>What happened, when</h2>
           </div>
         </header>
+        {refreshNote}
         <p className="session-timeline__note">No drawable events were indexed for this session (only usage or metadata records).</p>
       </section>
     );
@@ -283,6 +321,7 @@ export function SessionTimelinePane({
           <div><dt>Tokens</dt><dd>{timeline.usage.requests === 0 ? "not reported" : `${formatTokens(timeline.usage.input_tokens)} in · ${formatTokens(timeline.usage.output_tokens)} out`}</dd></div>
         </dl>
       </header>
+      {refreshNote}
       <div className="session-timeline__toolbar">
         <div aria-label="Show or hide tool categories" className="session-timeline__filters" role="group">
           {categories.map((category) => (

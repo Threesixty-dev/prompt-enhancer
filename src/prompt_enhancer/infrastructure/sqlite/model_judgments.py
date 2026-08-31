@@ -36,19 +36,22 @@ class SqliteModelJudgmentRepository:
                 connection.execute("BEGIN IMMEDIATE")
                 connection.execute(
                     """
-                    INSERT INTO model_judgments(session_id, metric_key, model_alias, label, model_identity, prompt_version, window_fingerprint, judged_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO model_judgments(session_id, metric_key, model_alias, label, model_identity, prompt_version, window_fingerprint, judged_at, case_fingerprint, case_version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id, metric_key, model_alias) DO UPDATE SET
                         label = excluded.label,
                         model_identity = excluded.model_identity,
                         prompt_version = excluded.prompt_version,
                         window_fingerprint = excluded.window_fingerprint,
-                        judged_at = excluded.judged_at
+                        judged_at = excluded.judged_at,
+                        case_fingerprint = excluded.case_fingerprint,
+                        case_version = excluded.case_version
                     """,
                     (
                         judgment.session_id, judgment.metric_key, judgment.model_alias, judgment.label.value,
                         judgment.model_identity, judgment.prompt_version, judgment.window_fingerprint,
                         to_iso(require_utc(judgment.judged_at)),
+                        judgment.case_fingerprint, judgment.case_version,
                     ),
                 )
                 connection.commit()
@@ -69,7 +72,7 @@ class SqliteModelJudgmentRepository:
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
         with self._connection_scope(readonly=True) as connection:
             rows = connection.execute(
-                f"SELECT session_id, metric_key, model_alias, label, model_identity, prompt_version, window_fingerprint, judged_at FROM model_judgments {where} ORDER BY judged_at, session_id, metric_key",
+                f"SELECT session_id, metric_key, model_alias, label, model_identity, prompt_version, window_fingerprint, judged_at, case_fingerprint, case_version FROM model_judgments {where} ORDER BY judged_at, session_id, metric_key",
                 tuple(parameters),
             ).fetchall()
         # Rows written before the annotation surfaces recorded the sealed
@@ -81,6 +84,7 @@ class SqliteModelJudgmentRepository:
                     "session_id": row["session_id"], "metric_key": row["metric_key"], "model_alias": row["model_alias"],
                     "label": RatingLabel(row["label"]), "model_identity": row["model_identity"], "prompt_version": row["prompt_version"],
                     "window_fingerprint": row["window_fingerprint"], "judged_at": require_utc(from_iso(row["judged_at"])),
+                    "case_fingerprint": row["case_fingerprint"], "case_version": row["case_version"],
                 }
             )
             for row in rows

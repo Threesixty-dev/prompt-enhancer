@@ -3,7 +3,7 @@ import type { AgentEvent } from "../../shared/api/contracts";
 import { agentPromptContext } from "./AgentPromptCheck";
 
 function event(seq: number, kind: AgentEvent["kind"], text: string): AgentEvent {
-  return { seq, at: "2026-08-20T01:00:00Z", kind, text, tool: null, arguments: null, call_id: null, approval_id: null, ok: null, preview: null };
+  return { seq, at: "2026-08-20T01:00:00Z", kind, attachments: [], text, tool: null, arguments: null, call_id: null, approval_id: null, ok: null, preview: null };
 }
 
 describe("agentPromptContext", () => {

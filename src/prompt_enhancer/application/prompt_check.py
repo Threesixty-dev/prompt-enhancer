@@ -29,6 +29,7 @@ from typing import Any, Literal, Protocol
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 
 from ..domain import DataTier, PSEUDONYM_PATTERN, Provider, StrictModel
+from .model_reply import completed_chat_content, model_json_object
 from .analysis.coaching_baselines import DEFAULT_COACHING_METRIC_ENGINE
 from .analysis.text_analysis_presets import COACHING_PROFILE_V1
 from .analysis.text_baselines import TextMetricEngine
@@ -47,7 +48,7 @@ from .analysis.text_contracts import (
 
 
 PROMPT_CHECK_CONTRACT_VERSION = "prompt-check.v1"
-PROMPT_CHECK_PROMPT_VERSION = "prompt-check-commentary-v1"
+PROMPT_CHECK_PROMPT_VERSION = "prompt-check-commentary-v2-complete-json"
 MAX_PROMPT_CHARS = 20_000
 MAX_CONTEXT_MESSAGES = 24
 MAX_CONTEXT_MESSAGE_CHARS = 8_000
@@ -110,7 +111,6 @@ _CODE_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\(\)|`[^`\n]{1,80}`|\b[a
 _URL = re.compile(r"https?://\S+")
 _SENTENCE = re.compile(r"[.!?]+(?:\s|$)")
 _BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)]|\[[ xX-]\])\s+", re.M)
-_JSON_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.I | re.M)
 _SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 _WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
 _COMMON_WORDS = frozenset(
@@ -217,11 +217,39 @@ class CommentaryFinding(StrictModel):
     why: str = Field(min_length=1, max_length=600)
     suggestion: str = Field(min_length=1, max_length=800)
 
+    @field_validator("why", "suggestion")
+    @classmethod
+    def _nonblank_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("model_reply_invalid")
+        return value.strip()
+
 
 class ReformulatedElement(StrictModel):
     element: Literal["goal", "scope", "context", "constraints", "acceptance", "deliverable", "verification", "other"]
     original: str | None = Field(default=None, max_length=600)
     suggested: str = Field(min_length=1, max_length=1_200)
+
+    @field_validator("suggested")
+    @classmethod
+    def _nonblank_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("model_reply_invalid")
+        return value.strip()
+
+
+class _CommentaryReply(StrictModel):
+    findings: list[CommentaryFinding] = Field(default_factory=list, max_length=6)
+    reformulated_prompt: str | None = Field(default=None, min_length=1, max_length=MAX_PROMPT_CHARS * 2 + 2_000)
+    reformulated_elements: list[ReformulatedElement] = Field(default_factory=list, max_length=8)
+    notes: str | None = Field(default=None, min_length=1, max_length=1_000)
+
+    @field_validator("reformulated_prompt", "notes")
+    @classmethod
+    def _nonblank_text(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("model_reply_invalid")
+        return value.strip() if value is not None else None
 
 
 class ModelCommentary(StrictModel):
@@ -594,11 +622,7 @@ class PromptCheckService:
             return ModelCommentary(state="model_error", model_alias=alias)
         if status != 200:
             return ModelCommentary(state="model_error", model_alias=alias)
-        try:
-            reply = json.loads(payload.decode("utf-8"))
-            text = reply["choices"][0]["message"]["content"]
-        except (ValueError, KeyError, IndexError, TypeError, UnicodeDecodeError):
-            return ModelCommentary(state="reply_invalid", model_alias=alias)
+        text = completed_chat_content(payload)
         parsed = parse_commentary_reply(text, prompt_chars=len(prompt_text))
         if parsed is None:
             return ModelCommentary(state="reply_invalid", model_alias=alias)
@@ -683,68 +707,27 @@ def _commentary_input(
     return "\n\n".join(parts)
 
 
-def parse_commentary_reply(text: str, *, prompt_chars: int) -> ModelCommentary | None:
-    """Strictly parse the model's JSON; tolerate fences and a little trailing prose."""
+def parse_commentary_reply(text: object, *, prompt_chars: int) -> ModelCommentary | None:
+    """Reject malformed suggestions; never manufacture labels, reasons or text."""
 
-    if not isinstance(text, str):
-        return None
-    cleaned = _JSON_FENCE.sub("", text.strip()).strip()
-    start, end = cleaned.find("{"), cleaned.rfind("}")
-    if start == -1 or end <= start:
+    data = model_json_object(text)
+    if data is None or type(prompt_chars) is not int or prompt_chars < 0:
         return None
     try:
-        data = json.loads(cleaned[start : end + 1])
-    except ValueError:
+        reply = _CommentaryReply.model_validate(data, strict=True)
+    except ValidationError:
         return None
-    if not isinstance(data, dict):
+    if reply.reformulated_prompt is not None and len(reply.reformulated_prompt) > max(prompt_chars * 2 + 2_000, 200):
         return None
-    findings: list[CommentaryFinding] = []
-    for item in data.get("findings") or []:
-        if not isinstance(item, dict):
-            continue
-        try:
-            findings.append(
-                CommentaryFinding(
-                    aspect=str(item.get("aspect") or "other").lower() if str(item.get("aspect") or "other").lower() in CommentaryFinding.model_fields["aspect"].annotation.__args__ else "other",  # type: ignore[union-attr]
-                    severity=str(item.get("severity") or "medium").lower() if str(item.get("severity") or "medium").lower() in ("low", "medium", "high") else "medium",  # type: ignore[arg-type]
-                    why=str(item.get("why") or "")[:600] or "(no reason given)",
-                    suggestion=str(item.get("suggestion") or "")[:800] or "(no suggestion given)",
-                )
-            )
-        except ValidationError:
-            continue
-        if len(findings) >= 6:
-            break
-    findings.sort(key=lambda f: _SEVERITY_ORDER[f.severity])
-    elements: list[ReformulatedElement] = []
-    for item in data.get("reformulated_elements") or []:
-        if not isinstance(item, dict) or not item.get("suggested"):
-            continue
-        element = str(item.get("element") or "other").lower()
-        if element not in ReformulatedElement.model_fields["element"].annotation.__args__:  # type: ignore[union-attr]
-            element = "other"
-        try:
-            elements.append(
-                ReformulatedElement(
-                    element=element,  # type: ignore[arg-type]
-                    original=(str(item["original"])[:600] if item.get("original") else None),
-                    suggested=str(item["suggested"])[:1_200],
-                )
-            )
-        except ValidationError:
-            continue
-        if len(elements) >= 8:
-            break
-    reformulated = data.get("reformulated_prompt")
-    if not isinstance(reformulated, str) or not reformulated.strip():
-        reformulated = None
-    else:
-        reformulated = reformulated.strip()[: max(prompt_chars * 2 + 2_000, 200)]
-    notes = data.get("notes")
-    notes = str(notes).strip()[:1_000] if isinstance(notes, str) and notes.strip() else None
-    if not findings and reformulated is None and notes is None:
+    if not (reply.findings or reply.reformulated_prompt or reply.reformulated_elements or reply.notes):
         return None
-    return ModelCommentary(state="ok", findings=tuple(findings), reformulated_prompt=reformulated, reformulated_elements=tuple(elements), notes=notes)
+    return ModelCommentary(
+        state="ok",
+        findings=tuple(sorted(reply.findings, key=lambda finding: _SEVERITY_ORDER[finding.severity])),
+        reformulated_prompt=reply.reformulated_prompt,
+        reformulated_elements=tuple(reply.reformulated_elements),
+        notes=reply.notes,
+    )
 
 
 def _summary(readings: tuple[PromptMetricReading, ...], context: ContextInference, commentary: ModelCommentary) -> str:

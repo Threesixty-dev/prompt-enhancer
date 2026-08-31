@@ -247,6 +247,35 @@ async function openAdvancedMaintenance() {
 }
 
 describe("LocalSources", () => {
+  it.each(["save", "clear", "enrich"] as const)("keeps the acknowledged %s receipt when the follow-up metadata read fails", async (kind) => {
+    const rows = SESSIONS.map((session) => session.session_id === SESSION_B
+      ? { ...session, session_display_name_origin: "manual" as const, session_manual_label_revision: 7 }
+      : session);
+    const { transport, setManual, clearManual, enrich } = createLocalTransport(true, rows);
+    renderLocalSources(transport);
+    await openAdvancedMaintenance();
+    vi.mocked(transport.listCodexSessions).mockRejectedValueOnce(new Error("synthetic read failure"));
+    if (kind === "enrich") {
+      fireEvent.click(screen.getByRole("checkbox", { name: /Unnamed session/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Find missing labels" }));
+    } else {
+      fireEvent.click(screen.getAllByRole("button", { name: "Edit local session label" })[1]);
+      if (kind === "save") fireEvent.change(screen.getByLabelText("Local display label"), { target: { value: "Example revised label" } });
+      fireEvent.click(screen.getByRole("button", { name: kind === "save" ? "Save locally" : "Clear override" }));
+    }
+    const command = kind === "save" ? setManual : kind === "clear" ? clearManual : enrich;
+    await screen.findByRole("button", { name: "Reload source metadata" });
+    expect(screen.getByRole("alert")).toHaveTextContent("label change was acknowledged");
+    expect(screen.queryByRole("textbox", { name: "Local display label" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Edit local session label" })[1]).toBeDisabled();
+    expect(command).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Reload source metadata" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(command).toHaveBeenCalledOnce();
+    expect(screen.getAllByRole("button", { name: "Edit local session label" })[1]).toBeEnabled();
+    expect(screen.getByText(kind === "save" ? /label saved/ : kind === "clear" ? /label cleared/ : /missing label imported/)).toBeVisible();
+  });
+
   it("offers an in-place retry after the initial overview request fails", async () => {
     const { transport } = createLocalTransport(false);
     vi.mocked(transport.getCodexLocalSourceStatus)
@@ -331,11 +360,26 @@ describe("LocalSources", () => {
     expect(
       screen.getByRole("combobox", { name: "Maximum analysis sessions" }),
     ).toHaveValue("10");
+    const analyze = screen.getByRole("button", { name: "Import operational metrics" });
+    const labels = screen.getByRole("button", { name: "Find missing labels" });
+    expect(analyze).toBeDisabled();
+    expect(analyze).toHaveAccessibleDescription(/grant local-history access/i);
+    expect(labels).toBeDisabled();
+    expect(labels).toHaveAccessibleDescription(/grant local-history access/i);
 
     fireEvent.click(
       screen.getByRole("button", { name: "Grant local-history access" }),
     );
     expect(await screen.findByText("Access granted")).toBeVisible();
+    expect(analyze).toBeDisabled();
+    expect(analyze).toHaveAccessibleDescription(/select at least one project or session/i);
+    expect(labels).toBeDisabled();
+    expect(labels).toHaveAccessibleDescription(/select at least one project or session/i);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Example Workspace/ }));
+    expect(analyze).toBeEnabled();
+    expect(analyze).not.toHaveAttribute("aria-describedby");
+    expect(labels).toBeEnabled();
+    expect(labels).not.toHaveAttribute("aria-describedby");
     fireEvent.click(indexButton);
 
     await waitFor(() => expect(index).toHaveBeenCalledWith(100));

@@ -46,7 +46,15 @@ STUB = textwrap.dedent(
             self.send_response(200 if self.path == "/health" else 404); self.end_headers(); self.wfile.write(b"{}")
         def do_POST(self):
             n = int(self.headers.get("Content-Length", "0")); body = json.loads(self.rfile.read(n) or b"{}")
+            if self.path == "/v1/chat/completions/input_tokens":
+                reply = {"object": "response.input_tokens", "input_tokens": 64}
+                data = json.dumps(reply).encode(); self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(data); return
+            if self.path != "/v1/chat/completions":
+                self.send_response(404); self.end_headers(); self.wfile.write(b"{}"); return
             user = body["messages"][-1]["content"]
+            if user == "Reply with OK. This is a synthetic local capability probe.":
+                reply = {"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "OK"}}], "usage": {"completion_tokens": 1}}
+                data = json.dumps(reply).encode(); self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(data); return
             assert body.get("chat_template_kwargs", {}).get("enable_thinking") is False
             marker = "UNTRUSTED_TRANSCRIPT_JSON="
             assert marker in user
@@ -59,7 +67,7 @@ STUB = textwrap.dedent(
                 verdict = {"summary": "Clear request, verified by tests.", "strengths": ["Stated the goal", "Ran the tests"], "improvements": ["Name the files up front"], "reframed_prompt": "Add bounded retries to <specify: file>; done when the tests pass."}
             else:
                 verdict = {"prompt.task_definition_coverage": "high", "prompt.context_sufficiency": "medium", "outcome.verification_strategy_adequacy": "cannot_judge"}
-            reply = {"choices": [{"message": {"role": "assistant", "content": json.dumps(verdict)}}], "usage": {"completion_tokens": 20}}
+            reply = {"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": json.dumps(verdict)}}], "usage": {"completion_tokens": 20}}
             data = json.dumps(reply).encode(); self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(data)
     HTTPServer(("127.0.0.1", port), H).serve_forever()
     '''
@@ -97,7 +105,7 @@ def test_judge_lane_end_to_end_with_stub_model(tmp_path: Path, monkeypatch) -> N
     stub = tmp_path / "stub.py"
     stub.write_text(STUB, encoding="utf-8")
     monkeypatch.setenv("PROMPT_ENHANCER_LLAMA_SERVER", str(stub))
-    settings = AppSettings(home=tmp_path / "app")
+    settings = AppSettings(home=tmp_path / "app", session_reader_enabled=True)
     application = bootstrap_local_application(settings)
     application.database.grant_consent(Provider.CLAUDE_CODE, DataTier.REDACTED_CONTENT)
     application.create_claude_local_source_service().index(max_sessions=10)
@@ -138,9 +146,11 @@ def test_judge_lane_end_to_end_with_stub_model(tmp_path: Path, monkeypatch) -> N
         assert reading.improvements == ("Name the files up front",) and reading.reframed_prompt.startswith("Add bounded retries")
         assert "interpretation, not a measurement" in reading.caveat and reading.metrics_seen >= 0
 
-        # Human rating for the same session -> agreement report pairs them.
+        # Human rating for the same reviewed case -> agreement report pairs them.
         calibration.sample()
-        calibration.rate(RatingSubmission(rater_label="Owner", session_id=session_id, ratings={
+        reviewed = calibration.review(session_id)
+        assert reviewed.case_fingerprint == stored[0].case_fingerprint
+        calibration.rate(RatingSubmission(rater_label="Owner", session_id=session_id, review_id=reviewed.review_id, ratings={
             CALIBRATION_METRIC_KEYS[0]: RatingLabel.HIGH, CALIBRATION_METRIC_KEYS[1]: RatingLabel.LOW,
         }))
         report = judge.agreement()
@@ -401,7 +411,7 @@ def test_judge_records_retry_render_profile_after_context_retry() -> None:
         }
         payload = {
             "choices": [
-                {"message": {"role": "assistant", "content": json.dumps(verdict)}}
+                {"finish_reason": "stop", "message": {"role": "assistant", "content": json.dumps(verdict)}}
             ]
         }
         return 200, json.dumps(payload).encode(), "application/json"
@@ -431,6 +441,14 @@ def test_judge_records_retry_render_profile_after_context_retry() -> None:
         JUDGE_RETRY_PROMPT_VERSION
     }
     assert JUDGE_RETRY_PROMPT_VERSION != JUDGE_PROMPT_VERSION
+    from prompt_enhancer.application.analysis.calibration_cases import prepare_calibration_case
+    cases = [prepare_calibration_case(
+        session_id="d" * 64, provider=Provider.CODEX, window_fingerprint=context.analysis_window_fingerprint,
+        rendered_window=window,
+    ) for window in windows]
+    assert cases[0].case_fingerprint != cases[1].case_fingerprint
+    assert {row.case_fingerprint for row in repository.rows} == {cases[1].case_fingerprint}
+    assert {row.case_version for row in repository.rows} == {"calibration-case.v1"}
 
 
 def test_index_refresh_judges_new_sessions_when_a_model_is_active(tmp_path: Path, monkeypatch) -> None:

@@ -247,11 +247,17 @@ describe("TaskFlowPage", () => {
     expect(screen.getByRole("region", { name: "Analysis events (not task lifecycle)" }).getElementsByTagName("button")).toHaveLength(2);
     expect(screen.getByText(/Lifecycle points are server receipt times/)).toBeVisible();
 
+    const resetFilters = screen.getByRole("button", { name: "Reset filters" });
+    expect(resetFilters).toBeDisabled();
+    expect(resetFilters).toHaveAccessibleDescription("Filters already use their defaults.");
+
     fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "confirmed" } });
     expect(within(proposed).queryAllByRole("article")).toHaveLength(0);
     expect(within(inProgress).getAllByRole("article")).toHaveLength(1);
     expect(document.querySelector(".count-summary")?.textContent).toBe("0 proposal records · 1 confirmed revisions · current filters");
-    fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
+    expect(resetFilters).toBeEnabled();
+    expect(resetFilters).toHaveAccessibleDescription("Reset every task-flow filter to its default.");
+    fireEvent.click(resetFilters);
     expect(within(proposed).getAllByRole("article")).toHaveLength(2);
 
     fireEvent.click(within(inProgress).getByRole("button", { name: /Open revision/ }));

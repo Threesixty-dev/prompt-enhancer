@@ -25,6 +25,8 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
+from ....application.runtime_cancellation import raise_if_runtime_cancelled
+
 from ....adapters.base import AdapterHealth, AdapterProbe, ProviderAdapter
 from ....application.analysis.text_contracts import (
     MAX_ACTION_REVIEW_DESCRIPTORS,
@@ -136,9 +138,11 @@ def scan_transcripts(claude_home: Path) -> tuple[TranscriptFile, ...]:
     found: list[TranscriptFile] = []
     scanned = 0
     for project_dir in sorted(projects.iterdir()):
+        raise_if_runtime_cancelled("claude_transcript_scan_cancelled")
         if not project_dir.is_dir() or project_dir.is_symlink():
             continue
         for candidate in sorted(project_dir.glob("*.jsonl")):
+            raise_if_runtime_cancelled("claude_transcript_scan_cancelled")
             scanned += 1
             if scanned > MAX_TRANSCRIPT_FILES_SCANNED:
                 raise TranscriptAdapterError("transcript scan exceeded its file bound")
@@ -331,6 +335,7 @@ def parse_events(
             else path.open("r", encoding="utf-8", errors="replace")
         ) as handle:
             for index, line in enumerate(handle):
+                raise_if_runtime_cancelled("claude_transcript_parse_cancelled")
                 if index >= MAX_TRANSCRIPT_LINES:
                     complete = False
                     break

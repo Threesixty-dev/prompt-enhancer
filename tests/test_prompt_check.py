@@ -128,14 +128,14 @@ def test_model_commentary_is_parsed_strictly_and_labelled_as_model_output() -> N
         reply = {
             "findings": [
                 {"aspect": "acceptance", "severity": "high", "why": "No done-when.", "suggestion": "State the passing test."},
-                {"aspect": "weird", "severity": "urgent", "why": "x", "suggestion": "y"},
+                {"aspect": "other", "severity": "medium", "why": "x", "suggestion": "y"},
             ],
             "reformulated_prompt": "Add retries to the uploader; done when tests pass.",
             "reformulated_elements": [{"element": "acceptance", "original": None, "suggested": "Done when pytest passes."}],
             "notes": "Mostly clear.",
         }
         text = "```json\n" + json.dumps(reply) + "\n```"
-        return 200, json.dumps({"choices": [{"message": {"content": text}}]}).encode("utf-8"), "application/json"
+        return 200, json.dumps({"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": text}}]}).encode("utf-8"), "application/json"
 
     service = _service(chat=chat, active=lambda: "stub-model")
     result = service.check(PromptCheckRequest(prompt=STRONG, prior_messages=(PromptCheckMessage(role="assistant", content="Earlier reply " + CANARY),)))
@@ -149,11 +149,11 @@ def test_model_commentary_is_parsed_strictly_and_labelled_as_model_output() -> N
     sent = calls[0]["messages"][1]["content"]
     assert CANARY in sent and "Prompt to review" in sent and "Deterministic findings" in sent
 
-    # Parser: garbage, prose and empty objects are rejected; bounds hold.
+    # Invalid or overlong output is rejected, never repaired into valid advice.
     assert parse_commentary_reply("not json", prompt_chars=10) is None
     assert parse_commentary_reply("{}", prompt_chars=10) is None
     long = parse_commentary_reply(json.dumps({"reformulated_prompt": "x" * 90_000}), prompt_chars=10)
-    assert long is not None and len(long.reformulated_prompt) == 2_020
+    assert long is None
 
 
 def test_model_failures_fall_back_to_deterministic_results() -> None:
@@ -164,7 +164,7 @@ def test_model_failures_fall_back_to_deterministic_results() -> None:
     assert result.commentary.state == "model_error" and result.metrics
 
     def prose(alias: str, body: bytes):
-        return 200, json.dumps({"choices": [{"message": {"content": "I cannot help with that."}}]}).encode(), "application/json"
+        return 200, json.dumps({"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "I cannot help with that."}}]}).encode(), "application/json"
 
     result = _service(chat=prose, active=lambda: "stub").check(PromptCheckRequest(prompt=STRONG))
     assert result.commentary.state == "reply_invalid"

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 
 import pytest
 
+from prompt_enhancer.application.runtime_cancellation import (
+    RuntimeCooperativeStop,
+    runtime_request_scope,
+)
 from prompt_enhancer.infrastructure.providers.codex_app_server.errors import (
     CodexProtocolViolation,
 )
@@ -62,3 +67,18 @@ def test_transport_accepts_current_headerless_app_server_frame() -> None:
         "id": 1,
         "result": {},
     }
+
+
+def test_transport_wait_honors_runtime_shutdown_before_provider_timeout() -> None:
+    transport = StdioJsonRpcTransport()
+    cancelled = threading.Event()
+    cancelled.set()
+    started = time.monotonic()
+
+    with runtime_request_scope(cancelled), pytest.raises(
+        RuntimeCooperativeStop, match="^codex_provider_request_cancelled$"
+    ):
+        transport._next_message(deadline=time.monotonic() + 10)
+
+    assert time.monotonic() - started < 0.25
+    assert transport._process is None

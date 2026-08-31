@@ -58,4 +58,58 @@ describe("ProjectTimelinePane", () => {
     await vi.waitFor(() => expect(missing).toHaveBeenCalled());
     await vi.waitFor(() => expect(container.textContent).toBe(""));
   });
+
+  it("refreshes in place: keeps the selected range and flags failed refreshes with retry", async () => {
+    let fail = false;
+    const getProjectTimeline = vi.fn(async () => {
+      if (fail) throw new TransportError("boom", 500);
+      return timeline();
+    });
+    const transport = { getProjectTimeline };
+    const { rerender } = render(<ProjectTimelinePane projectId={PROJECT} refreshToken={0} transport={transport} />);
+    await screen.findByRole("heading", { name: "Tasks and sessions over time" });
+    fireEvent.click(screen.getByRole("button", { name: "30 days" }));
+    expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "true");
+
+    rerender(<ProjectTimelinePane projectId={PROJECT} refreshToken={1} transport={transport} />);
+    await vi.waitFor(() => expect(getProjectTimeline).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText(/The last refresh failed/)).toBeNull();
+
+    fail = true;
+    rerender(<ProjectTimelinePane projectId={PROJECT} refreshToken={2} transport={transport} />);
+    await screen.findByText(/The last refresh failed/);
+    expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "true");
+
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await vi.waitFor(() => expect(getProjectTimeline).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(screen.queryByText(/The last refresh failed/)).toBeNull());
+  });
+
+  it.each([403, 404])("clears the retained project timeline after an authoritative %s refresh response", async (status) => {
+    const transport = { getProjectTimeline: vi.fn().mockResolvedValueOnce(timeline()).mockRejectedValueOnce(new TransportError("synthetic withdrawal", status)) };
+    const { rerender } = render(<ProjectTimelinePane refreshToken={0} projectId={PROJECT} transport={transport} />);
+    await screen.findByRole("heading", { name: "Tasks and sessions over time" });
+    rerender(<ProjectTimelinePane refreshToken={1} projectId={PROJECT} transport={transport} />);
+    await vi.waitFor(() => expect(screen.queryByRole("heading", { name: "Tasks and sessions over time" })).toBeNull());
+    expect(screen.queryByText(/showing the last verified timeline/)).toBeNull();
+  });
+
+  it("drops the previous project's chart and range when the project changes", async () => {
+    const OTHER = "f".repeat(64);
+    const getProjectTimeline = vi.fn(async (id: string) => ({ ...timeline(), project_id: id }));
+    const transport = { getProjectTimeline };
+    const { container, rerender } = render(<ProjectTimelinePane projectId={PROJECT} transport={transport} />);
+    await screen.findByRole("heading", { name: "Tasks and sessions over time" });
+    fireEvent.click(screen.getByRole("button", { name: "30 days" }));
+
+    rerender(<ProjectTimelinePane projectId={OTHER} transport={transport} />);
+    expect(container.querySelector(".project-timeline__session")).toBeNull();
+    expect(container.querySelector("[aria-busy='true']")).not.toBeNull();
+
+    await screen.findByRole("heading", { name: "Tasks and sessions over time" });
+    expect(getProjectTimeline).toHaveBeenLastCalledWith(OTHER, expect.anything());
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+  });
 });

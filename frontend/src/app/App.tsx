@@ -2,7 +2,6 @@ import { FirstRunPanel } from "../features/onboarding/FirstRunPanel";
 import {
   Component,
   Suspense,
-  lazy,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -30,6 +29,8 @@ import { ThemeToggle } from "../shared/ui/ThemeToggle";
 import { LoadingState } from "../shared/ui/AsyncState";
 import { EmptyState } from "../shared/ui/EmptyState";
 import { Dialog } from "../shared/ui/Dialog";
+import { retryableLazy as lazy, RouteLoadAttempt } from "../shared/ui/retryableLazy";
+import { routeMetadata } from "./appRouteManifest";
 
 const AnalysisJobCentreScreen = lazy(() =>
   import("../features/analysis-job-centre").then((module) => ({
@@ -131,6 +132,7 @@ interface RouteErrorBoundaryProps {
 interface RouteErrorBoundaryState {
   failed: boolean;
   resetKey: string;
+  attempt: object;
 }
 
 /** Keep a failed route bundle from taking down the runtime/privacy shell. */
@@ -140,7 +142,7 @@ export class RouteErrorBoundary extends Component<
 > {
   constructor(props: RouteErrorBoundaryProps) {
     super(props);
-    this.state = { failed: false, resetKey: props.resetKey };
+    this.state = { failed: false, resetKey: props.resetKey, attempt: {} };
   }
 
   static getDerivedStateFromError(): Partial<RouteErrorBoundaryState> {
@@ -152,7 +154,7 @@ export class RouteErrorBoundary extends Component<
     state: RouteErrorBoundaryState,
   ): Partial<RouteErrorBoundaryState> | null {
     if (props.resetKey !== state.resetKey) {
-      return { failed: false, resetKey: props.resetKey };
+      return { failed: false, resetKey: props.resetKey, attempt: state.failed ? {} : state.attempt };
     }
     return null;
   }
@@ -167,11 +169,11 @@ export class RouteErrorBoundary extends Component<
   }
 
   private retry = () => {
-    this.setState({ failed: false });
+    this.setState({ failed: false, attempt: {} });
   };
 
   render() {
-    if (!this.state.failed) return this.props.children;
+    if (!this.state.failed) return <RouteLoadAttempt.Provider value={this.state.attempt}>{this.props.children}</RouteLoadAttempt.Provider>;
     return (
       <div className="async-state async-state--error route-error" role="alert">
         <span className="async-state__icon"><Icon name="x" /></span>
@@ -182,6 +184,9 @@ export class RouteErrorBoundary extends Component<
         <div className="route-error__actions">
           <button className="button button--primary" onClick={this.retry} type="button">
             Retry screen
+          </button>
+          <button className="button button--secondary" onClick={() => window.location.reload()} type="button">
+            Reload app
           </button>
           {this.props.onExit !== undefined && (
             <button className="button button--secondary" onClick={this.props.onExit} type="button">
@@ -281,30 +286,11 @@ function isProjectWorkspaceRoute(route: AppRoute): route is ProjectWorkspaceRout
 }
 
 function routeTitle(route: AppRoute): string {
-  if (route.name === "discovery") return "Discovery";
-  if (route.name === "local_sources") return "Data source";
-  if (route.name === "analysis_jobs") return "Analysis jobs";
-  if (route.name === "project_automation") return "Project automation";
-  if (route.name === "projects") return "Projects";
-  if (route.name === "sessions") return "Sessions";
-  if (route.name === "calibration") return "Calibration";
-  if (route.name === "models") return "Models";
-  if (route.name === "prompt_checks") return "Prompt check";
-  if (route.name === "overview") return "Overview";
-  if (route.name === "agent") return "Agent";
-  if (route.name === "live") return "Live";
-  if (route.name === "research") return "Methods & models";
-  if (route.name === "team") return "Team analytics";
-  if (route.name === "social") return "Social hub";
-  if (route.name === "task_flow") return "Task flow";
-  if (isProjectWorkspaceRoute(route)) return "Project workspace";
-  return "Task analysis";
+  return routeMetadata(route).title;
 }
 
 function workspaceTrail(route: AppRoute): string {
-  if (route.name === "team") return "Scoped workspace";
-  if (route.name === "social") return "Social workspace";
-  return "Personal workspace";
+  return routeMetadata(route).trail;
 }
 
 function RouteLoading({ route }: { route: AppRoute }) {
@@ -347,8 +333,10 @@ function runtimeStatusCopy(
   };
 }
 
-function useCompactShellViewport(): boolean {
-  const query = "(max-width: 860px)";
+function useCompactShellViewport(routeName: AppRoute["name"]): boolean {
+  const query = routeName === "agent"
+    ? "(max-width: 1180px)"
+    : "(max-width: 860px)";
   const [compact, setCompact] = useState(() =>
     typeof window !== "undefined" && typeof window.matchMedia === "function"
       ? window.matchMedia(query).matches
@@ -362,7 +350,7 @@ function useCompactShellViewport(): boolean {
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
-  }, []);
+  }, [query]);
 
   return compact;
 }
@@ -381,7 +369,8 @@ export function App({
   socialHub?: SocialHubPort;
 }) {
   const transport: PromptEnhancerTransport = runtime.transport;
-  const compactShell = useCompactShellViewport();
+  const [route, setRoute] = useState<AppRoute>(() => platform.currentRoute());
+  const compactShell = useCompactShellViewport(route.name);
   const teamPort = useMemo(
     () => composeTeamControlPlanePort(runtime.mode, teamControlPlane),
     [runtime.mode, teamControlPlane],
@@ -390,7 +379,6 @@ export function App({
     () => composeSocialHubPort(runtime.mode, socialHub),
     [runtime.mode, socialHub],
   );
-  const [route, setRoute] = useState<AppRoute>(() => platform.currentRoute());
   const routeIdentity = routePath(route);
   const routeContextRef = useRef({
     identity: routeIdentity,
@@ -406,10 +394,12 @@ export function App({
   const [navigationNotice, setNavigationNotice] = useState("");
   const [latestTaskPending, setLatestTaskPending] = useState(false);
   const [undecidedCount, setUndecidedCount] = useState<number | null>(null);
+  const [serviceRetry, setServiceRetry] = useState(0);
   const [serviceState, setServiceState] = useState<RuntimeServiceState>(() =>
     runtime.mode === "synthetic_demo" ? "available" : "checking",
   );
   const runtimeCopy = runtimeStatusCopy(runtime.mode, serviceState);
+  const activeNavigationKey = routeMetadata(route).navigationKey;
   const coverageProvider: Provider =
     runtime.mode === "synthetic_demo" ? "synthetic" : "codex";
 
@@ -502,7 +492,7 @@ export function App({
         if (!controller.signal.aborted) setServiceState("unavailable");
       });
     return () => controller.abort();
-  }, [runtime]);
+  }, [runtime, serviceRetry]);
 
   function navigate(next: AppRoute) {
     latestTaskControllerRef.current?.abort();
@@ -555,28 +545,28 @@ export function App({
       label: "Workspace",
       items: [
         {
-          active: route.name === "overview",
+          active: activeNavigationKey === "overview",
           icon: PRIMARY_NAV_ICONS.overview,
           key: "overview",
           label: "Overview",
           onSelect: () => navigate({ name: "overview" }),
         },
         {
-          active: route.name === "projects" || route.name === "project_automation" || isProjectWorkspaceRoute(route),
+          active: activeNavigationKey === "projects",
           icon: PRIMARY_NAV_ICONS.projects,
           key: "projects",
           label: "Projects",
           onSelect: () => navigate({ name: "projects" }),
         },
         {
-          active: route.name === "sessions",
+          active: activeNavigationKey === "sessions",
           icon: PRIMARY_NAV_ICONS.sessions,
           key: "sessions",
           label: "Sessions",
           onSelect: () => navigate({ name: "sessions" }),
         },
         {
-          active: route.name === "agent",
+          active: activeNavigationKey === "agent",
           icon: PRIMARY_NAV_ICONS.agent,
           key: "agent",
           label: "Agent",
@@ -589,7 +579,7 @@ export function App({
       label: "Review & improve",
       items: [
         {
-          active: route.name === "discovery",
+          active: activeNavigationKey === "discovery",
           icon: PRIMARY_NAV_ICONS.discovery,
           indicator: discoveryIndicator,
           key: "discovery",
@@ -597,7 +587,7 @@ export function App({
           onSelect: () => navigate({ name: "discovery" }),
         },
         {
-          active: route.name === "task",
+          active: activeNavigationKey === "reviewed-tasks",
           busy: latestTaskPending,
           icon: PRIMARY_NAV_ICONS.reviewedTasks,
           key: "reviewed-tasks",
@@ -605,21 +595,21 @@ export function App({
           onSelect: () => void openLatestTask(),
         },
         {
-          active: route.name === "task_flow",
+          active: activeNavigationKey === "task-flow",
           icon: PRIMARY_NAV_ICONS.taskFlow,
           key: "task-flow",
           label: "Task flow",
           onSelect: () => navigate({ name: "task_flow" }),
         },
         {
-          active: route.name === "prompt_checks",
+          active: activeNavigationKey === "prompt-checks",
           icon: PRIMARY_NAV_ICONS.promptChecks,
           key: "prompt-checks",
           label: "Prompt check",
           onSelect: () => navigate({ name: "prompt_checks" }),
         },
         {
-          active: route.name === "calibration",
+          active: activeNavigationKey === "calibration",
           icon: PRIMARY_NAV_ICONS.calibration,
           key: "calibration",
           label: "Calibration",
@@ -632,14 +622,14 @@ export function App({
       label: "Collaboration",
       items: [
         {
-          active: route.name === "team",
+          active: activeNavigationKey === "team",
           icon: PRIMARY_NAV_ICONS.team,
           key: "team",
           label: "Team analytics",
           onSelect: () => navigate({ name: "team" }),
         },
         {
-          active: route.name === "social",
+          active: activeNavigationKey === "social",
           icon: PRIMARY_NAV_ICONS.social,
           key: "social",
           label: "Social",
@@ -652,7 +642,7 @@ export function App({
       label: "System & methods",
       items: [
         {
-          active: route.name === "models",
+          active: activeNavigationKey === "models",
           icon: PRIMARY_NAV_ICONS.models,
           key: "models",
           label: "Models",
@@ -660,7 +650,7 @@ export function App({
         },
         ...(runtime.mode === "local_real"
           ? [{
-              active: route.name === "local_sources",
+              active: activeNavigationKey === "local-sources",
               icon: PRIMARY_NAV_ICONS.localSources,
               key: "local-sources",
               label: "Data source",
@@ -668,14 +658,14 @@ export function App({
             } satisfies PrimaryNavigationItem]
           : []),
         {
-          active: route.name === "analysis_jobs",
+          active: activeNavigationKey === "analysis-jobs",
           icon: PRIMARY_NAV_ICONS.analysisJobs,
           key: "analysis-jobs",
           label: "Job centre",
           onSelect: () => navigate({ name: "analysis_jobs" }),
         },
         {
-          active: route.name === "research",
+          active: activeNavigationKey === "research",
           icon: PRIMARY_NAV_ICONS.research,
           key: "research",
           label: "Methods & models",
@@ -731,7 +721,10 @@ export function App({
   }
 
   return (
-    <div className="app-shell" data-layout="responsive-shell">
+    <div
+      className={`app-shell${route.name === "agent" ? " app-shell--agent-focus" : ""}`}
+      data-layout="responsive-shell"
+    >
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <header className="mobile-shell-header">
         <div aria-label="Prompt Enhancer" className="mobile-shell-header__identity">
@@ -804,6 +797,14 @@ export function App({
       </aside>
 
       <div className="workspace" data-route={route.name}>
+        {serviceState === "unavailable" && runtime.mode === "local_real" && (
+          <div className="async-state async-state--error" role="status">
+            <span>The local service could not be reached. Your screen is still open.</span>
+            <button className="button button--secondary" onClick={() => setServiceRetry((value) => value + 1)} type="button">
+              Recheck local service
+            </button>
+          </div>
+        )}
         <header className="topbar">
           <div aria-label="Current location" className="topbar__trail">
             <span>{workspaceTrail(route)}</span>
@@ -841,7 +842,7 @@ export function App({
                   />
                 </>
               ) : route.name === "sessions" ? (
-                <SessionsScreen navigate={navigate} transport={transport} />
+                <SessionsScreen navigate={navigate} runtimeMode={runtime.mode} transport={transport} />
               ) : route.name === "calibration" ? (
                 <CalibrationScreen transport={transport} />
               ) : route.name === "models" ? (
@@ -849,9 +850,36 @@ export function App({
               ) : route.name === "prompt_checks" ? (
                 <PromptChecksScreen checkId={route.checkId} navigate={navigate} sessionId={route.sessionId} transport={transport} />
               ) : route.name === "overview" ? (
-                <OverviewScreen navigate={navigate} transport={transport} />
+                <OverviewScreen navigate={navigate} runtimeMode={runtime.mode} transport={transport} />
               ) : route.name === "agent" ? (
                 <AgentScreen sessionId={route.sessionId} transport={transport} />
+              ) : route.name === "not_found" ? (
+                <section className="not-found-page" aria-label="Page not found">
+                  <EmptyState
+                    action={(
+                      <div className="route-error__actions">
+                        <button
+                          className="button button--primary"
+                          onClick={() => navigate({ name: "overview" })}
+                          type="button"
+                        >
+                          Open Overview
+                        </button>
+                        <button
+                          className="button button--secondary"
+                          onClick={() => navigate({ name: "discovery" })}
+                          type="button"
+                        >
+                          Open Discovery
+                        </button>
+                      </div>
+                    )}
+                    description="This address is not a Prompt Enhancer screen. The invalid path is not retained or displayed."
+                    icon="search"
+                    title="Page not found"
+                    tone="closed"
+                  />
+                </section>
               ) : route.name === "projects" ? (
                 <ProjectCatalogScreen
                   coverageProvider={coverageProvider}

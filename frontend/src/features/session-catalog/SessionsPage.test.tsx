@@ -92,8 +92,33 @@ describe("SessionsPage", () => {
   });
 
   it("shows an empty state that points at the Data source page", async () => {
-    render(<SessionsPage navigate={vi.fn()} transport={transportWith([])} />);
+    render(<SessionsPage navigate={vi.fn()} runtimeMode="local_real" transport={transportWith([])} />);
     expect(await screen.findByText("No sessions captured yet")).toBeInTheDocument();
     expect(screen.getByText(/Data source page/)).toBeInTheDocument();
+  });
+
+  it("keeps the partial-search warning visible with no matches and loads the next bounded page", async () => {
+    const rows = Array.from({ length: 1001 }, (_, index) => ({ ...ROWS[0], session_id: index.toString(16).padStart(64, "0"), session_display_name: index === 1000 ? "Example beyond first batch" : `Example session ${index}` }));
+    const listCodexSessions = vi.fn(async (limit: number, offset: number) => ({ sessions: rows.slice(offset, offset + limit), limit, offset }));
+    render(<SessionsPage navigate={vi.fn()} transport={{ listCodexSessions }} />);
+    fireEvent.change(screen.getByLabelText("Search sessions by project or title"), { target: { value: "beyond first batch" } });
+    expect(await screen.findByText(/Partial catalog: search covers only the 1000 loaded sessions/)).toBeVisible();
+    expect(screen.getByText("No sessions match")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Load next 100 sessions" }));
+    expect(await screen.findByText("Example beyond first batch")).toBeVisible();
+    expect(listCodexSessions).toHaveBeenCalledTimes(11);
+    expect(listCodexSessions.mock.calls[10].slice(0, 2)).toEqual([100, 1000]);
+    expect(screen.queryByText(/Partial catalog:/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load next 100 sessions" })).not.toBeInTheDocument();
+  });
+
+  it("does not point an empty synthetic preview at an unavailable source page", async () => {
+    render(<SessionsPage navigate={vi.fn()} runtimeMode="synthetic_demo" transport={transportWith([])} />);
+    expect(await screen.findByText(/This synthetic preview has no session fixtures/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Open Data source" })).not.toBeInTheDocument();
+  });
+
+  it("keeps contradictory duration unknown instead of reporting a zero-second session", () => {
+    expect(durationLabel("2040-01-02T00:00:00Z", "2040-01-01T00:00:00Z")).toBe("Duration unavailable");
   });
 });

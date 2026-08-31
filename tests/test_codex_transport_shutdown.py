@@ -5,6 +5,10 @@ from threading import Event
 
 import pytest
 
+from prompt_enhancer.application.runtime_cancellation import (
+    RuntimeCooperativeStop,
+    runtime_request_scope,
+)
 from prompt_enhancer.infrastructure.providers.codex_app_server.errors import (
     CodexTransportError,
 )
@@ -133,3 +137,32 @@ def test_close_stops_child_before_closing_stdout_and_joins_reader(
     with pytest.raises(CodexTransportError):
         transport._request("initialize", {})
     assert process_attempts == 1
+
+
+def test_runtime_shutdown_kills_waiting_helper_before_normal_reap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    order: list[str] = []
+    process = StalledProcess(order)
+    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: process)
+    transport = StdioJsonRpcTransport(
+        limits=CodexReadLimits(shutdown_timeout_seconds=0.1)
+    )
+    transport._start()
+    assert process.stdout.started.wait(timeout=1)
+    cancelled = Event()
+    cancelled.set()
+
+    with runtime_request_scope(cancelled), pytest.raises(
+        RuntimeCooperativeStop, match="^codex_provider_request_cancelled$"
+    ):
+        transport._next_message(deadline=10**9)
+
+    assert order == ["kill"]
+    transport.close()
+    assert order == [
+        "kill",
+        "stdin.close",
+        "wait.after_kill",
+        "stdout.close",
+    ]

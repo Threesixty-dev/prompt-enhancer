@@ -49,6 +49,14 @@ sent, from the person or from the agent, and answers in time to matter.
    `<specify: …>` placeholders rather than invented values, element-level
    rewrites, notes. The reply is parsed strictly and bounded; anything else is
    `reply_invalid`. Commentary is labelled model output and is never a metric.
+   Acceptance protocol `prompt-check-commentary-v2-complete-json` also requires
+   one completed assistant text reply (`finish_reason: stop`) before parsing.
+   Missing, limited, filtered, tool-request or ambiguous completions remain
+   invalid even if their text looks like complete JSON. One exact outer JSON
+   fence is tolerated; surrounding prose, duplicate keys, invalid Unicode,
+   non-finite numbers, excessive depth, extra fields and malformed or overlong
+   suggestions are rejected rather than coerced, clipped or given invented
+   defaults. Deterministic readings are still returned and stored unchanged.
 4. **Context comes from the caller or from the prompt.** Agents pass the
    earlier turns as `prior_messages` (oldest first, bounded); the dashboard
    form accepts them as `user:` / `assistant:` lines. Without them, the check

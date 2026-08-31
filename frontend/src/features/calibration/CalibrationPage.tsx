@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CalibrationProgress,
   CalibrationRating,
+  CalibrationReview,
   CalibrationSample,
   CalibrationSampleMember,
   AnnotationAllowance,
@@ -16,7 +17,7 @@ import { TransportError } from "../../shared/api/httpTransport";
 import { Dialog } from "../../shared/ui/Dialog";
 import { Icon } from "../../shared/ui/Icon";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
-import { SessionTranscriptPane } from "../session-reader/SessionTranscriptPane";
+import { CalibrationCasePane } from "./CalibrationCasePane";
 import "./CalibrationPage.css";
 
 const RATER_KEY = "prompt-enhancer.calibration.rater";
@@ -57,7 +58,7 @@ type OwnedRequest = {
 type OwnedRequestRef = { current: OwnedRequest | null };
 
 function beginOwnedRequest(ref: OwnedRequestRef, kind: OwnedRequestKind): OwnedRequest | null {
-  if (kind === "load" && ref.current?.kind === "command" && ref.current.pending) return null;
+  if (ref.current?.kind === "command" && ref.current.pending) return null;
   ref.current?.controller.abort();
   const request = { controller: new AbortController(), kind, pending: true };
   ref.current = request;
@@ -176,14 +177,14 @@ function memberSubtitle(member: CalibrationSampleMember): string {
 /**
  * Blind ratings over a frozen sample of your own sessions. The page never
  * shows model values for the session being rated; ratings are stored locally
- * under a rater pseudonym and export as labels only.
+ * under a rater pseudonym and export with case provenance, never evidence text.
  */
 export function CalibrationPage({
   transport,
 }: {
   transport: Pick<
     PromptEnhancerTransport,
-    "getCalibrationSample" | "submitCalibrationRatings" | "getCalibrationRatings" | "getCalibrationProgress" | "getCalibrationExport" | "getSessionTranscript"
+    "getCalibrationSample" | "submitCalibrationRatings" | "getCalibrationRatings" | "getCalibrationProgress" | "getCalibrationExport" | "getSessionTranscript" | "reviewCalibrationCase"
   > & Partial<Pick<PromptEnhancerTransport, "judgeSessionWithModel" | "startModelJudgeSweep" | "getModelJudgeSweep" | "getModelJudgeAgreement" | "getAnnotationAllowance" | "setAnnotationAllowance" | "getAnnotationMetaprompt" | "getRemoteAnnotationDisclosure" | "annotateRemotely">>;
 }) {
   const [agreement, setAgreement] = useState<JudgeAgreementReport | null>(null);
@@ -193,6 +194,7 @@ export function CalibrationPage({
   const [annotationMessage, setAnnotationMessage] = useState("");
   const [remoteConfirm, setRemoteConfirm] = useState(false);
   const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteUncertain, setRemoteUncertain] = useState(false);
   const [remoteDisclosure, setRemoteDisclosure] = useState<RemoteAnnotationDisclosure | null>(null);
   const [remoteDisclosureState, setRemoteDisclosureState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [remoteResult, setRemoteResult] = useState<RemoteAnnotationResult | null>(null);
@@ -207,30 +209,40 @@ export function CalibrationPage({
   const [existing, setExisting] = useState<CalibrationRating[]>([]);
   const [progress, setProgress] = useState<CalibrationProgress | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sampleRetry, setSampleRetry] = useState(0);
+  const [sampleNeedsRefresh, setSampleNeedsRefresh] = useState(false);
+  const [judgeBusy, setJudgeBusy] = useState(false);
+  const [allowanceBusy, setAllowanceBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [exportText, setExportText] = useState("");
+  const [review, setReview] = useState<{ transport: typeof transport; value: CalibrationReview } | null>(null);
+  const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const handleReviewChange = useCallback((value: CalibrationReview | null) => {
+    setReview(value ? { transport, value } : null);
+    setReviewAcknowledged(false);
+  }, [transport]);
   const judgeRequestRef = useRef<OwnedRequest | null>(null);
   const allowanceRequestRef = useRef<OwnedRequest | null>(null);
   const disclosureRequestRef = useRef<OwnedRequest | null>(null);
   const remoteRequestRef = useRef<OwnedRequest | null>(null);
   const remoteCancelRef = useRef<HTMLButtonElement>(null);
+  const saveRequestRef = useRef<OwnedRequest | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    // Keep the list on screen while a rater change refreshes the rated marks.
-    setState((previous) => (previous === "ready" ? previous : "loading"));
+    setState("loading");
     try {
       const value = await transport.getCalibrationSample(rater || null, signal);
       if (signal?.aborted) return;
       if (!safeCalibrationSample(value)) { setState("error"); return; }
-      setSample(value);
-      setState(value.members.length === 0 ? "empty" : "ready");
       const [ratings, current] = await Promise.all([
         rater ? transport.getCalibrationRatings(rater, signal) : Promise.resolve([] as CalibrationRating[]),
         transport.getCalibrationProgress(signal),
       ]);
       if (signal?.aborted) return;
+      setSample(value);
       setExisting(Array.isArray(ratings) ? ratings : []);
       setProgress(current);
+      setState(value.members.length === 0 ? "empty" : "ready");
     } catch (caught) {
       if (signal?.aborted) return;
       if (caught instanceof TransportError && caught.status === 409) { setState("empty"); return; }
@@ -243,7 +255,15 @@ export function CalibrationPage({
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
-  }, [load]);
+  }, [load, sampleRetry]);
+
+  useEffect(() => {
+    setSaving(false);
+    setMessage("");
+    setSampleNeedsRefresh(false);
+    setReviewAcknowledged(false);
+    return () => cancelOwnedRequest(saveRequestRef);
+  }, [rater, transport]);
 
   const loadJudge = useCallback(async () => {
     if (!transport.getModelJudgeAgreement || !transport.getModelJudgeSweep) return;
@@ -333,8 +353,11 @@ export function CalibrationPage({
     setAllowance(null);
     setAnnotationMessage("");
     setRemoteBusy(false);
+    setRemoteUncertain(false);
     setRemoteConfirm(false);
     setRemoteResult(null);
+    setJudgeBusy(false);
+    setAllowanceBusy(false);
     return () => cancelOwnedRequest(remoteRequestRef);
   }, [transport]);
 
@@ -342,18 +365,25 @@ export function CalibrationPage({
     if (!current || !transport.judgeSessionWithModel) return;
     const request = beginOwnedRequest(judgeRequestRef, "command");
     if (!request) return;
+    setJudgeBusy(true);
     setJudgeMessage("");
     try {
       const outcome = await transport.judgeSessionWithModel(current.session_id, request.controller.signal);
       if (!ownsRequest(judgeRequestRef, request)) return;
       setJudgeMessage(outcome.raw_valid ? `Model judged this session (${outcome.model_alias}); your own rating stays blind to it.` : "The model did not answer in the required format.");
+      setJudgeBusy(false);
       finishOwnedRequest(judgeRequestRef, request);
       await loadJudge();
     } catch (caught) {
       if (ownsRequest(judgeRequestRef, request)) {
-        setJudgeMessage(caught instanceof TransportError && caught.message.includes("no_active_model") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
+        setJudgeMessage(caught instanceof TransportError && (caught.reasonCode === "no_active_model" || caught.reasonCode === "model_not_active")
+          ? "No local model is active - activate one on the Models page."
+          : caught instanceof TransportError && caught.reasonCode === "model_reply_invalid"
+          ? "The model returned an incomplete or invalid reply. Existing judgments were kept. Try again."
+          : "The model judge is not available right now.");
       }
     } finally {
+      if (ownsRequest(judgeRequestRef, request)) setJudgeBusy(false);
       finishOwnedRequest(judgeRequestRef, request);
     }
   }
@@ -362,6 +392,7 @@ export function CalibrationPage({
     if (!transport.startModelJudgeSweep) return;
     const request = beginOwnedRequest(judgeRequestRef, "command");
     if (!request) return;
+    setJudgeBusy(true);
     setJudgeMessage("");
     try {
       const status = await transport.startModelJudgeSweep(request.controller.signal, scope);
@@ -370,9 +401,10 @@ export function CalibrationPage({
       setJudgeMessage(status.total === 0 ? (scope === "all" ? "Every indexed session is already judged by this model." : "Every sampled session is already judged by this model.") : `Judging ${status.total} sessions in the background.`);
     } catch (caught) {
       if (ownsRequest(judgeRequestRef, request)) {
-        setJudgeMessage(caught instanceof TransportError && caught.message.includes("no_active_model") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
+        setJudgeMessage(caught instanceof TransportError && (caught.reasonCode === "no_active_model" || caught.reasonCode === "model_not_active") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
       }
     } finally {
+      if (ownsRequest(judgeRequestRef, request)) setJudgeBusy(false);
       finishOwnedRequest(judgeRequestRef, request);
     }
   }
@@ -380,6 +412,7 @@ export function CalibrationPage({
   const members = sample?.members ?? [];
   const metricKeys = sample?.metric_keys ?? [];
   const current = useMemo(() => members.find((member) => member.session_id === selected) ?? null, [members, selected]);
+  const currentReview = review?.transport === transport && review.value.session_id === current?.session_id ? review.value : null;
   const nextUnrated = useMemo(
     () => members.find((member) => member.rated_metric_keys.length < metricKeys.length) ?? null,
     [members, metricKeys.length],
@@ -392,7 +425,6 @@ export function CalibrationPage({
       if (rating.session_id === current.session_id) mine[rating.metric_key] = rating.label;
     }
     setDraft(mine);
-    setMessage("");
   }, [current, existing]);
 
   function commitRater() {
@@ -402,25 +434,47 @@ export function CalibrationPage({
   }
 
   async function save(advance: boolean) {
-    if (!current || !rater || Object.keys(draft).length === 0) return;
+    if (!current || !rater || !currentReview || !reviewAcknowledged || Object.keys(draft).length === 0) return;
+    const request = beginOwnedRequest(saveRequestRef, "command");
+    if (!request) return;
     setSaving(true);
     setMessage("");
+    setSampleNeedsRefresh(false);
+    let saved = false;
     try {
-      const result = await transport.submitCalibrationRatings({ rater_label: rater, session_id: current.session_id, ratings: draft });
+      const result = await transport.submitCalibrationRatings({ rater_label: rater, session_id: current.session_id, ratings: draft, review_id: currentReview.review_id }, request.controller.signal);
+      if (!ownsRequest(saveRequestRef, request)) return;
+      saved = true;
       setProgress(result);
-      const refreshed = await transport.getCalibrationSample(rater);
-      if (safeCalibrationSample(refreshed)) setSample(refreshed);
-      setExisting(await transport.getCalibrationRatings(rater));
+      const [refreshed, ratings] = await Promise.all([
+        transport.getCalibrationSample(rater, request.controller.signal),
+        transport.getCalibrationRatings(rater, request.controller.signal),
+      ]);
+      if (!ownsRequest(saveRequestRef, request)) return;
+      if (!safeCalibrationSample(refreshed) || !Array.isArray(ratings)) throw new Error("invalid calibration refresh");
+      setSample(refreshed);
+      setExisting(ratings);
       setMessage("Saved.");
       if (advance) {
-        const after = (refreshed && safeCalibrationSample(refreshed) ? refreshed.members : members)
+        const after = refreshed.members
           .find((member) => member.session_id !== current.session_id && member.rated_metric_keys.length < metricKeys.length);
         setSelected(after ? after.session_id : null);
       }
-    } catch {
-      setMessage("Could not save. Nothing was changed.");
+    } catch (error) {
+      if (ownsRequest(saveRequestRef, request)) {
+        if (!saved && error instanceof TransportError && error.reasonCode?.startsWith("calibration_review_")) {
+          handleReviewChange(null);
+          setMessage("The review receipt could not be confirmed. Your draft is still here. Refresh and review the case again before saving.");
+          return;
+        }
+        setSampleNeedsRefresh(true);
+        setMessage(saved
+          ? "Saved, but the updated sample could not be loaded. Retry the sample to see the saved ratings."
+          : "Could not confirm the save. Retry the sample to check the stored ratings before saving again.");
+      }
     } finally {
-      setSaving(false);
+      if (ownsRequest(saveRequestRef, request)) setSaving(false);
+      finishOwnedRequest(saveRequestRef, request);
     }
   }
 
@@ -440,6 +494,7 @@ export function CalibrationPage({
     if (!transport.setAnnotationAllowance || !allowance) return;
     const request = beginOwnedRequest(allowanceRequestRef, "command");
     if (!request) return;
+    setAllowanceBusy(true);
     try {
       const current = await transport.setAnnotationAllowance(!allowance.agent_allowed, request.controller.signal);
       if (ownsRequest(allowanceRequestRef, request)) {
@@ -448,9 +503,10 @@ export function CalibrationPage({
       }
     } catch (error) {
       if (ownsRequest(allowanceRequestRef, request)) {
-        setAnnotationMessage(error instanceof Error ? error.message : "Could not update the allowance.");
+        setAnnotationMessage("Could not update the allowance. The last confirmed setting is still shown.");
       }
     } finally {
+      if (ownsRequest(allowanceRequestRef, request)) setAllowanceBusy(false);
       finishOwnedRequest(allowanceRequestRef, request);
     }
   };
@@ -466,9 +522,9 @@ export function CalibrationPage({
         "",
         "1. GET /v1/annotation/metaprompt - read the system prompt, the questions and the allowed labels.",
         "2. GET /v1/annotation/work?model=<your-model-name> - session ids you have not annotated yet.",
-        "3. For each id: GET /v1/annotation/work/{session_id} - the redacted transcript window plus its window_fingerprint.",
+        "3. For each id: GET /v1/annotation/work/{session_id} - the redacted transcript window plus window_fingerprint, case_fingerprint and case_version.",
         "4. Judge only what the window shows, then POST /v1/annotation/annotations with",
-        '   {"session_id": "<id>", "model_name": "<your-model-name>", "window_fingerprint": "<the fingerprint from step 3>", "labels": {"<metric_key>": "<label>"}}.',
+        '   {"session_id": "<id>", "model_name": "<your-model-name>", "window_fingerprint": "<from step 3>", "case_fingerprint": "<from step 3>", "case_version": "<from step 3>", "labels": {"<metric_key>": "<label>"}}.',
         "   Echo the fingerprint unchanged; if the session has grown since you read it the submission is refused, so re-read the window and judge it again.",
         "",
         `System prompt to follow:\n${meta.system_prompt}`,
@@ -480,13 +536,13 @@ export function CalibrationPage({
       ].join("\n");
       await navigator.clipboard.writeText(text);
       setAnnotationMessage("Agent instructions copied - paste them into Codex, Claude Code, or any agent you drive.");
-    } catch (error) {
-      setAnnotationMessage(error instanceof Error ? error.message : "Could not copy the instructions.");
+    } catch {
+      setAnnotationMessage("Could not copy the instructions. Check clipboard access and try again.");
     }
   };
 
   const annotateRemotely = async () => {
-    if (!transport.annotateRemotely || !remoteDisclosure?.active_model_alias) return;
+    if (!transport.annotateRemotely || !remoteDisclosure?.active_model_alias || remoteUncertain) return;
     const request = beginOwnedRequest(remoteRequestRef, "command");
     if (!request) return;
     setRemoteBusy(true);
@@ -502,9 +558,10 @@ export function CalibrationPage({
           : `Sent ${result.submitted} session${result.submitted === 1 ? "" : "s"} to ${result.destination}; ${result.annotated} annotated by ${result.model_identity ?? "the central model"}.`,
       );
       void loadJudge();
-    } catch (error) {
+    } catch {
       if (ownsRequest(remoteRequestRef, request)) {
-        setAnnotationMessage(error instanceof Error ? error.message : "Remote annotation failed.");
+        setRemoteUncertain(true);
+        setAnnotationMessage("Remote annotation could not be confirmed. Check the annotation status before submitting again.");
       }
     } finally {
       if (ownsRequest(remoteRequestRef, request)) setRemoteBusy(false);
@@ -523,7 +580,7 @@ export function CalibrationPage({
           <p className="eyebrow">Calibration · your own sessions, rated blind</p>
           <h1 id="calibration-title">Rate sessions</h1>
           <p className="calibration__lede">
-            Read the session, answer three questions, move on. Model values are hidden here on purpose; your
+            Review the bounded case, answer three questions, move on. Model values are hidden here on purpose; your
             answers are the human reference the metrics are later checked against. Ratings and exports stay on this
             machine; only the separate, explicit remote annotation action below crosses the disclosed boundary.
           </p>
@@ -533,6 +590,7 @@ export function CalibrationPage({
             <span>Rater name (kept local; stored as a pseudonym)</span>
             <input
               aria-label="Rater name"
+              disabled={saving}
               onBlur={commitRater}
               onChange={(event) => setDraftRater(event.currentTarget.value)}
               onKeyDown={(event) => { if (event.key === "Enter") commitRater(); }}
@@ -555,6 +613,8 @@ export function CalibrationPage({
       )}
       {state === "unavailable" && <p className="calibration__note">Calibration is not available in this runtime.</p>}
       {state === "error" && <p className="calibration__note" role="alert">The sample could not be verified.</p>}
+      {(state === "error" || sampleNeedsRefresh) && <button className="button button--ghost" disabled={saving} onClick={() => { setMessage(""); setSampleNeedsRefresh(false); setSampleRetry((value) => value + 1); }} type="button">Retry sample</button>}
+      {message && <p className="calibration__message" role="status">{message}</p>}
 
       {state === "ready" && (
         <div className="calibration__body">
@@ -562,7 +622,7 @@ export function CalibrationPage({
             <div className="calibration__list-head">
               <span>{members.length} sessions · frozen sample</span>
               {nextUnrated && (
-                <button className="button button--ghost" onClick={() => setSelected(nextUnrated.session_id)} type="button">
+                <button className="button button--ghost" disabled={saving} onClick={() => { setMessage(""); setSelected(nextUnrated.session_id); }} type="button">
                   Next unrated
                 </button>
               )}
@@ -577,7 +637,8 @@ export function CalibrationPage({
                       aria-current={member.session_id === selected ? "true" : undefined}
                       className={member.session_id === selected ? "is-selected" : ""}
                       data-state={done ? "done" : partial ? "partial" : "todo"}
-                      onClick={() => setSelected(member.session_id)}
+                      disabled={saving}
+                      onClick={() => { setMessage(""); setSelected(member.session_id); }}
                       type="button"
                     >
                       <span className="calibration__item-title">{memberTitle(member)}</span>
@@ -602,7 +663,7 @@ export function CalibrationPage({
             {current && (
               <>
                 <h2 className="calibration__session-title">{memberTitle(current)}</h2>
-                <SessionTranscriptPane autoLoad sessionId={current.session_id} transport={transport} />
+                <CalibrationCasePane sessionId={current.session_id} provider={current.provider} transport={transport} disabled={saving} onReviewChange={handleReviewChange} />
                 <form
                   className="calibration__form"
                   onSubmit={(event) => { event.preventDefault(); void save(true); }}
@@ -613,7 +674,7 @@ export function CalibrationPage({
                   {metricKeys.map((metricKey) => {
                     const copy = METRIC_COPY[metricKey] ?? { title: metricKey, question: metricKey };
                     return (
-                      <fieldset key={metricKey} className="calibration__metric">
+                      <fieldset key={metricKey} className="calibration__metric" disabled={saving}>
                         <legend>
                           <strong>{copy.title}</strong>
                           <span>{copy.question}</span>
@@ -636,14 +697,18 @@ export function CalibrationPage({
                       </fieldset>
                     );
                   })}
+                  <label className="calibration__review-ack">
+                    <input type="checkbox" checked={reviewAcknowledged} disabled={saving || !currentReview} onChange={(event) => setReviewAcknowledged(event.currentTarget.checked)} />
+                    I reviewed this case; my ratings describe only the evidence shown.
+                  </label>
+                  {existing.some((rating) => rating.session_id === current.session_id && rating.case_fingerprint !== currentReview?.case_fingerprint) && <p className="calibration__note">Previously saved labels may describe different or unverified evidence. Confirm each answer against this case before saving a new revision.</p>}
                   <div className="calibration__actions">
-                    <button className="button button--primary" disabled={saving || !rater || Object.keys(draft).length === 0} type="submit">
+                    <button className="button button--primary" disabled={saving || sampleNeedsRefresh || !rater || !currentReview || !reviewAcknowledged || Object.keys(draft).length === 0} type="submit">
                       {saving ? "Saving…" : "Save and next"}
                     </button>
-                    <button className="button button--ghost" disabled={saving || !rater || Object.keys(draft).length === 0} onClick={() => void save(false)} type="button">
+                    <button className="button button--ghost" disabled={saving || sampleNeedsRefresh || !rater || !currentReview || !reviewAcknowledged || Object.keys(draft).length === 0} onClick={() => void save(false)} type="button">
                       Save
                     </button>
-                    {message && <span className="calibration__message" aria-live="polite">{message}</span>}
                   </div>
                 </form>
               </>
@@ -664,25 +729,31 @@ export function CalibrationPage({
               </p>
             </div>
             <div className="calibration__actions">
-              <button className="button button--ghost" disabled={!current || !agreement.model_alias} onClick={() => void judgeCurrent()} type="button">Judge this session</button>
-              <button className="button button--ghost" disabled={!agreement.model_alias || Boolean(sweep?.running)} onClick={() => void judgeSample()} type="button">Judge the whole sample</button>
-              <button className="button button--ghost" disabled={!agreement.model_alias || Boolean(sweep?.running)} onClick={() => void judgeSample("all")} type="button">Judge every session</button>
+              <button className="button button--ghost" disabled={judgeBusy || !transport.judgeSessionWithModel || !current || !agreement.model_alias || Boolean(sweep?.running)} onClick={() => void judgeCurrent()} type="button">Judge this session</button>
+              <button className="button button--ghost" disabled={judgeBusy || !transport.startModelJudgeSweep || !agreement.model_alias || Boolean(sweep?.running)} onClick={() => void judgeSample()} type="button">Judge the whole sample</button>
+              <button className="button button--ghost" disabled={judgeBusy || !transport.startModelJudgeSweep || !agreement.model_alias || Boolean(sweep?.running)} onClick={() => void judgeSample("all")} type="button">Judge every session</button>
             </div>
           </div>
-          <table className="calibration__agreement">
+          {judgeBusy && <p role="status">Waiting for the local judge…</p>}
+          {(agreement.excluded_judgments ?? 0) > 0 && <p className="calibration__note">
+            {agreement.excluded_judgments} stored judgment{agreement.excluded_judgments === 1 ? "" : "s"} excluded from current agreement because the protocol, model identity, or reviewed-case identity is not eligible. The labels remain available in the session view; judge again for current-protocol results.
+          </p>}
+          {(!transport.judgeSessionWithModel || !transport.startModelJudgeSweep) && <p className="calibration__note">Some judge actions are unavailable in this runtime.</p>}
+          {agreement.model_identity_ambiguous && <p className="calibration__note">This alias has different recorded model identities. They are not pooled into one agreement result.</p>}
+          <div className="calibration__agreement-scroll" tabIndex={0} role="region" aria-label="Calibration agreement table"><table className="calibration__agreement">
             <thead><tr><th>Metric</th><th>Pairs</th><th>Agreement</th><th>Cohen's κ</th><th>State</th></tr></thead>
             <tbody>
               {agreement.metrics.map((m) => (
                 <tr key={m.metric_key}>
                   <td>{METRIC_COPY[m.metric_key]?.title ?? m.metric_key}</td>
-                  <td>{m.pairs}</td>
+                  <td>{m.pairs}{Boolean(m.unmatched_ratings || m.abstained_pairs) && <small className="calibration__pair-note">{m.unmatched_ratings ?? 0} unmatched · {m.abstained_pairs ?? 0} abstained</small>}</td>
                   <td>{m.agreement_rate === null || m.agreement_rate === undefined ? "—" : `${Math.round(m.agreement_rate * 100)}%`}</td>
                   <td>{m.cohen_kappa === null || m.cohen_kappa === undefined ? "—" : m.cohen_kappa.toFixed(2)}</td>
                   <td>{m.state.replace(/_/g, " ")}{m.reason ? ` · ${m.reason.replace(/_/g, " ")}` : ""}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           <p className="calibration__note">{agreement.caveat}</p>
           {judgeMessage && <p className="calibration__message" aria-live="polite">{judgeMessage}</p>}
         </section>
@@ -701,11 +772,11 @@ export function CalibrationPage({
               <h3>Your own agents, through this app&apos;s endpoint</h3>
               <p className="calibration__note">{allowance.note}</p>
               <div className="calibration__actions">
-                <button className={allowance.agent_allowed ? "button" : "button button--ghost"} onClick={() => void toggleAllowance()} type="button">
+                <button className={allowance.agent_allowed ? "button" : "button button--ghost"} disabled={allowanceBusy || !transport.setAnnotationAllowance} onClick={() => void toggleAllowance()} type="button">
                   {allowance.agent_allowed ? "Agent annotation is ON - click to stop" : "Allow agent annotation"}
                 </button>
                 {allowance.agent_allowed && (
-                  <button className="button button--ghost" onClick={() => void copyAgentInstructions()} type="button">
+                  <button className="button button--ghost" disabled={!transport.getAnnotationMetaprompt} onClick={() => void copyAgentInstructions()} type="button">
                     Copy agent instructions
                   </button>
                 )}
@@ -750,7 +821,7 @@ export function CalibrationPage({
                 </div>
               )}
               <div className="calibration__actions">
-                <button className="button button--ghost" disabled={remoteBusy || !remoteDisclosure?.active_model_alias} onClick={() => setRemoteConfirm(true)} type="button">
+                <button className="button button--ghost" disabled={remoteBusy || remoteUncertain || !transport.annotateRemotely || !remoteDisclosure?.active_model_alias} onClick={() => setRemoteConfirm(true)} type="button">
                   Annotate remotely…
                 </button>
               </div>
@@ -762,7 +833,7 @@ export function CalibrationPage({
                     <button className="button button--ghost" disabled={remoteBusy} onClick={closeRemoteConfirm} ref={remoteCancelRef} type="button">
                       Cancel
                     </button>
-                    <button className="button" disabled={remoteBusy || !remoteDisclosure?.active_model_alias} onClick={() => void annotateRemotely()} type="button">
+                    <button className="button" disabled={remoteBusy || remoteUncertain || !transport.annotateRemotely || !remoteDisclosure?.active_model_alias} onClick={() => void annotateRemotely()} type="button">
                       {remoteBusy ? "Sending…" : "Send"}
                     </button>
                   </>
@@ -774,6 +845,7 @@ export function CalibrationPage({
                 tone="danger"
               >
                 <div className="calibration__remote-confirmation">
+                  {remoteUncertain && <p className="calibration__message" role="alert">{annotationMessage} This view cannot verify whether that batch was accepted. Close this dialog and check the central annotation records before reloading this page for another submission.</p>}
                   <p className="calibration__note">
                     Destination: <code>{remoteDisclosure?.destination}</code>.
                   </p>
@@ -797,8 +869,9 @@ export function CalibrationPage({
       {state === "ready" && (
         <footer className="calibration__export">
           <button className="button button--ghost" onClick={() => void exportRatings()} type="button">
-            Show export (labels and pseudonyms only)
+            Show export (ratings and case metadata)
           </button>
+          <p className="calibration__note">Exports include sensitive pseudonyms and evidence fingerprints, but no evidence text.</p>
           {exportText && (
             <textarea aria-label="Calibration export" readOnly rows={8} value={exportText} />
           )}

@@ -888,11 +888,13 @@ ModelEnsembleUnavailableCode = Literal[
     "provider_protocol_rejected",
     "provider_unavailable",
     "local_model_ensemble_execution_failed",
+    "model_ensemble_cleanup_unconfirmed",
     "model_ensemble_persistence_failed",
 ]
 ModelEnsembleUnavailableMessage = Literal[
     "bounded local source read failed",
     "local model ensemble execution failed",
+    "local model cleanup was not confirmed; new model runs are paused",
     "local model ensemble persistence failed",
 ]
 
@@ -904,6 +906,9 @@ _MODEL_ENSEMBLE_UNAVAILABLE_MESSAGES: dict[
     "provider_unavailable": "bounded local source read failed",
     "local_model_ensemble_execution_failed": (
         "local model ensemble execution failed"
+    ),
+    "model_ensemble_cleanup_unconfirmed": (
+        "local model cleanup was not confirmed; new model runs are paused"
     ),
     "model_ensemble_persistence_failed": (
         "local model ensemble persistence failed"
@@ -948,7 +953,7 @@ def _failure(error: Exception) -> HTTPException:
         }.get(error.reason, 503)
         return HTTPException(status, detail={"code": error.code, "message": "bounded local source read failed"})
     if isinstance(error, ModelEnsembleExecutionError):
-        return HTTPException(503, detail={"code": error.code, "message": "local model ensemble execution failed"})
+        return HTTPException(503, detail={"code": error.code, "message": _MODEL_ENSEMBLE_UNAVAILABLE_MESSAGES[error.code]})
     if isinstance(error, ModelEnsemblePersistenceError):
         return HTTPException(503, detail={"code": error.code, "message": "local model ensemble persistence failed"})
     raise TypeError("unsupported model ensemble error")

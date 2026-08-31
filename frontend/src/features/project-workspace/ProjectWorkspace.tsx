@@ -128,12 +128,13 @@ function isCompleteProjectSessionPage(
   value: unknown,
   expectedProjectId: string,
   expectedLimit: number,
+  expectedOffset = 0,
 ): value is ProjectSessionListResponse {
   if (
     !isRecord(value) ||
     !Array.isArray(value.sessions) ||
     value.limit !== expectedLimit ||
-    value.offset !== 0 ||
+    value.offset !== expectedOffset ||
     !Number.isSafeInteger(value.total) ||
     (value.total as number) < 0 ||
     typeof value.has_more !== "boolean"
@@ -141,10 +142,10 @@ function isCompleteProjectSessionPage(
     return false;
   }
   const total = value.total as number;
-  const expectedPageSize = Math.min(total, expectedLimit);
+  const expectedPageSize = Math.min(Math.max(0, total - expectedOffset), expectedLimit);
   if (
     value.sessions.length !== expectedPageSize ||
-    value.has_more !== (expectedPageSize < total) ||
+    value.has_more !== (expectedOffset + expectedPageSize < total) ||
     !value.sessions.every((session) =>
       isProjectSession(session, expectedProjectId),
     )
@@ -504,9 +505,11 @@ export function ProjectWorkspace({
   const [metrics, setMetrics] = useState<SessionMetric[] | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metricsError, setMetricsError] = useState("");
+  const [metricsRetryKey, setMetricsRetryKey] = useState(0);
   const [qualityRun, setQualityRun] = useState<SessionAnalysisRunResponse | null>(null);
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityError, setQualityError] = useState("");
+  const [qualityNotice, setQualityNotice] = useState<{ sessionId: string; category: string; text: string } | null>(null);
   const [qualityRetryKey, setQualityRetryKey] = useState(0);
   const [metricReadiness, setMetricReadiness] =
     useState<SessionMetricReadinessReport | null>(null);
@@ -534,6 +537,16 @@ export function ProjectWorkspace({
   const workspaceRef = useRef<HTMLElement>(null);
   const observedRouteIdentity = useRef<string | null>(null);
   const pendingFocusRouteIdentity = useRef<string | null>(null);
+  const sessionId = selectedSessionId(route);
+  const lookupScope = `${route.projectId}/${sessionId ?? ""}`;
+  const [resolvedSession, setResolvedSession] = useState<{ scope: string; session: CodexSession; transport: PromptEnhancerTransport } | null>(null);
+  const [lookupNext, setLookupNext] = useState<{ scope: string; offset: number } | null>(null);
+  const [lookupCursor, setLookupCursor] = useState<{ scope: string; offset: number } | null>(null);
+  const [lookupFinished, setLookupFinished] = useState<string | null>(null);
+  const [lookupError, setLookupError] = useState("");
+  const lookupOffset = lookupCursor?.scope === lookupScope ? lookupCursor.offset : 100;
+
+  useEffect(() => { setLookupCursor(null); }, [lookupScope]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -541,9 +554,9 @@ export function ProjectWorkspace({
     setProjectSessionTotal(0);
     setProjectSessionsTruncated(false);
     setCatalogError("");
-    transport
-      .listProjectSessions(route.projectId, 100, 0, controller.signal)
-      .then((response) => {
+    void (async () => {
+      try {
+        const response = await transport.listProjectSessions(route.projectId, 100, 0, controller.signal);
         if (controller.signal.aborted) return;
         if (!isCompleteProjectSessionPage(response, route.projectId, 100)) {
           setCatalogError("The project-scoped catalog response was inconsistent.");
@@ -552,14 +565,56 @@ export function ProjectWorkspace({
         setSessions(response.sessions);
         setProjectSessionTotal(response.total);
         setProjectSessionsTruncated(response.has_more);
-      })
-      .catch(() => {
+      } catch {
         if (!controller.signal.aborted) {
           setCatalogError("The locally indexed sessions could not be loaded.");
         }
-      });
+      }
+    })();
     return () => controller.abort();
   }, [catalogRetryKey, route.projectId, transport]);
+
+  useEffect(() => {
+    setResolvedSession(null);
+    setLookupNext(null);
+    setLookupError("");
+    setLookupFinished(null);
+    if (!sessionId || !sessions || !projectSessionsTruncated
+      || sessions.some((session) => session.session_id === sessionId && session.project_id === route.projectId)) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        // Resolve only the explicitly selected session beyond the visible first
+        // page. Metadata reads are bounded; project-wide analysis stays capped.
+        let offset = lookupOffset;
+        const pageBudget = offset === 100 ? 9 : 10;
+        const seen = new Set(sessions.map((session) => session.session_id));
+        for (let page = 0; page < pageBudget; page += 1) {
+          const next = await transport.listProjectSessions(route.projectId, 100, offset, controller.signal);
+          if (controller.signal.aborted) return;
+          if (!isCompleteProjectSessionPage(next, route.projectId, 100, offset) || next.total !== projectSessionTotal
+            || next.sessions.some((session) => seen.has(session.session_id))) {
+            setLookupError("The project-scoped catalog changed or was inconsistent. Retry to verify the session's project.");
+            return;
+          }
+          next.sessions.forEach((session) => seen.add(session.session_id));
+          const found = next.sessions.find((session) => session.session_id === sessionId);
+          if (found) {
+            setResolvedSession({ scope: lookupScope, session: found, transport });
+            break;
+          }
+          if (!next.has_more) break;
+          offset += next.sessions.length;
+          if (page === pageBudget - 1) setLookupNext({ scope: lookupScope, offset });
+        }
+      } catch {
+        if (!controller.signal.aborted) setLookupError("The older session's project membership could not be checked. Retry the metadata lookup.");
+      } finally {
+        if (!controller.signal.aborted) setLookupFinished(lookupScope);
+      }
+    })();
+    return () => controller.abort();
+  }, [lookupOffset, lookupScope, projectSessionTotal, projectSessionsTruncated, route.projectId, sessionId, sessions, transport]);
 
   const projectSessions = useMemo(
     () =>
@@ -571,10 +626,10 @@ export function ProjectWorkspace({
         ),
     [route.projectId, sessions],
   );
-  const sessionId = selectedSessionId(route);
   const category = selectedCategory(route);
   const currentSession = sessionId
     ? projectSessions.find((session) => session.session_id === sessionId)
+      ?? (resolvedSession?.scope === lookupScope && resolvedSession.transport === transport ? resolvedSession.session : undefined)
     : undefined;
   const categoryPlanned = category
     ? metricCategoryDefinition(category).availability === "planned"
@@ -803,7 +858,7 @@ export function ProjectWorkspace({
         if (!controller.signal.aborted) setMetricsLoading(false);
       });
     return () => controller.abort();
-  }, [categoryPlanned, currentSession, qualityCategory, sessionId, transport]);
+  }, [categoryPlanned, currentSession, metricsRetryKey, qualityCategory, sessionId, transport]);
 
   useEffect(() => {
     if (!sessionId || !currentSession || !qualityCategory || !legacyQualityExpanded) {
@@ -1106,6 +1161,7 @@ export function ProjectWorkspace({
     if (!sessionId || requestedSessionId !== sessionId) {
       throw new Error("Selected session is unavailable.");
     }
+    setQualityNotice(null);
     return transport.prepareSessionQualityAnalysisPreview(
       requestedSessionId,
       request,
@@ -1132,10 +1188,12 @@ export function ProjectWorkspace({
       idempotencyKey,
       signal,
     );
+    if (signal.aborted) return;
     const detail = await transport.getSessionQualityAnalysisRun(
       outcome.run_id,
       signal,
     );
+    if (signal.aborted) return;
     const nextProfile = category
       ? createQualityMetricProfile(category, detail, sessionId)
       : null;
@@ -1152,6 +1210,7 @@ export function ProjectWorkspace({
     }
     setQualityRun(detail);
     setQualityError("");
+    setQualityNotice({ sessionId: requestedSessionId, category: category ?? "", text: "Analysis completed and stored locally. The latest metric profile is now shown." });
     setMetricReadinessRefreshKey((value) => value + 1);
   }
 
@@ -1162,6 +1221,7 @@ export function ProjectWorkspace({
       data-masthead={compactMasthead ? "compact" : "full"}
       ref={workspaceRef}
     >
+      {qualityNotice && qualityNotice.sessionId === sessionId && qualityNotice.category === category && <p className="workspace-panel__description" role="status">{qualityNotice.text}</p>}
       <div
         aria-hidden={compactMasthead ? undefined : true}
         className="project-workspace__masthead-anchor"
@@ -1265,7 +1325,11 @@ export function ProjectWorkspace({
       ) : sessions === null ? (
         <LoadingState label="Loading this project's stored session index..." />
       ) : projectSessions.length === 0 ? (
-        <ErrorState message="This project is not present in the current bounded local index." />
+        <ErrorState
+          actionLabel="Back to projects"
+          message="This project is not present in the current bounded local index."
+          onRetry={() => navigate({ name: "projects" })}
+        />
       ) : route.name === "project_overview" ? (
         <section className="project-overview" aria-labelledby="project-overview-title">
           <div className="project-overview__heading">
@@ -1448,7 +1512,25 @@ export function ProjectWorkspace({
       ) : route.name === "project_metrics" && category ? (
         <ProjectMetricScopeState category={category} />
       ) : !currentSession || !category ? (
-        <ErrorState message="The selected session is not part of this indexed project." />
+        lookupError ? <ErrorState message={lookupError} onRetry={() => { setLookupCursor(null); setCatalogRetryKey((value) => value + 1); }} />
+        : projectSessionsTruncated && lookupFinished !== lookupScope ? <LoadingState label="Finding the selected session in older indexed pages..." />
+        : lookupNext?.scope === lookupScope ? (
+          <section className="metric-scope-state" aria-label="Older session lookup">
+            <div>
+              <h2>The selected session is beyond the pages checked so far</h2>
+              <p>More indexed sessions remain. Only project metadata is searched; no analysis is started.</p>
+              <button className="button button--secondary" onClick={() => setLookupCursor(lookupNext)} type="button">
+                Search next 1,000 sessions
+              </button>
+            </div>
+          </section>
+        ) : (
+          <ErrorState
+            actionLabel="Open project sessions"
+            message="The selected session is not part of this indexed project."
+            onRetry={() => navigate({ name: "project_sessions", projectId: route.projectId })}
+          />
+        )
       ) : qualityCategory ? (
         <>
           <SessionRadarCard
@@ -1629,7 +1711,10 @@ export function ProjectWorkspace({
           {metricsLoading ? (
             <LoadingState label="Loading one stored session metric response..." />
           ) : metricsError ? (
-            <ErrorState message={metricsError} />
+            <ErrorState
+              message={metricsError}
+              onRetry={() => setMetricsRetryKey((value) => value + 1)}
+            />
           ) : metrics === null ? null : (
             <>
               <MetricSnapshotBoundary metrics={metrics} session={currentSession} />

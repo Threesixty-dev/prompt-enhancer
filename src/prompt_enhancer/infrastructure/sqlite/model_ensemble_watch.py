@@ -1559,6 +1559,64 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                 raise
         return int(result.rowcount)
 
+    def quarantine_stopped_attempt(
+        self,
+        lease: ModelEnsembleWatchLease,
+        *,
+        generation: int,
+        now: datetime,
+        reason_code: str,
+    ) -> ModelEnsembleWatchRecord:
+        """Retain a late cleanup warning, never mutate a terminal receipt.
+
+        A cancelled/expired claim has no live lease left to fail. Only its
+        exact generation and original claim token can quarantine the stopped
+        watch; a re-enabled or replacement job remains outside this authority.
+        """
+
+        require_safe_label(reason_code)
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
+            raise ValueError("watch generation invalid")
+        self._ensure_initialized()
+        stamp = to_iso(now)
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                attempt = connection.execute(
+                    """SELECT attempt.started_at
+                       FROM session_model_ensemble_analysis_attempts attempt
+                       JOIN session_model_ensemble_watches watch
+                         ON watch.watch_id=attempt.watch_id
+                        AND watch.generation=attempt.generation
+                       WHERE watch.watch_id=? AND watch.generation=?
+                         AND watch.state IN ('idle','failed','disabled')
+                         AND watch.lease_owner IS NULL AND watch.lease_token IS NULL
+                         AND watch.lease_expires_at IS NULL
+                         AND attempt.state IN ('cancelled','failed')""",
+                    (lease.watch_id, generation),
+                ).fetchone()
+                if attempt is None:
+                    raise ValueError("watch stopped claim unavailable")
+                original_token = hashlib.sha256(
+                    f"model-ensemble-watch-lease:{lease.watch_id}:{generation}:{attempt['started_at']}".encode("ascii")
+                ).hexdigest()
+                if original_token != lease.token:
+                    raise ValueError("watch stopped claim mismatch")
+                connection.execute(
+                    """UPDATE session_model_ensemble_watches
+                       SET state=CASE WHEN state='disabled' THEN 'disabled' ELSE 'failed' END,
+                           progress_completed=0,last_error_code=?,next_check_at=?,
+                           quarantined_at=?,quarantine_reason_code=?,updated_at=?
+                       WHERE watch_id=? AND generation=?""",
+                    (reason_code, stamp, stamp, reason_code, stamp, lease.watch_id, generation),
+                )
+                row = self._row(connection, lease.watch_id)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return _record(row)
+
     def heartbeat(
         self,
         lease: ModelEnsembleWatchLease,
@@ -1850,8 +1908,14 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
         *,
         now: datetime,
         next_check_at: datetime,
+        lease: ModelEnsembleWatchLease | None = None,
+        reason_code: str = "analysis_cancelled",
     ) -> ModelEnsembleWatchRecord:
         require_safe_id(watch_id)
+        if reason_code not in {"analysis_cancelled", "application_shutdown"} or (
+            reason_code == "application_shutdown" and lease is None
+        ):
+            raise ValueError("watch cancellation reason invalid")
         self._ensure_initialized()
         stamp = to_iso(now)
         with self._connection_scope() as connection:
@@ -1860,6 +1924,15 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             if current is None or current["state"] != "running":
                 connection.rollback()
                 raise ValueError("watch has no active attempt")
+            if lease is not None and (
+                lease.watch_id != watch_id
+                or current["lease_owner"] != lease.owner
+                or current["lease_token"] != lease.token
+                or current["lease_expires_at"] is None
+                or current["lease_expires_at"] <= stamp
+            ):
+                connection.rollback()
+                raise ValueError("watch cancellation lease lost")
             attempt_row = connection.execute(
                 """SELECT attempt_id FROM session_model_ensemble_analysis_attempts
                    WHERE watch_id=? AND generation=? AND state='running'""",
@@ -1871,17 +1944,17 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             connection.execute(
                 """UPDATE session_model_ensemble_analysis_attempts
                    SET state='cancelled',stage_count=1,warning_count=1,
-                       error_code='analysis_cancelled',completed_at=?
+                       error_code=?,completed_at=?
                    WHERE attempt_id=? AND state='running'""",
-                (stamp, attempt_row["attempt_id"]),
+                (reason_code, stamp, attempt_row["attempt_id"]),
             )
             connection.execute(
                 """INSERT INTO session_model_ensemble_analysis_attempt_stages(
                        attempt_id,stage_ordinal,stage_key,state,error_code,quantization,
                        completed_at,local_only,content_persisted
-                   ) VALUES(?,0,'analysis_pipeline','cancelled','analysis_cancelled',
+                   ) VALUES(?,0,'analysis_pipeline','cancelled',?,
                             'none',?,1,0)""",
-                (attempt_row["attempt_id"], stamp),
+                (attempt_row["attempt_id"], reason_code, stamp),
             )
             self._seal_terminal_attempts(
                 connection,

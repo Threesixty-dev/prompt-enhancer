@@ -15,7 +15,8 @@ collects from consenting, logged-in users. Labels come back locally as
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 import json
 import re
@@ -27,6 +28,8 @@ from typing import Literal
 from pydantic import Field
 
 from ..domain import PSEUDONYM_PATTERN, Provider, StrictModel
+from .model_reply import completed_chat_content, model_json_object
+from .analysis.calibration_cases import CALIBRATION_CASE_VERSION, CalibrationReviewError, PreparedCalibrationCase, prepare_calibration_case
 from .analysis.calibration_ratings import CALIBRATION_METRIC_KEYS, RatingLabel
 from .analysis.model_judge import (
     JUDGE_PROMPT_VERSION,
@@ -41,6 +44,7 @@ from .analysis.model_judge import (
     _judge_user_prompt,
     parse_judge_reply,
     render_window,
+    eligible_model_judgment,
 )
 
 
@@ -95,6 +99,8 @@ class WorkWindow(StrictModel):
     #: Identity of the exact analysis window sealed by the source and rendered
     #: above. The agent must echo it back when it submits labels.
     window_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    case_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    case_version: str = CALIBRATION_CASE_VERSION
     questions: dict[str, str]
     prompt_version: str
 
@@ -105,6 +111,8 @@ class SubmitAnnotation(StrictModel):
     #: The ``window_fingerprint`` handed out with the window that was judged.
     #: Labels for a window that has since changed are rejected, not re-pointed.
     window_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    case_fingerprint: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
+    case_version: str | None = Field(default=None, min_length=1, max_length=64)
     labels: dict[str, RatingLabel]
 
 
@@ -175,6 +183,15 @@ def metaprompt() -> Metaprompt:
     )
 
 
+def _complete_case_sessions(rows: tuple[ModelJudgment, ...]) -> set[str]:
+    grouped: dict[tuple[str, str, str, str, str], set[str]] = {}
+    for row in rows:
+        if eligible_model_judgment(row):
+            key = (row.session_id, row.model_alias, row.model_identity, row.window_fingerprint, row.case_fingerprint)
+            grouped.setdefault(key, set()).add(row.metric_key)
+    return {key[0] for key, metrics in grouped.items() if metrics == set(CALIBRATION_METRIC_KEYS)}
+
+
 class AnnotationService:
     """Path A: the allowance switch and the agent-facing work/submit surface."""
 
@@ -209,7 +226,7 @@ class AnnotationService:
             raise AnnotationError("model_name_invalid")
         limit = max(1, min(int(limit), MAX_WORK_PAGE))
         alias = f"agent:{model_name}"
-        done = {j.session_id for j in self._judge.repository.list(model_alias=alias)}
+        done = _complete_case_sessions(self._judge.repository.list(model_alias=alias))
         pending: list[WorkItem] = []
         offset = 0
         while True:
@@ -236,11 +253,18 @@ class AnnotationService:
             context = self._judge.window_for(provider, session_id)
         except ModelJudgeError as error:
             raise AnnotationError(error.code) from None
+        window = render_window(context)
+        fingerprint = _sealed_window_fingerprint(context, session_id=session_id, provider=provider)
+        try:
+            case = prepare_calibration_case(session_id=session_id, provider=provider, window_fingerprint=fingerprint, rendered_window=window)
+        except CalibrationReviewError:
+            raise AnnotationError("window_unavailable") from None
         return WorkWindow(
             session_id=session_id,
             provider=provider.value,
-            window=render_window(context),
-            window_fingerprint=_sealed_window_fingerprint(context, session_id=session_id, provider=provider),
+            window=window,
+            window_fingerprint=fingerprint,
+            case_fingerprint=case.case_fingerprint,
             questions=dict(_QUESTIONS),
             prompt_version=JUDGE_PROMPT_VERSION,
         )
@@ -267,6 +291,17 @@ class AnnotationService:
             # The session grew, or was re-read under a different run, since the
             # agent read it. Its labels describe a window that no longer exists.
             raise AnnotationError("window_fingerprint_mismatch")
+        case = None
+        if request.case_fingerprint is not None or request.case_version is not None:
+            try:
+                case = prepare_calibration_case(
+                    session_id=request.session_id, provider=provider, window_fingerprint=fingerprint,
+                    rendered_window=render_window(context),
+                )
+            except (CalibrationReviewError, ModelJudgeError):
+                raise AnnotationError("window_unavailable") from None
+            if request.case_version != case.case_version or request.case_fingerprint != case.case_fingerprint:
+                raise AnnotationError("case_fingerprint_mismatch")
         alias = f"agent:{request.model_name}"[:64]
         now = self._clock()
         stored = 0
@@ -281,6 +316,8 @@ class AnnotationService:
                     prompt_version=JUDGE_PROMPT_VERSION,
                     window_fingerprint=fingerprint,
                     judged_at=now,
+                    case_fingerprint=case.case_fingerprint if case else None,
+                    case_version=case.case_version if case else None,
                 )
             )
             stored += 1
@@ -295,6 +332,9 @@ class CentralBatchItem(StrictModel):
     project_id: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
     provider: str = Field(max_length=32)
     window: str = Field(min_length=1, max_length=60_000)
+    window_fingerprint: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
+    case_fingerprint: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
+    case_version: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class CentralBatch(StrictModel):
@@ -305,6 +345,9 @@ class CentralBatch(StrictModel):
 class CentralAnnotation(StrictModel):
     session_id: str
     labels: dict[str, RatingLabel]
+    window_fingerprint: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
+    case_fingerprint: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
+    case_version: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class CentralBatchResult(StrictModel):
@@ -318,12 +361,9 @@ class CentralBatchResult(StrictModel):
 def _is_canonical_judge_window(value: str) -> bool:
     """Accept only the bounded JSON envelope produced by ``render_window``."""
 
-    if len(value) > MAX_WINDOW_CHARACTERS:
+    if len(value) > MAX_WINDOW_CHARACTERS or not value.lstrip().startswith("{"):
         return False
-    try:
-        payload = json.loads(value)
-    except ValueError:
-        return False
+    payload = model_json_object(value, max_characters=MAX_WINDOW_CHARACTERS)
     if not isinstance(payload, dict) or set(payload) != {
         "schema",
         "authority",
@@ -342,6 +382,7 @@ def _is_canonical_judge_window(value: str) -> bool:
         or not isinstance(payload.get("earlier_records_omitted"), bool)
         or not isinstance(records, list)
         or not records
+        or len(records) > 120
     ):
         return False
     sequences: list[int] = []
@@ -394,12 +435,20 @@ class CentralAnnotationStore:
                 )
                 """
             )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(central_annotations)")}
+            for name in ("window_fingerprint", "case_fingerprint", "case_version"):
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE central_annotations ADD COLUMN {name} TEXT")
             connection.commit()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self._path, timeout=5.0)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            yield connection
+        finally:
+            connection.close()
 
     def store(self, user_label: str, item: CentralBatchItem, labels: dict[str, RatingLabel], model_identity: str | None, submitted_at: datetime) -> None:
         with self._lock, self._connect() as connection:
@@ -407,12 +456,14 @@ class CentralAnnotationStore:
                 """
                 INSERT OR REPLACE INTO central_annotations(
                     user_label, session_id, project_id, provider, window_chars, redacted_window,
-                    labels_json, model_identity, prompt_version, submitted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    labels_json, model_identity, prompt_version, submitted_at,
+                    window_fingerprint, case_fingerprint, case_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_label, item.session_id, item.project_id, item.provider, len(item.window), item.window,
                     json.dumps({k: v.value for k, v in labels.items()}), model_identity, JUDGE_PROMPT_VERSION, submitted_at.isoformat(),
+                    item.window_fingerprint, item.case_fingerprint, item.case_version,
                 ),
             )
             connection.commit()
@@ -447,6 +498,17 @@ class CentralAnnotationServer:
         for item in batch.items:
             if not _is_canonical_judge_window(item.window):
                 continue
+            case = None
+            if item.case_fingerprint is not None or item.case_version is not None or item.window_fingerprint is not None:
+                try:
+                    case = prepare_calibration_case(
+                        session_id=item.session_id, provider=Provider(item.provider),
+                        window_fingerprint=item.window_fingerprint, rendered_window=item.window,
+                    )
+                except (CalibrationReviewError, ValueError):
+                    continue
+                if item.case_version != case.case_version or item.case_fingerprint != case.case_fingerprint:
+                    continue
             body = json.dumps(
                 {
                     "messages": [
@@ -463,14 +525,19 @@ class CentralAnnotationServer:
             ).encode("utf-8")
             try:
                 status, payload, _ = self._chat(alias, body)
-                text = json.loads(payload.decode("utf-8"))["choices"][0]["message"]["content"] if status == 200 else None
+                text = completed_chat_content(payload) if status == 200 else None
             except Exception:  # noqa: BLE001 - one bad window must not sink the batch
                 text = None
-            labels = parse_judge_reply(text) if text else None
+            labels = parse_judge_reply(text)
             if not labels:
                 continue
             self._store.store(batch.user_label, item, labels, alias, self._clock())
-            annotations.append(CentralAnnotation(session_id=item.session_id, labels=labels))
+            annotations.append(CentralAnnotation(
+                session_id=item.session_id, labels=labels,
+                window_fingerprint=case.window_fingerprint if case else None,
+                case_fingerprint=case.case_fingerprint if case else None,
+                case_version=case.case_version if case else None,
+            ))
             stored += 1
         return CentralBatchResult(stored=stored, annotations=tuple(annotations), model_identity=alias)
 
@@ -507,11 +574,11 @@ class RemoteAnnotationClient:
 
     def submit_batch(self, request: RemoteSubmitRequest) -> RemoteSubmitResult:
         judge = self._service._judge  # noqa: SLF001 - same composition unit
-        central_done = {j.session_id for j in judge.repository.list() if j.model_alias.startswith("central:")}
+        central_done = _complete_case_sessions(tuple(j for j in judge.repository.list() if j.model_alias.startswith("central:")))
         items: list[CentralBatchItem] = []
         # Window identity of each window this run actually sealed and sent, so the
         # labels that come back are recorded against that window and no other.
-        sealed: dict[str, str] = {}
+        sealed: dict[str, PreparedCalibrationCase] = {}
         offset = 0
         while len(items) < request.limit:
             rows = self._list_sessions(limit=100, offset=offset)
@@ -532,10 +599,17 @@ class RemoteAnnotationClient:
                 except Exception:  # noqa: BLE001 - unreadable windows are skipped
                     continue
                 try:
-                    sealed[sid] = _sealed_window_fingerprint(context, session_id=sid, provider=provider)
-                except AnnotationError:  # a window without provable identity is not submitted
+                    fingerprint = _sealed_window_fingerprint(context, session_id=sid, provider=provider)
+                    window = render_window(context)
+                    case = prepare_calibration_case(session_id=sid, provider=provider, window_fingerprint=fingerprint, rendered_window=window)
+                    sealed[sid] = case
+                except (AnnotationError, CalibrationReviewError, ModelJudgeError):
                     continue
-                items.append(CentralBatchItem(session_id=sid, project_id=str(row.get("project_id")) if row.get("project_id") else None, provider=str(row.get("provider")), window=render_window(context)))
+                items.append(CentralBatchItem(
+                    session_id=sid, project_id=str(row.get("project_id")) if row.get("project_id") else None,
+                    provider=provider.value, window=window, window_fingerprint=case.window_fingerprint,
+                    case_fingerprint=case.case_fingerprint, case_version=case.case_version,
+                ))
             offset += len(rows)
             if len(rows) < 100:
                 break
@@ -545,13 +619,25 @@ class RemoteAnnotationClient:
         alias = f"central:{result.model_identity}"[:64] if result.model_identity else "central:unknown"
         now = self._clock()
         recorded = 0
+        recorded_sessions: set[str] = set()
+        seen: set[str] = set()
         for annotation in result.annotations:
-            fingerprint = sealed.get(annotation.session_id)
-            if fingerprint is None:
+            case = sealed.get(annotation.session_id)
+            if case is None or annotation.session_id in seen:
                 # Labels for a session this run did not seal and send. Nothing
                 # local can vouch for which window they describe, so they are
                 # dropped rather than stored against a guessed one.
                 continue
+            seen.add(annotation.session_id)
+            bound = annotation.case_fingerprint is not None or annotation.case_version is not None or annotation.window_fingerprint is not None
+            if bound and (
+                annotation.case_fingerprint != case.case_fingerprint or annotation.case_version != case.case_version
+                or annotation.window_fingerprint != case.window_fingerprint
+            ):
+                continue
+            if set(annotation.labels) != set(CALIBRATION_METRIC_KEYS):
+                continue
+            identified = bound and bool(result.model_identity and result.model_identity.strip())
             for key, label in annotation.labels.items():
                 if key not in CALIBRATION_METRIC_KEYS:
                     continue
@@ -559,11 +645,14 @@ class RemoteAnnotationClient:
                     ModelJudgment(
                         session_id=annotation.session_id, metric_key=key, label=label, model_alias=alias,
                         model_identity=result.model_identity or "unknown", prompt_version=result.prompt_version,
-                        window_fingerprint=fingerprint, judged_at=now,
+                        window_fingerprint=case.window_fingerprint, judged_at=now,
+                        case_fingerprint=case.case_fingerprint if identified else None,
+                        case_version=case.case_version if identified else None,
                     )
                 )
                 recorded += 1
-        return RemoteSubmitResult(destination=self._destination, submitted=len(items), annotated=result.stored, model_identity=result.model_identity, stored_locally_as=alias if recorded else None)
+            recorded_sessions.add(annotation.session_id)
+        return RemoteSubmitResult(destination=self._destination, submitted=len(items), annotated=len(recorded_sessions), model_identity=result.model_identity, stored_locally_as=alias if recorded else None)
 
 
 __all__ = (

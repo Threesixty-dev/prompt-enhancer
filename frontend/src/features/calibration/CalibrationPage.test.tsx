@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CalibrationProgress,
@@ -13,6 +13,7 @@ import type {
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { CalibrationPage, safeCalibrationSample } from "./CalibrationPage";
+import { exampleCalibrationReview } from "./calibrationFixtures.test-support";
 
 const SESSION_A = "a".repeat(64);
 const SESSION_B = "b".repeat(64);
@@ -71,6 +72,9 @@ function agreement(overrides: Partial<JudgeAgreementReport> = {}): JudgeAgreemen
     contract_version: "model-judge.v1",
     model_alias: "example-local-model",
     judged_sessions: 0,
+    excluded_judgments: 0,
+    model_identity_ambiguous: false,
+    accepted_prompt_versions: ["judge-v4-complete-json-anchor-15k"],
     metrics: [],
     caveat: "Judgments are opinions, never product metrics.",
     ...overrides,
@@ -110,7 +114,14 @@ function baseTransport(sampleValue: unknown = sample()) {
     getCalibrationProgress: vi.fn(async () => progress(0)),
     getCalibrationExport: vi.fn(),
     getSessionTranscript: vi.fn(async () => transcript),
+    reviewCalibrationCase: vi.fn(async (sid: string, _budget?: number, _signal?: AbortSignal) => exampleCalibrationReview(sid)),
   };
+}
+
+async function acknowledgeReview() {
+  const checkbox = await screen.findByRole("checkbox", { name: /I reviewed this case/ });
+  await waitFor(() => expect(checkbox).toBeEnabled());
+  fireEvent.click(checkbox);
 }
 
 function annotationTransport(
@@ -131,12 +142,200 @@ function annotationTransport(
 }
 
 describe("CalibrationPage", () => {
+  it("explains excluded historical judgments without inventing agreement", async () => {
+    const transport = {
+      ...baseTransport(),
+      getModelJudgeAgreement: vi.fn(async () => agreement({
+        excluded_judgments: 3,
+        accepted_prompt_versions: ["example-current-protocol"],
+        metrics: [{ metric_key: METRICS[0], pairs: 0, agreement_rate: null, cohen_kappa: null, state: "insufficient_data", reason: "no_comparable_reviewed_cases", unmatched_ratings: 1, abstained_pairs: 0 }],
+      })),
+      getModelJudgeSweep: vi.fn(async () => sweep()),
+    };
+    render(<CalibrationPage transport={transport} />);
+    expect(await screen.findByText(/3 stored judgments excluded from current agreement/)).toBeVisible();
+    const table = screen.getByRole("table");
+    expect(within(table).queryByText("0%")).toBeNull();
+    expect(within(table).getByText(/insufficient data/)).toBeVisible();
+  });
+
+  it("reports an invalid model completion with a retry and preserves blind ratings", async () => {
+    const transport = {
+      ...baseTransport(),
+      getModelJudgeAgreement: vi.fn(async () => agreement()),
+      getModelJudgeSweep: vi.fn(async () => sweep()),
+      judgeSessionWithModel: vi.fn().mockRejectedValue(new TransportError("SYNTHETIC_PRIVATE_CANARY", 502, "model_reply_invalid")),
+    };
+    render(<CalibrationPage transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Next unrated" }));
+    fireEvent.click(screen.getByRole("button", { name: "Judge this session" }));
+    expect(await screen.findByText(/incomplete or invalid reply.*Existing judgments were kept/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Judge this session" })).toBeEnabled();
+    expect(transport.submitCalibrationRatings).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+  });
+
+  it.each(["Judge this session", "Judge the whole sample", "Judge every session"])("uses the safe model-state reason for %s, not the private error message", async (action) => {
+    const noModel = new TransportError("SYNTHETIC_PRIVATE_CANARY", 409, "no_active_model");
+    const transport = {
+      ...baseTransport(),
+      getModelJudgeAgreement: vi.fn(async () => agreement()),
+      getModelJudgeSweep: vi.fn(async () => sweep()),
+      judgeSessionWithModel: vi.fn().mockRejectedValue(noModel),
+      startModelJudgeSweep: vi.fn().mockRejectedValue(noModel),
+    };
+    render(<CalibrationPage transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Next unrated" }));
+    fireEvent.click(await screen.findByRole("button", { name: action }));
+    expect(await screen.findByText(/No local model is active - activate one/)).toBeVisible();
+    expect(document.body.textContent).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+  });
+
+  it("shows an uncertain remote submission inside its dialog and blocks a blind duplicate", async () => {
+    const remote = vi.fn().mockRejectedValue(new Error("SYNTHETIC_PRIVATE_CANARY"));
+    render(<CalibrationPage transport={annotationTransport(remote)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Annotate remotely/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Send sessions for remote annotation?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("could not be confirmed");
+    expect(within(dialog).getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: /Annotate remotely/ })).toBeDisabled();
+    expect(remote).toHaveBeenCalledOnce();
+    expect(document.body.textContent).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+  });
+
   beforeEach(() => {
     localStorage.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("keeps a save acknowledgment visible after the refreshed sample and ratings arrive", async () => {
+    localStorage.setItem("prompt-enhancer.calibration.rater", "Example rater");
+    const transport = {
+      ...baseTransport(),
+      submitCalibrationRatings: vi.fn(async () => progress(1)),
+      getCalibrationSample: vi.fn(async () => sample()),
+    };
+    render(<CalibrationPage transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Next unrated" }));
+    fireEvent.click(screen.getByLabelText("Task definition").querySelector("input[value='high']") as HTMLInputElement);
+    await acknowledgeReview();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved.")).toBeVisible();
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText("Saved.")).toBeVisible();
+  });
+
+  it("requires loaded evidence and explicit review before saving the exact receipt", async () => {
+    localStorage.setItem("prompt-enhancer.calibration.rater", "Example rater");
+    const pending = deferred<ReturnType<typeof exampleCalibrationReview>>();
+    const transport = { ...baseTransport(), reviewCalibrationCase: vi.fn(() => pending.promise), submitCalibrationRatings: vi.fn(async () => progress(1)) };
+    render(<CalibrationPage transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Next unrated" }));
+    fireEvent.click(screen.getByLabelText("Task definition").querySelector("input[value='high']") as HTMLInputElement);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await act(async () => { pending.resolve(exampleCalibrationReview()); await pending.promise; });
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await acknowledgeReview();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Saved.");
+    expect(transport.submitCalibrationRatings).toHaveBeenCalledWith(expect.objectContaining({ session_id: SESSION_A, review_id: "f".repeat(32) }), expect.any(AbortSignal));
+    expect(transport.getSessionTranscript).not.toHaveBeenCalled();
+  });
+
+  it("keeps the draft after a rejected receipt and requires a refreshed review to retry", async () => {
+    localStorage.setItem("prompt-enhancer.calibration.rater", "Example rater");
+    const transport = { ...baseTransport(), submitCalibrationRatings: vi.fn()
+      .mockRejectedValueOnce(new TransportError("SYNTHETIC_PRIVATE_CANARY", 409, "calibration_review_expired"))
+      .mockResolvedValue(progress(1)),
+      reviewCalibrationCase: vi.fn().mockResolvedValueOnce(exampleCalibrationReview())
+        .mockResolvedValue(exampleCalibrationReview(SESSION_A, { review_id: "e".repeat(32), case_fingerprint: "b".repeat(64) })),
+    };
+    render(<CalibrationPage transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Next unrated" }));
+    const high = screen.getByLabelText("Task definition").querySelector("input[value='high']") as HTMLInputElement;
+    fireEvent.click(high);
+    await acknowledgeReview();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText(/review receipt could not be confirmed/);
+    expect(high).toBeChecked();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(document.body.textContent).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh case" }));
+    await acknowledgeReview();
+    expect(high).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Saved.");
+    expect(transport.submitCalibrationRatings).toHaveBeenLastCalledWith(expect.objectContaining({ review_id: "e".repeat(32), ratings: { [METRICS[0]]: "high" } }), expect.any(AbortSignal));
+  });
+
+  it("does not report an accepted save as unchanged when only its follow-up refresh fails", async () => {
+    localStorage.setItem("prompt-enhancer.calibration.rater", "Example rater");
+    const transport = {
+      ...baseTransport(),
+      submitCalibrationRatings: vi.fn(async () => progress(1)),
+      getCalibrationSample: vi.fn().mockResolvedValueOnce(sample()).mockRejectedValue(new Error("example-refresh-failure")),
+    };
+    render(<CalibrationPage transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Next unrated" }));
+    fireEvent.click(screen.getByLabelText("Task definition").querySelector("input[value='high']") as HTMLInputElement);
+    await acknowledgeReview();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Saved, but the updated sample could not be loaded/)).toBeVisible();
+    expect(screen.queryByText(/Nothing was changed/)).not.toBeInTheDocument();
+    expect(transport.submitCalibrationRatings).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a bounded sample retry without needing to change the rater", async () => {
+    const getCalibrationSample = vi.fn().mockRejectedValueOnce(new Error("example-load-failure")).mockResolvedValue(sample());
+    render(<CalibrationPage transport={{ ...baseTransport(), getCalibrationSample }} />);
+    await screen.findByText("The sample could not be verified.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry sample" }));
+    expect(await screen.findByLabelText("Calibration sample")).toBeVisible();
+    expect(getCalibrationSample).toHaveBeenCalledTimes(2);
+  });
+
+  it("disables unavailable judge and annotation commands even when their read APIs work", async () => {
+    const transport = {
+      ...baseTransport(),
+      getModelJudgeAgreement: vi.fn(async () => agreement()),
+      getModelJudgeSweep: vi.fn(async () => sweep()),
+      getAnnotationAllowance: vi.fn(async () => ({ contract_version: "annotation.v1" as const, agent_allowed: true, note: "Example allowance." })),
+      getRemoteAnnotationDisclosure: vi.fn(async () => remoteDisclosure()),
+    };
+    render(<CalibrationPage transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Next unrated" }));
+    expect(await screen.findByRole("button", { name: "Judge this session" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Judge the whole sample" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Judge every session" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Agent annotation is ON/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Copy agent instructions" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Annotate remotely/ })).toBeDisabled();
+  });
+
+  it("does not publish a pending save into a replacement transport", async () => {
+    localStorage.setItem("prompt-enhancer.calibration.rater", "Example rater");
+    const pending = deferred<CalibrationProgress>();
+    const submitCalibrationRatings = vi.fn((_request: RatingSubmission, _signal?: AbortSignal) => pending.promise);
+    const first = { ...baseTransport(), submitCalibrationRatings };
+    const view = render(<CalibrationPage transport={first} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Next unrated" }));
+    fireEvent.click(screen.getByLabelText("Task definition").querySelector("input[value='high']") as HTMLInputElement);
+    await acknowledgeReview();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByLabelText("Rater name")).toBeDisabled();
+    view.rerender(<CalibrationPage transport={baseTransport()} />);
+    await screen.findByLabelText("Calibration sample");
+    await act(async () => { pending.resolve(progress(1)); await pending.promise; });
+    expect(submitCalibrationRatings.mock.calls[0][1]?.aborted).toBe(true);
+    expect(first.getCalibrationSample).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Saved.")).not.toBeInTheDocument();
   });
 
   it("strictly validates every sample and member field used by the page", () => {
@@ -205,6 +404,7 @@ describe("CalibrationPage", () => {
     });
     const ratings: CalibrationRating[] = [];
     const transport = {
+      ...baseTransport(),
       getCalibrationSample: vi.fn(async (_raterLabel: string | null, _signal?: AbortSignal) => current),
       submitCalibrationRatings,
       getCalibrationRatings: vi.fn(async () => ratings),
@@ -226,16 +426,19 @@ describe("CalibrationPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Next unrated/ }));
     await screen.findByRole("heading", { level: 2, name: "Add retries to the uploader" });
     // The reader shows the session; no metric value for it is rendered anywhere.
-    await waitFor(() => expect(transport.getSessionTranscript).toHaveBeenCalledWith(SESSION_A));
+    await waitFor(() => expect(transport.reviewCalibrationCase).toHaveBeenCalledWith(SESSION_A, 15000, expect.any(AbortSignal)));
+    expect(transport.getSessionTranscript).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toMatch(/0\.\d\d/);
 
     fireEvent.click(screen.getByLabelText("Task definition").querySelector("input[value='high']") as HTMLInputElement);
     fireEvent.click(screen.getByLabelText("Context given").querySelector("input[value='cannot_judge']") as HTMLInputElement);
+    await acknowledgeReview();
     fireEvent.click(screen.getByRole("button", { name: "Save and next" }));
     await waitFor(() => expect(submitCalibrationRatings).toHaveBeenCalledTimes(1));
     expect(submitCalibrationRatings.mock.calls[0][0]).toEqual({
       rater_label: "Owner",
       session_id: SESSION_A,
+      review_id: "f".repeat(32),
       ratings: { "prompt.task_definition_coverage": "high", "prompt.context_sufficiency": "cannot_judge" },
     });
     // Advances to the next unrated member (the Codex one, titled by its short id).
@@ -244,6 +447,7 @@ describe("CalibrationPage", () => {
 
   it("explains an empty catalog and an unavailable runtime", async () => {
     const base = {
+      ...baseTransport(),
       submitCalibrationRatings: vi.fn(),
       getCalibrationRatings: vi.fn(async () => []),
       getCalibrationProgress: vi.fn(async () => progress(0)),

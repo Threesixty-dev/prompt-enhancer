@@ -3,7 +3,7 @@
 export type RadarReading = { key: string; label: string; value: number | null; higherIsBetter: boolean };
 
 export function promptMetricQualityValue(value: number | null, higherIsBetter: boolean): number | null {
-  if (value === null) return null;
+  if (value === null || !Number.isFinite(value) || value < 0 || value > 1) return null;
   return higherIsBetter ? value : 1 - value;
 }
 
@@ -33,8 +33,9 @@ export function PromptMetricRadar({ readings }: { readings: RadarReading[] }) {
   const total = Math.max(readings.length, 3);
   const rings = [0.25, 0.5, 0.75, 1];
   const points = readings.map((reading, index) => {
-    const normalized = promptMetricQualityValue(reading.value, reading.higherIsBetter) ?? 0;
-    return { ...reading, normalized, point: polar(cx, cy, radius * normalized, index, total), labelPoint: polar(cx, cy, radius + 26, index, total) };
+    const quality = promptMetricQualityValue(reading.value, reading.higherIsBetter);
+    const normalized = quality ?? 0;
+    return { ...reading, value: quality === null ? null : reading.value, normalized, point: polar(cx, cy, radius * normalized, index, total), labelPoint: polar(cx, cy, radius + 26, index, total) };
   });
   const known = points.filter((p) => p.value !== null);
   const polygon = points.map((p) => (p.value === null ? polar(cx, cy, 0, 0, 1) : p.point)).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");

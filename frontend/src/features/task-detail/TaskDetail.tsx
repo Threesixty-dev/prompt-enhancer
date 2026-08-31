@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AnalysisResult,
   AnalysisRun,
@@ -30,45 +30,68 @@ export function TaskDetail({
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const loadRef = useRef<AbortController | null>(null);
+  const analysisRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (keepResults = false) => {
+    loadRef.current?.abort();
+    const controller = new AbortController();
+    loadRef.current = controller;
+    const ownsRequest = () => loadRef.current === controller && !controller.signal.aborted;
+    if (keepResults) setActionError(null);
+    else { setLoading(true); setError(null); }
     try {
       const [taskResponse, runsResponse] = await Promise.all([
-        transport.getTaskRevision(taskId, revision),
-        transport.listAnalysisRuns(taskId),
+        transport.getTaskRevision(taskId, revision, controller.signal),
+        transport.listAnalysisRuns(taskId, controller.signal),
       ]);
-      setTask(taskResponse.task);
+      if (!ownsRequest()) return;
       const matchingRun = runsResponse.runs.find((item) => item.task_revision === revision) ?? null;
+      const detail = matchingRun ? await transport.getAnalysisRun(matchingRun.run_id, controller.signal) : null;
+      if (!ownsRequest()) return;
+      // Publish the task, run and results together; never mix two route snapshots.
+      setTask(taskResponse.task);
       setRun(matchingRun);
-      if (matchingRun) {
-        const detail = await transport.getAnalysisRun(matchingRun.run_id);
-        setResults(detail.results);
-      } else {
-        setResults([]);
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Task detail could not be loaded");
+      setResults(detail?.results ?? []);
+    } catch {
+      if (!ownsRequest()) return;
+      if (keepResults) setActionError("The latest results could not be loaded. The previous results are still shown; reload before starting another run.");
+      else setError("Task detail could not be loaded. Try again.");
     } finally {
-      setLoading(false);
+      if (ownsRequest()) { loadRef.current = null; setLoading(false); }
     }
   }, [revision, taskId, transport]);
 
   useEffect(() => {
+    setTask(null);
+    setRun(null);
+    setResults([]);
+    setActionError(null);
+    setAnalyzing(false);
     void load();
+    return () => {
+      loadRef.current?.abort();
+      loadRef.current = null;
+      analysisRef.current?.abort();
+      analysisRef.current = null;
+    };
   }, [load]);
 
   async function runAnalysis() {
+    if (analysisRef.current) return;
+    const controller = new AbortController();
+    analysisRef.current = controller;
+    const ownsRequest = () => analysisRef.current === controller && !controller.signal.aborted;
     setAnalyzing(true);
-    setError(null);
+    setActionError(null);
     try {
-      await transport.startAnalysis(taskId, revision, nextIdempotencyKey("analysis"));
-      await load();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Task analysis could not be started");
+      await transport.startAnalysis(taskId, revision, nextIdempotencyKey("analysis"), controller.signal);
+      if (ownsRequest()) await load(true);
+    } catch {
+      if (ownsRequest()) setActionError("Could not confirm the analysis result. Your task and previous results are still available. Reload results before trying another run.");
     } finally {
-      setAnalyzing(false);
+      if (ownsRequest()) { analysisRef.current = null; setAnalyzing(false); }
     }
   }
 
@@ -84,6 +107,7 @@ export function TaskDetail({
       ) : task ? (
         <>
           <TaskSummary task={task} />
+          {actionError && <ErrorState message={actionError} onRetry={() => void load(true)} actionLabel="Reload results" />}
           <section aria-labelledby="metrics-heading" className="metrics-section">
             <div className="section-heading">
               <div>

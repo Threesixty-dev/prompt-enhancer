@@ -77,11 +77,23 @@ export type SessionTimeline = Schemas["SessionTimeline"];
 export type ProjectTimeline = Schemas["ProjectTimeline"];
 export type LocalModelsOverview = Schemas["LocalModelsOverview"];
 export type LocalModelStatus = Schemas["LocalModelStatus"];
+export type LocalModelPlacementAdmission = Schemas["LocalModelPlacementAdmission"];
 export type LocalModelRecord = Schemas["LocalModelRecord"];
 export type AddLocalModel = Schemas["AddLocalModel"];
 export type ActivateLocalModel = Schemas["ActivateLocalModel"];
+export type LocalRuntimeCoordinatorStatus = Schemas["LocalRuntimeCoordinatorStatus"];
+export type LocalRuntimeSelection = Schemas["LocalRuntimeSelection"];
+export type LocalRuntimeServedSelection = Schemas["LocalRuntimeServedSelection"];
+export type RuntimeCapabilities = Schemas["RuntimeCapabilities"];
+export type RuntimeCleanupReceipt = Schemas["RuntimeCleanupReceipt"];
+export type RuntimeContextStatus = Schemas["RuntimeContextStatus"];
+export type LocalModelCompatibilityCatalog = Schemas["LocalModelCompatibilityCatalog"];
+export type LocalModelCompatibility = Schemas["LocalModelCompatibility"];
+export type SwitchLocalRuntime = Schemas["SwitchLocalRuntime"];
+export type StopLocalRuntime = Schemas["StopLocalRuntime"];
 export type DownloadRequest = Schemas["DownloadRequest"];
 export type DownloadStatus = Schemas["DownloadStatus"];
+export type DownloadCommandRequest = Schemas["DownloadCommandRequest"];
 export type RemoteRepoFiles = Schemas["RemoteRepoFiles"];
 export type ScanFolderResult = Schemas["ScanFolderResult"];
 
@@ -121,17 +133,1293 @@ export type PromptCheckRequest = Schemas["PromptCheckRequest"];
 export type PromptCheckResult = Schemas["PromptCheckResult"];
 export type PromptCheckRecord = Schemas["PromptCheckRecord"];
 export type PromptCheckHistory = Schemas["PromptCheckHistory"];
+export type AgentOrchestrationManifest = Schemas["AgentOrchestrationManifest"];
+export type AgentHardeningState = "ready" | "degraded" | "unavailable";
+export type AgentRecoveryState = "clean" | "attention_required" | "unknown";
+export type AgentRecoveryAction =
+  | "inspect_local_catalog"
+  | "resume_interrupted_read_only"
+  | "revalidate_recovered_authority"
+  | "restart_after_cleanup_uncertain"
+  | "retry_after_history_write_failure"
+  | "verify_live_state";
+export interface AgentPersistenceCounts {
+  projects: number;
+  archived_projects: number;
+  sessions: number;
+  archived_sessions: number;
+  metadata_only_sessions: number;
+  retained_sessions: number;
+  history_events: number;
+  interrupted_retained_sessions: number;
+  artifacts: number;
+  artifact_versions: number;
+  staged_attachments: number;
+  attached_attachments: number;
+}
+export interface AgentLiveHardeningFacts {
+  sessions: number;
+  running_turns: number;
+  closing_sessions: number;
+  pending_approvals: number;
+  cleanup_unconfirmed: number;
+  command_cleanup_quarantined: boolean;
+  recovered_read_only: number;
+  history_write_failures: number;
+  shutting_down: boolean;
+}
+export interface AgentCatalogHardeningStatus {
+  state: AgentHardeningState;
+  reason_code:
+    | "catalog_path_invalid"
+    | "catalog_path_unsafe"
+    | "catalog_schema_newer"
+    | "catalog_storage_unavailable"
+    | "catalog_quick_check_failed"
+    | "catalog_foreign_key_violation"
+    | "catalog_projection_mismatch"
+    | "catalog_diagnostic_unavailable"
+    | null;
+  schema_version: 6 | null;
+  quick_check_passed: boolean | null;
+  foreign_key_violations_observed: number | null;
+  foreign_key_scan_truncated: boolean;
+  projection_violations: number | null;
+  counts: AgentPersistenceCounts | null;
+}
+export type AgentLiveHardeningStatus =
+  | { state: "ready"; reason_code: null; counts: AgentLiveHardeningFacts }
+  | { state: "unavailable"; reason_code: "live_state_unavailable"; counts: null };
+export interface AgentHardeningSnapshot {
+  contract_version: "agent-hardening.v1";
+  generated_on_demand: true;
+  contains_content: false;
+  recovery_state: AgentRecoveryState;
+  recovery_actions: AgentRecoveryAction[];
+  catalog: AgentCatalogHardeningStatus;
+  live: AgentLiveHardeningStatus;
+}
+export type AgentMcpClientKind = "codex" | "claude" | "other";
+export type AgentMcpConnectionState = "active" | "expired" | "revoked" | "scope_missing";
+export type AgentMcpScopeState = "bound" | "missing";
+export type AgentMcpToolOutcome = "succeeded" | "failed";
+export type AgentMcpToolSource = "external_client" | "native_self_test";
+export type AgentControllerOwnershipState =
+  | "claimed"
+  | "running"
+  | "waiting_native_approval"
+  | "reconnecting"
+  | "submission_uncertain"
+  | "stopping"
+  | "stop_uncertain"
+  | "cleanup_unconfirmed"
+  | "revoked";
+export type AgentControllerOperation =
+  | "turn"
+  | "write_proposal"
+  | "transaction_proposal"
+  | "lifecycle_proposal";
+export interface AgentControllerHandoff {
+  target_connection_id: string;
+  target_label: string;
+  target_client_kind: AgentMcpClientKind;
+  offered_at: string;
+  expires_at: string;
+}
+export interface AgentControllerOwnership {
+  contract_version: "agent-controller-ownership.v1";
+  project_id: string;
+  project_name: string;
+  session_id: string;
+  session_title: string;
+  owner_connection_id: string;
+  owner_label: string;
+  owner_client_kind: AgentMcpClientKind;
+  operation: AgentControllerOperation;
+  state: AgentControllerOwnershipState;
+  cursor: number;
+  last_seq: number;
+  approval_pending: boolean;
+  ownership_started_at: string;
+  owner_since: string;
+  updated_at: string;
+  revision: number;
+  handoff: AgentControllerHandoff | null;
+  native_approval_inherited: false;
+}
+export interface AgentControllerOwnershipList {
+  contract_version: "agent-controller-ownership-list.v1";
+  ownerships: AgentControllerOwnership[];
+  active_count: number;
+}
+export interface AgentMcpConnectionScope {
+  contract_version: "agent-mcp-scope.v1";
+  state: AgentMcpScopeState;
+  project_id: string | null;
+  project_name: string | null;
+  catalog_access: "project_only" | "none";
+  chat_access: "project_only" | "none";
+  workspace_access: "project_only" | "none";
+  native_approval_inherited: false;
+}
+export interface AgentMcpConnection {
+  contract_version: "agent-mcp-connection.v4";
+  connection_id: string;
+  label: string;
+  client_kind: AgentMcpClientKind;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  last_used_at: string | null;
+  last_tool_at: string | null;
+  last_tool_name: string | null;
+  last_tool_outcome: AgentMcpToolOutcome | null;
+  last_tool_source: AgentMcpToolSource | null;
+  last_auth_rejected_at: string | null;
+  revoked_at: string | null;
+  revision: number;
+  credential_revision: number;
+  allow_model_lifecycle: boolean;
+  scope: AgentMcpConnectionScope;
+  state: AgentMcpConnectionState;
+}
+export interface AgentMcpConnectionList {
+  contract_version: "agent-mcp-management.v1";
+  connections: AgentMcpConnection[];
+  active_count: number;
+  controller_ownerships: AgentControllerOwnershipList;
+}
+export interface CreateAgentMcpConnection {
+  request_id: string;
+  label: string;
+  client_kind: AgentMcpClientKind;
+  project_id: string;
+  allow_model_lifecycle: boolean;
+  expires_in_days: number;
+}
+export interface RotateAgentMcpConnection {
+  request_id: string;
+  expected_revision: number;
+  expires_in_days: number;
+}
+export interface RevokeAgentMcpConnection {
+  expected_revision: number;
+}
+export interface ReleaseAgentControllerOwnership {
+  session_id: string;
+  expected_revision: number;
+}
+export interface AgentControllerOwnershipReleaseReceipt {
+  contract_version: "agent-controller-ownership.v1";
+  project_id: string;
+  session_id: string;
+  released_connection_id: string;
+  released_revision: number;
+  released_at: string;
+  released_by: "owner" | "native";
+  session_settled: true;
+  native_approval_inherited: false;
+}
+export interface AgentMcpConnectionCredential {
+  contract_version: "agent-mcp-connection.v4";
+  connection: AgentMcpConnection;
+  endpoint_url: string;
+  bearer_token: string;
+  codex_toml: string;
+  claude_json: string;
+  idempotent_replay: boolean;
+  secret_stored_by_server: false;
+  starts_process: false;
+  starts_terminal: false;
+}
+export interface AgentMcpClientSetup {
+  contract_version: "agent-mcp-client-setup.v1";
+  endpoint_url: string;
+  bearer_token_env_var: "PROMPT_ENHANCER_AGENT_MCP_TOKEN";
+  codex_toml: string;
+  claude_json: string;
+  codex_add_command: string;
+  claude_add_command: string;
+  credential_included: false;
+  connection_authority_granted: false;
+  native_connection_required: true;
+  starts_process: false;
+  starts_terminal: false;
+  provider_configuration_changed: false;
+}
+export type McpRegistryStatus = "active" | "deprecated" | "deleted" | "unknown";
+export type McpRegistryTransport = "stdio" | "streamable-http" | "sse" | "unknown";
+export interface McpRegistryPackage {
+  registry_type: string;
+  identifier: string;
+  version: string | null;
+  transport: McpRegistryTransport;
+  runtime_hint: string | null;
+  checksum_available: boolean;
+}
+export interface McpRegistryRemote {
+  transport: McpRegistryTransport;
+  endpoint_host: string | null;
+  endpoint_state: "fixed_host" | "template_requires_configuration";
+  secure: boolean | null;
+}
+export interface McpRegistryIcon {
+  path: string;
+  mime_type: "image/png" | "image/jpeg" | "image/webp";
+}
+export interface McpRegistryServer {
+  catalog_id: string;
+  presentation_revision: string;
+  name: string;
+  title: string;
+  description: string;
+  publisher: string;
+  version: string;
+  status: McpRegistryStatus;
+  updated_at: string | null;
+  repository_url: string | null;
+  website_url: string | null;
+  icon: McpRegistryIcon | null;
+  packages: McpRegistryPackage[];
+  remotes: McpRegistryRemote[];
+  supports_local: boolean;
+  supports_remote: boolean;
+  management_state: "not_managed";
+  install_action: "unavailable";
+  install_reason: "guarded_install_host_not_implemented";
+}
+export interface McpRegistryCatalog {
+  contract_version: "mcp-registry-catalog.v1";
+  source: {
+    registry: "official_mcp_registry";
+    base_url: "https://registry.modelcontextprotocol.io";
+    fetched_at: string;
+    delivery: "live" | "cached";
+    cache_age_seconds: number;
+  };
+  search: string;
+  servers: McpRegistryServer[];
+  next_cursor: string | null;
+  partial: boolean;
+  management_truth: "registry_only_no_install_authority";
+}
+export interface McpRegistryCatalogQuery {
+  search?: string;
+  cursor?: string;
+  limit?: number;
+}
+export type McpRegistryReviewOptionKind = "local_package" | "remote_server";
+export type McpRegistryReviewCompatibilityStatus = "reviewable" | "requires_configuration" | "unsupported";
+export type McpRegistryReviewCompatibilityReason =
+  | "known_package_registry"
+  | "unknown_package_registry"
+  | "supported_transport"
+  | "unknown_transport"
+  | "runtime_hint_missing"
+  | "configuration_required"
+  | "endpoint_template_requires_configuration"
+  | "endpoint_invalid"
+  | "machine_runtime_not_probed"
+  | "platform_not_declared"
+  | "mcp_handshake_not_performed";
+export type McpRegistryReviewRisk =
+  | "downloads_package"
+  | "executes_local_code"
+  | "package_integrity_not_declared"
+  | "command_arguments_declared"
+  | "filesystem_input_declared"
+  | "credential_input_declared"
+  | "remote_network_egress"
+  | "insecure_remote_transport";
+export interface McpRegistryInputRequirement {
+  requirement_id: string;
+  location: "runtime_argument" | "package_argument" | "environment_variable" | "transport_header" | "remote_variable";
+  name: string;
+  description: string | null;
+  required: boolean;
+  secret: boolean;
+  format: "string" | "number" | "boolean" | "filepath" | "unknown";
+  repeated: boolean;
+  fixed_value_declared: boolean;
+  default_declared: boolean;
+  choices_count: number;
+  user_value_needed: boolean;
+}
+export interface McpRegistryOptionCompatibility {
+  status: McpRegistryReviewCompatibilityStatus;
+  reasons: McpRegistryReviewCompatibilityReason[];
+  platform_compatibility: "unverified";
+  runtime_availability: "unverified";
+  mcp_handshake: "not_performed";
+}
+export interface McpRegistryInstallOption {
+  option_id: string;
+  kind: McpRegistryReviewOptionKind;
+  label: string;
+  registry_type: string | null;
+  package_identifier: string | null;
+  package_version: string | null;
+  runtime_hint: string | null;
+  transport: McpRegistryTransport;
+  endpoint_host: string | null;
+  endpoint_state: "not_applicable" | "fixed_host" | "template_requires_configuration" | "invalid";
+  secure_transport: boolean | null;
+  checksum_state: "declared" | "not_declared" | "not_applicable";
+  requirements: McpRegistryInputRequirement[];
+  risks: McpRegistryReviewRisk[];
+  compatibility: McpRegistryOptionCompatibility;
+  execution_state: "preview_only";
+}
+export interface McpRegistryProvenance {
+  registry: "official_mcp_registry";
+  registry_membership_security_review: "not_claimed";
+  publisher_namespace: string;
+  repository_url: string | null;
+  repository_source: string | null;
+  repository_identity_declared: boolean;
+  repository_subfolder_declared: boolean;
+  website_url: string | null;
+  schema_url: string | null;
+  license_state: "not_declared_by_registry_contract";
+}
+export interface McpRegistryVersionSummary {
+  version: string;
+  status: McpRegistryStatus;
+  updated_at: string | null;
+  selected: boolean;
+}
+export interface McpRegistryServerReview {
+  contract_version: "mcp-registry-server-review.v1";
+  source: McpRegistryCatalog["source"];
+  server: McpRegistryServer;
+  provenance: McpRegistryProvenance;
+  versions: McpRegistryVersionSummary[];
+  version_history_state: "live" | "partial" | "unavailable";
+  options: McpRegistryInstallOption[];
+  plan_revision: string;
+  partial: boolean;
+  management_state: "not_managed";
+  install_action: "unavailable";
+  uninstall_action: "not_applicable";
+  review_truth: "preview_only_no_install_or_connection_authority";
+}
+export interface McpRegistryServerReviewQuery {
+  catalog_id: string;
+  presentation_revision: string;
+  name: string;
+  version: string;
+}
+export type McpManagedPermission =
+  | "process_spawn"
+  | "filesystem_read"
+  | "filesystem_write"
+  | "network_egress"
+  | "credential_use";
+export type McpManagedRequirementState =
+  | "publisher_value_declared"
+  | "registry_default_declared"
+  | "value_required"
+  | "value_pending_store"
+  | "value_stored"
+  | "value_store_failed"
+  | "value_pending_removal"
+  | "value_cleanup_required"
+  | "optional_unset"
+  | "secret_missing"
+  | "secret_pending_store"
+  | "secret_stored"
+  | "secret_store_failed"
+  | "secret_pending_removal"
+  | "secret_cleanup_required";
+export interface McpManagedSecretVaultStatus {
+  provider: "windows_credential_manager" | "unavailable";
+  availability: "available" | "unavailable";
+  values_in_database: false;
+  values_in_api_responses: false;
+  values_in_model_context: false;
+}
+export interface McpManagedRequirement {
+  requirement_id: string;
+  location: McpRegistryInputRequirement["location"];
+  name: string;
+  required: boolean;
+  secret: boolean;
+  format: McpRegistryInputRequirement["format"];
+  user_value_needed: boolean;
+  configuration_state: McpManagedRequirementState;
+  secret_vault_provider: "windows_credential_manager" | null;
+  value_vault_provider: "windows_credential_manager" | null;
+}
+export interface McpManagedProjectBinding {
+  project_id: string;
+  project_name: string;
+  enabled: boolean;
+  required_permissions: McpManagedPermission[];
+  granted_permissions: McpManagedPermission[];
+  admitted_tool_ids: string[];
+  tool_snapshot_id: string | null;
+  admission_state: "disabled" | "review_required" | "admitted";
+  effective_state:
+    | "disabled"
+    | "inactive_tool_review_required"
+    | "inactive_install_required"
+    | "inactive_host_unavailable";
+  created_at: string;
+  updated_at: string;
+  revision: number;
+}
+export interface McpManagedHostProbe {
+  request_id: string;
+  checked_at: string;
+  transport: "stdio" | "streamable-http" | "sse";
+  protocol_version: string;
+  tool_count: number;
+  schema_digest: string;
+  elapsed_ms: number;
+  connection_state: "closed_after_probe";
+  process_started: boolean;
+  process_tree_cleanup: "verified" | "not_applicable";
+  tool_names_persisted: boolean;
+  tool_schemas_persisted: boolean;
+  tool_results_requested: false;
+  tool_authority_granted: false;
+}
+export interface McpManagedReviewedTool {
+  tool_id: string;
+  name: string;
+  title: string | null;
+  description: string | null;
+  model_alias: string;
+  input_schema: Record<string, unknown>;
+  input_schema_digest: string;
+  model_input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown> | null;
+  output_schema_digest: string | null;
+  contract_digest: string;
+}
+export interface McpManagedToolSnapshotSummary {
+  snapshot_id: string;
+  plan_revision: string;
+  source: "remote_probe" | "local_package_probe";
+  source_tree_digest: string | null;
+  source_manifest_digest: string | null;
+  protocol_version: string;
+  tool_count: number;
+  schema_digest: string;
+  reviewed_at: string;
+  tool_names_retained_locally: true;
+  tool_schemas_retained_locally: true;
+  connection_retained: false;
+  tool_authority_granted: false;
+}
+export interface McpManagedToolSnapshot extends McpManagedToolSnapshotSummary {
+  contract_version: "mcp-managed-tool-snapshot.v1";
+  management_id: string;
+  tools: McpManagedReviewedTool[];
+}
+export type McpManagedHostState =
+  | "not_started"
+  | "starting"
+  | "ready"
+  | "unhealthy"
+  | "stopping"
+  | "cleanup_required";
+export type McpManagedHostCleanupState =
+  | "not_applicable"
+  | "pending"
+  | "verified"
+  | "unconfirmed";
+export interface McpManagedHostBinding {
+  contract_version: "mcp-managed-host.v2";
+  management_id: string;
+  project_id: string;
+  server_revision: number;
+  project_binding_revision: number;
+  plan_revision: string;
+  option_kind: "local_package" | "remote_server";
+  transport: "stdio" | "streamable-http" | "sse";
+  tool_snapshot_id: string;
+  tool_schema_digest: string;
+  reviewed_tool_count: number;
+  admitted_tool_ids: string[];
+  granted_permissions: McpManagedPermission[];
+  execution_scope: "current_app_run_owner_start_only";
+  tool_calls_available: true;
+  tool_routing_state: "project_scoped_fresh_approval";
+}
+export type McpManagedHostStartEffect =
+  | "execute_reviewed_local_package"
+  | "run_with_current_user_os_permissions"
+  | "own_hidden_process_tree"
+  | "open_reviewed_remote_connection"
+  | "enumerate_exact_tool_contracts"
+  | "retain_connection_for_current_app_run"
+  | "periodic_contract_health_check"
+  | "register_admitted_project_tools"
+  | "tool_calls_require_fresh_native_approval"
+  | "no_automatic_restart";
+export interface McpManagedHostStartPreview {
+  contract_version: "mcp-managed-host-start-preview.v2";
+  binding: McpManagedHostBinding;
+  binding_digest: string;
+  execution_kind: "local_native_process" | "reviewed_remote_connection";
+  risk_notice:
+    | "local_native_code_uses_current_user_os_authority"
+    | "remote_connection_uses_reviewed_configuration";
+  effects: McpManagedHostStartEffect[];
+  availability: "available";
+  reason: "ready_for_native_confirmation";
+  native_confirmation_required: true;
+  preview_starts_host: false;
+  current_app_run_only: true;
+  automatic_start: false;
+  automatic_restart: false;
+  persists_across_app_restart: false;
+  model_tool_registration_available: true;
+  tool_calls_available: true;
+  tool_routing_state: "project_scoped_fresh_approval";
+  connection_material_in_preview: false;
+  preview_digest: string;
+}
+export interface StartMcpManagedHost {
+  request_id: string;
+  expected_server_revision: number;
+  expected_project_binding_revision: number;
+  expected_tool_snapshot_id: string;
+  preview_digest: string;
+  deadline_seconds?: number;
+}
+export interface StopMcpManagedHost {
+  request_id: string;
+  expected_instance_id: string | null;
+  deadline_seconds?: number;
+}
+export interface McpManagedHostStatus {
+  contract_version: "mcp-managed-host.v2";
+  management_id: string;
+  project_id: string;
+  state: McpManagedHostState;
+  reason:
+    | "never_started"
+    | "stopped_by_owner"
+    | "stopped_after_restart"
+    | "start_cancelled"
+    | "app_shutdown"
+    | "start_requested"
+    | "healthy"
+    | "transport_failed"
+    | "process_exited"
+    | "health_timeout"
+    | "contract_drift"
+    | "binding_changed"
+    | "server_changed"
+    | "owner_stop"
+    | "cleanup_unconfirmed";
+  binding: McpManagedHostBinding | null;
+  instance_id: string | null;
+  observed_tool_count: number | null;
+  observed_schema_digest: string | null;
+  started_at: string | null;
+  last_checked_at: string | null;
+  stopped_at: string | null;
+  last_transition_at: string;
+  process_started: boolean;
+  cleanup_state: McpManagedHostCleanupState;
+  host_lease_active: boolean;
+  error_code: string | null;
+  tool_calls_available: boolean;
+  tool_routing_state: "inactive" | "project_scoped_fresh_approval";
+  connection_material_retained_in_status: false;
+}
+export interface McpManagedReadyTool {
+  management_id: string;
+  project_id: string;
+  host_instance_id: string;
+  server_title: string;
+  tool_id: string;
+  name: string;
+  model_alias: string;
+  title: string | null;
+  description: string | null;
+  model_input_schema: Record<string, unknown>;
+}
+export interface McpManagedProjectRuntime {
+  contract_version: "mcp-managed-runtime.v1";
+  project_id: string;
+  ready_host_count: number;
+  ready_tool_count: number;
+  tools: McpManagedReadyTool[];
+  automatic_start: false;
+  remembered_call_approval: false;
+  every_call_requires_native_approval: true;
+}
+export interface McpManagedLocalPackageEvidence {
+  artifact_sha256: string;
+  artifact_bytes: number;
+  tree_digest: string;
+  manifest_digest: string;
+  manifest_version: "0.3" | "0.4";
+  license_state: "declared";
+  runtime_kind: "node" | "python" | "binary";
+  runtime_version: string | null;
+}
+export interface McpManagedLocalConfigurationInspection {
+  plan_revision: string;
+  artifact_sha256: string;
+  artifact_bytes: number;
+  manifest_digest: string;
+  manifest_version: "0.3" | "0.4";
+  configuration_schema_digest: string;
+  requirement_ids: string[];
+  inspected_at: string;
+  archive_retained: false;
+  process_started: false;
+  configuration_values_persisted: false;
+  manifest_content_persisted: false;
+}
+export interface McpManagedLocalRollbackGeneration {
+  catalog_id: string;
+  server_name: string;
+  server_title: string;
+  server_version: string;
+  server_status_at_review: McpRegistryStatus;
+  option_id: string;
+  plan_revision: string;
+  option_label: string;
+  registry_type: "mcpb";
+  package_identifier: string;
+  package_version: string | null;
+  runtime_hint: string | null;
+  transport: "stdio";
+  required_permissions: McpManagedPermission[];
+  risks: McpRegistryReviewRisk[];
+  generation_id: string;
+  local_package_evidence: McpManagedLocalPackageEvidence;
+  probe: McpManagedHostProbe;
+  installed_at: string;
+  retained_at: string;
+}
+export type McpManagedProbeAction =
+  | "available_native_confirmation_required"
+  | "unavailable_install_required"
+  | "unavailable_configuration_required"
+  | "unavailable_option_unsupported"
+  | "not_applicable_verified_during_install";
+export interface McpManagedServer {
+  contract_version: "mcp-managed-server.v2";
+  management_id: string;
+  catalog_id: string;
+  server_name: string;
+  server_title: string;
+  server_version: string;
+  server_status_at_review: McpRegistryStatus;
+  option_id: string;
+  plan_revision: string;
+  option_kind: McpRegistryReviewOptionKind;
+  option_label: string;
+  registry_type: string | null;
+  package_identifier: string | null;
+  package_version: string | null;
+  runtime_hint: string | null;
+  transport: McpRegistryTransport;
+  endpoint_host: string | null;
+  endpoint_state: McpRegistryInstallOption["endpoint_state"];
+  secure_transport: boolean | null;
+  required_permissions: McpManagedPermission[];
+  risks: McpRegistryReviewRisk[];
+  requirements: McpManagedRequirement[];
+  project_bindings: McpManagedProjectBinding[];
+  created_at: string;
+  updated_at: string;
+  revision: number;
+  lifecycle_state: "planned" | "installed" | "cleanup_required";
+  installation_state: "not_installed" | "installed" | "cleanup_required";
+  installation_kind: "none" | "remote_activation" | "local_package";
+  operation_state: "idle" | "installing" | "updating" | "uninstalling" | "rolling_back" | "cleaning_up" | "cleanup_required";
+  installed_plan_revision: string | null;
+  installed_at: string | null;
+  local_package_evidence: McpManagedLocalPackageEvidence | null;
+  local_configuration_inspection: McpManagedLocalConfigurationInspection | null;
+  rollback_generation: McpManagedLocalRollbackGeneration | null;
+  process_tree_cleanup: "not_applicable" | "verified" | "unconfirmed";
+  host_state: "not_started";
+  health_state: "not_checked" | "compatible";
+  last_health_checked_at: string | null;
+  last_probe: McpManagedHostProbe | null;
+  tool_snapshot: McpManagedToolSnapshotSummary | null;
+  tool_review_state: "probe_required" | "reviewable";
+  update_state: "not_checked";
+  latest_available_version: null;
+  tool_routing_state: "inactive";
+  install_action:
+    | "available_native_confirmation_required"
+    | "unavailable_compatibility_check_required"
+    | "unavailable_configuration_required"
+    | "unavailable_package_registry_not_supported"
+    | "unavailable_package_integrity_required"
+    | "unavailable_local_transport_unsupported"
+    | "unavailable_configuration_inspection_required"
+    | "unavailable_cleanup_required"
+    | "unavailable_operation_in_progress"
+    | "not_applicable_already_installed";
+  uninstall_action:
+    | "available_native_confirmation_required"
+    | "not_applicable_not_installed"
+    | "unavailable_cleanup_required"
+    | "unavailable_operation_in_progress";
+  probe_action: McpManagedProbeAction;
+}
+export interface McpManagedServerList {
+  contract_version: "mcp-managed-server.v2";
+  servers: McpManagedServer[];
+  total: number;
+  secret_vault: McpManagedSecretVaultStatus;
+  execution_truth: "reviewed_tool_admission_without_persistent_host_or_tool_authority";
+}
+export interface McpManagedServerReceipt {
+  contract_version: "mcp-managed-server.v2";
+  server: McpManagedServer;
+  idempotent_replay: boolean;
+  process_started: false;
+  endpoint_connected: false;
+  package_changed: false;
+  tool_authority_granted: false;
+}
+export interface McpManagedProbeReceipt {
+  contract_version: "mcp-managed-server.v2";
+  server: McpManagedServer;
+  probe: McpManagedHostProbe;
+  idempotent_replay: boolean;
+  endpoint_connection_attempted: true;
+  connection_retained: false;
+  package_changed: false;
+  tool_results_requested: false;
+  tool_authority_granted: false;
+}
+export type McpManagedLifecycleEffect =
+  | "persist_remote_activation"
+  | "remove_remote_activation"
+  | "download_exact_package"
+  | "verify_artifact_sha256"
+  | "stage_isolated_package"
+  | "execute_bounded_compatibility_probe"
+  | "stop_and_verify_process_tree"
+  | "publish_verified_package"
+  | "verify_installed_tree_digest"
+  | "quarantine_verified_package"
+  | "remove_quarantined_package"
+  | "no_package_change"
+  | "no_process_start"
+  | "no_connection_retained"
+  | "no_tool_authority";
+export interface McpManagedLifecyclePreview {
+  contract_version: "mcp-managed-lifecycle-preview.v1";
+  action: "install" | "uninstall";
+  management_id: string;
+  expected_revision: number;
+  plan_revision: string;
+  installation_kind: "remote_activation" | "local_package";
+  availability: "available" | "unavailable";
+  reason:
+    | "ready_for_native_confirmation"
+    | "compatibility_check_required"
+    | "configuration_required"
+    | "configuration_inspection_required"
+    | "package_registry_not_supported"
+    | "package_integrity_required"
+    | "local_transport_unsupported"
+    | "local_installer_unavailable"
+    | "local_uninstaller_unavailable"
+    | "already_installed"
+    | "not_installed"
+    | "cleanup_required"
+    | "operation_in_progress";
+  effects: McpManagedLifecycleEffect[];
+  preview_digest: string;
+  native_confirmation_required: true;
+}
+export interface ApplyMcpManagedLifecycle {
+  request_id: string;
+  expected_revision: number;
+  preview_digest: string;
+}
+export interface McpManagedLifecycleReceipt {
+  contract_version: "mcp-managed-lifecycle-receipt.v2";
+  action: "install" | "uninstall";
+  installation_kind: "remote_activation" | "local_package";
+  server: McpManagedServer;
+  preview_digest: string;
+  idempotent_replay: boolean;
+  package_changed: boolean;
+  process_started: boolean;
+  process_tree_cleanup: "verified" | "not_applicable";
+  endpoint_connected: false;
+  connection_retained: false;
+  persistent_host_started: false;
+  tool_authority_granted: false;
+}
+export type McpManagedLocalConfigurationInspectionEffect =
+  | "download_exact_package"
+  | "verify_artifact_sha256"
+  | "inspect_manifest_configuration"
+  | "discard_inspection_archive"
+  | "persist_content_free_configuration_schema"
+  | "revoke_project_bindings_if_permissions_expand"
+  | "no_configuration_values_persisted"
+  | "no_process_start"
+  | "no_connection_retained"
+  | "no_tool_authority";
+export interface McpManagedLocalConfigurationInspectionPreview {
+  contract_version: "mcp-managed-local-configuration-inspection-preview.v1";
+  action: "inspect_configuration";
+  management_id: string;
+  expected_revision: number;
+  plan_revision: string;
+  availability: "available" | "unavailable";
+  reason:
+    | "ready_for_native_confirmation"
+    | "local_package_required"
+    | "already_inspected"
+    | "already_installed"
+    | "cleanup_required"
+    | "operation_in_progress"
+    | "package_registry_not_supported"
+    | "package_integrity_required"
+    | "local_transport_unsupported"
+    | "local_installer_unavailable";
+  effects: McpManagedLocalConfigurationInspectionEffect[];
+  preview_digest: string;
+  native_confirmation_required: true;
+}
+export interface InspectMcpManagedLocalConfiguration {
+  request_id: string;
+  expected_revision: number;
+  preview_digest: string;
+}
+export interface McpManagedLocalConfigurationInspectionReceipt {
+  contract_version: "mcp-managed-local-configuration-inspection-receipt.v1";
+  action: "inspect_configuration";
+  server: McpManagedServer;
+  inspection: McpManagedLocalConfigurationInspection;
+  preview_digest: string;
+  idempotent_replay: boolean;
+  archive_retained: false;
+  process_started: false;
+  endpoint_connected: false;
+  connection_retained: false;
+  persistent_host_started: false;
+  tool_authority_granted: false;
+  configuration_values_persisted: false;
+}
+export type McpManagedLocalCleanupEffect =
+  | "verify_operation_journal"
+  | "verify_installed_or_quarantined_tree_digest"
+  | "finish_quarantined_removal"
+  | "clear_cleanup_state"
+  | "no_process_start"
+  | "no_connection_retained"
+  | "no_tool_authority";
+export interface McpManagedLocalCleanupPreview {
+  contract_version: "mcp-managed-local-cleanup-preview.v1";
+  action: "complete_interrupted_uninstall";
+  management_id: string;
+  expected_revision: number;
+  plan_revision: string;
+  availability: "available" | "unavailable";
+  reason:
+    | "ready_for_native_confirmation"
+    | "cleanup_not_required"
+    | "unsupported_cleanup_state"
+    | "local_uninstaller_unavailable";
+  effects: McpManagedLocalCleanupEffect[];
+  preview_digest: string;
+  native_confirmation_required: true;
+}
+export interface ApplyMcpManagedLocalCleanup {
+  request_id: string;
+  expected_revision: number;
+  preview_digest: string;
+}
+export interface McpManagedLocalCleanupReceipt {
+  contract_version: "mcp-managed-local-cleanup-receipt.v1";
+  action: "complete_interrupted_uninstall";
+  server: McpManagedServer;
+  preview_digest: string;
+  idempotent_replay: boolean;
+  package_presence: "absent";
+  filesystem_changed: boolean;
+  process_started: false;
+  endpoint_connected: false;
+  connection_retained: false;
+  persistent_host_started: false;
+  tool_authority_granted: false;
+}
+export type McpManagedLocalUpdateEffect =
+  | "resolve_official_latest_exact_version"
+  | "download_exact_target_package"
+  | "verify_target_artifact_sha256"
+  | "stage_target_in_isolation"
+  | "execute_bounded_target_probe"
+  | "stop_and_verify_target_process_tree"
+  | "retain_verified_rollback_generation"
+  | "publish_verified_target_package"
+  | "no_connection_retained"
+  | "no_tool_authority";
+export interface McpManagedLocalUpdatePreview {
+  contract_version: "mcp-managed-local-update-preview.v1";
+  action: "update";
+  management_id: string;
+  expected_revision: number;
+  current_version: string;
+  current_plan_revision: string;
+  target_version: string | null;
+  target_catalog_id: string | null;
+  target_option_id: string | null;
+  target_plan_revision: string | null;
+  availability: "available" | "unavailable";
+  reason:
+    | "ready_for_native_confirmation"
+    | "local_package_required"
+    | "install_required"
+    | "cleanup_required"
+    | "operation_in_progress"
+    | "registry_unavailable"
+    | "already_latest"
+    | "current_version_metadata_changed"
+    | "rollback_cleanup_required"
+    | "configuration_migration_required"
+    | "target_not_installable"
+    | "target_option_ambiguous"
+    | "permission_change_required"
+    | "local_installer_unavailable";
+  effects: McpManagedLocalUpdateEffect[];
+  preview_digest: string;
+  native_confirmation_required: true;
+}
+export interface ApplyMcpManagedLocalUpdate {
+  request_id: string;
+  expected_revision: number;
+  preview_digest: string;
+}
+export interface McpManagedLocalUpdateReceipt {
+  contract_version: "mcp-managed-local-update-receipt.v1";
+  action: "update";
+  server: McpManagedServer;
+  preview_digest: string;
+  idempotent_replay: boolean;
+  package_changed: true;
+  process_started: true;
+  process_tree_cleanup: "verified";
+  rollback_generation_retained: true;
+  endpoint_connected: false;
+  connection_retained: false;
+  persistent_host_started: false;
+  tool_authority_granted: false;
+}
+export type McpManagedLocalRollbackEffect =
+  | "verify_current_tree_digest"
+  | "verify_rollback_tree_digest"
+  | "atomically_swap_verified_generations"
+  | "retain_superseded_current_generation"
+  | "no_process_start"
+  | "no_connection_retained"
+  | "no_tool_authority";
+export interface McpManagedLocalRollbackPreview {
+  contract_version: "mcp-managed-local-rollback-preview.v1";
+  action: "rollback";
+  management_id: string;
+  expected_revision: number;
+  current_version: string;
+  current_plan_revision: string;
+  target_version: string | null;
+  target_plan_revision: string | null;
+  availability: "available" | "unavailable";
+  reason:
+    | "ready_for_native_confirmation"
+    | "local_package_required"
+    | "install_required"
+    | "cleanup_required"
+    | "operation_in_progress"
+    | "rollback_generation_missing"
+    | "local_installer_unavailable";
+  effects: McpManagedLocalRollbackEffect[];
+  preview_digest: string;
+  native_confirmation_required: true;
+}
+export interface ApplyMcpManagedLocalRollback extends ApplyMcpManagedLocalUpdate {}
+export interface McpManagedLocalRollbackReceipt {
+  contract_version: "mcp-managed-local-rollback-receipt.v1";
+  action: "rollback";
+  server: McpManagedServer;
+  preview_digest: string;
+  idempotent_replay: boolean;
+  package_changed: true;
+  process_started: false;
+  process_tree_cleanup: "not_applicable";
+  rollback_generation_retained: true;
+  endpoint_connected: false;
+  connection_retained: false;
+  persistent_host_started: false;
+  tool_authority_granted: false;
+}
+export type McpManagedLocalRollbackCleanupEffect =
+  | "verify_rollback_tree_digest"
+  | "quarantine_verified_rollback_generation"
+  | "remove_quarantined_rollback_generation"
+  | "keep_current_generation_installed"
+  | "no_process_start"
+  | "no_connection_retained"
+  | "no_tool_authority";
+export interface McpManagedLocalRollbackCleanupPreview {
+  contract_version: "mcp-managed-local-rollback-cleanup-preview.v1";
+  action: "cleanup_rollback_generation";
+  management_id: string;
+  expected_revision: number;
+  rollback_version: string | null;
+  rollback_plan_revision: string | null;
+  availability: "available" | "unavailable";
+  reason: McpManagedLocalRollbackPreview["reason"];
+  effects: McpManagedLocalRollbackCleanupEffect[];
+  preview_digest: string;
+  native_confirmation_required: true;
+}
+export interface ApplyMcpManagedLocalRollbackCleanup extends ApplyMcpManagedLocalUpdate {}
+export interface McpManagedLocalRollbackCleanupReceipt {
+  contract_version: "mcp-managed-local-rollback-cleanup-receipt.v1";
+  action: "cleanup_rollback_generation";
+  server: McpManagedServer;
+  preview_digest: string;
+  idempotent_replay: boolean;
+  filesystem_changed: boolean;
+  rollback_generation_retained: false;
+  process_started: false;
+  endpoint_connected: false;
+  connection_retained: false;
+  persistent_host_started: false;
+  tool_authority_granted: false;
+}
+export type McpManagedLocalOperationRecoveryEffect =
+  | "verify_operation_journal"
+  | "restore_durable_current_generation"
+  | "discard_verified_staged_target"
+  | "retain_verified_rollback_generation"
+  | "finish_verified_rollback_generation_removal"
+  | "clear_cleanup_state"
+  | "no_process_start"
+  | "no_connection_retained"
+  | "no_tool_authority";
+export interface McpManagedLocalOperationRecoveryPreview {
+  contract_version: "mcp-managed-local-operation-recovery-preview.v1";
+  action: "recover_interrupted_local_operation";
+  management_id: string;
+  expected_revision: number;
+  interrupted_action: "update" | "rollback" | "cleanup" | null;
+  availability: "available" | "unavailable";
+  reason:
+    | "ready_for_native_confirmation"
+    | "cleanup_not_required"
+    | "unsupported_cleanup_state"
+    | "process_cleanup_unconfirmed"
+    | "local_installer_unavailable";
+  effects: McpManagedLocalOperationRecoveryEffect[];
+  preview_digest: string;
+  native_confirmation_required: true;
+}
+export interface ApplyMcpManagedLocalOperationRecovery extends ApplyMcpManagedLocalUpdate {}
+export interface McpManagedLocalOperationRecoveryReceipt {
+  contract_version: "mcp-managed-local-operation-recovery-receipt.v1";
+  action: "recover_interrupted_local_operation";
+  recovered_action: "update" | "rollback" | "cleanup";
+  server: McpManagedServer;
+  preview_digest: string;
+  idempotent_replay: boolean;
+  filesystem_state_verified: true;
+  process_started: false;
+  endpoint_connected: false;
+  connection_retained: false;
+  persistent_host_started: false;
+  tool_authority_granted: false;
+}
+export interface CreateMcpManagedServer {
+  request_id: string;
+  catalog_id: string;
+  name: string;
+  version: string;
+  option_id: string;
+  plan_revision: string;
+}
+export interface SetMcpManagedProjectBinding {
+  request_id: string;
+  expected_revision: number;
+  enabled: boolean;
+  granted_permissions: McpManagedPermission[];
+  admitted_tool_ids: string[];
+}
+export interface StoreMcpManagedSecret {
+  request_id: string;
+  expected_revision: number;
+  value: string;
+}
+export interface RemoveMcpManagedSecret {
+  request_id: string;
+  expected_revision: number;
+}
+export interface StoreMcpManagedConfiguration {
+  request_id: string;
+  expected_revision: number;
+  value: string;
+}
+export interface RemoveMcpManagedConfiguration {
+  request_id: string;
+  expected_revision: number;
+}
+export interface ProbeMcpManagedServer {
+  request_id: string;
+  expected_revision: number;
+}
+export interface BeginAgentNativeAcceptance {
+  confirmation: "begin_guarded_agent_native_acceptance";
+}
+export interface AgentNativeAcceptanceStartReceipt {
+  contract_version: "agent-native-acceptance-start.v1";
+  owner_presence_confirmed: true;
+  model_execution_started: false;
+  process_spawn_requested: false;
+  workspace_access_requested: false;
+  content_persisted: false;
+  expires_on_reload: true;
+}
 export type AgentSettings = Schemas["AgentSettings"];
 export type AgentSessionView = Schemas["AgentSessionView"];
+export type AgentSessionContextStatus = Schemas["AgentSessionContextStatus"];
+export type AgentProject = Schemas["AgentProjectRecord"];
+export type AgentProjectList = Schemas["AgentProjectList"];
+export type AgentCatalogSession = Schemas["AgentCatalogSessionRecord"];
+export type AgentCatalogSessionList = Schemas["AgentCatalogSessionList"];
+export type CreateAgentProject = Schemas["CreateAgentProject"];
+export type UpdateAgentProject = Schemas["UpdateAgentProject"];
+export type UpdateAgentCatalogSession = Schemas["UpdateAgentCatalogSession"];
+export interface DeleteAgentProject {
+  expected_revision: number;
+}
+export interface DeleteAgentCatalogSession {
+  expected_catalog_revision: number;
+  expected_history_revision: number;
+}
+export type SwitchAgentSessionModel = Schemas["SwitchAgentSessionModel"];
+export type ResumeAgentSession = Schemas["ResumeAgentSession"];
+export type ForkAgentSession = Schemas["ForkAgentSession"];
+export type AgentSessionForkReceipt = Schemas["AgentSessionForkReceipt"];
+export type AgentSessionLineage = Schemas["AgentSessionLineage"];
+export type RevalidateAgentAuthority = Schemas["RevalidateAgentAuthority"];
+export type AgentHistoryExport = Schemas["AgentHistoryExport"];
+export type AgentArtifact = Schemas["AgentArtifact"];
+export type AgentArtifactCapturePreview = Schemas["AgentArtifactCapturePreview"];
+export type AgentArtifactDetail = Schemas["AgentArtifactDetail"];
+export type AgentArtifactExport = Schemas["AgentArtifactExport"];
+export type AgentArtifactList = Schemas["AgentArtifactList"];
+export type AgentArtifactLifecycleCounts = Schemas["AgentArtifactLifecycleCounts"];
+export type AgentArtifactListView = AgentArtifactList["view"];
+export type AgentArtifactVersion = Schemas["AgentArtifactVersion"];
+export type CaptureAgentArtifact = Schemas["CaptureAgentArtifact"];
+export type ExportAgentArtifact = Schemas["ExportAgentArtifact"];
+export type UpdateAgentArtifact = Schemas["UpdateAgentArtifact"];
+export type RemoveAgentArtifact = Schemas["RemoveAgentArtifact"];
+export type PreviewAgentArtifactCapture = Schemas["PreviewAgentArtifactCapture"];
+export type AgentDocumentPreview = Schemas["AgentDocumentPreview"];
+export interface AgentArtifactContent {
+  blob: Blob;
+  contentType: string;
+  filename: string;
+  byteSize: number;
+}
+export type AgentAttachment = Schemas["AgentAttachment"];
+export type AgentAttachmentDocumentPreview = Schemas["AgentAttachmentDocumentPreview"];
+export type AgentAttachmentList = Schemas["AgentAttachmentList"];
+export type AgentMessageAttachment = Schemas["AgentMessageAttachment"];
+export interface AgentAttachmentUpload {
+  blob: Blob;
+  displayName: string;
+  source: "file" | "microphone";
+}
+export interface AgentAttachmentContent {
+  blob: Blob;
+  contentType: "image/png" | "image/jpeg" | "audio/wav";
+  filename: string;
+  byteSize: number;
+}
+export interface AgentCatalogQuery {
+  search?: string;
+  includeArchived?: boolean;
+  limit?: number;
+}
+export interface AgentCatalogSessionQuery extends AgentCatalogQuery {
+  projectId?: string;
+}
+export interface AgentHistoryExportRequest {
+  expected_catalog_revision: number;
+  expected_history_revision: number;
+}
+export type AgentChangeSet = Schemas["AgentChangeSet"];
+export type AgentChangeDiff = Schemas["AgentChangeDiff"];
+export type AgentChangedFile = Schemas["AgentChangedFile"];
+export type AgentChangeRestorePreviewCommand = Schemas["AgentChangeRestorePreviewCommand"];
+export type AgentChangeRestorePreview = Schemas["AgentChangeRestorePreview"];
+export type AgentChangeRestoreApplyCommand = Schemas["AgentChangeRestoreApplyCommand"];
+export type AgentChangeRestoreApplyResult = Schemas["AgentChangeRestoreApplyResult"];
 export type AgentEvents = Schemas["AgentEvents"];
 export type AgentEvent = Schemas["AgentEvent"];
+export type AgentMcpToolDescriptor = Schemas["AgentMcpToolDescriptor"];
+export type AgentMcpToolResultReceipt = Schemas["AgentMcpToolResultReceipt"];
+export type AgentToolExecutionReceipt = Schemas["AgentToolExecutionReceipt"];
+export type AgentTurnSummary = Schemas["AgentTurnSummary"];
+export type AgentWriteReceipt = Schemas["AgentWriteReceipt"];
+export type AgentTokenUsage = Schemas["AgentTokenUsage"];
 export type AgentWorkspaceTree = Schemas["WorkspaceTree"];
 export type AgentWorkspaceEntry = Schemas["WorkspaceEntry"];
+export type AgentWorkspaceDiscovery = Schemas["WorkspaceDiscovery"];
+export type AgentWorkspaceDiscoveryFile = Schemas["WorkspaceDiscoveryFile"];
+export type AgentWorkspaceGitChange = Schemas["WorkspaceGitChange"];
 export type AgentWorkspaceFile = Schemas["WorkspaceFile"];
+export type AgentWorkspaceSearchMatch = Schemas["WorkspaceSearchMatch"];
+export type AgentWorkspaceSearchResult = Schemas["WorkspaceSearchResult"];
+export type AgentWorkspaceSearchRequest = {
+  query: string;
+  glob: string;
+  regex: boolean;
+};
 export type AgentWorkspacePreviewCommand = Schemas["WorkspacePreviewCommand"];
 export type AgentWorkspaceEditPreview = Schemas["WorkspaceEditPreview"];
 export type AgentWorkspaceApplyCommand = Schemas["WorkspaceApplyCommand"];
 export type AgentWorkspaceApplyResult = Schemas["WorkspaceApplyResult"];
+export type AgentWorkspaceCreatePreviewCommand = Schemas["WorkspaceCreatePreviewCommand"];
+export type AgentWorkspaceCreatePreview = Schemas["WorkspaceCreatePreview"];
+export type AgentWorkspaceCreateApplyCommand = Schemas["WorkspaceCreateApplyCommand"];
+export type AgentWorkspaceCreateApplyResult = Schemas["WorkspaceCreateApplyResult"];
+export type AgentWorkspaceDirectoryCreatePreviewCommand = Schemas["WorkspaceDirectoryCreatePreviewCommand"];
+export type AgentWorkspaceDirectoryCreatePreview = Schemas["WorkspaceDirectoryCreatePreview"];
+export type AgentWorkspaceDirectoryCreateApplyCommand = Schemas["WorkspaceDirectoryCreateApplyCommand"];
+export type AgentWorkspaceDirectoryCreateApplyResult = Schemas["WorkspaceDirectoryCreateApplyResult"];
+export type AgentWorkspaceDirectoryMovePreviewCommand = Schemas["WorkspaceDirectoryMovePreviewCommand"];
+export type AgentWorkspaceDirectoryMovePreview = Schemas["WorkspaceDirectoryMovePreview"];
+export type AgentWorkspaceDirectoryMoveApplyCommand = Schemas["WorkspaceDirectoryMoveApplyCommand"];
+export type AgentWorkspaceDirectoryMoveApplyResult = Schemas["WorkspaceDirectoryMoveApplyResult"];
+export type AgentWorkspaceFileTrashPreviewCommand = Schemas["WorkspaceFileTrashPreviewCommand"];
+export type AgentWorkspaceFileTrashPreview = Schemas["WorkspaceFileTrashPreview"];
+export type AgentWorkspaceFileTrashApplyCommand = Schemas["WorkspaceFileTrashApplyCommand"];
+export type AgentWorkspaceFileTrashApplyResult = Schemas["WorkspaceFileTrashApplyResult"];
+export type AgentWorkspaceMovePreviewCommand = Schemas["WorkspaceMovePreviewCommand"];
+export type AgentWorkspaceMovePreview = Schemas["WorkspaceMovePreview"];
+export type AgentWorkspaceMoveApplyCommand = Schemas["WorkspaceMoveApplyCommand"];
+export type AgentWorkspaceMoveApplyResult = Schemas["WorkspaceMoveApplyResult"];
+export type AgentWorkspaceTransactionChangeCommand = Schemas["WorkspaceTransactionChangeCommand"];
+export type AgentWorkspaceTransactionPreviewCommand = Schemas["WorkspaceTransactionPreviewCommand"];
+export type AgentWorkspaceTransactionPreviewFile = Schemas["WorkspaceTransactionPreviewFile"];
+export type AgentWorkspaceTransactionPreview = Schemas["WorkspaceTransactionPreview"];
+export type AgentWorkspaceTransactionApplyChange = Schemas["WorkspaceTransactionApplyChange"];
+export type AgentWorkspaceTransactionApplyCommand = Schemas["WorkspaceTransactionApplyCommand"];
+export type AgentWorkspaceTransactionFileResult = Schemas["WorkspaceTransactionFileResult"];
+export type AgentWorkspaceTransactionApplyResult = Schemas["WorkspaceTransactionApplyResult"];
 export type OnboardingStatus = Schemas["OnboardingStatus"];
 export type ProviderDetection = Schemas["ProviderDetection"];
 export type OnboardingAccept = Schemas["OnboardingAccept"];
@@ -139,6 +1427,7 @@ export type OnboardingResult = Schemas["OnboardingResult"];
 export type CalibrationSample = Schemas["CalibrationSample"];
 export type CalibrationSampleMember = Schemas["CalibrationSampleMember"];
 export type CalibrationRating = Schemas["CalibrationRating"];
+export type CalibrationReview = Schemas["CalibrationReview"];
 export type CalibrationProgress = Schemas["CalibrationProgress"];
 export type CalibrationExport = Schemas["CalibrationExport"];
 export type RatingSubmission = Schemas["RatingSubmission"];
@@ -1317,12 +2606,22 @@ export interface PromptEnhancerTransport {
   getProjectTimeline(projectId: string, signal?: AbortSignal): Promise<ProjectTimeline>;
   /** Local model runtimes (ADR 0013): registry, activation on cpu/gpu/split, per-model endpoint. */
   getLocalModels(signal?: AbortSignal): Promise<LocalModelsOverview>;
+  /** Path-free exact-artifact identity and live executable compatibility receipts. */
+  getLocalModelCompatibility?(signal?: AbortSignal): Promise<LocalModelCompatibilityCatalog>;
+  getLocalModelPlacement(alias: string, contextSize: number, signal?: AbortSignal): Promise<LocalModelPlacementAdmission>;
   addLocalModel(request: AddLocalModel, signal?: AbortSignal): Promise<LocalModelRecord>;
   activateLocalModel(alias: string, request: ActivateLocalModel, signal?: AbortSignal): Promise<LocalModelStatus>;
   deactivateLocalModel(alias: string, signal?: AbortSignal): Promise<LocalModelStatus>;
+  getLocalRuntime(signal?: AbortSignal): Promise<LocalRuntimeCoordinatorStatus>;
+  switchLocalRuntime(request: SwitchLocalRuntime, signal?: AbortSignal): Promise<LocalRuntimeCoordinatorStatus>;
+  stopLocalRuntime(request: StopLocalRuntime, signal?: AbortSignal): Promise<LocalRuntimeCoordinatorStatus>;
   removeLocalModel(alias: string, deleteWeights: boolean, signal?: AbortSignal): Promise<void>;
   getLocalModelRemoteFiles(repoId: string, signal?: AbortSignal): Promise<RemoteRepoFiles>;
   startLocalModelDownload(request: DownloadRequest, signal?: AbortSignal): Promise<DownloadStatus>;
+  pauseLocalModelDownload(downloadId: string, statusRevision: number, signal?: AbortSignal): Promise<DownloadStatus>;
+  resumeLocalModelDownload(downloadId: string, statusRevision: number, signal?: AbortSignal): Promise<DownloadStatus>;
+  retryLocalModelDownload(downloadId: string, statusRevision: number, signal?: AbortSignal): Promise<DownloadStatus>;
+  cancelLocalModelDownload(downloadId: string, statusRevision: number, signal?: AbortSignal): Promise<DownloadStatus>;
   /** Register every GGUF found in a folder (one level deep). */
   scanLocalModelFolder(path: string, signal?: AbortSignal): Promise<ScanFolderResult>;
   /** Stream one chat completion from a running local model; `onDelta` receives fragments as they arrive. */
@@ -1343,19 +2642,252 @@ export interface PromptEnhancerTransport {
   getPromptCheckHistory(limit: number, offset: number, signal?: AbortSignal): Promise<PromptCheckHistory>;
   getPromptCheck(checkId: string, signal?: AbortSignal): Promise<PromptCheckRecord>;
   /** Local agent workspace (ADR 0016): sessions, turns, events, approvals. */
+  getAgentOrchestration(signal?: AbortSignal): Promise<AgentOrchestrationManifest>;
+  /** Owner-invoked aggregate health check; no Agent content or identities. */
+  getAgentHardening(signal?: AbortSignal): Promise<AgentHardeningSnapshot>;
+  /** Scoped, revocable direct HTTP connections; secret material is returned only on create/rotate. */
+  listAgentMcpConnections?(signal?: AbortSignal): Promise<AgentMcpConnectionList>;
+  /** Exact, token-free client setup preview; read-only and never grants connection authority. */
+  getAgentMcpClientSetup?(signal?: AbortSignal): Promise<AgentMcpClientSetup>;
+  /** Public official-registry metadata only; this route has no install or connection authority. */
+  listMcpRegistryCatalog?(
+    query?: McpRegistryCatalogQuery,
+    signal?: AbortSignal,
+  ): Promise<McpRegistryCatalog>;
+  /** Bounded public metadata review; never installs, connects, stores credentials, or starts a process. */
+  getMcpRegistryServerReview?(
+    query: McpRegistryServerReviewQuery,
+    signal?: AbortSignal,
+  ): Promise<McpRegistryServerReview>;
+  /** Durable plans, vault references, and closed compatibility receipts; no package or tool authority. */
+  listMcpManagedServers?(signal?: AbortSignal): Promise<McpManagedServerList>;
+  getMcpManagedServer?(managementId: string, signal?: AbortSignal): Promise<McpManagedServer>;
+  getMcpManagedToolSnapshot?(
+    managementId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedToolSnapshot>;
+  getMcpManagedHostStatus?(
+    managementId: string,
+    projectId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedHostStatus>;
+  getMcpManagedHostStartPreview?(
+    managementId: string,
+    projectId: string,
+    expectedServerRevision: number,
+    expectedProjectBindingRevision: number,
+    expectedToolSnapshotId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedHostStartPreview>;
+  startMcpManagedHost?(
+    managementId: string,
+    projectId: string,
+    request: StartMcpManagedHost,
+    signal?: AbortSignal,
+  ): Promise<McpManagedHostStatus>;
+  stopMcpManagedHost?(
+    managementId: string,
+    projectId: string,
+    request: StopMcpManagedHost,
+    signal?: AbortSignal,
+  ): Promise<McpManagedHostStatus>;
+  getMcpManagedProjectRuntime?(
+    projectId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedProjectRuntime>;
+  createMcpManagedServer?(
+    request: CreateMcpManagedServer,
+    signal?: AbortSignal,
+  ): Promise<McpManagedServerReceipt>;
+  probeMcpManagedServer?(
+    managementId: string,
+    request: ProbeMcpManagedServer,
+    signal?: AbortSignal,
+  ): Promise<McpManagedProbeReceipt>;
+  getMcpManagedLifecyclePreview?(
+    managementId: string,
+    action: "install" | "uninstall",
+    signal?: AbortSignal,
+  ): Promise<McpManagedLifecyclePreview>;
+  getMcpManagedLocalConfigurationInspectionPreview?(
+    managementId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalConfigurationInspectionPreview>;
+  inspectMcpManagedLocalConfiguration?(
+    managementId: string,
+    request: InspectMcpManagedLocalConfiguration,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalConfigurationInspectionReceipt>;
+  applyMcpManagedLifecycle?(
+    managementId: string,
+    action: "install" | "uninstall",
+    request: ApplyMcpManagedLifecycle,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLifecycleReceipt>;
+  getMcpManagedLocalCleanupPreview?(
+    managementId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalCleanupPreview>;
+  getMcpManagedLocalUpdatePreview?(
+    managementId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalUpdatePreview>;
+  applyMcpManagedLocalUpdate?(
+    managementId: string,
+    request: ApplyMcpManagedLocalUpdate,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalUpdateReceipt>;
+  getMcpManagedLocalRollbackPreview?(
+    managementId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalRollbackPreview>;
+  applyMcpManagedLocalRollback?(
+    managementId: string,
+    request: ApplyMcpManagedLocalRollback,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalRollbackReceipt>;
+  getMcpManagedLocalRollbackCleanupPreview?(
+    managementId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalRollbackCleanupPreview>;
+  cleanupMcpManagedLocalRollback?(
+    managementId: string,
+    request: ApplyMcpManagedLocalRollbackCleanup,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalRollbackCleanupReceipt>;
+  getMcpManagedLocalOperationRecoveryPreview?(
+    managementId: string,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalOperationRecoveryPreview>;
+  recoverMcpManagedLocalOperation?(
+    managementId: string,
+    request: ApplyMcpManagedLocalOperationRecovery,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalOperationRecoveryReceipt>;
+  completeMcpManagedLocalCleanup?(
+    managementId: string,
+    request: ApplyMcpManagedLocalCleanup,
+    signal?: AbortSignal,
+  ): Promise<McpManagedLocalCleanupReceipt>;
+  setMcpManagedProjectBinding?(
+    managementId: string,
+    projectId: string,
+    request: SetMcpManagedProjectBinding,
+    signal?: AbortSignal,
+  ): Promise<McpManagedServerReceipt>;
+  storeMcpManagedSecret?(
+    managementId: string,
+    requirementId: string,
+    request: StoreMcpManagedSecret,
+    signal?: AbortSignal,
+  ): Promise<McpManagedServerReceipt>;
+  removeMcpManagedSecret?(
+    managementId: string,
+    requirementId: string,
+    request: RemoveMcpManagedSecret,
+    signal?: AbortSignal,
+  ): Promise<McpManagedServerReceipt>;
+  storeMcpManagedConfiguration?(
+    managementId: string,
+    requirementId: string,
+    request: StoreMcpManagedConfiguration,
+    signal?: AbortSignal,
+  ): Promise<McpManagedServerReceipt>;
+  removeMcpManagedConfiguration?(
+    managementId: string,
+    requirementId: string,
+    request: RemoveMcpManagedConfiguration,
+    signal?: AbortSignal,
+  ): Promise<McpManagedServerReceipt>;
+  createAgentMcpConnection?(
+    request: CreateAgentMcpConnection,
+    signal?: AbortSignal,
+  ): Promise<AgentMcpConnectionCredential>;
+  rotateAgentMcpConnection?(
+    connectionId: string,
+    request: RotateAgentMcpConnection,
+    signal?: AbortSignal,
+  ): Promise<AgentMcpConnectionCredential>;
+  revokeAgentMcpConnection?(
+    connectionId: string,
+    request: RevokeAgentMcpConnection,
+    signal?: AbortSignal,
+  ): Promise<AgentMcpConnection>;
+  releaseAgentControllerOwnership?(
+    request: ReleaseAgentControllerOwnership,
+    signal?: AbortSignal,
+  ): Promise<AgentControllerOwnershipReleaseReceipt>;
+  /** Native-owner gate for the page-local, non-spawning acceptance guide. */
+  beginAgentNativeAcceptance?(
+    request: BeginAgentNativeAcceptance,
+    signal?: AbortSignal,
+  ): Promise<AgentNativeAcceptanceStartReceipt>;
+  listAgentProjects(query?: AgentCatalogQuery, signal?: AbortSignal): Promise<AgentProjectList>;
+  createAgentProject(request: CreateAgentProject, signal?: AbortSignal): Promise<AgentProject>;
+  getAgentProject(projectId: string, signal?: AbortSignal): Promise<AgentProject>;
+  updateAgentProject(projectId: string, request: UpdateAgentProject, signal?: AbortSignal): Promise<AgentProject>;
+  deleteAgentProject(projectId: string, request: DeleteAgentProject, signal?: AbortSignal): Promise<void>;
+  listAgentCatalogSessions(query?: AgentCatalogSessionQuery, signal?: AbortSignal): Promise<AgentCatalogSessionList>;
+  getAgentCatalogSession(sessionId: string, signal?: AbortSignal): Promise<AgentCatalogSession>;
+  updateAgentCatalogSession(sessionId: string, request: UpdateAgentCatalogSession, signal?: AbortSignal): Promise<AgentCatalogSession>;
+  deleteAgentCatalogSession(sessionId: string, request: DeleteAgentCatalogSession, signal?: AbortSignal): Promise<void>;
+  getAgentPersistedEvents(projectId: string, sessionId: string, after: number, signal?: AbortSignal): Promise<AgentEvents>;
+  forkAgentSession(projectId: string, sessionId: string, request: ForkAgentSession, signal?: AbortSignal): Promise<AgentSessionForkReceipt>;
+  resumeAgentSession(projectId: string, sessionId: string, request: ResumeAgentSession, signal?: AbortSignal): Promise<AgentSessionView>;
+  exportAgentHistory(
+    projectId: string,
+    sessionId: string,
+    request: AgentHistoryExportRequest,
+    signal?: AbortSignal,
+  ): Promise<AgentHistoryExport>;
+  listAgentArtifacts(projectId: string, sessionId: string, view?: AgentArtifactListView, signal?: AbortSignal): Promise<AgentArtifactList>;
+  getAgentArtifact(projectId: string, sessionId: string, artifactId: string, signal?: AbortSignal): Promise<AgentArtifactDetail>;
+  exportAgentArtifact(projectId: string, sessionId: string, artifactId: string, request: ExportAgentArtifact, signal?: AbortSignal): Promise<AgentArtifactExport>;
+  updateAgentArtifact(projectId: string, sessionId: string, artifactId: string, request: UpdateAgentArtifact, signal?: AbortSignal): Promise<AgentArtifact>;
+  removeAgentArtifact(projectId: string, sessionId: string, artifactId: string, request: RemoveAgentArtifact, signal?: AbortSignal): Promise<AgentArtifact>;
+  previewAgentArtifactCapture(projectId: string, sessionId: string, request: PreviewAgentArtifactCapture, signal?: AbortSignal): Promise<AgentArtifactCapturePreview>;
+  captureAgentArtifact(projectId: string, sessionId: string, request: CaptureAgentArtifact, signal?: AbortSignal): Promise<AgentArtifactDetail>;
+  getAgentArtifactDocumentPreview(projectId: string, sessionId: string, artifactId: string, version: AgentArtifactVersion, signal?: AbortSignal): Promise<AgentDocumentPreview>;
+  getAgentArtifactContent(projectId: string, sessionId: string, artifactId: string, versionId: string, download: boolean, signal?: AbortSignal): Promise<AgentArtifactContent>;
   listAgentSessions(signal?: AbortSignal): Promise<AgentSessionView[]>;
   createAgentSession(settings: AgentSettings, signal?: AbortSignal): Promise<AgentSessionView>;
   getAgentSession(sessionId: string, signal?: AbortSignal): Promise<AgentSessionView>;
+  getAgentSessionContext?(sessionId: string, signal?: AbortSignal): Promise<AgentSessionContextStatus>;
+  switchAgentSessionModel(sessionId: string, request: SwitchAgentSessionModel, signal?: AbortSignal): Promise<AgentSessionView>;
+  revalidateAgentAuthority(sessionId: string, request: RevalidateAgentAuthority, signal?: AbortSignal): Promise<AgentSessionView>;
   deleteAgentSession(sessionId: string, signal?: AbortSignal): Promise<void>;
-  sendAgentMessage(sessionId: string, text: string, signal?: AbortSignal): Promise<AgentSessionView>;
+  listAgentAttachments(sessionId: string, signal?: AbortSignal): Promise<AgentAttachmentList>;
+  stageAgentAttachment(sessionId: string, upload: AgentAttachmentUpload, signal?: AbortSignal): Promise<AgentAttachment>;
+  deleteAgentAttachment(sessionId: string, attachmentId: string, signal?: AbortSignal): Promise<void>;
+  getAgentAttachmentContent(sessionId: string, attachmentId: string, signal?: AbortSignal): Promise<AgentAttachmentContent>;
+  getAgentAttachmentDocumentPreview(sessionId: string, attachmentId: string, signal?: AbortSignal): Promise<AgentAttachmentDocumentPreview>;
+  sendAgentMessage(sessionId: string, text: string, attachmentIds?: readonly string[], signal?: AbortSignal): Promise<AgentSessionView>;
+  getAgentChangeSet(sessionId: string, signal?: AbortSignal): Promise<AgentChangeSet>;
+  getAgentChangeDiff(sessionId: string, path: string, signal?: AbortSignal): Promise<AgentChangeDiff>;
+  previewAgentChangeRestore(sessionId: string, request: AgentChangeRestorePreviewCommand, signal?: AbortSignal): Promise<AgentChangeRestorePreview>;
+  applyAgentChangeRestore(sessionId: string, previewId: string, request: AgentChangeRestoreApplyCommand, signal?: AbortSignal): Promise<AgentChangeRestoreApplyResult>;
   getAgentEvents(sessionId: string, after: number, signal?: AbortSignal): Promise<AgentEvents>;
   streamAgentEvents(sessionId: string, after: number, onPage: (page: AgentEvents) => void, signal?: AbortSignal): Promise<void>;
   decideAgentApproval(sessionId: string, approvalId: string, approved: boolean, signal?: AbortSignal): Promise<AgentSessionView>;
   stopAgentSession(sessionId: string, signal?: AbortSignal): Promise<AgentSessionView>;
+  getAgentWorkspaceDiscovery(sessionId: string, signal?: AbortSignal): Promise<AgentWorkspaceDiscovery>;
   getAgentWorkspaceTree(sessionId: string, path: string, signal?: AbortSignal): Promise<AgentWorkspaceTree>;
+  getAgentWorkspaceSearch(sessionId: string, request: AgentWorkspaceSearchRequest, signal?: AbortSignal): Promise<AgentWorkspaceSearchResult>;
   getAgentWorkspaceFile(sessionId: string, path: string, signal?: AbortSignal): Promise<AgentWorkspaceFile>;
   previewAgentWorkspaceEdit(sessionId: string, request: AgentWorkspacePreviewCommand, signal?: AbortSignal): Promise<AgentWorkspaceEditPreview>;
   applyAgentWorkspaceEdit(sessionId: string, previewId: string, request: AgentWorkspaceApplyCommand, signal?: AbortSignal): Promise<AgentWorkspaceApplyResult>;
+  previewAgentWorkspaceCreate(sessionId: string, request: AgentWorkspaceCreatePreviewCommand, signal?: AbortSignal): Promise<AgentWorkspaceCreatePreview>;
+  applyAgentWorkspaceCreate(sessionId: string, preview: AgentWorkspaceCreatePreview, request: AgentWorkspaceCreateApplyCommand, signal?: AbortSignal): Promise<AgentWorkspaceCreateApplyResult>;
+  previewAgentWorkspaceDirectoryCreate(sessionId: string, request: AgentWorkspaceDirectoryCreatePreviewCommand, signal?: AbortSignal): Promise<AgentWorkspaceDirectoryCreatePreview>;
+  applyAgentWorkspaceDirectoryCreate(sessionId: string, preview: AgentWorkspaceDirectoryCreatePreview, request: AgentWorkspaceDirectoryCreateApplyCommand, signal?: AbortSignal): Promise<AgentWorkspaceDirectoryCreateApplyResult>;
+  previewAgentWorkspaceDirectoryMove(sessionId: string, request: AgentWorkspaceDirectoryMovePreviewCommand, signal?: AbortSignal): Promise<AgentWorkspaceDirectoryMovePreview>;
+  applyAgentWorkspaceDirectoryMove(sessionId: string, preview: AgentWorkspaceDirectoryMovePreview, request: AgentWorkspaceDirectoryMoveApplyCommand, signal?: AbortSignal): Promise<AgentWorkspaceDirectoryMoveApplyResult>;
+  previewAgentWorkspaceFileTrash(sessionId: string, request: AgentWorkspaceFileTrashPreviewCommand, signal?: AbortSignal): Promise<AgentWorkspaceFileTrashPreview>;
+  applyAgentWorkspaceFileTrash(sessionId: string, preview: AgentWorkspaceFileTrashPreview, request: AgentWorkspaceFileTrashApplyCommand, signal?: AbortSignal): Promise<AgentWorkspaceFileTrashApplyResult>;
+  previewAgentWorkspaceMove(sessionId: string, request: AgentWorkspaceMovePreviewCommand, signal?: AbortSignal): Promise<AgentWorkspaceMovePreview>;
+  applyAgentWorkspaceMove(sessionId: string, preview: AgentWorkspaceMovePreview, request: AgentWorkspaceMoveApplyCommand, signal?: AbortSignal): Promise<AgentWorkspaceMoveApplyResult>;
+  previewAgentWorkspaceTransaction(sessionId: string, request: AgentWorkspaceTransactionPreviewCommand, signal?: AbortSignal): Promise<AgentWorkspaceTransactionPreview>;
+  applyAgentWorkspaceTransaction(sessionId: string, preview: AgentWorkspaceTransactionPreview, request: AgentWorkspaceTransactionApplyCommand, signal?: AbortSignal): Promise<AgentWorkspaceTransactionApplyResult>;
   startModelJudgeSweep(signal?: AbortSignal, scope?: "sample" | "all"): Promise<JudgeSweepStatus>;
   getModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;
   getModelJudgeAgreement(signal?: AbortSignal): Promise<JudgeAgreementReport>;
@@ -1378,6 +2910,7 @@ export interface PromptEnhancerTransport {
   acceptOnboarding(request: OnboardingAccept, signal?: AbortSignal): Promise<OnboardingResult>;
   /** Blind calibration ratings over a frozen sample of the owner's own sessions. */
   getCalibrationSample(raterLabel: string | null, signal?: AbortSignal): Promise<CalibrationSample>;
+  reviewCalibrationCase(sessionId: string, windowCharacters: 6000 | 15000, signal?: AbortSignal): Promise<CalibrationReview>;
   submitCalibrationRatings(request: RatingSubmission, signal?: AbortSignal): Promise<CalibrationProgress>;
   getCalibrationRatings(raterLabel: string, signal?: AbortSignal): Promise<CalibrationRating[]>;
   getCalibrationProgress(signal?: AbortSignal): Promise<CalibrationProgress>;

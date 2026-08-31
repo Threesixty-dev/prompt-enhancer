@@ -1,15 +1,18 @@
 """Blind human ratings of the owner's own sessions, for calibration.
 
-A person reads a session in the reader (ADR 0011) and rates a few metrics on
-a closed ordinal scale, or says they cannot judge.  Ratings are the
-independent human truth source the estimator calibration math accepts
-(``TruthSource.INDEPENDENT_HUMAN``); model values are never shown on the
-rating page, and nothing here stores text - only pseudonymous identifiers,
-labels and timestamps.
+A person reviews the same bounded redacted case that a model judge sees and
+rates a few rubric questions on a closed ordinal scale, or abstains. Model
+labels are not shown alongside the person's choices. Receipt-bound ratings
+can be compared only with judgments of that exact case; a receipt does not
+verify the rater's identity, independence, or task success, and does not
+promote a model score to an objective measurement. Historical unbound labels
+remain readable but do not enter current agreement. Persistent rows contain
+pseudonyms, labels, timestamps, versions and case fingerprints, not evidence
+text. This derived metadata is sensitive, not anonymous.
 
-The sample is frozen on first use: a deterministic, provider-stratified
-selection of indexed sessions, so ratings gathered over several sittings stay
-comparable.  The rater is known only by a pseudonym derived from a label the
+Sampling is deterministic and provider-stratified. An underfilled sample may
+be redrawn until the first stored rating, after which its membership is
+frozen. The rater is known only by a pseudonym derived from a label the
 person types; the label itself is not stored.
 """
 
@@ -24,11 +27,13 @@ from typing import Literal, Protocol
 from pydantic import Field, field_validator
 
 from ...domain import PSEUDONYM_PATTERN, Provider, StrictModel
+from .calibration_cases import CalibrationCaseIdentity, CalibrationReview, CalibrationReviewError, CalibrationReviewService
 
 
 CALIBRATION_CONTRACT_VERSION = "calibration-ratings.v1"
 CALIBRATION_SAMPLE_VERSION = "calibration-sample-v1"
-CALIBRATION_RATING_VERSION = "calibration-rating-v1"
+LEGACY_CALIBRATION_RATING_VERSION = "calibration-rating-v1"
+CALIBRATION_RATING_VERSION = "calibration-rating-v2-reviewed-case"
 DEFAULT_SAMPLE_SIZE = 96
 MAX_SAMPLE_SIZE = 1000
 MAX_CANDIDATE_SESSIONS = 5_000
@@ -79,12 +84,17 @@ class CalibrationRating(StrictModel):
     label: RatingLabel
     rated_at: datetime
     revision: int = Field(ge=1)
+    rating_version: str = Field(default=LEGACY_CALIBRATION_RATING_VERSION, min_length=1, max_length=64)
+    case_fingerprint: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
+    case_version: str | None = Field(default=None, min_length=1, max_length=64)
+    window_fingerprint: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
 
 
 class RatingSubmission(StrictModel):
     rater_label: str = Field(min_length=1, max_length=80)
     session_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     ratings: dict[str, RatingLabel] = Field(min_length=1, max_length=len(CALIBRATION_METRIC_KEYS))
+    review_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
     @field_validator("ratings")
     @classmethod
@@ -129,10 +139,14 @@ class CalibrationExportRow(StrictModel):
     label: RatingLabel
     rated_at: datetime
     revision: int
+    rating_version: str
+    case_fingerprint: str | None = None
+    case_version: str | None = None
+    window_fingerprint: str | None = None
 
 
 class CalibrationExport(StrictModel):
-    """Content-free: pseudonyms, labels and timestamps only."""
+    """Sensitive derived metadata with case provenance; no evidence text."""
 
     contract_version: Literal[CALIBRATION_CONTRACT_VERSION] = CALIBRATION_CONTRACT_VERSION
     sample_id: str | None
@@ -158,6 +172,11 @@ class CalibrationRatingRepository(Protocol):
         label: RatingLabel,
         rated_at: datetime,
     ) -> CalibrationRating: ...
+
+    def upsert_ratings(
+        self, *, rater_id: str, session_id: str, labels: dict[str, RatingLabel],
+        rated_at: datetime, case: CalibrationCaseIdentity | None = None,
+    ) -> tuple[CalibrationRating, ...]: ...
 
     def list_ratings(
         self, *, rater_id: str | None = None, session_id: str | None = None
@@ -230,12 +249,14 @@ class CalibrationRatingService:
         *,
         sample_size: int = DEFAULT_SAMPLE_SIZE,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        reviews: CalibrationReviewService | None = None,
     ) -> None:
         self._catalog = catalog
         self._repository = repository
         self._pseudonymizer = pseudonymizer
         self._sample_size = max(1, min(int(sample_size), MAX_SAMPLE_SIZE))
         self._clock = clock
+        self._reviews = reviews
 
     def rater_id(self, rater_label: str) -> str:
         return self._pseudonymizer.pseudonymize(RATER_NAMESPACE, rater_label.strip())
@@ -317,20 +338,31 @@ class CalibrationRatingService:
             }
         )
 
+    def review(self, session_id: str, window_characters: int = 15_000) -> CalibrationReview:
+        if self._reviews is None:
+            raise CalibrationReviewError("calibration_review_disabled")
+        sample = self.sample()
+        if session_id not in {member.session_id for member in sample.members}:
+            raise CalibrationSessionNotSampledError("session is not part of the calibration sample")
+        return self._reviews.issue(session_id, window_characters)
+
     def rate(self, submission: RatingSubmission) -> CalibrationProgress:
         sample = self.sample()
         if submission.session_id not in {member.session_id for member in sample.members}:
             raise CalibrationSessionNotSampledError("session is not part of the calibration sample")
         rater_id = self.rater_id(submission.rater_label)
         now = self._clock()
-        for metric_key, label in submission.ratings.items():
-            self._repository.upsert_rating(
-                rater_id=rater_id,
-                session_id=submission.session_id,
-                metric_key=metric_key,
-                label=label,
-                rated_at=now,
-            )
+        case = None
+        if submission.review_id is not None:
+            if self._reviews is None:
+                raise CalibrationReviewError("calibration_review_disabled")
+            case = self._reviews.resolve(submission.review_id, submission.session_id)
+        # Older callers may still submit labels, but absence of a review receipt
+        # stays explicitly unbound and can never qualify for current agreement.
+        self._repository.upsert_ratings(
+            rater_id=rater_id, session_id=submission.session_id,
+            labels=submission.ratings, rated_at=now, case=case,
+        )
         return self.progress()
 
     def ratings_for(self, rater_label: str) -> tuple[CalibrationRating, ...]:
@@ -372,6 +404,10 @@ class CalibrationRatingService:
                 label=rating.label,
                 rated_at=rating.rated_at,
                 revision=rating.revision,
+                rating_version=rating.rating_version,
+                case_fingerprint=rating.case_fingerprint,
+                case_version=rating.case_version,
+                window_fingerprint=rating.window_fingerprint,
             )
             for rating in self._repository.list_ratings()
         )
@@ -406,6 +442,7 @@ __all__ = (
     "CALIBRATION_CONTRACT_VERSION",
     "CALIBRATION_METRIC_KEYS",
     "CALIBRATION_RATING_VERSION",
+    "LEGACY_CALIBRATION_RATING_VERSION",
     "CALIBRATION_SAMPLE_VERSION",
     "CalibrationExport",
     "CalibrationExportRow",

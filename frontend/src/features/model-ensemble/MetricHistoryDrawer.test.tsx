@@ -161,8 +161,27 @@ describe("MetricHistoryDrawer", () => {
     fireEvent.click(screen.getByText("History"));
     expect(screen.getByText(/no sealed snapshots are available/i)).toHaveTextContent(/not a zero metric value/i);
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    view.rerender(<MetricHistoryDrawer direction="higher_is_better" history={{ ...empty, error: true }} metricKey={METRIC} />);
-    expect(screen.getByRole("status")).toHaveTextContent(/no previously loaded trajectory is available/i);
+   view.rerender(<MetricHistoryDrawer direction="higher_is_better" history={{ ...empty, error: true }} metricKey={METRIC} />);
+   expect(screen.getByRole("status")).toHaveTextContent(/no previously loaded trajectory is available/i);
+ });
+
+  it("offers a manual read-only retry for delayed history, including with nothing loaded", () => {
+    const onRetry = vi.fn();
+    const delayedEmpty: MetricWorkspaceHistory = {
+      points: [],
+      headRunId: null,
+      selectedRunId: null,
+      onSelectRun: vi.fn(),
+      error: true,
+      onRetry,
+    };
+    render(<MetricHistoryDrawer direction="higher_is_better" history={delayedEmpty} metricKey={METRIC} />);
+    fireEvent.click(screen.getByText("History"));
+    expect(screen.getByText(/no previously loaded trajectory is available/i)).toBeVisible();
+    expect(screen.getByText("History unavailable")).toBeVisible();
+    expect(screen.queryByText("0 sealed snapshots")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry history" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to the loaded current identity when a stale A selection is absent from context B", () => {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   AnalysisJobRecord,
@@ -80,6 +80,85 @@ function localTransport(initialJobs: AnalysisJobRecord[]) {
 }
 
 describe("AnalysisJobCentre", () => {
+  it("explains pagination boundaries and enables movement when a full page exists", async () => {
+    const jobs = Array.from({ length: 25 }, (_, index) => job("completed", (index % 15) + 1, {
+      job_id: index.toString(16).padStart(64, "0"),
+    }));
+    const { transport, listAnalysisJobs } = localTransport(jobs);
+    render(<AnalysisJobCentre runtimeMode="local_real" serviceState="available" transport={transport} />);
+    await screen.findByText("25 on this page");
+
+    const newer = screen.getByRole("button", { name: "Newer jobs" });
+    const older = screen.getByRole("button", { name: "Older jobs" });
+    expect(newer).toBeDisabled();
+    expect(newer).toHaveAccessibleDescription(/already viewing the newest jobs/i);
+    expect(older).toBeEnabled();
+    expect(older).not.toHaveAttribute("aria-describedby");
+
+    fireEvent.click(older);
+    await waitFor(() => expect(listAnalysisJobs).toHaveBeenLastCalledWith(
+      null,
+      25,
+      25,
+      expect.any(AbortSignal),
+    ));
+    expect(newer).toBeEnabled();
+    expect(newer).not.toHaveAttribute("aria-describedby");
+  });
+
+  it.each(["resolve", "reject"] as const)("ignores a cancellation that %ss after another job is selected", async (completion) => {
+    const first = job("queued", 1);
+    const second = job("stage_n", 2);
+    let resolve!: (value: AnalysisJobRecord) => void;
+    let reject!: (error: unknown) => void;
+    const pending = new Promise<AnalysisJobRecord>((accept, decline) => { resolve = accept; reject = decline; });
+    const local = localTransport([first, second]);
+    const cancelAnalysisJob = vi.fn((_jobId: string, _signal?: AbortSignal) => pending);
+    local.transport.cancelAnalysisJob = cancelAnalysisJob;
+    const { container } = render(<AnalysisJobCentre runtimeMode="local_real" serviceState="available" transport={local.transport} />);
+    await screen.findByText("2 on this page");
+    const cards = container.querySelectorAll<HTMLButtonElement>("button.analysis-job-card");
+    fireEvent.click(cards[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel job" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm cancellation" }));
+    fireEvent.click(cards[1]);
+    const detail = screen.getByRole("complementary", { name: "Selected job detail" });
+    await within(detail).findByText(second.job_id);
+    fireEvent.click(within(detail).getByRole("button", { name: "Cancel job" }));
+    expect(within(detail).getByRole("button", { name: "Confirm cancellation" })).toBeEnabled();
+    await act(async () => {
+      if (completion === "resolve") resolve(job("cancelled", 1));
+      else reject(new Error("example-cancel-failure"));
+      await pending.catch(() => undefined);
+    });
+    expect(cancelAnalysisJob.mock.calls[0][1]?.aborted).toBe(true);
+    expect(within(detail).getByText(second.job_id)).toBeVisible();
+    expect(within(detail).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(detail).getByRole("button", { name: "Confirm cancellation" })).toBeEnabled();
+    expect(within(detail).queryByText(first.job_id)).not.toBeInTheDocument();
+  });
+
+  it("aborts an in-flight cancellation when the transport changes and rejects its late receipt", async () => {
+    const first = job("queued", 1);
+    let resolve!: (value: AnalysisJobRecord) => void;
+    const pending = new Promise<AnalysisJobRecord>((accept) => { resolve = accept; });
+    const local = localTransport([first]);
+    const cancelAnalysisJob = vi.fn((_id: string, _signal?: AbortSignal) => pending);
+    local.transport.cancelAnalysisJob = cancelAnalysisJob;
+    const view = render(<AnalysisJobCentre runtimeMode="local_real" serviceState="available" transport={local.transport} />);
+    await screen.findByText("1 on this page");
+    fireEvent.click(view.container.querySelector<HTMLButtonElement>("button.analysis-job-card")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel job" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm cancellation" }));
+    const replacement = localTransport([first]);
+    view.rerender(<AnalysisJobCentre runtimeMode="local_real" serviceState="available" transport={replacement.transport} />);
+    await waitFor(() => expect(replacement.getAnalysisJob).toHaveBeenCalled());
+    await act(async () => { resolve(job("cancelled", 1)); await pending; });
+    expect(cancelAnalysisJob.mock.calls[0][1]?.aborted).toBe(true);
+    expect(within(screen.getByRole("complementary", { name: "Selected job detail" })).queryByText("Cancelled")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel job" })).toBeEnabled();
+  });
+
   it("fails closed in synthetic demo and never asks the fictional transport for queue history", () => {
     const { transport, listAnalysisJobs } = localTransport([]);
     render(
@@ -234,7 +313,7 @@ describe("AnalysisJobCentre", () => {
     expect(within(confirmation).getByRole("button", { name: "Keep job" })).toBeVisible();
     fireEvent.click(within(confirmation).getByRole("button", { name: "Confirm cancellation" }));
 
-    await waitFor(() => expect(cancelAnalysisJob).toHaveBeenCalledWith(queued.job_id));
+    await waitFor(() => expect(cancelAnalysisJob).toHaveBeenCalledWith(queued.job_id, expect.any(AbortSignal)));
     expect(await screen.findByText(/cancellation was requested by the local user/i)).toBeVisible();
     expect(screen.getAllByText("Cancelled").length).toBeGreaterThan(0);
     expect(screen.getByText(queued.job_id)).toBeVisible();
@@ -278,6 +357,86 @@ describe("AnalysisJobCentre", () => {
     expect(screen.getByText(/last verified response and may now be stale/i)).toBeVisible();
     expect(container.querySelectorAll("button.analysis-job-card")).toHaveLength(1);
     expect(document.body.textContent).not.toContain("PRIVATE-LIST-CANARY");
+  });
+
+  it("automatically retries a failed live poll and recovers verified rows without job commands", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const live = job("stage_n", 1);
+      const { transport, listAnalysisJobs, cancelAnalysisJob } = localTransport([live]);
+      listAnalysisJobs
+        .mockResolvedValueOnce({ jobs: [live], limit: 25, offset: 0 })
+        .mockRejectedValueOnce(new TransportError("PRIVATE-POLL-CANARY", 503))
+        .mockResolvedValueOnce({
+          jobs: [job("completed", 1, { job_id: live.job_id, identity: live.identity })],
+          limit: 25,
+          offset: 0,
+        });
+      const { container } = render(
+        <AnalysisJobCentre runtimeMode="local_real" serviceState="available" transport={transport} />,
+      );
+      await screen.findByText("1 on this page");
+      expect(listAnalysisJobs).toHaveBeenCalledTimes(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_001); });
+      expect(await screen.findByText(/local job queue could not be verified/i)).toBeVisible();
+      expect(screen.getByText(/last verified response and may now be stale/i)).toBeVisible();
+      expect(container.querySelectorAll("button.analysis-job-card")).toHaveLength(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_001); });
+      await waitFor(() => expect(listAnalysisJobs).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(screen.queryByText(/could not be verified/i)).not.toBeInTheDocument());
+      expect(screen.getAllByText("Completed").length).toBeGreaterThan(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(listAnalysisJobs).toHaveBeenCalledTimes(3);
+      expect(cancelAnalysisJob).not.toHaveBeenCalled();
+      expect(document.body.textContent).not.toContain("PRIVATE-POLL-CANARY");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops automatic list retries at the bounded limit and resumes only through manual retry", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const live = job("queued", 1);
+      const { transport, listAnalysisJobs, cancelAnalysisJob } = localTransport([live]);
+      listAnalysisJobs
+        .mockResolvedValueOnce({ jobs: [live], limit: 25, offset: 0 })
+        .mockRejectedValueOnce(new TransportError("PRIVATE-RETRY-CANARY", 503))
+        .mockRejectedValueOnce(new TransportError("PRIVATE-RETRY-CANARY", 503))
+        .mockRejectedValueOnce(new TransportError("PRIVATE-RETRY-CANARY", 503))
+        .mockRejectedValueOnce(new TransportError("PRIVATE-RETRY-CANARY", 503));
+      const { container } = render(
+        <AnalysisJobCentre runtimeMode="local_real" serviceState="available" transport={transport} />,
+      );
+      await screen.findByText("1 on this page");
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_001); });
+      await waitFor(() => expect(listAnalysisJobs).toHaveBeenCalledTimes(2));
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_001); });
+      await waitFor(() => expect(listAnalysisJobs).toHaveBeenCalledTimes(3));
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+      await waitFor(() => expect(listAnalysisJobs).toHaveBeenCalledTimes(4));
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_001); });
+      await waitFor(() => expect(listAnalysisJobs).toHaveBeenCalledTimes(5));
+      expect(await screen.findByText(/automatic refresh paused after repeated read failures/i)).toBeVisible();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+      expect(listAnalysisJobs).toHaveBeenCalledTimes(5);
+      expect(container.querySelectorAll("button.analysis-job-card")).toHaveLength(1);
+      expect(screen.getByText(/last verified response and may now be stale/i)).toBeVisible();
+
+      fireEvent.click(screen.getByRole("button", { name: "Retry safely" }));
+      await waitFor(() => expect(listAnalysisJobs).toHaveBeenCalledTimes(6));
+      await waitFor(() => expect(screen.queryByText(/could not be verified/i)).not.toBeInTheDocument());
+      expect(screen.queryByText(/automatic refresh paused/i)).not.toBeInTheDocument();
+      expect(cancelAnalysisJob).not.toHaveBeenCalled();
+      expect(document.body.textContent).not.toContain("PRIVATE-RETRY-CANARY");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails closed when verified detail drifts from the selected session identity", async () => {

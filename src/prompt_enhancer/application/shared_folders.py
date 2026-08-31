@@ -18,7 +18,8 @@ import re
 import secrets
 import sqlite3
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -195,10 +196,17 @@ class SharedFolderStore:
             )
             connection.commit()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self._path, timeout=5.0)
-        connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            connection.row_factory = sqlite3.Row
+            # sqlite3's context manager commits/rolls back but does not close.
+            # Every operation owns and releases its connection, including reads.
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     # -- shares --
 

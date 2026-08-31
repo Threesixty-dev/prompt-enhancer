@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import threading
 
 import pytest
 
 from prompt_enhancer.adapters.base import AdapterHealth, AdapterProbe, ProviderAdapter
 from prompt_enhancer.adapters.synthetic import SyntheticAdapter
 from prompt_enhancer.application.ingestion import SessionMetricPlan
+from prompt_enhancer.application.runtime_cancellation import (
+    RuntimeCooperativeStop,
+    runtime_request_scope,
+)
 from prompt_enhancer.database import Database
 from prompt_enhancer.domain import Provider, SourceEvent, SourceSession, SourceSessionPage
 from prompt_enhancer.ingestion import ConsentRequiredError, IngestionService
@@ -66,6 +71,28 @@ def test_non_synthetic_provider_is_rejected_before_any_source_read(tmp_path) -> 
         service.ingest(adapter)
 
     assert adapter.access_attempted is False
+
+
+def test_cancelled_background_ingestion_never_reads_the_adapter(tmp_path) -> None:
+    database, service = _service(tmp_path)
+
+    class CloseObservedSynthetic(SyntheticAdapter):
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    adapter = CloseObservedSynthetic()
+    cancelled = threading.Event()
+    cancelled.set()
+
+    with runtime_request_scope(cancelled), pytest.raises(
+        RuntimeCooperativeStop, match="^provider_ingestion_cancelled$"
+    ):
+        service.ingest(adapter)
+
+    assert database.summary()["sessions"] == 0
+    assert adapter.closed is True
 
 
 def test_synthetic_ingestion_is_idempotent(tmp_path) -> None:

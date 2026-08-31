@@ -79,13 +79,16 @@ describe("ClaudeSourceCard", () => {
     };
     render(<ClaudeSourceCard transport={transport} />);
     const permit = await screen.findByRole("button", { name: "Permit hook capture" });
-    expect(screen.getByRole("button", { name: /Index captured sessions/ })).toBeDisabled();
+    const blockedIndex = screen.getByRole("button", { name: /Index captured sessions/ });
+    expect(blockedIndex).toBeDisabled();
+    expect(blockedIndex).toHaveAccessibleDescription(/permit hook capture/i);
     fireEvent.click(permit);
     await screen.findByText(/Install the hooks fragment in Claude Code/);
     expect(transport.grantClaudeLocalHistoryConsent).toHaveBeenCalledTimes(1);
 
     const index = screen.getByRole("button", { name: "Index captured sessions" });
     expect(index).toBeEnabled();
+    expect(index).not.toHaveAttribute("aria-describedby");
     fireEvent.click(index);
     await screen.findByText("Indexed 3 captured Claude Code sessions and 41 events.");
     expect(transport.indexClaudeLocalSessions).toHaveBeenCalledWith(500);

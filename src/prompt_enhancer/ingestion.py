@@ -12,6 +12,10 @@ from .application.ingestion import (
     SourceIdentifierProtector,
 )
 from .application.persistence.errors import PersistenceConflictError
+from .application.runtime_cancellation import (
+    RuntimeCooperativeStop,
+    raise_if_runtime_cancelled,
+)
 from .display_labels import (
     PROJECT_DISPLAY_NAME_MAX_LENGTH,
     SESSION_DISPLAY_NAME_MAX_LENGTH,
@@ -215,7 +219,9 @@ class IngestionService:
         events_updated = 0
         metrics_written = 0
         try:
+            raise_if_runtime_cancelled("provider_ingestion_cancelled")
             probe = adapter.probe()
+            raise_if_runtime_cancelled("provider_ingestion_cancelled")
             if probe.provider is not provider:
                 raise AdapterUnavailableError("adapter provider provenance mismatch")
             if probe.health is not AdapterHealth.READY or not probe.supports_metadata:
@@ -235,8 +241,10 @@ class IngestionService:
             seen_cursors: set[str] = set()
             stop_listing = False
             while True:
+                raise_if_runtime_cancelled("provider_ingestion_cancelled")
                 page = adapter.list_sessions(cursor=cursor, limit=page_limit)
                 for source_session in page.sessions:
+                    raise_if_runtime_cancelled("provider_ingestion_cancelled")
                     sessions_seen += 1
                     if source_session.provider is not provider:
                         raise AdapterUnavailableError(
@@ -268,7 +276,9 @@ class IngestionService:
                         break
                     sessions_selected += 1
 
+                    raise_if_runtime_cancelled("provider_ingestion_cancelled")
                     snapshot = adapter.read_session(source_session)
+                    raise_if_runtime_cancelled("provider_ingestion_cancelled")
                     enriched_session = snapshot.session
                     if (
                         enriched_session.provider is not source_session.provider
@@ -334,6 +344,7 @@ class IngestionService:
                     stored_events = self._database.get_session_events(
                         safe_session.session_id
                     )
+                    raise_if_runtime_cancelled("provider_ingestion_cancelled")
                     observations = self._metric_plan.computer(
                         stored_session, stored_events
                     )
@@ -378,6 +389,16 @@ class IngestionService:
                 metrics_written=metrics_written,
             )
             return report
+        except RuntimeCooperativeStop:
+            if run_id is not None:
+                self._finish_failed_run(
+                    run_id,
+                    sessions_seen,
+                    events_seen,
+                    metrics_written,
+                    error_code="application_shutdown",
+                )
+            raise
         except (ConsentRequiredError, AdapterUnavailableError, IngestionError):
             if run_id is not None:
                 self._finish_failed_run(
@@ -407,6 +428,8 @@ class IngestionService:
         sessions_seen: int,
         events_seen: int,
         metrics_written: int,
+        *,
+        error_code: str = "ingestion_error",
     ) -> None:
         try:
             self._database.finish_ingestion_run(
@@ -415,7 +438,7 @@ class IngestionService:
                 sessions_seen=sessions_seen,
                 events_seen=events_seen,
                 metrics_written=metrics_written,
-                error_code="ingestion_error",
+                error_code=error_code,
             )
         except Exception:
             # Preserve the original sanitized failure and never surface database

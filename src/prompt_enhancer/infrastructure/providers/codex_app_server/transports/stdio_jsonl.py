@@ -13,6 +13,10 @@ from threading import Event, Lock, Thread
 import time
 from typing import BinaryIO, Callable
 
+from .....application.runtime_cancellation import (
+    RuntimeCooperativeStop,
+    raise_if_runtime_cancelled,
+)
 from ..errors import (
     CodexProtocolViolation,
     CodexResponseLimitError,
@@ -26,6 +30,21 @@ from .protocol import JsonObject
 
 ExecutableResolver = Callable[[str], str | None]
 
+# Keep the literal fallback because this module is also imported by tests and
+# packaging probes on non-Windows hosts. A Windows desktop launch must never
+# depend on a console window being available.
+_WINDOWS_CREATE_NO_WINDOW = 0x08000000
+
+
+def codex_app_server_creation_flags(*, platform: str | None = None) -> int:
+    current_platform = os.name if platform is None else platform
+    if current_platform != "nt":
+        return 0
+    return int(
+        getattr(subprocess, "CREATE_NO_WINDOW", _WINDOWS_CREATE_NO_WINDOW)
+        or _WINDOWS_CREATE_NO_WINDOW
+    )
+
 
 def codex_app_server_argv(
     *, platform: str | None = None, which: ExecutableResolver = shutil.which
@@ -35,21 +54,25 @@ def codex_app_server_argv(
     current_platform = os.name if platform is None else platform
     command: tuple[str, ...]
     if current_platform == "nt":
-        resolved_cmd = which("codex.cmd")
-        if resolved_cmd is not None:
-            command = (
-                "cmd.exe",
-                "/d",
-                "/s",
-                "/c",
-                ntpath.abspath(resolved_cmd),
-            )
+        # Prefer the native executable. npm's ``codex.cmd`` necessarily adds
+        # cmd.exe (and commonly conhost.exe) to the process tree, which can
+        # flash or retain terminal windows in a GUI application even when the
+        # parent requested CREATE_NO_WINDOW.
+        resolved_exe = which("codex.exe")
+        if resolved_exe is not None:
+            command = (ntpath.abspath(resolved_exe),)
         else:
-            resolved_exe = which("codex.exe")
+            resolved_cmd = which("codex.cmd")
             command = (
-                ntpath.abspath(resolved_exe)
-                if resolved_exe is not None
-                else "codex.exe",
+                (
+                    "cmd.exe",
+                    "/d",
+                    "/s",
+                    "/c",
+                    ntpath.abspath(resolved_cmd),
+                )
+                if resolved_cmd is not None
+                else ("codex.exe",)
             )
     else:
         command = ("codex",)
@@ -102,9 +125,7 @@ class StdioJsonRpcTransport:
             raise CodexTransportError("Codex App Server transport is closed")
         if self._process is not None:
             return
-        creationflags = 0
-        if os.name == "nt":
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        creationflags = codex_app_server_creation_flags()
         try:
             process = subprocess.Popen(
                 CODEX_APP_SERVER_ARGV,
@@ -173,13 +194,26 @@ class StdioJsonRpcTransport:
             raise CodexTransportError("Codex App Server transport closed unexpectedly") from None
 
     def _next_message(self, *, deadline: float) -> JsonObject:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise CodexTransportTimeout("Codex App Server request timed out")
-        try:
-            line = self._lines.get(timeout=remaining)
-        except Empty:
-            raise CodexTransportTimeout("Codex App Server request timed out") from None
+        while True:
+            # Poll the request-owned cancellation signal more frequently than
+            # the provider timeout.  Automation shutdown otherwise waits up to
+            # ten seconds here while its worker owns only a five-second join.
+            try:
+                raise_if_runtime_cancelled("codex_provider_request_cancelled")
+            except RuntimeCooperativeStop:
+                # Kill only the transport-owned helper.  ``IngestionService``
+                # still reaches its normal ``adapter.close`` finally block,
+                # which reaps the process and joins the reader deterministically.
+                self._abort_for_runtime_stop()
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CodexTransportTimeout("Codex App Server request timed out")
+            try:
+                line = self._lines.get(timeout=min(remaining, 0.05))
+                break
+            except Empty:
+                continue
         if line is None:
             raise CodexTransportError("Codex App Server transport closed unexpectedly")
         if len(line) > self._response_json_line_bytes:
@@ -197,6 +231,18 @@ class StdioJsonRpcTransport:
         if "jsonrpc" in payload and payload["jsonrpc"] != "2.0":
             raise CodexProtocolViolation("provider returned an invalid JSON-RPC version")
         return payload
+
+    def _abort_for_runtime_stop(self) -> None:
+        """Unblock one cancelled provider wait without spawning cleanup work."""
+
+        self._reader_stop.set()
+        process = self._process
+        if process is None:
+            return
+        try:
+            process.kill()
+        except (OSError, ValueError):
+            pass
 
     @staticmethod
     def _is_server_request(payload: JsonObject) -> bool:

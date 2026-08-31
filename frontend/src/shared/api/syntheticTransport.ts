@@ -579,19 +579,70 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async getPromptCheck() {
       throw new TransportError("Prompt checks are unavailable in synthetic preview", 404);
     },
+    async getAgentOrchestration() { throw new TransportError("Agent controller API is unavailable in synthetic preview", 404); },
+    async getAgentHardening() { throw new TransportError("Agent health diagnostics are unavailable in synthetic preview", 404); },
+    async beginAgentNativeAcceptance() { throw new TransportError("Native Agent acceptance is unavailable in synthetic preview", 404); },
+    async listAgentProjects() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async createAgentProject() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async getAgentProject() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async updateAgentProject() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async deleteAgentProject() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async listAgentCatalogSessions() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async getAgentCatalogSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async updateAgentCatalogSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async deleteAgentCatalogSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async getAgentPersistedEvents() { throw new TransportError("Retained agent history is unavailable in synthetic preview", 404); },
+    async forkAgentSession() { throw new TransportError("Agent session branching is unavailable in synthetic preview", 404); },
+    async resumeAgentSession() { throw new TransportError("Retained agent history is unavailable in synthetic preview", 404); },
+    async exportAgentHistory() { throw new TransportError("Retained agent history is unavailable in synthetic preview", 404); },
+    async listAgentArtifacts() { throw new TransportError("Agent artifacts are unavailable in synthetic preview", 404); },
+    async previewAgentArtifactCapture() { throw new TransportError("Agent artifacts are unavailable in synthetic preview", 404); },
+    async getAgentArtifact() { throw new TransportError("Agent artifacts are unavailable in synthetic preview", 404); },
+    async exportAgentArtifact() { throw new TransportError("Agent artifact export is unavailable in synthetic preview", 404); },
+    async updateAgentArtifact() { throw new TransportError("Agent artifact lifecycle is unavailable in synthetic preview", 404); },
+    async removeAgentArtifact() { throw new TransportError("Agent artifact lifecycle is unavailable in synthetic preview", 404); },
+    async captureAgentArtifact() { throw new TransportError("Agent artifacts are unavailable in synthetic preview", 404); },
+    async getAgentArtifactDocumentPreview() { throw new TransportError("Agent document previews are unavailable in synthetic preview", 404); },
+    async getAgentArtifactContent() { throw new TransportError("Agent artifacts are unavailable in synthetic preview", 404); },
     async listAgentSessions() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async createAgentSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async getAgentSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async getAgentSessionContext() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async switchAgentSessionModel() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async revalidateAgentAuthority() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async deleteAgentSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async listAgentAttachments() { throw new TransportError("Agent attachments are unavailable in synthetic preview", 404); },
+    async stageAgentAttachment() { throw new TransportError("Agent attachments are unavailable in synthetic preview", 404); },
+    async deleteAgentAttachment() { throw new TransportError("Agent attachments are unavailable in synthetic preview", 404); },
+    async getAgentAttachmentContent() { throw new TransportError("Agent attachments are unavailable in synthetic preview", 404); },
+    async getAgentAttachmentDocumentPreview() { throw new TransportError("Agent document previews are unavailable in synthetic preview", 404); },
     async sendAgentMessage() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async getAgentChangeSet() { throw new TransportError("Local agent changes are unavailable in synthetic preview", 404); },
+    async getAgentChangeDiff() { throw new TransportError("Local agent changes are unavailable in synthetic preview", 404); },
+    async previewAgentChangeRestore() { throw new TransportError("Local agent change recovery is unavailable in synthetic preview", 404); },
+    async applyAgentChangeRestore() { throw new TransportError("Local agent change recovery is unavailable in synthetic preview", 404); },
     async getAgentEvents() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async streamAgentEvents() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async decideAgentApproval() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async stopAgentSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async getAgentWorkspaceDiscovery() { throw new TransportError("Local agent workspace discovery is unavailable in synthetic preview", 404); },
     async getAgentWorkspaceTree() { throw new TransportError("Local agent workspace is unavailable in synthetic preview", 404); },
+    async getAgentWorkspaceSearch() { throw new TransportError("Local agent workspace search is unavailable in synthetic preview", 404); },
     async getAgentWorkspaceFile() { throw new TransportError("Local agent workspace is unavailable in synthetic preview", 404); },
     async previewAgentWorkspaceEdit() { throw new TransportError("Local agent workspace is unavailable in synthetic preview", 404); },
     async applyAgentWorkspaceEdit() { throw new TransportError("Local agent workspace is unavailable in synthetic preview", 404); },
+    async previewAgentWorkspaceCreate() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async applyAgentWorkspaceCreate() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async previewAgentWorkspaceDirectoryCreate() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async applyAgentWorkspaceDirectoryCreate() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async previewAgentWorkspaceDirectoryMove() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async applyAgentWorkspaceDirectoryMove() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async previewAgentWorkspaceMove() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async applyAgentWorkspaceMove() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async previewAgentWorkspaceFileTrash() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async applyAgentWorkspaceFileTrash() { throw new TransportError("Local agent workspace lifecycle is unavailable in synthetic preview", 404); },
+    async previewAgentWorkspaceTransaction() { throw new TransportError("Local agent workspace transactions are unavailable in synthetic preview", 404); },
+    async applyAgentWorkspaceTransaction() { throw new TransportError("Local agent workspace transactions are unavailable in synthetic preview", 404); },
     async interpretSessionWithModel() {
       throw new TransportError("Model judge is unavailable in synthetic preview", 404);
     },
@@ -643,6 +694,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async getLocalModels() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },
+    async getLocalModelPlacement() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
     async addLocalModel() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },
@@ -652,6 +706,15 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async deactivateLocalModel() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },
+    async getLocalRuntime() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async switchLocalRuntime() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async stopLocalRuntime() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
     async removeLocalModel() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },
@@ -659,6 +722,18 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },
     async startLocalModelDownload() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async pauseLocalModelDownload() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async resumeLocalModelDownload() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async retryLocalModelDownload() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async cancelLocalModelDownload() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },
     async scanLocalModelFolder() {
@@ -674,6 +749,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       throw new TransportError("Timeline is unavailable in synthetic preview", 404);
     },
     async getCalibrationSample() {
+      throw new TransportError("Calibration is unavailable in synthetic preview", 404);
+    },
+    async reviewCalibrationCase() {
       throw new TransportError("Calibration is unavailable in synthetic preview", 404);
     },
     async submitCalibrationRatings() {

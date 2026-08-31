@@ -17160,3 +17160,20 @@ CREATE INDEX events_session_idx ON events(session_id, sequence);
 COMMIT;
 """
 
+# Evidence identities were not recorded for historical ratings. Leave those
+# rows unbound; a migration cannot invent which rendered case a person saw.
+MIGRATION_61 = r"""
+BEGIN IMMEDIATE;
+ALTER TABLE calibration_ratings ADD COLUMN case_fingerprint TEXT
+    CHECK(case_fingerprint IS NULL OR (length(case_fingerprint) = 64 AND case_fingerprint NOT GLOB '*[^a-f0-9]*'));
+ALTER TABLE calibration_ratings ADD COLUMN case_version TEXT
+    CHECK(case_version IS NULL OR length(case_version) BETWEEN 1 AND 64);
+ALTER TABLE calibration_ratings ADD COLUMN window_fingerprint TEXT
+    CHECK(window_fingerprint IS NULL OR (length(window_fingerprint) = 64 AND window_fingerprint NOT GLOB '*[^a-f0-9]*'));
+ALTER TABLE model_judgments ADD COLUMN case_fingerprint TEXT
+    CHECK(case_fingerprint IS NULL OR (length(case_fingerprint) = 64 AND case_fingerprint NOT GLOB '*[^a-f0-9]*'));
+ALTER TABLE model_judgments ADD COLUMN case_version TEXT
+    CHECK(case_version IS NULL OR length(case_version) BETWEEN 1 AND 64);
+COMMIT;
+"""
+

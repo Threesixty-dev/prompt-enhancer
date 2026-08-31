@@ -85,10 +85,136 @@ _SAFE_ACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
+            r"^/v1/agent/sessions/[a-f0-9]{32}/changes/restores/"
+            r"[a-f0-9]{32}/apply$"
+        ),
+        "Restore one reviewed workspace path to its retained session baseline",
+    ),
+    (
+        re.compile(
             r"^/v1/agent/sessions/[a-f0-9]{32,64}/workspace/previews/"
             r"[a-f0-9]{32,64}/apply$"
         ),
         "Apply one previously reviewed workspace edit",
+    ),
+    (
+        re.compile(r"^/v1/agent/sessions/[a-f0-9]{32}/authority$"),
+        "Revalidate protected capabilities for one recovered Agent chat",
+    ),
+    (
+        re.compile(
+            r"^/v1/agent/sessions/[a-f0-9]{32}/workspace/creates/"
+            r"[a-f0-9]{32}/apply$"
+        ),
+        "Create one previously reviewed workspace file",
+    ),
+    (
+        re.compile(
+            r"^/v1/agent/sessions/[a-f0-9]{32}/workspace/directories/"
+            r"[a-f0-9]{32}/apply$"
+        ),
+        "Create one previously reviewed workspace folder",
+    ),
+    (
+        re.compile(
+            r"^/v1/agent/sessions/[a-f0-9]{32}/workspace/directory-moves/"
+            r"[a-f0-9]{32}/apply$"
+        ),
+        "Apply one previously reviewed workspace folder move",
+    ),
+    (
+        re.compile(
+            r"^/v1/agent/sessions/[a-f0-9]{32}/workspace/file-trash/"
+            r"[a-f0-9]{32}/apply$"
+        ),
+        "Move one previously reviewed workspace file to the Recycle Bin",
+    ),
+    (
+        re.compile(
+            r"^/v1/agent/sessions/[a-f0-9]{32}/workspace/moves/"
+            r"[a-f0-9]{32}/apply$"
+        ),
+        "Apply one previously reviewed workspace file move",
+    ),
+    (
+        re.compile(
+            r"^/v1/agent/sessions/[a-f0-9]{32}/workspace/transactions/"
+            r"[a-f0-9]{32}/apply$"
+        ),
+        "Apply one previously reviewed multi-file workspace transaction",
+    ),
+    (
+        re.compile(
+            r"^/v1/agent/projects/[a-f0-9]{32}/sessions/"
+            r"[a-f0-9]{32}/artifacts$"
+        ),
+        "Capture one exact reviewed workspace file as a chat artifact",
+    ),
+    (
+        re.compile(
+            r"^/v1/agent/projects/[a-f0-9]{32}/sessions/"
+            r"[a-f0-9]{32}/artifacts/[a-f0-9]{32}/remove$"
+        ),
+        "Move one archived artifact record to the recoverable Removed view without deleting its workspace file",
+    ),
+    (
+        re.compile(r"^/v1/integrations/agent-mcp/connections$"),
+        "Create one scoped external Agent connection and reveal its credential once",
+    ),
+    (
+        re.compile(
+            r"^/v1/integrations/agent-mcp/connections/[a-f0-9]{32}/rotate$"
+        ),
+        "Rotate one external Agent connection and reveal its replacement credential once",
+    ),
+    (
+        re.compile(
+            r"^/v1/integrations/agent-mcp/connections/[a-f0-9]{32}/revoke$"
+        ),
+        "Revoke one external Agent connection",
+    ),
+    (
+        re.compile(r"^/v1/integrations/mcp-store/managed$"),
+        "Save one reviewed MCP setup plan without installing or starting it",
+    ),
+    (
+        re.compile(
+            r"^/v1/integrations/mcp-store/managed/[a-f0-9]{32}/probe$"
+        ),
+        "Briefly connect one exact reviewed MCP endpoint, inspect bounded tool schemas, then close it without calling tools",
+    ),
+    (
+        re.compile(
+            r"^/v1/integrations/mcp-store/managed/[a-f0-9]{32}/install$"
+        ),
+        "Activate one exact reviewed remote MCP plan without starting a persistent host or granting tool authority",
+    ),
+    (
+        re.compile(
+            r"^/v1/integrations/mcp-store/managed/[a-f0-9]{32}/uninstall$"
+        ),
+        "Remove one remote MCP activation without deleting its reviewed plan or compatibility receipt",
+    ),
+    (
+        re.compile(
+            r"^/v1/integrations/mcp-store/managed/[a-f0-9]{32}/"
+            r"projects/[a-f0-9]{32}$"
+        ),
+        "Change one project's future MCP permission plan; no tool becomes active",
+    ),
+    (
+        re.compile(
+            r"^/v1/integrations/mcp-store/managed/[a-f0-9]{32}/"
+            r"secrets/[a-f0-9]{32}$"
+        ),
+        "Store one MCP credential in the operating-system vault",
+    ),
+    (
+        re.compile(
+            r"^/v1/integrations/mcp-store/managed/[a-f0-9]{32}/"
+            r"secrets/[a-f0-9]{32}/remove$"
+        ),
+        "Remove one MCP credential from the operating-system vault",
     ),
 )
 

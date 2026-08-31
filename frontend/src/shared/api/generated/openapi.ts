@@ -56,6 +56,322 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/catalog/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Catalog Sessions */
+        get: operations["list_catalog_sessions_v1_agent_catalog_sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/catalog/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Catalog Session */
+        get: operations["get_catalog_session_v1_agent_catalog_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Catalog Session */
+        delete: operations["delete_catalog_session_v1_agent_catalog_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Catalog Session */
+        patch: operations["update_catalog_session_v1_agent_catalog_sessions__session_id__patch"];
+        trace?: never;
+    };
+    "/v1/agent/orchestration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Orchestration Manifest */
+        get: operations["orchestration_manifest_v1_agent_orchestration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Projects */
+        get: operations["list_projects_v1_agent_projects_get"];
+        put?: never;
+        /** Create Project */
+        post: operations["create_project_v1_agent_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project */
+        get: operations["get_project_v1_agent_projects__project_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Project */
+        delete: operations["delete_project_v1_agent_projects__project_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Project */
+        patch: operations["update_project_v1_agent_projects__project_id__patch"];
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Project Sessions */
+        get: operations["list_project_sessions_v1_agent_projects__project_id__sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Session Artifacts */
+        get: operations["list_session_artifacts_v1_agent_projects__project_id__sessions__session_id__artifacts_get"];
+        put?: never;
+        /** Capture Session Artifact */
+        post: operations["capture_session_artifact_v1_agent_projects__project_id__sessions__session_id__artifacts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/capture-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Session Artifact Capture */
+        post: operations["preview_session_artifact_capture_v1_agent_projects__project_id__sessions__session_id__artifacts_capture_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Artifact */
+        get: operations["get_session_artifact_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Session Artifact */
+        patch: operations["update_session_artifact_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__patch"];
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/{artifact_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export Session Artifact Lineage */
+        post: operations["export_session_artifact_lineage_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/{artifact_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove Session Artifact */
+        post: operations["remove_session_artifact_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/{artifact_id}/versions/{version_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Artifact Content */
+        get: operations["get_session_artifact_content_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__versions__version_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/{artifact_id}/versions/{version_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Artifact Document Preview */
+        get: operations["get_session_artifact_document_preview_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__versions__version_id__preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/attachments/stage-inline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stage Inline Attachment
+         * @description Admit exact caller-supplied media without accepting a local path.
+         */
+        post: operations["stage_inline_attachment_v1_agent_projects__project_id__sessions__session_id__attachments_stage_inline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Persisted Session Events */
+        get: operations["persisted_session_events_v1_agent_projects__project_id__sessions__session_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Session History */
+        get: operations["export_session_history_v1_agent_projects__project_id__sessions__session_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/forks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fork Retained Session */
+        post: operations["fork_retained_session_v1_agent_projects__project_id__sessions__session_id__forks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume Session */
+        post: operations["resume_session_v1_agent_projects__project_id__sessions__session_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/sessions": {
         parameters: {
             query?: never;
@@ -109,6 +425,177 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/sessions/{session_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Attachments */
+        get: operations["list_attachments_v1_agent_sessions__session_id__attachments_get"];
+        put?: never;
+        /** Stage Attachment */
+        post: operations["stage_attachment_v1_agent_sessions__session_id__attachments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Attachment */
+        delete: operations["delete_attachment_v1_agent_sessions__session_id__attachments__attachment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/attachments/{attachment_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Attachment Content */
+        get: operations["attachment_content_v1_agent_sessions__session_id__attachments__attachment_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/attachments/{attachment_id}/document-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Attachment Document Preview */
+        get: operations["attachment_document_preview_v1_agent_sessions__session_id__attachments__attachment_id__document_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/authority": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revalidate Session Authority */
+        post: operations["revalidate_session_authority_v1_agent_sessions__session_id__authority_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session Changes */
+        get: operations["session_changes_v1_agent_sessions__session_id__changes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/changes/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session Change Diff */
+        get: operations["session_change_diff_v1_agent_sessions__session_id__changes_diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/changes/restores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Change Restore */
+        post: operations["preview_change_restore_v1_agent_sessions__session_id__changes_restores_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/changes/restores/{preview_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Change Restore */
+        post: operations["apply_change_restore_v1_agent_sessions__session_id__changes_restores__preview_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Context */
+        get: operations["get_session_context_v1_agent_sessions__session_id__context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/sessions/{session_id}/events": {
         parameters: {
             query?: never;
@@ -143,6 +630,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/sessions/{session_id}/lifecycle-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose Lifecycle */
+        post: operations["propose_lifecycle_v1_agent_sessions__session_id__lifecycle_proposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/sessions/{session_id}/messages": {
         parameters: {
             query?: never;
@@ -154,6 +658,23 @@ export interface paths {
         put?: never;
         /** Send Message */
         post: operations["send_message_v1_agent_sessions__session_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Switch Session Model */
+        post: operations["switch_session_model_v1_agent_sessions__session_id__model_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -177,6 +698,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/sessions/{session_id}/workspace/creates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Workspace Create */
+        post: operations["preview_workspace_create_v1_agent_sessions__session_id__workspace_creates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/creates/{preview_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Workspace Create */
+        post: operations["apply_workspace_create_v1_agent_sessions__session_id__workspace_creates__preview_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/directories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Workspace Directory Create */
+        post: operations["preview_workspace_directory_create_v1_agent_sessions__session_id__workspace_directories_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/directories/{preview_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Workspace Directory Create */
+        post: operations["apply_workspace_directory_create_v1_agent_sessions__session_id__workspace_directories__preview_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/directory-moves": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Workspace Directory Move */
+        post: operations["preview_workspace_directory_move_v1_agent_sessions__session_id__workspace_directory_moves_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/directory-moves/{preview_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Workspace Directory Move */
+        post: operations["apply_workspace_directory_move_v1_agent_sessions__session_id__workspace_directory_moves__preview_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/discovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace Discovery */
+        get: operations["workspace_discovery_v1_agent_sessions__session_id__workspace_discovery_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/sessions/{session_id}/workspace/file": {
         parameters: {
             query?: never;
@@ -188,6 +828,74 @@ export interface paths {
         get: operations["workspace_file_v1_agent_sessions__session_id__workspace_file_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/file-trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Workspace File Trash */
+        post: operations["preview_workspace_file_trash_v1_agent_sessions__session_id__workspace_file_trash_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/file-trash/{preview_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Workspace File Trash */
+        post: operations["apply_workspace_file_trash_v1_agent_sessions__session_id__workspace_file_trash__preview_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/moves": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Workspace Move */
+        post: operations["preview_workspace_move_v1_agent_sessions__session_id__workspace_moves_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/moves/{preview_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Workspace Move */
+        post: operations["apply_workspace_move_v1_agent_sessions__session_id__workspace_moves__preview_id__apply_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -228,6 +936,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/sessions/{session_id}/workspace/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace Search */
+        get: operations["workspace_search_v1_agent_sessions__session_id__workspace_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Workspace Transaction */
+        post: operations["preview_workspace_transaction_v1_agent_sessions__session_id__workspace_transactions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/transactions/{plan_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Workspace Transaction */
+        post: operations["apply_workspace_transaction_v1_agent_sessions__session_id__workspace_transactions__plan_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/sessions/{session_id}/workspace/tree": {
         parameters: {
             query?: never;
@@ -239,6 +998,40 @@ export interface paths {
         get: operations["workspace_tree_v1_agent_sessions__session_id__workspace_tree_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/write-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose Write */
+        post: operations["propose_write_v1_agent_sessions__session_id__write_proposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/write-transaction-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose Write Transaction */
+        post: operations["propose_write_transaction_v1_agent_sessions__session_id__write_transaction_proposals_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -595,6 +1388,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calibration/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review */
+        post: operations["review_v1_calibration_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calibration/sample": {
         parameters: {
             query?: never;
@@ -685,6 +1495,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/diagnostics/agent-hardening": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Hardening */
+        get: operations["agent_hardening_v1_diagnostics_agent_hardening_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/diagnostics/agent-native-acceptance/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin Agent Native Acceptance
+         * @description Arm only the page-local guide after owned-native confirmation.
+         */
+        post: operations["begin_agent_native_acceptance_v1_diagnostics_agent_native_acceptance_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/discovery/candidates": {
         parameters: {
             query?: never;
@@ -753,6 +1600,572 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/integrations/agent-mcp/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connections */
+        get: operations["list_connections_v1_integrations_agent_mcp_connections_get"];
+        put?: never;
+        /** Create Connection */
+        post: operations["create_connection_v1_integrations_agent_mcp_connections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/agent-mcp/connections/ownerships/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release Controller Ownership
+         * @description Release stale control only after the native backend proves settlement.
+         */
+        post: operations["release_controller_ownership_v1_integrations_agent_mcp_connections_ownerships_release_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/agent-mcp/connections/{connection_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Connection */
+        post: operations["revoke_connection_v1_integrations_agent_mcp_connections__connection_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/agent-mcp/connections/{connection_id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate Connection */
+        post: operations["rotate_connection_v1_integrations_agent_mcp_connections__connection_id__rotate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/agent-mcp/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Client Setup */
+        get: operations["client_setup_v1_integrations_agent_mcp_setup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Catalog */
+        get: operations["list_catalog_v1_integrations_mcp_store_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/icons/{icon_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Icon */
+        get: operations["get_icon_v1_integrations_mcp_store_icons__icon_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Managed */
+        get: operations["list_managed_v1_integrations_mcp_store_managed_get"];
+        put?: never;
+        /** Create Managed */
+        post: operations["create_managed_v1_integrations_mcp_store_managed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Managed */
+        get: operations["get_managed_v1_integrations_mcp_store_managed__management_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Local Cleanup */
+        post: operations["complete_local_cleanup_v1_integrations_mcp_store_managed__management_id__cleanup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/cleanup-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Local Cleanup Preview */
+        get: operations["local_cleanup_preview_v1_integrations_mcp_store_managed__management_id__cleanup_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/configuration-inspection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Inspect Local Configuration */
+        post: operations["inspect_local_configuration_v1_integrations_mcp_store_managed__management_id__configuration_inspection_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/configuration-inspection-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Configuration Inspection Preview */
+        get: operations["configuration_inspection_preview_v1_integrations_mcp_store_managed__management_id__configuration_inspection_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/configuration/{requirement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Store Configuration */
+        post: operations["store_configuration_v1_integrations_mcp_store_managed__management_id__configuration__requirement_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/configuration/{requirement_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove Configuration */
+        post: operations["remove_configuration_v1_integrations_mcp_store_managed__management_id__configuration__requirement_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Install Managed */
+        post: operations["install_managed_v1_integrations_mcp_store_managed__management_id__install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/install-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Install Preview */
+        get: operations["install_preview_v1_integrations_mcp_store_managed__management_id__install_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Probe Managed */
+        post: operations["probe_managed_v1_integrations_mcp_store_managed__management_id__probe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set Project Binding */
+        post: operations["set_project_binding_v1_integrations_mcp_store_managed__management_id__projects__project_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recover Local Operation */
+        post: operations["recover_local_operation_v1_integrations_mcp_store_managed__management_id__recovery_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/recovery-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Local Operation Recovery Preview */
+        get: operations["local_operation_recovery_preview_v1_integrations_mcp_store_managed__management_id__recovery_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rollback Managed Local Package */
+        post: operations["rollback_managed_local_package_v1_integrations_mcp_store_managed__management_id__rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/rollback-cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cleanup Local Rollback Generation */
+        post: operations["cleanup_local_rollback_generation_v1_integrations_mcp_store_managed__management_id__rollback_cleanup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/rollback-cleanup-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Local Rollback Cleanup Preview */
+        get: operations["local_rollback_cleanup_preview_v1_integrations_mcp_store_managed__management_id__rollback_cleanup_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/rollback-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Local Rollback Preview */
+        get: operations["local_rollback_preview_v1_integrations_mcp_store_managed__management_id__rollback_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/secrets/{requirement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Store Secret */
+        post: operations["store_secret_v1_integrations_mcp_store_managed__management_id__secrets__requirement_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/secrets/{requirement_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove Secret */
+        post: operations["remove_secret_v1_integrations_mcp_store_managed__management_id__secrets__requirement_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Managed Tools */
+        get: operations["get_managed_tools_v1_integrations_mcp_store_managed__management_id__tools_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/uninstall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Uninstall Managed */
+        post: operations["uninstall_managed_v1_integrations_mcp_store_managed__management_id__uninstall_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/uninstall-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Uninstall Preview */
+        get: operations["uninstall_preview_v1_integrations_mcp_store_managed__management_id__uninstall_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Update Managed Local Package */
+        post: operations["update_managed_local_package_v1_integrations_mcp_store_managed__management_id__update_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/managed/{management_id}/update-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Local Update Preview */
+        get: operations["local_update_preview_v1_integrations_mcp_store_managed__management_id__update_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/mcp-store/servers/{catalog_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Review Server */
+        get: operations["review_server_v1_integrations_mcp_store_servers__catalog_id__review_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-models": {
         parameters: {
             query?: never;
@@ -765,6 +2178,26 @@ export interface paths {
         put?: never;
         /** Add */
         post: operations["add_v1_local_models_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/compatibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compatibility
+         * @description Path-free model identity and live executable compatibility truth.
+         */
+        get: operations["compatibility_v1_local_models_compatibility_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -788,6 +2221,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-models/downloads/{download_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Download */
+        post: operations["cancel_download_v1_local_models_downloads__download_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/downloads/{download_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause Download */
+        post: operations["pause_download_v1_local_models_downloads__download_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/downloads/{download_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume Download */
+        post: operations["resume_download_v1_local_models_downloads__download_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/downloads/{download_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Download */
+        post: operations["retry_download_v1_local_models_downloads__download_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-models/openai/v1/chat/completions": {
         parameters: {
             query?: never;
@@ -802,6 +2303,26 @@ export interface paths {
          * @description OpenAI-style chat completion routed by the ``model`` field to a running alias.
          */
         post: operations["openai_chat_completions_v1_local_models_openai_v1_chat_completions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/openai/v1/chat/completions/input_tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Openai Chat Input Tokens
+         * @description Exact chat-template input tokens, routed by the OpenAI ``model`` field.
+         */
+        post: operations["openai_chat_input_tokens_v1_local_models_openai_v1_chat_completions_input_tokens_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -839,6 +2360,60 @@ export interface paths {
         get: operations["remote_files_v1_local_models_remote_files_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runtime Status
+         * @description Truthful requested-versus-served state for the one global runtime.
+         */
+        get: operations["runtime_status_v1_local_models_runtime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/runtime/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop Runtime */
+        post: operations["stop_runtime_v1_local_models_runtime_stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/runtime/switch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Switch Runtime */
+        post: operations["switch_runtime_v1_local_models_runtime_switch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -920,6 +2495,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-models/{alias}/chat/completions/input_tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Chat Input Tokens */
+        post: operations["chat_input_tokens_v1_local_models__alias__chat_completions_input_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-models/{alias}/deactivate": {
         parameters: {
             query?: never;
@@ -931,6 +2523,26 @@ export interface paths {
         put?: never;
         /** Deactivate */
         post: operations["deactivate_v1_local_models__alias__deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/{alias}/placement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Placement Admission
+         * @description Conservative device admission for one model and context limit.
+         */
+        get: operations["placement_admission_v1_local_models__alias__placement_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -951,6 +2563,23 @@ export interface paths {
          * @description Same proxy under an OpenAI-style base URL (``…/{alias}/v1``).
          */
         post: operations["chat_completions_openai_base_v1_local_models__alias__v1_chat_completions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/{alias}/v1/chat/completions/input_tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Chat Input Tokens Openai Base */
+        post: operations["chat_input_tokens_openai_base_v1_local_models__alias__v1_chat_completions_input_tokens_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2925,8 +4554,1011 @@ export interface components {
             display_name?: string | null;
             /** Layer Count */
             layer_count?: number | null;
+            /** Mmproj Path */
+            mmproj_path?: string | null;
             /** Path */
             path: string;
+        };
+        /** AgentArtifact */
+        AgentArtifact: {
+            /** Archived At */
+            archived_at?: string | null;
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Availability
+             * @default unchecked
+             * @enum {string}
+             */
+            availability: "unchecked" | "available" | "stale" | "missing" | "malformed";
+            /**
+             * Contract Version
+             * @default agent-artifact.v3
+             * @constant
+             */
+            contract_version: "agent-artifact.v3";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "code" | "markdown" | "text" | "data" | "image" | "pdf" | "document" | "binary";
+            latest_version: components["schemas"]["AgentArtifactVersion"];
+            /**
+             * Lifecycle State
+             * @default active
+             * @enum {string}
+             */
+            lifecycle_state: "active" | "archived" | "removed";
+            /** Path */
+            path: string;
+            /** Project Id */
+            project_id: string;
+            /** Removed At */
+            removed_at?: string | null;
+            /** Revision */
+            revision: number;
+            /** Session Id */
+            session_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version Count */
+            version_count: number;
+        };
+        /** AgentArtifactCapturePreview */
+        AgentArtifactCapturePreview: {
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Contract Version
+             * @default agent-artifact-capture-preview.v1
+             * @constant
+             */
+            contract_version: "agent-artifact-capture-preview.v1";
+            /**
+             * File Content Included
+             * @default false
+             * @constant
+             */
+            file_content_included: false;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "code" | "markdown" | "text" | "data" | "image" | "pdf" | "document" | "binary";
+            /** Media Type */
+            media_type: string;
+            /** Path */
+            path: string;
+            /**
+             * Preview Kind
+             * @enum {string}
+             */
+            preview_kind: "text" | "image" | "pdf" | "document" | "download_only";
+            /** Project Id */
+            project_id: string;
+            /**
+             * Requires Native Confirmation
+             * @default true
+             * @constant
+             */
+            requires_native_confirmation: true;
+            /** Session Id */
+            session_id: string;
+            /** Sha256 */
+            sha256: string;
+            /** Title */
+            title: string;
+        };
+        /** AgentArtifactDetail */
+        AgentArtifactDetail: {
+            /** Archived At */
+            archived_at?: string | null;
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Availability
+             * @default unchecked
+             * @enum {string}
+             */
+            availability: "unchecked" | "available" | "stale" | "missing" | "malformed";
+            /**
+             * Contract Version
+             * @default agent-artifact.v3
+             * @constant
+             */
+            contract_version: "agent-artifact.v3";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "code" | "markdown" | "text" | "data" | "image" | "pdf" | "document" | "binary";
+            latest_version: components["schemas"]["AgentArtifactVersion"];
+            /**
+             * Lifecycle State
+             * @default active
+             * @enum {string}
+             */
+            lifecycle_state: "active" | "archived" | "removed";
+            /** Path */
+            path: string;
+            /** Project Id */
+            project_id: string;
+            /** Removed At */
+            removed_at?: string | null;
+            /** Revision */
+            revision: number;
+            /** Session Id */
+            session_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version Count */
+            version_count: number;
+            /** Versions */
+            versions: components["schemas"]["AgentArtifactVersion"][];
+        };
+        /**
+         * AgentArtifactExport
+         * @description Portable lineage metadata created only after exact local byte read-back.
+         *
+         *     The export deliberately contains no file bytes and no absolute workspace
+         *     path.  The separately labelled Download action remains the only byte export.
+         */
+        AgentArtifactExport: {
+            /**
+             * Absolute Path Included
+             * @default false
+             * @constant
+             */
+            absolute_path_included: false;
+            artifact: components["schemas"]["AgentArtifactDetail"];
+            /**
+             * Content Included
+             * @default false
+             * @constant
+             */
+            content_included: false;
+            /**
+             * Contract Version
+             * @default agent-artifact-export.v1
+             * @constant
+             */
+            contract_version: "agent-artifact-export.v1";
+            evidence: components["schemas"]["AgentArtifactExportEvidence"];
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            selected_version: components["schemas"]["AgentArtifactVersion"];
+            /**
+             * Sensitivity
+             * @default sensitive_local_metadata
+             * @constant
+             */
+            sensitivity: "sensitive_local_metadata";
+        };
+        /** AgentArtifactExportEvidence */
+        AgentArtifactExportEvidence: {
+            /**
+             * Algorithm
+             * @default sha256
+             * @constant
+             */
+            algorithm: "sha256";
+            /** Byte Size */
+            byte_size: number;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Verification
+             * @default exact_current_workspace_readback
+             * @constant
+             */
+            verification: "exact_current_workspace_readback";
+            /**
+             * Verified
+             * @default true
+             * @constant
+             */
+            verified: true;
+        };
+        /** AgentArtifactLifecycleCounts */
+        AgentArtifactLifecycleCounts: {
+            /** Active */
+            active: number;
+            /** Archived */
+            archived: number;
+            /** Removed */
+            removed: number;
+            /** Total */
+            total: number;
+        };
+        /** AgentArtifactList */
+        AgentArtifactList: {
+            /** Artifacts */
+            artifacts: components["schemas"]["AgentArtifact"][];
+            /**
+             * Contract Version
+             * @default agent-artifact.v3
+             * @constant
+             */
+            contract_version: "agent-artifact.v3";
+            counts: components["schemas"]["AgentArtifactLifecycleCounts"];
+            /** Project Id */
+            project_id: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * View
+             * @default active
+             * @enum {string}
+             */
+            view: "active" | "archived" | "removed" | "all";
+        };
+        /** AgentArtifactVersion */
+        AgentArtifactVersion: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Contract Version
+             * @default agent-artifact.v3
+             * @constant
+             */
+            contract_version: "agent-artifact.v3";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Media Type */
+            media_type: string;
+            /** Path */
+            path: string;
+            /**
+             * Preview Kind
+             * @enum {string}
+             */
+            preview_kind: "text" | "image" | "pdf" | "document" | "download_only";
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "reviewed_write" | "reviewed_move" | "verified_output" | "generated_unverified" | "external_effect_unknown";
+            /** Sha256 */
+            sha256: string;
+            /** Source Event Seq */
+            source_event_seq?: number | null;
+            /** Source Turn Id */
+            source_turn_id?: string | null;
+            /** Version Id */
+            version_id: string;
+            /** Version Number */
+            version_number: number;
+        };
+        /**
+         * AgentAttachment
+         * @description One private staged or message-bound attachment in the local vault.
+         */
+        AgentAttachment: {
+            /** Attached Event Seq */
+            attached_event_seq?: number | null;
+            /** Attachment Id */
+            attachment_id: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Capability Probe Version */
+            capability_probe_version: string;
+            /** Channels */
+            channels?: number | null;
+            /**
+             * Context Cost Source
+             * @default runtime_unreported
+             * @constant
+             */
+            context_cost_source: "runtime_unreported";
+            /** Context Tokens */
+            context_tokens?: null;
+            /**
+             * Contract Version
+             * @default agent-attachment.v2
+             * @constant
+             */
+            contract_version: "agent-attachment.v2";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string;
+            /** Document Format */
+            document_format?: ("plain_text" | "markdown" | "json" | "csv" | "tsv" | "docx" | "pptx" | "xlsx" | "odt") | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Height */
+            height?: number | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "image" | "audio" | "document";
+            /**
+             * Media Type
+             * @enum {string}
+             */
+            media_type: "image/png" | "image/jpeg" | "audio/wav" | "text/plain" | "text/markdown" | "application/json" | "text/csv" | "text/tab-separated-values" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document" | "application/vnd.openxmlformats-officedocument.presentationml.presentation" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" | "application/vnd.oasis.opendocument.text";
+            /** Model Alias */
+            model_alias: string;
+            /**
+             * Omitted Features
+             * @default []
+             */
+            omitted_features: ("comments" | "embedded_objects" | "external_links" | "macros" | "media" | "notes")[];
+            /** Projected Characters */
+            projected_characters?: number | null;
+            /** Projection Truncated */
+            projection_truncated?: boolean | null;
+            /**
+             * Retention
+             * @enum {string}
+             */
+            retention: "memory_only" | "local_history";
+            /**
+             * Routing
+             * @default native_multimodal
+             * @enum {string}
+             */
+            routing: "native_multimodal" | "local_text_projection";
+            /** Sample Rate Hz */
+            sample_rate_hz?: number | null;
+            /** Session Id */
+            session_id: string;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "file" | "microphone" | "external_agent";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "staged" | "attached";
+            /** Width */
+            width?: number | null;
+        };
+        /**
+         * AgentAttachmentDocumentPreview
+         * @description Private, no-store excerpt of one locally projected document.
+         */
+        AgentAttachmentDocumentPreview: {
+            /** Attachment Id */
+            attachment_id: string;
+            /**
+             * Contract Version
+             * @default agent-attachment-document-preview.v1
+             * @constant
+             */
+            contract_version: "agent-attachment-document-preview.v1";
+            /**
+             * Document Format
+             * @enum {string}
+             */
+            document_format: "plain_text" | "markdown" | "json" | "csv" | "tsv" | "docx" | "pptx" | "xlsx" | "odt";
+            /**
+             * Media Type
+             * @enum {string}
+             */
+            media_type: "image/png" | "image/jpeg" | "audio/wav" | "text/plain" | "text/markdown" | "application/json" | "text/csv" | "text/tab-separated-values" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document" | "application/vnd.openxmlformats-officedocument.presentationml.presentation" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" | "application/vnd.oasis.opendocument.text";
+            /**
+             * Omitted Features
+             * @default []
+             */
+            omitted_features: ("comments" | "embedded_objects" | "external_links" | "macros" | "media" | "notes")[];
+            /** Preview Truncated */
+            preview_truncated: boolean;
+            /** Projected Characters */
+            projected_characters: number;
+            /** Projection Truncated */
+            projection_truncated: boolean;
+            /** Session Id */
+            session_id: string;
+            /** Sha256 */
+            sha256: string;
+            /** Text */
+            text: string;
+        };
+        /** AgentAttachmentList */
+        AgentAttachmentList: {
+            /** Attachments */
+            attachments: components["schemas"]["AgentAttachment"][];
+            /**
+             * Contract Version
+             * @default agent-attachment.v2
+             * @constant
+             */
+            contract_version: "agent-attachment.v2";
+            /** Session Id */
+            session_id: string;
+        };
+        /** AgentCatalogHardeningStatus */
+        AgentCatalogHardeningStatus: {
+            counts?: components["schemas"]["AgentPersistenceCounts"] | null;
+            /**
+             * Foreign Key Scan Truncated
+             * @default false
+             */
+            foreign_key_scan_truncated: boolean;
+            /** Foreign Key Violations Observed */
+            foreign_key_violations_observed?: number | null;
+            /** Projection Violations */
+            projection_violations?: number | null;
+            /** Quick Check Passed */
+            quick_check_passed?: boolean | null;
+            reason_code?: components["schemas"]["AgentHardeningReason"] | null;
+            /** Schema Version */
+            schema_version?: number | null;
+            state: components["schemas"]["AgentHardeningState"];
+        };
+        /** AgentCatalogSessionList */
+        AgentCatalogSessionList: {
+            /**
+             * Contract Version
+             * @default agent-catalog.v2
+             * @constant
+             */
+            contract_version: "agent-catalog.v2";
+            /** Sessions */
+            sessions: components["schemas"]["AgentCatalogSessionRecord"][];
+        };
+        /** AgentCatalogSessionRecord */
+        AgentCatalogSessionRecord: {
+            /** Archived At */
+            archived_at?: string | null;
+            /**
+             * Contract Version
+             * @default agent-catalog.v2
+             * @constant
+             */
+            contract_version: "agent-catalog.v2";
+            /**
+             * Conversation Available
+             * @default false
+             */
+            conversation_available: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * History Revision
+             * @default 0
+             */
+            history_revision: number;
+            history_state: components["schemas"]["AgentHistoryState"];
+            /**
+             * Last Event Seq
+             * @default 0
+             */
+            last_event_seq: number;
+            /**
+             * Last Opened At
+             * Format: date-time
+             */
+            last_opened_at: string;
+            lineage: components["schemas"]["AgentSessionLineage"] | null;
+            /** Model Alias */
+            model_alias?: string | null;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /** Project Id */
+            project_id: string;
+            /** @default metadata_only */
+            retention_policy: components["schemas"]["AgentRetentionPolicy"];
+            /** Revision */
+            revision: number;
+            /** Session Id */
+            session_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Turn Count
+             * @default 0
+             */
+            turn_count: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Workspace */
+            workspace: string;
+        };
+        /** AgentChangeDiff */
+        AgentChangeDiff: {
+            /** Added Lines */
+            added_lines?: number | null;
+            /**
+             * Contract Version
+             * @default agent-change-set.v1
+             * @constant
+             */
+            contract_version: "agent-change-set.v1";
+            /** Diff */
+            diff?: string | null;
+            /**
+             * Diff State
+             * @enum {string}
+             */
+            diff_state: "available" | "no_change" | "line_ending_only" | "too_large" | "unavailable";
+            /** Removed Lines */
+            removed_lines?: number | null;
+            /** Session Id */
+            session_id: string;
+            summary: components["schemas"]["AgentChangedFile"];
+        };
+        /** AgentChangeRestoreApplyCommand */
+        AgentChangeRestoreApplyCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_reviewed_change_restore";
+            /** Expected Revision */
+            expected_revision?: string | null;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "edit" | "recreate" | "trash_created";
+            /** Path */
+            path: string;
+            /** Restored Revision */
+            restored_revision?: string | null;
+        };
+        /** AgentChangeRestoreApplyResult */
+        AgentChangeRestoreApplyResult: {
+            /**
+             * Applied
+             * @default true
+             * @constant
+             */
+            applied: true;
+            /**
+             * Baseline State
+             * @enum {string}
+             */
+            baseline_state: "present" | "absent";
+            /** Change Set Reason */
+            change_set_reason?: ("publication_unverified" | "current_revision_changed" | "review_chain_gap" | "current_file_missing" | "current_file_unavailable" | "baseline_not_retained") | "tracking_failed" | null;
+            /** Change Set Verification */
+            change_set_verification: ("verified" | "partial" | "unverified" | "unavailable") | "tracking_unavailable";
+            /**
+             * Contract Version
+             * @default agent-change-restore.v1
+             * @constant
+             */
+            contract_version: "agent-change-restore.v1";
+            /** Current Byte Size */
+            current_byte_size?: number | null;
+            /** Current Revision */
+            current_revision?: string | null;
+            /**
+             * Filesystem Verification
+             * @default verified
+             * @constant
+             */
+            filesystem_verification: "verified";
+            /**
+             * Net Effect
+             * @default reverted
+             * @constant
+             */
+            net_effect: "reverted";
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "edit" | "recreate" | "trash_created";
+            /** Path */
+            path: string;
+            /**
+             * Permanent
+             * @default false
+             * @constant
+             */
+            permanent: false;
+            /**
+             * Recovery
+             * @enum {string}
+             */
+            recovery: "revision_bound_write" | "windows_recycle_bin";
+            /** Session Id */
+            session_id: string;
+        };
+        /** AgentChangeRestorePreview */
+        AgentChangeRestorePreview: {
+            /** Added Lines */
+            added_lines: number;
+            /**
+             * Baseline State
+             * @enum {string}
+             */
+            baseline_state: "present" | "absent";
+            /**
+             * Contract Version
+             * @default agent-change-restore.v1
+             * @constant
+             */
+            contract_version: "agent-change-restore.v1";
+            /** Diff */
+            diff?: string | null;
+            /**
+             * Diff State
+             * @enum {string}
+             */
+            diff_state: "available" | "line_ending_only" | "too_large";
+            /** Expected Revision */
+            expected_revision?: string | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Line Ending */
+            line_ending?: ("lf" | "crlf" | "none") | null;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "edit" | "recreate" | "trash_created";
+            /** Path */
+            path: string;
+            /**
+             * Permanent
+             * @default false
+             * @constant
+             */
+            permanent: false;
+            /** Preview Id */
+            preview_id: string;
+            /**
+             * Recovery
+             * @enum {string}
+             */
+            recovery: "revision_bound_write" | "windows_recycle_bin";
+            /** Removed Lines */
+            removed_lines: number;
+            /**
+             * Requires Native Confirmation
+             * @default true
+             * @constant
+             */
+            requires_native_confirmation: true;
+            /** Restored Byte Size */
+            restored_byte_size?: number | null;
+            /** Restored Revision */
+            restored_revision?: string | null;
+            /** Session Id */
+            session_id: string;
+        };
+        /** AgentChangeRestorePreviewCommand */
+        AgentChangeRestorePreviewCommand: {
+            /** Path */
+            path: string;
+        };
+        /** AgentChangeSet */
+        AgentChangeSet: {
+            /** Agent Writes */
+            agent_writes: number;
+            /** Command Attempts */
+            command_attempts: number;
+            /**
+             * Contract Version
+             * @default agent-change-set.v1
+             * @constant
+             */
+            contract_version: "agent-change-set.v1";
+            /**
+             * Coverage
+             * @enum {string}
+             */
+            coverage: "complete" | "partial";
+            /** Files */
+            files: components["schemas"]["AgentChangedFile"][];
+            /** Manual Writes */
+            manual_writes: number;
+            /** Omitted Write Receipts */
+            omitted_write_receipts: number;
+            /** Reviewed Noops */
+            reviewed_noops: number;
+            /** Reviewed Writes */
+            reviewed_writes: number;
+            /**
+             * Scope
+             * @default reviewed_paths_only
+             * @constant
+             */
+            scope: "reviewed_paths_only";
+            /** Session Id */
+            session_id: string;
+            /** Settled */
+            settled: boolean;
+            /** Tracking Failed */
+            tracking_failed: boolean;
+            /** Unverified Writes */
+            unverified_writes: number;
+            /** Verified Writes */
+            verified_writes: number;
+        };
+        /** AgentChangedFile */
+        AgentChangedFile: {
+            /** Agent Writes */
+            agent_writes: number;
+            /** Current Byte Size */
+            current_byte_size?: number | null;
+            /** Diff Available */
+            diff_available: boolean;
+            /** Manual Writes */
+            manual_writes: number;
+            /**
+             * Net Effect
+             * @enum {string}
+             */
+            net_effect: "created" | "modified" | "deleted" | "reverted" | "unknown";
+            /** Path */
+            path: string;
+            /** Reason */
+            reason?: ("publication_unverified" | "current_revision_changed" | "review_chain_gap" | "current_file_missing" | "current_file_unavailable" | "baseline_not_retained") | null;
+            /** Reviewed Writes */
+            reviewed_writes: number;
+            /**
+             * Verification
+             * @enum {string}
+             */
+            verification: "verified" | "partial" | "unverified" | "unavailable";
+        };
+        /** AgentControllerHandoff */
+        AgentControllerHandoff: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Offered At
+             * Format: date-time
+             */
+            offered_at: string;
+            /**
+             * Target Client Kind
+             * @enum {string}
+             */
+            target_client_kind: "codex" | "claude" | "other";
+            /** Target Connection Id */
+            target_connection_id: string;
+            /** Target Label */
+            target_label: string;
+        };
+        /**
+         * AgentControllerOwnership
+         * @description Exact current owner of one live Agent chat operation.
+         */
+        AgentControllerOwnership: {
+            /** Approval Pending */
+            approval_pending: boolean;
+            /**
+             * Contract Version
+             * @default agent-controller-ownership.v1
+             * @constant
+             */
+            contract_version: "agent-controller-ownership.v1";
+            /** Cursor */
+            cursor: number;
+            handoff?: components["schemas"]["AgentControllerHandoff"] | null;
+            /** Last Seq */
+            last_seq: number;
+            /**
+             * Native Approval Inherited
+             * @default false
+             * @constant
+             */
+            native_approval_inherited: false;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "turn" | "write_proposal" | "transaction_proposal" | "lifecycle_proposal";
+            /**
+             * Owner Client Kind
+             * @enum {string}
+             */
+            owner_client_kind: "codex" | "claude" | "other";
+            /** Owner Connection Id */
+            owner_connection_id: string;
+            /** Owner Label */
+            owner_label: string;
+            /**
+             * Owner Since
+             * Format: date-time
+             */
+            owner_since: string;
+            /**
+             * Ownership Started At
+             * Format: date-time
+             */
+            ownership_started_at: string;
+            /** Project Id */
+            project_id: string;
+            /** Project Name */
+            project_name: string;
+            /** Revision */
+            revision: number;
+            /** Session Id */
+            session_id: string;
+            /** Session Title */
+            session_title: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "claimed" | "running" | "waiting_native_approval" | "reconnecting" | "submission_uncertain" | "stopping" | "stop_uncertain" | "cleanup_unconfirmed" | "revoked";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** AgentControllerOwnershipList */
+        AgentControllerOwnershipList: {
+            /** Active Count */
+            active_count: number;
+            /**
+             * Contract Version
+             * @default agent-controller-ownership-list.v1
+             * @constant
+             */
+            contract_version: "agent-controller-ownership-list.v1";
+            /** Ownerships */
+            ownerships: components["schemas"]["AgentControllerOwnership"][];
+        };
+        /** AgentControllerOwnershipReleaseReceipt */
+        AgentControllerOwnershipReleaseReceipt: {
+            /**
+             * Contract Version
+             * @default agent-controller-ownership.v1
+             * @constant
+             */
+            contract_version: "agent-controller-ownership.v1";
+            /**
+             * Native Approval Inherited
+             * @default false
+             * @constant
+             */
+            native_approval_inherited: false;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Released At
+             * Format: date-time
+             */
+            released_at: string;
+            /**
+             * Released By
+             * @enum {string}
+             */
+            released_by: "owner" | "native";
+            /** Released Connection Id */
+            released_connection_id: string;
+            /** Released Revision */
+            released_revision: number;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Session Settled
+             * @default true
+             * @constant
+             */
+            session_settled: true;
+        };
+        /** AgentDocumentPreview */
+        AgentDocumentPreview: {
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Contract Version
+             * @default agent-document-preview.v1
+             * @constant
+             */
+            contract_version: "agent-document-preview.v1";
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "docx" | "pptx" | "xlsx" | "odt";
+            /**
+             * Omitted Features
+             * @default []
+             */
+            omitted_features: ("comments" | "embedded_objects" | "external_links" | "macros" | "media" | "notes")[];
+            /** Project Id */
+            project_id: string;
+            /** Sections */
+            sections: components["schemas"]["AgentDocumentPreviewSection"][];
+            /** Session Id */
+            session_id: string;
+            /** Source Byte Size */
+            source_byte_size: number;
+            /** Source Sha256 */
+            source_sha256: string;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Version Id */
+            version_id: string;
+        };
+        /** AgentDocumentPreviewRow */
+        AgentDocumentPreviewRow: {
+            /** Cells */
+            cells: string[];
+        };
+        /** AgentDocumentPreviewSection */
+        AgentDocumentPreviewSection: {
+            /** Index */
+            index: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "document" | "slide" | "sheet";
+            /**
+             * Paragraphs
+             * @default []
+             */
+            paragraphs: string[];
+            /**
+             * Rows
+             * @default []
+             */
+            rows: components["schemas"]["AgentDocumentPreviewRow"][];
+            /** Title */
+            title: string;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
         };
         /** AgentEvent */
         AgentEvent: {
@@ -2941,13 +5573,21 @@ export interface components {
              * Format: date-time
              */
             at: string;
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: components["schemas"]["AgentMessageAttachment"][];
             /** Call Id */
             call_id?: string | null;
+            execution_receipt?: components["schemas"]["AgentToolExecutionReceipt"] | null;
             /**
              * Kind
              * @enum {string}
              */
             kind: "user" | "assistant" | "assistant_delta" | "tool_call" | "tool_result" | "approval_required" | "approval_resolved" | "status" | "error" | "done";
+            mcp_result?: components["schemas"]["AgentMcpToolResultReceipt"] | null;
+            mcp_tool?: components["schemas"]["AgentMcpToolDescriptor"] | null;
             /** Ok */
             ok?: boolean | null;
             /** Preview */
@@ -2964,15 +5604,25 @@ export interface components {
             text?: string | null;
             /** Tool */
             tool?: string | null;
+            /** Tool State */
+            tool_state?: ("succeeded" | "failed" | "not_approved" | "cancelled" | "unverified") | null;
+            /** Turn Id */
+            turn_id?: string | null;
+            turn_summary?: components["schemas"]["AgentTurnSummary"] | null;
+            write_receipt?: components["schemas"]["AgentWriteReceipt"] | null;
         };
         /** AgentEvents */
         AgentEvents: {
+            /** Cleanup Unconfirmed */
+            cleanup_unconfirmed: boolean;
+            /** Closing */
+            closing: boolean;
             /**
              * Contract Version
-             * @default local-agent.v2
+             * @default local-agent.v9
              * @constant
              */
-            contract_version: "local-agent.v2";
+            contract_version: "local-agent.v9";
             /** Events */
             events: components["schemas"]["AgentEvent"][];
             /**
@@ -2988,6 +5638,569 @@ export interface components {
             running: boolean;
             /** Session Id */
             session_id: string;
+            /** Stopping */
+            stopping: boolean;
+        };
+        /**
+         * AgentHardeningReason
+         * @enum {string}
+         */
+        AgentHardeningReason: "catalog_path_invalid" | "catalog_path_unsafe" | "catalog_schema_newer" | "catalog_storage_unavailable" | "catalog_quick_check_failed" | "catalog_foreign_key_violation" | "catalog_projection_mismatch" | "catalog_diagnostic_unavailable";
+        /**
+         * AgentHardeningSnapshot
+         * @description Owner-invoked diagnostic snapshot with no sensitive Agent content.
+         */
+        AgentHardeningSnapshot: {
+            catalog: components["schemas"]["AgentCatalogHardeningStatus"];
+            /**
+             * Contains Content
+             * @default false
+             * @constant
+             */
+            contains_content: false;
+            /**
+             * Contract Version
+             * @default agent-hardening.v1
+             * @constant
+             */
+            contract_version: "agent-hardening.v1";
+            /**
+             * Generated On Demand
+             * @default true
+             * @constant
+             */
+            generated_on_demand: true;
+            live: components["schemas"]["AgentLiveHardeningStatus"];
+            /**
+             * Recovery Actions
+             * @default []
+             */
+            recovery_actions: components["schemas"]["AgentRecoveryAction"][];
+            recovery_state: components["schemas"]["AgentRecoveryState"];
+        };
+        /**
+         * AgentHardeningState
+         * @enum {string}
+         */
+        AgentHardeningState: "ready" | "degraded" | "unavailable";
+        /**
+         * AgentHistoryExport
+         * @description Explicit local export; returned only from the owner-invoked endpoint.
+         */
+        AgentHistoryExport: {
+            /**
+             * Contract Version
+             * @default agent-history.v1
+             * @constant
+             */
+            contract_version: "agent-history.v1";
+            /** Events */
+            events: components["schemas"]["StoredAgentEvent"][];
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            /** History Revision */
+            history_revision: number;
+            /**
+             * Interrupted
+             * @default false
+             */
+            interrupted: boolean;
+            /** Model Alias */
+            model_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Title */
+            title: string;
+            /** Turn Count */
+            turn_count: number;
+            /** Workspace */
+            workspace: string;
+        };
+        /**
+         * AgentHistoryState
+         * @description Truthful availability of conversation content for a catalog session.
+         * @enum {string}
+         */
+        AgentHistoryState: "memory_only" | "durable_local";
+        /**
+         * AgentLifecycleProposal
+         * @description One exact external workspace lifecycle action offered for native review.
+         *
+         *     The controller can prepare a review but cannot apply it. File moves and
+         *     recoverable trash are bound to the exact source revision observed by the
+         *     caller. Directory operations remain no-overwrite and are rebound to a
+         *     one-shot native preview before any effect.
+         */
+        AgentLifecycleProposal: {
+            /** Expected Revision */
+            expected_revision?: string | null;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "create_directory" | "move_directory" | "move_file" | "trash_file";
+            /** Path */
+            path?: string | null;
+            /** Request Id */
+            request_id: string;
+            /** Source Path */
+            source_path?: string | null;
+            /** Target Path */
+            target_path?: string | null;
+        };
+        /**
+         * AgentLifecycleProposalReceipt
+         * @description Content-free receipt for one idempotent lifecycle proposal.
+         */
+        AgentLifecycleProposalReceipt: {
+            /** Approval Id */
+            approval_id?: string | null;
+            /**
+             * Contract Version
+             * @default agent-lifecycle-proposal.v1
+             * @constant
+             */
+            contract_version: "agent-lifecycle-proposal.v1";
+            /** Cursor */
+            cursor: number;
+            /** Expected Revision */
+            expected_revision?: string | null;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "create_directory" | "move_directory" | "move_file" | "trash_file";
+            /** Path */
+            path?: string | null;
+            /** Permanent */
+            permanent?: boolean | null;
+            /** Recovery */
+            recovery?: "windows_recycle_bin" | null;
+            /** Request Id */
+            request_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Path */
+            source_path?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending_native_review" | "applied" | "not_approved" | "cancelled" | "failed" | "unverified";
+            /** Target Path */
+            target_path?: string | null;
+            /** Verified */
+            verified: boolean;
+        };
+        /**
+         * AgentLiveHardeningFacts
+         * @description Content-free state observed from the current in-memory Agent service.
+         */
+        AgentLiveHardeningFacts: {
+            /** Cleanup Unconfirmed */
+            cleanup_unconfirmed: number;
+            /** Closing Sessions */
+            closing_sessions: number;
+            /** Command Cleanup Quarantined */
+            command_cleanup_quarantined: boolean;
+            /** History Write Failures */
+            history_write_failures: number;
+            /** Pending Approvals */
+            pending_approvals: number;
+            /** Recovered Read Only */
+            recovered_read_only: number;
+            /** Running Turns */
+            running_turns: number;
+            /** Sessions */
+            sessions: number;
+            /** Shutting Down */
+            shutting_down: boolean;
+        };
+        /** AgentLiveHardeningStatus */
+        AgentLiveHardeningStatus: {
+            counts?: components["schemas"]["AgentLiveHardeningFacts"] | null;
+            /** Reason Code */
+            reason_code?: "live_state_unavailable" | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "unavailable";
+        };
+        /**
+         * AgentMcpClientSetup
+         * @description Token-free client setup preview; grants no connection authority.
+         */
+        AgentMcpClientSetup: {
+            /**
+             * Bearer Token Env Var
+             * @default PROMPT_ENHANCER_AGENT_MCP_TOKEN
+             * @constant
+             */
+            bearer_token_env_var: "PROMPT_ENHANCER_AGENT_MCP_TOKEN";
+            /** Claude Add Command */
+            claude_add_command: string;
+            /** Claude Json */
+            claude_json: string;
+            /** Codex Add Command */
+            codex_add_command: string;
+            /** Codex Toml */
+            codex_toml: string;
+            /**
+             * Connection Authority Granted
+             * @default false
+             * @constant
+             */
+            connection_authority_granted: false;
+            /**
+             * Contract Version
+             * @default agent-mcp-client-setup.v1
+             * @constant
+             */
+            contract_version: "agent-mcp-client-setup.v1";
+            /**
+             * Credential Included
+             * @default false
+             * @constant
+             */
+            credential_included: false;
+            /** Endpoint Url */
+            endpoint_url: string;
+            /**
+             * Native Connection Required
+             * @default true
+             * @constant
+             */
+            native_connection_required: true;
+            /**
+             * Provider Configuration Changed
+             * @default false
+             * @constant
+             */
+            provider_configuration_changed: false;
+            /**
+             * Starts Process
+             * @default false
+             * @constant
+             */
+            starts_process: false;
+            /**
+             * Starts Terminal
+             * @default false
+             * @constant
+             */
+            starts_terminal: false;
+        };
+        /** AgentMcpConnection */
+        AgentMcpConnection: {
+            /** Allow Model Lifecycle */
+            allow_model_lifecycle: boolean;
+            /**
+             * Client Kind
+             * @enum {string}
+             */
+            client_kind: "codex" | "claude" | "other";
+            /** Connection Id */
+            connection_id: string;
+            /**
+             * Contract Version
+             * @default agent-mcp-connection.v4
+             * @constant
+             */
+            contract_version: "agent-mcp-connection.v4";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Credential Revision */
+            credential_revision: number;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Label */
+            label: string;
+            /** Last Auth Rejected At */
+            last_auth_rejected_at: string | null;
+            /** Last Tool At */
+            last_tool_at: string | null;
+            /** Last Tool Name */
+            last_tool_name?: string | null;
+            /** Last Tool Outcome */
+            last_tool_outcome: ("succeeded" | "failed") | null;
+            /** Last Tool Source */
+            last_tool_source: ("external_client" | "native_self_test") | null;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Revision */
+            revision: number;
+            /** Revoked At */
+            revoked_at: string | null;
+            scope: components["schemas"]["AgentMcpConnectionScope"];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "expired" | "revoked" | "scope_missing";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * AgentMcpConnectionCredential
+         * @description One-time private response; the bearer and inline configs are not stored.
+         */
+        AgentMcpConnectionCredential: {
+            /** Bearer Token */
+            bearer_token: string;
+            /** Claude Json */
+            claude_json: string;
+            /** Codex Toml */
+            codex_toml: string;
+            connection: components["schemas"]["AgentMcpConnection"];
+            /**
+             * Contract Version
+             * @default agent-mcp-connection.v4
+             * @constant
+             */
+            contract_version: "agent-mcp-connection.v4";
+            /** Endpoint Url */
+            endpoint_url: string;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            /**
+             * Secret Stored By Server
+             * @default false
+             * @constant
+             */
+            secret_stored_by_server: false;
+            /**
+             * Starts Process
+             * @default false
+             * @constant
+             */
+            starts_process: false;
+            /**
+             * Starts Terminal
+             * @default false
+             * @constant
+             */
+            starts_terminal: false;
+        };
+        /** AgentMcpConnectionList */
+        AgentMcpConnectionList: {
+            /** Active Count */
+            active_count: number;
+            /** Connections */
+            connections: components["schemas"]["AgentMcpConnection"][];
+            /**
+             * Contract Version
+             * @default agent-mcp-management.v1
+             * @constant
+             */
+            contract_version: "agent-mcp-management.v1";
+            controller_ownerships: components["schemas"]["AgentControllerOwnershipList"];
+        };
+        /**
+         * AgentMcpConnectionScope
+         * @description Exact project boundary carried by one direct-controller credential.
+         */
+        AgentMcpConnectionScope: {
+            /**
+             * Catalog Access
+             * @enum {string}
+             */
+            catalog_access: "project_only" | "none";
+            /**
+             * Chat Access
+             * @enum {string}
+             */
+            chat_access: "project_only" | "none";
+            /**
+             * Contract Version
+             * @default agent-mcp-scope.v1
+             * @constant
+             */
+            contract_version: "agent-mcp-scope.v1";
+            /**
+             * Native Approval Inherited
+             * @default false
+             * @constant
+             */
+            native_approval_inherited: false;
+            /** Project Id */
+            project_id?: string | null;
+            /** Project Name */
+            project_name?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "bound" | "missing";
+            /**
+             * Workspace Access
+             * @enum {string}
+             */
+            workspace_access: "project_only" | "none";
+        };
+        /**
+         * AgentMcpToolDescriptor
+         * @description Safe display identity for one exact managed MCP tool.
+         *
+         *     Project, host, endpoint, argument and credential material is deliberately
+         *     absent so this descriptor may be retained with local Agent history.
+         */
+        AgentMcpToolDescriptor: {
+            /**
+             * Contract Version
+             * @default agent-mcp-tool.v1
+             * @constant
+             */
+            contract_version: "agent-mcp-tool.v1";
+            /**
+             * Every Call Requires Native Approval
+             * @default true
+             * @constant
+             */
+            every_call_requires_native_approval: true;
+            /** Model Alias */
+            model_alias: string;
+            /** Server Title */
+            server_title: string;
+            /**
+             * Source
+             * @default managed_mcp
+             * @constant
+             */
+            source: "managed_mcp";
+            /** Tool Name */
+            tool_name: string;
+            /** Tool Title */
+            tool_title?: string | null;
+        };
+        /**
+         * AgentMcpToolResultReceipt
+         * @description Content-free terminal evidence projected into the Agent timeline.
+         */
+        AgentMcpToolResultReceipt: {
+            /**
+             * Arguments Persisted
+             * @default false
+             * @constant
+             */
+            arguments_persisted: false;
+            /** Cleanup Verified */
+            cleanup_verified: boolean;
+            /**
+             * Content Mode
+             * @enum {string}
+             */
+            content_mode: "text" | "structured_json" | "text_and_structured_json" | "none";
+            /**
+             * Contract Version
+             * @default agent-mcp-tool-result.v1
+             * @constant
+             */
+            contract_version: "agent-mcp-tool-result.v1";
+            /** Error Code */
+            error_code?: string | null;
+            /** Managed Call Id */
+            managed_call_id: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "not_invoked" | "succeeded" | "tool_error" | "failed" | "cancelled" | "timed_out";
+            /** Result Bytes */
+            result_bytes: number;
+            /** Result Digest */
+            result_digest?: string | null;
+            /**
+             * Result Text Persisted
+             * @default false
+             * @constant
+             */
+            result_text_persisted: false;
+            /**
+             * Reusable Approval Persisted
+             * @default false
+             * @constant
+             */
+            reusable_approval_persisted: false;
+        };
+        /**
+         * AgentMessageAttachment
+         * @description Payload-free identity retained beside one user message.
+         */
+        AgentMessageAttachment: {
+            /** Attachment Id */
+            attachment_id: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Channels */
+            channels?: number | null;
+            /**
+             * Context Cost Source
+             * @default runtime_unreported
+             * @constant
+             */
+            context_cost_source: "runtime_unreported";
+            /** Context Tokens */
+            context_tokens?: null;
+            /**
+             * Contract Version
+             * @default agent-attachment.v2
+             * @constant
+             */
+            contract_version: "agent-attachment.v2";
+            /** Display Name */
+            display_name: string;
+            /** Document Format */
+            document_format?: ("plain_text" | "markdown" | "json" | "csv" | "tsv" | "docx" | "pptx" | "xlsx" | "odt") | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Height */
+            height?: number | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "image" | "audio" | "document";
+            /**
+             * Media Type
+             * @enum {string}
+             */
+            media_type: "image/png" | "image/jpeg" | "audio/wav" | "text/plain" | "text/markdown" | "application/json" | "text/csv" | "text/tab-separated-values" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document" | "application/vnd.openxmlformats-officedocument.presentationml.presentation" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" | "application/vnd.oasis.opendocument.text";
+            /**
+             * Omitted Features
+             * @default []
+             */
+            omitted_features: ("comments" | "embedded_objects" | "external_links" | "macros" | "media" | "notes")[];
+            /** Projected Characters */
+            projected_characters?: number | null;
+            /** Projection Truncated */
+            projection_truncated?: boolean | null;
+            /**
+             * Routing
+             * @default native_multimodal
+             * @enum {string}
+             */
+            routing: "native_multimodal" | "local_text_projection";
+            /** Sample Rate Hz */
+            sample_rate_hz?: number | null;
+            /** Sha256 */
+            sha256: string;
+            /** Width */
+            width?: number | null;
         };
         /** AgentMetricEvidenceFileContract */
         AgentMetricEvidenceFileContract: {
@@ -3262,30 +6475,615 @@ export interface components {
              */
             top_p: number;
         };
-        /** AgentSessionView */
-        AgentSessionView: {
+        /**
+         * AgentNativeAcceptanceStartReceipt
+         * @description Content-free proof that only the owner gate was opened.
+         *
+         *     The endpoint deliberately performs no model, process, workspace, chat, or
+         *     persistence operation.  The browser observes later actions through the
+         *     existing strict runtime and Agent contracts and keeps that evidence only in
+         *     the current page's memory.
+         */
+        AgentNativeAcceptanceStartReceipt: {
             /**
-             * Contract Version
-             * @default local-agent.v2
+             * Content Persisted
+             * @default false
              * @constant
              */
-            contract_version: "local-agent.v2";
+            content_persisted: false;
+            /**
+             * Contract Version
+             * @default agent-native-acceptance-start.v1
+             * @constant
+             */
+            contract_version: "agent-native-acceptance-start.v1";
+            /**
+             * Expires On Reload
+             * @default true
+             * @constant
+             */
+            expires_on_reload: true;
+            /**
+             * Model Execution Started
+             * @default false
+             * @constant
+             */
+            model_execution_started: false;
+            /**
+             * Owner Presence Confirmed
+             * @default true
+             * @constant
+             */
+            owner_presence_confirmed: true;
+            /**
+             * Process Spawn Requested
+             * @default false
+             * @constant
+             */
+            process_spawn_requested: false;
+            /**
+             * Workspace Access Requested
+             * @default false
+             * @constant
+             */
+            workspace_access_requested: false;
+        };
+        /** AgentOrchestrationAuthentication */
+        AgentOrchestrationAuthentication: {
+            /**
+             * Alternate Header
+             * @default X-Prompt-Enhancer-Token: <token>
+             * @constant
+             */
+            alternate_header: "X-Prompt-Enhancer-Token: <token>";
+            /**
+             * Authorization Header
+             * @default Authorization: Bearer <token>
+             * @constant
+             */
+            authorization_header: "Authorization: Bearer <token>";
+            /**
+             * Primary Scheme
+             * @default bearer
+             * @constant
+             */
+            primary_scheme: "bearer";
+            /**
+             * Token In Manifest
+             * @default false
+             * @constant
+             */
+            token_in_manifest: false;
+        };
+        /** AgentOrchestrationBoundary */
+        AgentOrchestrationBoundary: {
+            /**
+             * Catalog Retention
+             * @default local_metadata
+             * @constant
+             */
+            catalog_retention: "local_metadata";
+            /**
+             * Conversation Retention
+             * @default explicit_metadata_only_or_bounded_local_history
+             * @constant
+             */
+            conversation_retention: "explicit_metadata_only_or_bounded_local_history";
+            /**
+             * Event Payload Sensitivity
+             * @default sensitive
+             * @constant
+             */
+            event_payload_sensitivity: "sensitive";
+            /**
+             * Listener Scope
+             * @default loopback_only
+             * @constant
+             */
+            listener_scope: "loopback_only";
+            /**
+             * Protected Effects
+             * @default native_user_presence_only
+             * @constant
+             */
+            protected_effects: "native_user_presence_only";
+            /**
+             * Provider Neutral
+             * @default true
+             * @constant
+             */
+            provider_neutral: true;
+            /**
+             * Raw Transcript Mcp Exposed
+             * @default false
+             * @constant
+             */
+            raw_transcript_mcp_exposed: false;
+            /**
+             * Recovered Authority
+             * @default read_only_until_native_revalidation
+             * @constant
+             */
+            recovered_authority: "read_only_until_native_revalidation";
+            /**
+             * Remote Context Egress
+             * @default explicit_instruction_and_redaction_preview_required
+             * @constant
+             */
+            remote_context_egress: "explicit_instruction_and_redaction_preview_required";
+            /**
+             * Remote Listener Supported
+             * @default false
+             * @constant
+             */
+            remote_listener_supported: false;
+            /**
+             * Token Controller May Approve
+             * @default false
+             * @constant
+             */
+            token_controller_may_approve: false;
+        };
+        /** AgentOrchestrationEndpoint */
+        AgentOrchestrationEndpoint: {
+            /**
+             * Access
+             * @default token_authenticated
+             * @enum {string}
+             */
+            access: "token_authenticated" | "native_user_presence_only";
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "GET" | "POST" | "PATCH" | "DELETE";
+            /** Operation */
+            operation: string;
+            /** Path Template */
+            path_template: string;
+            /** Purpose */
+            purpose: string;
+            /**
+             * Response
+             * @default json
+             * @enum {string}
+             */
+            response: "json" | "binary" | "sse" | "no_content";
+        };
+        /** AgentOrchestrationManifest */
+        AgentOrchestrationManifest: {
+            authentication?: components["schemas"]["AgentOrchestrationAuthentication"];
+            boundaries?: components["schemas"]["AgentOrchestrationBoundary"];
+            /**
+             * Contract Version
+             * @default local-agent-orchestration.v21
+             * @constant
+             */
+            contract_version: "local-agent-orchestration.v21";
+            /** Endpoints */
+            endpoints: components["schemas"]["AgentOrchestrationEndpoint"][];
+            /**
+             * Openapi Path
+             * @default /openapi.json
+             * @constant
+             */
+            openapi_path: "/openapi.json";
+            protocol?: components["schemas"]["AgentOrchestrationProtocol"];
+            /**
+             * Route Coverage
+             * @default all_agent_routes_plus_controller_runtime_routes
+             * @constant
+             */
+            route_coverage: "all_agent_routes_plus_controller_runtime_routes";
+            /**
+             * Transport
+             * @default loopback_http
+             * @constant
+             */
+            transport: "loopback_http";
+        };
+        /** AgentOrchestrationProtocol */
+        AgentOrchestrationProtocol: {
+            /**
+             * Approval Continuation
+             * @default resume_from_cursor_without_message_resubmission_or_stop
+             * @constant
+             */
+            approval_continuation: "resume_from_cursor_without_message_resubmission_or_stop";
+            /**
+             * Artifact File Moves
+             * @default verified_move_preserves_matching_artifact_identity_as_immutable_path_version
+             * @constant
+             */
+            artifact_file_moves: "verified_move_preserves_matching_artifact_identity_as_immutable_path_version";
+            /**
+             * Artifact Truth
+             * @default metadata_is_lineage_only_content_is_rehashed_on_every_read
+             * @constant
+             */
+            artifact_truth: "metadata_is_lineage_only_content_is_rehashed_on_every_read";
+            /**
+             * Attachment Staging
+             * @default exact_project_and_session_inline_bytes_only_no_path_or_read_authority
+             * @constant
+             */
+            attachment_staging: "exact_project_and_session_inline_bytes_only_no_path_or_read_authority";
+            /**
+             * Cleanup Quarantine
+             * @default return_cleanup_unconfirmed_never_report_settled
+             * @constant
+             */
+            cleanup_quarantine: "return_cleanup_unconfirmed_never_report_settled";
+            /**
+             * Controller Handoff
+             * @default two_party_revision_bound_same_project_no_native_authority_transfer
+             * @constant
+             */
+            controller_handoff: "two_party_revision_bound_same_project_no_native_authority_transfer";
+            /**
+             * Controller Ownership
+             * @default one_active_project_scoped_connection_per_live_session
+             * @constant
+             */
+            controller_ownership: "one_active_project_scoped_connection_per_live_session";
+            /**
+             * Controller Reconnect
+             * @default same_connection_recovers_by_session_and_cursor_without_resubmission
+             * @constant
+             */
+            controller_reconnect: "same_connection_recovers_by_session_and_cursor_without_resubmission";
+            /**
+             * External Write Artifacts
+             * @default saved_chats_retain_verified_receipts_only_for_artifact_lineage
+             * @constant
+             */
+            external_write_artifacts: "saved_chats_retain_verified_receipts_only_for_artifact_lineage";
+            /**
+             * Message Admission
+             * @default one_message_only_when_session_is_idle
+             * @constant
+             */
+            message_admission: "one_message_only_when_session_is_idle";
+            /**
+             * Message Retry Semantics
+             * @default not_idempotent_do_not_retry_ambiguous_submission
+             * @constant
+             */
+            message_retry_semantics: "not_idempotent_do_not_retry_ambiguous_submission";
+            /**
+             * Pending Approval
+             * @default surface_to_native_user_never_approve_from_token_controller
+             * @constant
+             */
+            pending_approval: "surface_to_native_user_never_approve_from_token_controller";
+            /**
+             * Progress Cursor
+             * @default monotonic_event_sequence_pass_last_seen_as_after
+             * @constant
+             */
+            progress_cursor: "monotonic_event_sequence_pass_last_seen_as_after";
+            /**
+             * Retained Resume
+             * @default revision_bound_and_read_only_until_native_revalidation
+             * @constant
+             */
+            retained_resume: "revision_bound_and_read_only_until_native_revalidation";
+            /**
+             * Session Forking
+             * @default idempotent_revision_bound_settled_history_only_without_authority
+             * @constant
+             */
+            session_forking: "idempotent_revision_bound_settled_history_only_without_authority";
+            /**
+             * Session Identity
+             * @default project_id_and_session_id_are_both_required
+             * @constant
+             */
+            session_identity: "project_id_and_session_id_are_both_required";
+            /**
+             * Terminal Condition
+             * @default idle_pending_approval_null_cursor_at_last_seq_and_cleanup_confirmed
+             * @constant
+             */
+            terminal_condition: "idle_pending_approval_null_cursor_at_last_seq_and_cleanup_confirmed";
+            /**
+             * Workspace Mutation
+             * @default token_controller_may_propose_native_user_must_apply
+             * @constant
+             */
+            workspace_mutation: "token_controller_may_propose_native_user_must_apply";
+            /**
+             * Workspace Reads
+             * @default bounded_to_the_admitted_workspace_and_reparse_points_fail_closed
+             * @constant
+             */
+            workspace_reads: "bounded_to_the_admitted_workspace_and_reparse_points_fail_closed";
+        };
+        /**
+         * AgentPersistenceCounts
+         * @description Exact aggregate counts from fixed Agent catalog tables.
+         */
+        AgentPersistenceCounts: {
+            /** Archived Projects */
+            archived_projects: number;
+            /** Archived Sessions */
+            archived_sessions: number;
+            /** Artifact Versions */
+            artifact_versions: number;
+            /** Artifacts */
+            artifacts: number;
+            /** Attached Attachments */
+            attached_attachments: number;
+            /** History Events */
+            history_events: number;
+            /** Interrupted Retained Sessions */
+            interrupted_retained_sessions: number;
+            /** Metadata Only Sessions */
+            metadata_only_sessions: number;
+            /** Projects */
+            projects: number;
+            /** Retained Sessions */
+            retained_sessions: number;
+            /** Sessions */
+            sessions: number;
+            /** Staged Attachments */
+            staged_attachments: number;
+        };
+        /** AgentProjectList */
+        AgentProjectList: {
+            /**
+             * Contract Version
+             * @default agent-catalog.v2
+             * @constant
+             */
+            contract_version: "agent-catalog.v2";
+            /** Projects */
+            projects: components["schemas"]["AgentProjectRecord"][];
+        };
+        /** AgentProjectRecord */
+        AgentProjectRecord: {
+            /** Archived At */
+            archived_at?: string | null;
+            /**
+             * Contract Version
+             * @default agent-catalog.v2
+             * @constant
+             */
+            contract_version: "agent-catalog.v2";
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /** Project Id */
+            project_id: string;
+            /** Revision */
+            revision: number;
+            /**
+             * Session Count
+             * @default 0
+             */
+            session_count: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * AgentRecoveryAction
+         * @enum {string}
+         */
+        AgentRecoveryAction: "inspect_local_catalog" | "resume_interrupted_read_only" | "revalidate_recovered_authority" | "restart_after_cleanup_uncertain" | "retry_after_history_write_failure" | "verify_live_state";
+        /**
+         * AgentRecoveryState
+         * @enum {string}
+         */
+        AgentRecoveryState: "clean" | "attention_required" | "unknown";
+        /**
+         * AgentRetentionPolicy
+         * @description Owner-selected local retention tier for one authored chat.
+         * @enum {string}
+         */
+        AgentRetentionPolicy: "metadata_only" | "local_history";
+        /**
+         * AgentSessionContextStatus
+         * @description One session-local context state with optional exact turn binding.
+         */
+        AgentSessionContextStatus: {
+            /**
+             * Binding State
+             * @default unmeasured
+             * @enum {string}
+             */
+            binding_state: "unmeasured" | "bound";
+            context?: components["schemas"]["RuntimeContextStatus"] | null;
+            /**
+             * Contract Version
+             * @default agent-session-context.v1
+             * @constant
+             */
+            contract_version: "agent-session-context.v1";
+            /** Model Alias */
+            model_alias?: string | null;
+            /** Observed At */
+            observed_at?: string | null;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Source
+             * @default runtime_chat_template_preflight
+             * @constant
+             */
+            source: "runtime_chat_template_preflight";
+            /** Turn Id */
+            turn_id?: string | null;
+            /** Turn Number */
+            turn_number?: number | null;
+            /**
+             * Unknown Reason
+             * @default no_request_measured
+             */
+            unknown_reason: ("no_request_measured" | "recovered_without_context_receipt" | "turn_pending_preflight" | "turn_ended_before_preflight" | "turn_start_failed" | "preflight_unavailable" | "preflight_failed" | "request_body_too_large" | "model_changed") | null;
+        };
+        /**
+         * AgentSessionForkReceipt
+         * @description Exact result of a retained-history fork; authority is always absent.
+         */
+        AgentSessionForkReceipt: {
+            /**
+             * Approvals Copied
+             * @default false
+             * @constant
+             */
+            approvals_copied: false;
+            /**
+             * Artifacts Copied
+             * @default false
+             * @constant
+             */
+            artifacts_copied: false;
+            /**
+             * Contract Version
+             * @default agent-session-fork.v1
+             * @constant
+             */
+            contract_version: "agent-session-fork.v1";
+            /**
+             * Idempotent Replay
+             * @default false
+             */
+            idempotent_replay: boolean;
+            /**
+             * Mutation Authority Copied
+             * @default false
+             * @constant
+             */
+            mutation_authority_copied: false;
+            /**
+             * Pending Tool State Copied
+             * @default false
+             * @constant
+             */
+            pending_tool_state_copied: false;
+            /** Request Id */
+            request_id: string;
+            session: components["schemas"]["AgentCatalogSessionRecord"];
+            /** Source Tail Omitted */
+            source_tail_omitted: boolean;
+            /**
+             * Staged Attachments Copied
+             * @default false
+             * @constant
+             */
+            staged_attachments_copied: false;
+        };
+        /**
+         * AgentSessionLineage
+         * @description Persistent, content-free provenance for one branched Agent chat.
+         */
+        AgentSessionLineage: {
+            /** Branch Event Seq */
+            branch_event_seq: number;
+            /**
+             * Contract Version
+             * @default agent-session-lineage.v1
+             * @constant
+             */
+            contract_version: "agent-session-lineage.v1";
+            /** Copied Attachment Count */
+            copied_attachment_count: number;
+            /** Copied Event Count */
+            copied_event_count: number;
+            /** Copied Turn Count */
+            copied_turn_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Source Catalog Revision */
+            source_catalog_revision: number;
+            /** Source History Revision */
+            source_history_revision: number;
+            /** Source Project Id */
+            source_project_id: string;
+            /** Source Session Id */
+            source_session_id: string;
+        };
+        /** AgentSessionView */
+        AgentSessionView: {
+            /**
+             * Authority Revalidated
+             * @default true
+             */
+            authority_revalidated: boolean;
+            /** Cleanup Unconfirmed */
+            cleanup_unconfirmed: boolean;
+            /** Closing */
+            closing: boolean;
+            /**
+             * Contract Version
+             * @default local-agent.v9
+             * @constant
+             */
+            contract_version: "local-agent.v9";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * History Revision
+             * @default 0
+             */
+            history_revision: number;
+            /**
+             * History Write Failed
+             * @default false
+             */
+            history_write_failed: boolean;
             /** Last Seq */
             last_seq: number;
             /** Model Alias */
             model_alias?: string | null;
             /** Pending Approval Id */
             pending_approval_id?: string | null;
+            /**
+             * Recovered
+             * @default false
+             */
+            recovered: boolean;
+            /**
+             * Recovery State
+             * @default current
+             * @enum {string}
+             */
+            recovery_state: "current" | "recovered" | "interrupted";
             /** Running */
             running: boolean;
             /** Session Id */
             session_id: string;
             settings: components["schemas"]["AgentSettings"];
+            /** Stopping */
+            stopping: boolean;
             /** Turns */
             turns: number;
         };
@@ -3329,6 +7127,10 @@ export interface components {
              *     }
              */
             parameters: components["schemas"]["AgentModelParameters"];
+            /** Project Id */
+            project_id?: string | null;
+            /** @default metadata_only */
+            retention_policy: components["schemas"]["AgentRetentionPolicy"];
             /** Title */
             title?: string | null;
             /** Workspace */
@@ -3344,6 +7146,295 @@ export interface components {
          * @enum {string}
          */
         AgentStreamStatus: "complete" | "stopped" | "failed";
+        /** AgentTokenUsage */
+        AgentTokenUsage: {
+            /** Cached Prompt Tokens */
+            cached_prompt_tokens?: number | null;
+            /** Completion Tokens */
+            completion_tokens?: number | null;
+            /**
+             * Contract Version
+             * @default agent-token-usage.v1
+             * @constant
+             */
+            contract_version: "agent-token-usage.v1";
+            /** Model Requests */
+            model_requests: number;
+            /** Prompt Tokens */
+            prompt_tokens?: number | null;
+            /** Reasoning Tokens */
+            reasoning_tokens?: number | null;
+            /** Reported Requests */
+            reported_requests: number;
+            /**
+             * Source
+             * @default runtime_reported
+             * @constant
+             */
+            source: "runtime_reported";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "reported" | "partial" | "unavailable" | "invalid";
+            /** Total Tokens */
+            total_tokens?: number | null;
+        };
+        /**
+         * AgentToolExecutionReceipt
+         * @description Content-free terminal facts for one action request.
+         *
+         *     Elapsed time spans the tool call event through its terminal result and may
+         *     therefore include time spent waiting for native approval. It is never
+         *     inferred from wall-clock event timestamps.
+         */
+        AgentToolExecutionReceipt: {
+            /**
+             * Approval State
+             * @enum {string}
+             */
+            approval_state: "not_required" | "not_requested" | "approved" | "denied" | "timed_out" | "cancelled_before_decision";
+            /**
+             * Contract Version
+             * @default agent-tool-execution.v1
+             * @constant
+             */
+            contract_version: "agent-tool-execution.v1";
+            /** Elapsed Ms */
+            elapsed_ms?: number | null;
+            /**
+             * Evidence State
+             * @enum {string}
+             */
+            evidence_state: "read_only_observation" | "verified_workspace_effect" | "unverified_workspace_effect" | "untracked_external_effect" | "no_effect" | "unknown";
+            /**
+             * Timing Source
+             * @default server_monotonic.v1
+             * @constant
+             */
+            timing_source: "server_monotonic.v1";
+        };
+        /** AgentTurnSummary */
+        AgentTurnSummary: {
+            /**
+             * Contract Version
+             * @default agent-turn.v1
+             * @constant
+             */
+            contract_version: "agent-turn.v1";
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /** Model Alias */
+            model_alias: string;
+            /** Model Wait Ms */
+            model_wait_ms?: number | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "answer_complete" | "stop_requested" | "step_limit" | "model_response_limit" | "model_response_filtered" | "model_completion_unrecognized" | "model_stream_incomplete" | "model_stream_failed" | "model_reply_unusable" | "model_reply_too_large" | "model_answer_missing" | "runtime_unreachable" | "runtime_http_error" | "turn_failed" | "command_cleanup_unconfirmed" | "context_window_exceeded";
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "completed" | "stopped" | "failed" | "step_limit";
+            /** Time To First Text Ms */
+            time_to_first_text_ms?: number | null;
+            /**
+             * Timing Source
+             * @default server_monotonic.v1
+             * @constant
+             */
+            timing_source: "server_monotonic.v1";
+            /** Tools Cancelled */
+            tools_cancelled: number;
+            /** Tools Failed */
+            tools_failed: number;
+            /** Tools Not Approved */
+            tools_not_approved: number;
+            /** Tools Requested */
+            tools_requested: number;
+            /** Tools Succeeded */
+            tools_succeeded: number;
+            /** Tools Unverified */
+            tools_unverified: number;
+            /** Turn Id */
+            turn_id: string;
+            /** Turn Number */
+            turn_number: number;
+            /** Untracked Command Calls */
+            untracked_command_calls: number;
+            usage: components["schemas"]["AgentTokenUsage"];
+            /** Writes */
+            writes: components["schemas"]["AgentWriteReceipt"][];
+        };
+        /**
+         * AgentWriteProposal
+         * @description One exact external-controller write offered for native review.
+         *
+         *     The full proposed content is transient input.  Only its digest, the
+         *     revision-bound diff, and the eventual write receipt may survive in the
+         *     live session; the content is never appended to chat/model history.
+         */
+        AgentWriteProposal: {
+            /** Content */
+            content: string;
+            /** Expected Revision */
+            expected_revision?: string | null;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "create" | "edit";
+            /** Path */
+            path: string;
+            /** Request Id */
+            request_id: string;
+        };
+        /**
+         * AgentWriteProposalReceipt
+         * @description Content-free lifecycle receipt for one idempotent write proposal.
+         */
+        AgentWriteProposalReceipt: {
+            /** Approval Id */
+            approval_id?: string | null;
+            /**
+             * Contract Version
+             * @default agent-write-proposal.v1
+             * @constant
+             */
+            contract_version: "agent-write-proposal.v1";
+            /** Cursor */
+            cursor: number;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "create" | "edit";
+            /** Path */
+            path: string;
+            /** Proposed Revision */
+            proposed_revision: string;
+            /** Request Id */
+            request_id: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending_native_review" | "applied" | "not_approved" | "cancelled" | "failed" | "unverified";
+            write_receipt?: components["schemas"]["AgentWriteReceipt"] | null;
+        };
+        /** AgentWriteReceipt */
+        AgentWriteReceipt: {
+            /** Added Lines */
+            added_lines?: number | null;
+            /** After Sha256 */
+            after_sha256?: string | null;
+            /** Before Sha256 */
+            before_sha256?: string | null;
+            /** Byte Size */
+            byte_size?: number | null;
+            /**
+             * Contract Version
+             * @default agent-write.v1
+             * @constant
+             */
+            contract_version: "agent-write.v1";
+            /**
+             * Line Count Version
+             * @default line-sequence-diff.v1
+             * @constant
+             */
+            line_count_version: "line-sequence-diff.v1";
+            /** Operation */
+            operation?: ("created" | "modified" | "unchanged") | null;
+            /** Path */
+            path: string;
+            /** Removed Lines */
+            removed_lines?: number | null;
+            /**
+             * Source
+             * @default reviewed_write_file
+             * @constant
+             */
+            source: "reviewed_write_file";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "verified" | "unverified";
+        };
+        /**
+         * AgentWriteTransactionProposal
+         * @description One exact create/edit change set offered for one native review.
+         *
+         *     Every member is revision-bound and the complete proposed text stays only
+         *     in the live request/worker. The durable event journal never receives the
+         *     proposal, its paths, diffs, or settlement events.
+         */
+        AgentWriteTransactionProposal: {
+            /** Changes */
+            changes: components["schemas"]["WorkspaceTransactionChangeCommand"][];
+            /** Request Id */
+            request_id: string;
+        };
+        /**
+         * AgentWriteTransactionProposalFile
+         * @description Content-free identity of one reviewed transaction member.
+         */
+        AgentWriteTransactionProposalFile: {
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "create" | "edit";
+            /** Path */
+            path: string;
+            /** Proposed Revision */
+            proposed_revision: string;
+        };
+        /**
+         * AgentWriteTransactionProposalReceipt
+         * @description Bounded lifecycle receipt for an idempotent multi-file proposal.
+         */
+        AgentWriteTransactionProposalReceipt: {
+            /** Approval Id */
+            approval_id?: string | null;
+            /**
+             * Contract Version
+             * @default agent-write-transaction-proposal.v2
+             * @constant
+             */
+            contract_version: "agent-write-transaction-proposal.v2";
+            /** Cursor */
+            cursor: number;
+            /** File Count */
+            file_count: number;
+            /** Files */
+            files: components["schemas"]["AgentWriteTransactionProposalFile"][];
+            /** Request Id */
+            request_id: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending_native_review" | "applied" | "not_approved" | "cancelled" | "failed" | "rolled_back" | "unverified";
+            transaction_result?: components["schemas"]["WorkspaceTransactionApplyResult"] | null;
+        };
         /** AllowanceState */
         AllowanceState: {
             /** Agent Allowed */
@@ -3794,6 +7885,60 @@ export interface components {
             /** Result Id */
             result_id: string;
         };
+        /** ApplyMcpManagedLifecycle */
+        ApplyMcpManagedLifecycle: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Preview Digest */
+            preview_digest: string;
+            /** Request Id */
+            request_id: string;
+        };
+        /** ApplyMcpManagedLocalCleanup */
+        ApplyMcpManagedLocalCleanup: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Preview Digest */
+            preview_digest: string;
+            /** Request Id */
+            request_id: string;
+        };
+        /** ApplyMcpManagedLocalOperationRecovery */
+        ApplyMcpManagedLocalOperationRecovery: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Preview Digest */
+            preview_digest: string;
+            /** Request Id */
+            request_id: string;
+        };
+        /** ApplyMcpManagedLocalRollback */
+        ApplyMcpManagedLocalRollback: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Preview Digest */
+            preview_digest: string;
+            /** Request Id */
+            request_id: string;
+        };
+        /** ApplyMcpManagedLocalRollbackCleanup */
+        ApplyMcpManagedLocalRollbackCleanup: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Preview Digest */
+            preview_digest: string;
+            /** Request Id */
+            request_id: string;
+        };
+        /** ApplyMcpManagedLocalUpdate */
+        ApplyMcpManagedLocalUpdate: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Preview Digest */
+            preview_digest: string;
+            /** Request Id */
+            request_id: string;
+        };
         /** ApprovalDecision */
         ApprovalDecision: {
             /** Approved */
@@ -3976,8 +8121,32 @@ export interface components {
          */
         AutomationRoute: "fast" | "balanced" | "deep";
         /**
+         * BeginAgentNativeAcceptance
+         * @description Exact native-owner intent required to arm the in-window smoke guide.
+         */
+        BeginAgentNativeAcceptance: {
+            /**
+             * Confirmation
+             * @default begin_guarded_agent_native_acceptance
+             * @constant
+             */
+            confirmation: "begin_guarded_agent_native_acceptance";
+        };
+        /** CalibrationCaseRecord */
+        CalibrationCaseRecord: {
+            /** Content */
+            content: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "agent" | "plan";
+            /** Sequence */
+            sequence: number;
+        };
+        /**
          * CalibrationExport
-         * @description Content-free: pseudonyms, labels and timestamps only.
+         * @description Sensitive derived metadata with case provenance; no evidence text.
          */
         CalibrationExport: {
             /**
@@ -4002,6 +8171,10 @@ export interface components {
         };
         /** CalibrationExportRow */
         CalibrationExportRow: {
+            /** Case Fingerprint */
+            case_fingerprint?: string | null;
+            /** Case Version */
+            case_version?: string | null;
             label: components["schemas"]["RatingLabel"];
             /** Metric Key */
             metric_key: string;
@@ -4013,10 +8186,14 @@ export interface components {
             rated_at: string;
             /** Rater Id */
             rater_id: string;
+            /** Rating Version */
+            rating_version: string;
             /** Revision */
             revision: number;
             /** Session Id */
             session_id: string;
+            /** Window Fingerprint */
+            window_fingerprint?: string | null;
         };
         /** CalibrationProgress */
         CalibrationProgress: {
@@ -4039,6 +8216,10 @@ export interface components {
         };
         /** CalibrationRating */
         CalibrationRating: {
+            /** Case Fingerprint */
+            case_fingerprint?: string | null;
+            /** Case Version */
+            case_version?: string | null;
             label: components["schemas"]["RatingLabel"];
             /** Metric Key */
             metric_key: string;
@@ -4049,10 +8230,84 @@ export interface components {
             rated_at: string;
             /** Rater Id */
             rater_id: string;
+            /**
+             * Rating Version
+             * @default calibration-rating-v1
+             */
+            rating_version: string;
             /** Revision */
             revision: number;
             /** Session Id */
             session_id: string;
+            /** Window Fingerprint */
+            window_fingerprint?: string | null;
+        };
+        /** CalibrationReview */
+        CalibrationReview: {
+            /** Case Fingerprint */
+            case_fingerprint: string;
+            /**
+             * Case Version
+             * @default calibration-case.v1
+             * @constant
+             */
+            case_version: "calibration-case.v1";
+            /**
+             * Contract Version
+             * @default calibration-case.v1
+             * @constant
+             */
+            contract_version: "calibration-case.v1";
+            /** Earlier Records Omitted */
+            earlier_records_omitted: boolean;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Note
+             * @default Rate only this bounded redacted evidence. It is the task anchor and recent tail used by the judge, not the whole transcript. Matching evidence is required for agreement; model opinions are never measurements.
+             */
+            note: string;
+            /**
+             * Persisted
+             * @default false
+             * @constant
+             */
+            persisted: false;
+            provider: components["schemas"]["Provider"];
+            /** Records */
+            records: components["schemas"]["CalibrationCaseRecord"][];
+            /** Review Id */
+            review_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Window Fingerprint */
+            window_fingerprint: string;
+            /**
+             * Window Schema Version
+             * @default model-judge-window.v2
+             * @constant
+             */
+            window_schema_version: "model-judge-window.v2";
+        };
+        /** CalibrationReviewRequest */
+        CalibrationReviewRequest: {
+            /** Session Id */
+            session_id: string;
+            /**
+             * Window Characters
+             * @default 15000
+             * @enum {integer}
+             */
+            window_characters: 6000 | 15000;
         };
         /** CalibrationSample */
         CalibrationSample: {
@@ -4312,14 +8567,31 @@ export interface components {
          * @enum {string}
          */
         CapabilityKey: "session_list" | "session_labels" | "operational_events" | "user_messages" | "agent_messages" | "plan_messages" | "tool_events" | "decision_events" | "feedback_messages" | "verification_events" | "event_timing" | "token_usage" | "live_updates" | "requirement_opportunities" | "hypothesis_opportunities" | "material_claim_opportunities" | "verification_task_opportunities" | "requirement_evidence_links" | "hypothesis_evidence_links" | "material_claim_evidence_links" | "verification_task_evidence_links";
+        /** CaptureAgentArtifact */
+        CaptureAgentArtifact: {
+            /** Expected Byte Size */
+            expected_byte_size: number;
+            /** Expected Sha256 */
+            expected_sha256: string;
+            /** Path */
+            path: string;
+            /** Title */
+            title?: string | null;
+        };
         /** CentralAnnotation */
         CentralAnnotation: {
+            /** Case Fingerprint */
+            case_fingerprint?: string | null;
+            /** Case Version */
+            case_version?: string | null;
             /** Labels */
             labels: {
                 [key: string]: components["schemas"]["RatingLabel"];
             };
             /** Session Id */
             session_id: string;
+            /** Window Fingerprint */
+            window_fingerprint?: string | null;
         };
         /** CentralBatch */
         CentralBatch: {
@@ -4330,6 +8602,10 @@ export interface components {
         };
         /** CentralBatchItem */
         CentralBatchItem: {
+            /** Case Fingerprint */
+            case_fingerprint?: string | null;
+            /** Case Version */
+            case_version?: string | null;
             /** Project Id */
             project_id?: string | null;
             /** Provider */
@@ -4338,6 +8614,8 @@ export interface components {
             session_id: string;
             /** Window */
             window: string;
+            /** Window Fingerprint */
+            window_fingerprint?: string | null;
         };
         /** CentralBatchResult */
         CentralBatchResult: {
@@ -4353,11 +8631,25 @@ export interface components {
             model_identity?: string | null;
             /**
              * Prompt Version
-             * @default judge-v3-untrusted-json-anchor-15k
+             * @default judge-v4-complete-json-anchor-15k
              */
             prompt_version: string;
             /** Stored */
             stored: number;
+        };
+        /**
+         * ChatInputTokenCount
+         * @description llama.cpp-compatible exact input-token response.
+         */
+        ChatInputTokenCount: {
+            /** Input Tokens */
+            input_tokens: number;
+            /**
+             * Object
+             * @default response.input_tokens
+             * @constant
+             */
+            object: "response.input_tokens";
         };
         /**
          * ClaudeCodeLocalSourceStatus
@@ -4794,6 +9086,12 @@ export interface components {
          * @enum {string}
          */
         ConstraintKind: "privacy" | "cost" | "platform" | "version" | "scope" | "performance" | "delivery" | "safety";
+        /**
+         * ContextAdmissionReason
+         * @description Why exact request context is unavailable, or why it was refused.
+         * @enum {string}
+         */
+        ContextAdmissionReason: "runtime_not_served" | "no_request_measured" | "input_counter_unavailable" | "input_counter_invalid" | "input_counter_failed" | "context_window_exceeded";
         /** ContextInference */
         ContextInference: {
             /** Bullet Count */
@@ -4874,6 +9172,50 @@ export interface components {
          * @enum {string}
          */
         CostEstimateState: "known" | "unknown" | "not_applicable";
+        /** CreateAgentMcpConnection */
+        CreateAgentMcpConnection: {
+            /**
+             * Allow Model Lifecycle
+             * @default false
+             */
+            allow_model_lifecycle: boolean;
+            /**
+             * Client Kind
+             * @enum {string}
+             */
+            client_kind: "codex" | "claude" | "other";
+            /**
+             * Expires In Days
+             * @default 90
+             */
+            expires_in_days: number;
+            /** Label */
+            label: string;
+            /** Project Id */
+            project_id: string;
+            /** Request Id */
+            request_id: string;
+        };
+        /** CreateAgentProject */
+        CreateAgentProject: {
+            /** Name */
+            name: string;
+        };
+        /** CreateMcpManagedServer */
+        CreateMcpManagedServer: {
+            /** Catalog Id */
+            catalog_id: string;
+            /** Name */
+            name: string;
+            /** Option Id */
+            option_id: string;
+            /** Plan Revision */
+            plan_revision: string;
+            /** Request Id */
+            request_id: string;
+            /** Version */
+            version: string;
+        };
         /**
          * DataTier
          * @enum {string}
@@ -5045,6 +9387,14 @@ export interface components {
          */
         DeviceMode: "cpu" | "gpu" | "split";
         /**
+         * DownloadCommandRequest
+         * @description Optimistic concurrency receipt for one explicit download command.
+         */
+        DownloadCommandRequest: {
+            /** Expected Status Revision */
+            expected_status_revision: number;
+        };
+        /**
          * DownloadRequest
          * @description A download the person confirmed after seeing the file, size, revision, digest and licence.
          *
@@ -5079,10 +9429,21 @@ export interface components {
         DownloadStatus: {
             /** Alias */
             alias: string;
+            /**
+             * Attempt
+             * @default 0
+             */
+            attempt: number;
             /** Bytes Done */
             bytes_done: number;
             /** Bytes Total */
             bytes_total: number;
+            /** Cleanup Confirmed */
+            cleanup_confirmed?: boolean | null;
+            /** Disk Free Bytes At Start */
+            disk_free_bytes_at_start?: number | null;
+            /** Disk Required Bytes */
+            disk_required_bytes?: number | null;
             /** Download Id */
             download_id: string;
             /** Error Code */
@@ -5091,6 +9452,11 @@ export interface components {
             filename: string;
             /** Finished At */
             finished_at?: string | null;
+            /**
+             * Partial Retained
+             * @default false
+             */
+            partial_retained: boolean;
             /** Repo Id */
             repo_id: string;
             /** Revision */
@@ -5106,7 +9472,19 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "queued" | "downloading" | "completed" | "failed";
+            state: "queued" | "downloading" | "pausing" | "paused" | "cancelling" | "cancelled" | "completed" | "failed" | "interrupted";
+            /**
+             * Status Revision
+             * @default 0
+             */
+            status_revision: number;
+            /** Transfer Adapter Version */
+            transfer_adapter_version?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /**
          * EventKind
@@ -5190,6 +9568,16 @@ export interface components {
             /** Requirement Id */
             requirement_id: string;
         };
+        /**
+         * ExportAgentArtifact
+         * @description Select one exact artifact revision and version for a metadata export.
+         */
+        ExportAgentArtifact: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Version Id */
+            version_id: string;
+        };
         /** FileContent */
         FileContent: {
             /** Content B64 */
@@ -5226,6 +9614,24 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+        };
+        /**
+         * ForkAgentSession
+         * @description Idempotent, revision-bound request to branch retained local history.
+         */
+        ForkAgentSession: {
+            /** Destination Project Id */
+            destination_project_id?: string | null;
+            /** Expected Catalog Revision */
+            expected_catalog_revision: number;
+            /** Expected History Revision */
+            expected_history_revision: number;
+            /** Request Id */
+            request_id: string;
+            /** Through Event Seq */
+            through_event_seq?: number | null;
+            /** Title */
+            title?: string | null;
         };
         /**
          * GuidanceAudience
@@ -5335,6 +9741,15 @@ export interface components {
              */
             truncated: boolean;
         };
+        /** InspectMcpManagedLocalConfiguration */
+        InspectMcpManagedLocalConfiguration: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Preview Digest */
+            preview_digest: string;
+            /** Request Id */
+            request_id: string;
+        };
         /** JoinRequest */
         JoinRequest: {
             /** Share Id */
@@ -5349,8 +9764,16 @@ export interface components {
         /** JudgeAgreementReport */
         JudgeAgreementReport: {
             /**
+             * Accepted Prompt Versions
+             * @default [
+             *       "judge-v4-complete-json-anchor-15k",
+             *       "judge-v4-complete-json-anchor-6k"
+             *     ]
+             */
+            accepted_prompt_versions: string[];
+            /**
              * Caveat
-             * @default Model judgments are experimental and are never product metrics; agreement with human ratings is evidence for the activation gate, not calibration by itself.
+             * @default Model judgments are experimental and are never product metrics; agreement with human ratings is evidence for the activation gate, not calibration by itself. Only current prompt/acceptance protocols and matching reviewed-case identities enter this report. Can't judge is an abstention. Historical and unmatched rows are retained but excluded. Recorded model identity is not proof of an immutable weight revision.
              */
             caveat: string;
             /**
@@ -5359,12 +9782,24 @@ export interface components {
              * @constant
              */
             contract_version: "model-judge.v1";
+            /**
+             * Excluded Judgments
+             * @default 0
+             */
+            excluded_judgments: number;
             /** Judged Sessions */
             judged_sessions: number;
             /** Metrics */
             metrics: components["schemas"]["MetricAgreement"][];
             /** Model Alias */
             model_alias: string | null;
+            /** Model Identity */
+            model_identity?: string | null;
+            /**
+             * Model Identity Ambiguous
+             * @default false
+             */
+            model_identity_ambiguous: boolean;
         };
         /** JudgeOutcome */
         JudgeOutcome: {
@@ -5475,7 +9910,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "model_file_missing" | "runtime_unavailable" | "runtime_activation_superseded";
+            code: "model_file_missing" | "model_projector_missing" | "runtime_unavailable" | "runtime_placement_unavailable" | "runtime_gpu_layers_invalid" | "runtime_context_unsupported" | "runtime_activation_superseded" | "runtime_shutdown_in_progress" | "runtime_busy" | "runtime_revision_conflict" | "runtime_quarantined";
         };
         /** LocalModelActivationConflictFailureResponse */
         LocalModelActivationConflictFailureResponse: {
@@ -5487,11 +9922,142 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "runtime_spawn_failed" | "runtime_not_healthy";
+            code: "runtime_spawn_failed" | "runtime_not_healthy" | "runtime_capability_probe_failed" | "runtime_crashed" | "runtime_out_of_memory";
         };
         /** LocalModelActivationFailureResponse */
         LocalModelActivationFailureResponse: {
             detail: components["schemas"]["LocalModelActivationFailureDetail"];
+        };
+        /**
+         * LocalModelCompatibility
+         * @description Path-free executable compatibility receipt for one installed alias.
+         */
+        LocalModelCompatibility: {
+            /** Alias */
+            alias: string;
+            /** Architecture */
+            architecture?: string | null;
+            /**
+             * Artifact Identity State
+             * @enum {string}
+             */
+            artifact_identity_state: "verified_at_admission" | "unverified";
+            /** Artifact Sha256 */
+            artifact_sha256?: string | null;
+            /**
+             * Context Counter State
+             * @enum {string}
+             */
+            context_counter_state: "verified" | "unsupported" | "failed" | "not_run";
+            /**
+             * Execution State
+             * @enum {string}
+             */
+            execution_state: "verified" | "failed" | "not_run";
+            /**
+             * Format
+             * @default gguf
+             * @constant
+             */
+            format: "gguf";
+            /** Metadata Reader Version */
+            metadata_reader_version?: string | null;
+            reason_code: components["schemas"]["LocalModelCompatibilityReason"];
+            /** Source License */
+            source_license?: string | null;
+            /** Source License Policy */
+            source_license_policy?: string | null;
+            /** Source Revision */
+            source_revision?: string | null;
+            state: components["schemas"]["LocalModelCompatibilityState"];
+            /** Tokenizer Model */
+            tokenizer_model?: string | null;
+            /** Training Context Size */
+            training_context_size?: number | null;
+        };
+        /** LocalModelCompatibilityCatalog */
+        LocalModelCompatibilityCatalog: {
+            adapter: components["schemas"]["LocalModelRuntimeAdapter"];
+            /**
+             * Contract Version
+             * @default local-model-compatibility.v1
+             * @constant
+             */
+            contract_version: "local-model-compatibility.v1";
+            /** Models */
+            models: components["schemas"]["LocalModelCompatibility"][];
+        };
+        /**
+         * LocalModelCompatibilityReason
+         * @description Closed, content-free reasons behind a compatibility state.
+         * @enum {string}
+         */
+        LocalModelCompatibilityReason: "live_text_probe_verified" | "model_not_executed" | "live_text_probe_failed" | "runtime_execution_failed" | "runtime_unavailable" | "artifact_missing";
+        /**
+         * LocalModelCompatibilityState
+         * @description Executable compatibility for one exact installed artifact.
+         * @enum {string}
+         */
+        LocalModelCompatibilityState: "supported" | "unsupported" | "unknown";
+        /** LocalModelContextFailureDetail */
+        LocalModelContextFailureDetail: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "context_window_exceeded" | "input_tokens_unavailable";
+        };
+        /** LocalModelContextFailureResponse */
+        LocalModelContextFailureResponse: {
+            detail: components["schemas"]["LocalModelContextFailureDetail"];
+        };
+        /** LocalModelDownloadConflictFailureDetail */
+        LocalModelDownloadConflictFailureDetail: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "alias_exists" | "download_action_invalid" | "download_revision_conflict" | "download_ledger_invalid" | "download_adapter_incompatible" | "huggingface_hub_unavailable" | "provenance_unavailable" | "provenance_mismatch" | "file_not_eligible";
+        };
+        /** LocalModelDownloadConflictFailureResponse */
+        LocalModelDownloadConflictFailureResponse: {
+            detail: components["schemas"]["LocalModelDownloadConflictFailureDetail"];
+        };
+        /** LocalModelDownloadNotFoundFailureDetail */
+        LocalModelDownloadNotFoundFailureDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "download_not_found";
+        };
+        /** LocalModelDownloadNotFoundFailureResponse */
+        LocalModelDownloadNotFoundFailureResponse: {
+            detail: components["schemas"]["LocalModelDownloadNotFoundFailureDetail"];
+        };
+        /** LocalModelDownloadUnavailableFailureDetail */
+        LocalModelDownloadUnavailableFailureDetail: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "download_cleanup_failed" | "download_ledger_unavailable";
+        };
+        /** LocalModelDownloadUnavailableFailureResponse */
+        LocalModelDownloadUnavailableFailureResponse: {
+            detail: components["schemas"]["LocalModelDownloadUnavailableFailureDetail"];
+        };
+        /** LocalModelDownloadUpstreamFailureDetail */
+        LocalModelDownloadUpstreamFailureDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "remote_repo_unavailable";
+        };
+        /** LocalModelDownloadUpstreamFailureResponse */
+        LocalModelDownloadUpstreamFailureResponse: {
+            detail: components["schemas"]["LocalModelDownloadUpstreamFailureDetail"];
         };
         /** LocalModelNotFoundFailureDetail */
         LocalModelNotFoundFailureDetail: {
@@ -5505,6 +10071,49 @@ export interface components {
         LocalModelNotFoundFailureResponse: {
             detail: components["schemas"]["LocalModelNotFoundFailureDetail"];
         };
+        /**
+         * LocalModelPlacementAdmission
+         * @description Placement admission for one model, context limit and hardware snapshot.
+         *
+         *     A healthy text probe verifies model execution only. llama.cpp does not
+         *     currently return an app-verified device-placement receipt, so this contract
+         *     keeps actual offload explicitly unverified even after a runtime is ready.
+         */
+        LocalModelPlacementAdmission: {
+            /**
+             * Actual Offload Verified
+             * @default false
+             * @constant
+             */
+            actual_offload_verified: false;
+            /** Alias */
+            alias: string;
+            /** Context Size */
+            context_size: number;
+            /**
+             * Contract Version
+             * @default local-model-placement.v1
+             * @constant
+             */
+            contract_version: "local-model-placement.v1";
+            /** Gpu Memory Free Mb */
+            gpu_memory_free_mb?: number | null;
+            /** Options */
+            options: components["schemas"]["LocalModelPlacementOption"][];
+        };
+        /**
+         * LocalModelPlacementOption
+         * @description One server-owned preflight estimate, never proof of actual offload.
+         */
+        LocalModelPlacementOption: {
+            device: components["schemas"]["DeviceMode"];
+            /** Estimated Vram Required Mb */
+            estimated_vram_required_mb?: number | null;
+            reason_code: components["schemas"]["PlacementAdmissionReason"];
+            /** Recommended Gpu Layers */
+            recommended_gpu_layers?: number | null;
+            state: components["schemas"]["PlacementAdmissionState"];
+        };
         /** LocalModelRecord */
         LocalModelRecord: {
             /**
@@ -5514,6 +10123,8 @@ export interface components {
             added_at: string;
             /** Alias */
             alias: string;
+            /** Architecture */
+            architecture?: string | null;
             /**
              * Context Size
              * @default 8192
@@ -5529,6 +10140,12 @@ export interface components {
             format: components["schemas"]["ModelFormat"];
             /** Layer Count */
             layer_count?: number | null;
+            /** Metadata Reader Version */
+            metadata_reader_version?: string | null;
+            /** Mmproj Path */
+            mmproj_path?: string | null;
+            /** Mmproj Size Bytes */
+            mmproj_size_bytes?: number | null;
             /** Path */
             path: string;
             /**
@@ -5550,11 +10167,46 @@ export interface components {
             source_repo?: string | null;
             /** Source Revision */
             source_revision?: string | null;
+            /** Tokenizer Model */
+            tokenizer_model?: string | null;
+            /** Training Context Size */
+            training_context_size?: number | null;
+        };
+        /** LocalModelRuntimeAdapter */
+        LocalModelRuntimeAdapter: {
+            /**
+             * Adapter Id
+             * @default llama.cpp-openai-gguf
+             * @constant
+             */
+            adapter_id: "llama.cpp-openai-gguf";
+            /**
+             * Adapter Version
+             * @default llama.cpp-openai-gguf.v1
+             * @constant
+             */
+            adapter_version: "llama.cpp-openai-gguf.v1";
+            /**
+             * Capability Probe Version
+             * @default local-runtime-multimodal-probe.v2
+             * @constant
+             */
+            capability_probe_version: "local-runtime-multimodal-probe.v2";
+            /** Runtime Binary Sha256 */
+            runtime_binary_sha256?: string | null;
+            /**
+             * Runtime Identity State
+             * @enum {string}
+             */
+            runtime_identity_state: "verified" | "unknown";
+            /** Runtime Version */
+            runtime_version?: string | null;
         };
         /** LocalModelStatus */
         LocalModelStatus: {
             /** Endpoint Path */
             endpoint_path: string;
+            placement: components["schemas"]["LocalModelPlacementAdmission"];
             record: components["schemas"]["LocalModelRecord"];
             runtime: components["schemas"]["RuntimeStatus"];
         };
@@ -5562,9 +10214,9 @@ export interface components {
         LocalModelStopFailureDetail: {
             /**
              * Code
-             * @constant
+             * @enum {string}
              */
-            code: "runtime_stop_failed";
+            code: "runtime_stop_failed" | "runtime_cleanup_unconfirmed";
         };
         /** LocalModelStopFailureResponse */
         LocalModelStopFailureResponse: {
@@ -5578,6 +10230,13 @@ export interface components {
              * @constant
              */
             contract_version: "local-models.v1";
+            /** Download Ledger Error Code */
+            download_ledger_error_code?: string | null;
+            /**
+             * Download Reserve Bytes
+             * @default 536870912
+             */
+            download_reserve_bytes: number;
             /** Downloads */
             downloads: components["schemas"]["DownloadStatus"][];
             hardware: components["schemas"]["HardwareSummary"];
@@ -5585,8 +10244,58 @@ export interface components {
             models: components["schemas"]["LocalModelStatus"][];
             /** Runtime Available */
             runtime_available: boolean;
+            /** Storage Free Bytes */
+            storage_free_bytes?: number | null;
             /** Storage Root */
             storage_root: string;
+        };
+        /** LocalRuntimeCoordinatorStatus */
+        LocalRuntimeCoordinatorStatus: {
+            /** Active Requests */
+            active_requests: number;
+            capabilities: components["schemas"]["RuntimeCapabilities"];
+            cleanup: components["schemas"]["RuntimeCleanupReceipt"];
+            context: components["schemas"]["RuntimeContextStatus"];
+            /**
+             * Contract Version
+             * @default local-runtime-coordinator.v2
+             * @constant
+             */
+            contract_version: "local-runtime-coordinator.v2";
+            /** Last Error Code */
+            last_error_code?: string | null;
+            requested?: components["schemas"]["LocalRuntimeSelection"] | null;
+            /** Revision */
+            revision: number;
+            served?: components["schemas"]["LocalRuntimeServedSelection"] | null;
+            state: components["schemas"]["RuntimeCoordinatorState"];
+        };
+        /** LocalRuntimeSelection */
+        LocalRuntimeSelection: {
+            /** Alias */
+            alias: string;
+            /** Context Size */
+            context_size: number;
+            device: components["schemas"]["DeviceMode"];
+            /** Gpu Layers */
+            gpu_layers: number;
+        };
+        /** LocalRuntimeServedSelection */
+        LocalRuntimeServedSelection: {
+            /** Alias */
+            alias: string;
+            /** Context Size */
+            context_size: number;
+            device: components["schemas"]["DeviceMode"];
+            /** Gpu Layers */
+            gpu_layers: number;
+            /** Pid */
+            pid: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
         };
         /** ManifestEntry */
         ManifestEntry: {
@@ -5622,6 +10331,1833 @@ export interface components {
             /** Revision */
             revision: number;
         };
+        /**
+         * McpManagedHostProbe
+         * @description Durable, content-free receipt for one successful compatibility probe.
+         */
+        McpManagedHostProbe: {
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /**
+             * Connection State
+             * @default closed_after_probe
+             * @constant
+             */
+            connection_state: "closed_after_probe";
+            /** Elapsed Ms */
+            elapsed_ms: number;
+            /** Process Started */
+            process_started: boolean;
+            /**
+             * Process Tree Cleanup
+             * @enum {string}
+             */
+            process_tree_cleanup: "verified" | "not_applicable";
+            /** Protocol Version */
+            protocol_version: string;
+            /** Request Id */
+            request_id: string;
+            /** Schema Digest */
+            schema_digest: string;
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+            /** Tool Count */
+            tool_count: number;
+            /**
+             * Tool Names Persisted
+             * @default false
+             */
+            tool_names_persisted: boolean;
+            /**
+             * Tool Results Requested
+             * @default false
+             * @constant
+             */
+            tool_results_requested: false;
+            /**
+             * Tool Schemas Persisted
+             * @default false
+             */
+            tool_schemas_persisted: boolean;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "stdio" | "streamable-http" | "sse";
+        };
+        /** McpManagedLifecyclePreview */
+        McpManagedLifecyclePreview: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "install" | "uninstall";
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "available" | "unavailable";
+            /**
+             * Contract Version
+             * @default mcp-managed-lifecycle-preview.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-lifecycle-preview.v1";
+            /** Effects */
+            effects: ("persist_remote_activation" | "remove_remote_activation" | "download_exact_package" | "verify_artifact_sha256" | "stage_isolated_package" | "execute_bounded_compatibility_probe" | "stop_and_verify_process_tree" | "publish_verified_package" | "verify_installed_tree_digest" | "quarantine_verified_package" | "remove_quarantined_package" | "no_package_change" | "no_process_start" | "no_connection_retained" | "no_tool_authority")[];
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Installation Kind
+             * @enum {string}
+             */
+            installation_kind: "remote_activation" | "local_package";
+            /** Management Id */
+            management_id: string;
+            /**
+             * Native Confirmation Required
+             * @default true
+             * @constant
+             */
+            native_confirmation_required: true;
+            /** Plan Revision */
+            plan_revision: string;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "ready_for_native_confirmation" | "compatibility_check_required" | "configuration_required" | "configuration_inspection_required" | "package_registry_not_supported" | "package_integrity_required" | "local_transport_unsupported" | "local_installer_unavailable" | "local_uninstaller_unavailable" | "already_installed" | "not_installed" | "cleanup_required" | "operation_in_progress";
+        };
+        /** McpManagedLifecycleReceipt */
+        McpManagedLifecycleReceipt: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "install" | "uninstall";
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /**
+             * Contract Version
+             * @default mcp-managed-lifecycle-receipt.v2
+             * @constant
+             */
+            contract_version: "mcp-managed-lifecycle-receipt.v2";
+            /**
+             * Endpoint Connected
+             * @default false
+             * @constant
+             */
+            endpoint_connected: false;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            /**
+             * Installation Kind
+             * @enum {string}
+             */
+            installation_kind: "remote_activation" | "local_package";
+            /**
+             * Package Changed
+             * @default false
+             */
+            package_changed: boolean;
+            /**
+             * Persistent Host Started
+             * @default false
+             * @constant
+             */
+            persistent_host_started: false;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Process Started
+             * @default false
+             */
+            process_started: boolean;
+            /**
+             * Process Tree Cleanup
+             * @default not_applicable
+             * @enum {string}
+             */
+            process_tree_cleanup: "verified" | "not_applicable";
+            server: components["schemas"]["McpManagedServer"];
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+        };
+        /** McpManagedLocalCleanupPreview */
+        McpManagedLocalCleanupPreview: {
+            /**
+             * Action
+             * @default complete_interrupted_uninstall
+             * @constant
+             */
+            action: "complete_interrupted_uninstall";
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "available" | "unavailable";
+            /**
+             * Contract Version
+             * @default mcp-managed-local-cleanup-preview.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-cleanup-preview.v1";
+            /** Effects */
+            effects: ("verify_operation_journal" | "verify_installed_or_quarantined_tree_digest" | "finish_quarantined_removal" | "clear_cleanup_state" | "no_process_start" | "no_connection_retained" | "no_tool_authority")[];
+            /** Expected Revision */
+            expected_revision: number;
+            /** Management Id */
+            management_id: string;
+            /**
+             * Native Confirmation Required
+             * @default true
+             * @constant
+             */
+            native_confirmation_required: true;
+            /** Plan Revision */
+            plan_revision: string;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "ready_for_native_confirmation" | "cleanup_not_required" | "unsupported_cleanup_state" | "local_uninstaller_unavailable";
+        };
+        /** McpManagedLocalCleanupReceipt */
+        McpManagedLocalCleanupReceipt: {
+            /**
+             * Action
+             * @default complete_interrupted_uninstall
+             * @constant
+             */
+            action: "complete_interrupted_uninstall";
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /**
+             * Contract Version
+             * @default mcp-managed-local-cleanup-receipt.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-cleanup-receipt.v1";
+            /**
+             * Endpoint Connected
+             * @default false
+             * @constant
+             */
+            endpoint_connected: false;
+            /** Filesystem Changed */
+            filesystem_changed: boolean;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            /**
+             * Package Presence
+             * @default absent
+             * @constant
+             */
+            package_presence: "absent";
+            /**
+             * Persistent Host Started
+             * @default false
+             * @constant
+             */
+            persistent_host_started: false;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Process Started
+             * @default false
+             * @constant
+             */
+            process_started: false;
+            server: components["schemas"]["McpManagedServer"];
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+        };
+        /**
+         * McpManagedLocalConfigurationInspection
+         * @description Durable content-free evidence from one non-executing MCPB inspection.
+         */
+        McpManagedLocalConfigurationInspection: {
+            /**
+             * Archive Retained
+             * @default false
+             * @constant
+             */
+            archive_retained: false;
+            /** Artifact Bytes */
+            artifact_bytes: number;
+            /** Artifact Sha256 */
+            artifact_sha256: string;
+            /** Configuration Schema Digest */
+            configuration_schema_digest: string;
+            /**
+             * Configuration Values Persisted
+             * @default false
+             * @constant
+             */
+            configuration_values_persisted: false;
+            /**
+             * Inspected At
+             * Format: date-time
+             */
+            inspected_at: string;
+            /**
+             * Manifest Content Persisted
+             * @default false
+             * @constant
+             */
+            manifest_content_persisted: false;
+            /** Manifest Digest */
+            manifest_digest: string;
+            /**
+             * Manifest Version
+             * @enum {string}
+             */
+            manifest_version: "0.3" | "0.4";
+            /** Plan Revision */
+            plan_revision: string;
+            /**
+             * Process Started
+             * @default false
+             * @constant
+             */
+            process_started: false;
+            /** Requirement Ids */
+            requirement_ids: string[];
+        };
+        /** McpManagedLocalConfigurationInspectionPreview */
+        McpManagedLocalConfigurationInspectionPreview: {
+            /**
+             * Action
+             * @default inspect_configuration
+             * @constant
+             */
+            action: "inspect_configuration";
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "available" | "unavailable";
+            /**
+             * Contract Version
+             * @default mcp-managed-local-configuration-inspection-preview.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-configuration-inspection-preview.v1";
+            /** Effects */
+            effects: ("download_exact_package" | "verify_artifact_sha256" | "inspect_manifest_configuration" | "discard_inspection_archive" | "persist_content_free_configuration_schema" | "revoke_project_bindings_if_permissions_expand" | "no_configuration_values_persisted" | "no_process_start" | "no_connection_retained" | "no_tool_authority")[];
+            /** Expected Revision */
+            expected_revision: number;
+            /** Management Id */
+            management_id: string;
+            /**
+             * Native Confirmation Required
+             * @default true
+             * @constant
+             */
+            native_confirmation_required: true;
+            /** Plan Revision */
+            plan_revision: string;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "ready_for_native_confirmation" | "local_package_required" | "already_inspected" | "already_installed" | "cleanup_required" | "operation_in_progress" | "package_registry_not_supported" | "package_integrity_required" | "local_transport_unsupported" | "local_installer_unavailable";
+        };
+        /** McpManagedLocalConfigurationInspectionReceipt */
+        McpManagedLocalConfigurationInspectionReceipt: {
+            /**
+             * Action
+             * @default inspect_configuration
+             * @constant
+             */
+            action: "inspect_configuration";
+            /**
+             * Archive Retained
+             * @default false
+             * @constant
+             */
+            archive_retained: false;
+            /**
+             * Configuration Values Persisted
+             * @default false
+             * @constant
+             */
+            configuration_values_persisted: false;
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /**
+             * Contract Version
+             * @default mcp-managed-local-configuration-inspection-receipt.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-configuration-inspection-receipt.v1";
+            /**
+             * Endpoint Connected
+             * @default false
+             * @constant
+             */
+            endpoint_connected: false;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            inspection: components["schemas"]["McpManagedLocalConfigurationInspection"];
+            /**
+             * Persistent Host Started
+             * @default false
+             * @constant
+             */
+            persistent_host_started: false;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Process Started
+             * @default false
+             * @constant
+             */
+            process_started: false;
+            server: components["schemas"]["McpManagedServer"];
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+        };
+        /** McpManagedLocalOperationRecoveryPreview */
+        McpManagedLocalOperationRecoveryPreview: {
+            /**
+             * Action
+             * @default recover_interrupted_local_operation
+             * @constant
+             */
+            action: "recover_interrupted_local_operation";
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "available" | "unavailable";
+            /**
+             * Contract Version
+             * @default mcp-managed-local-operation-recovery-preview.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-operation-recovery-preview.v1";
+            /** Effects */
+            effects: ("verify_operation_journal" | "restore_durable_current_generation" | "discard_verified_staged_target" | "retain_verified_rollback_generation" | "finish_verified_rollback_generation_removal" | "clear_cleanup_state" | "no_process_start" | "no_connection_retained" | "no_tool_authority")[];
+            /** Expected Revision */
+            expected_revision: number;
+            /** Interrupted Action */
+            interrupted_action: ("update" | "rollback" | "cleanup") | null;
+            /** Management Id */
+            management_id: string;
+            /**
+             * Native Confirmation Required
+             * @default true
+             * @constant
+             */
+            native_confirmation_required: true;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "ready_for_native_confirmation" | "cleanup_not_required" | "unsupported_cleanup_state" | "process_cleanup_unconfirmed" | "local_installer_unavailable";
+        };
+        /** McpManagedLocalOperationRecoveryReceipt */
+        McpManagedLocalOperationRecoveryReceipt: {
+            /**
+             * Action
+             * @default recover_interrupted_local_operation
+             * @constant
+             */
+            action: "recover_interrupted_local_operation";
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /**
+             * Contract Version
+             * @default mcp-managed-local-operation-recovery-receipt.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-operation-recovery-receipt.v1";
+            /**
+             * Endpoint Connected
+             * @default false
+             * @constant
+             */
+            endpoint_connected: false;
+            /**
+             * Filesystem State Verified
+             * @default true
+             * @constant
+             */
+            filesystem_state_verified: true;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            /**
+             * Persistent Host Started
+             * @default false
+             * @constant
+             */
+            persistent_host_started: false;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Process Started
+             * @default false
+             * @constant
+             */
+            process_started: false;
+            /**
+             * Recovered Action
+             * @enum {string}
+             */
+            recovered_action: "update" | "rollback" | "cleanup";
+            server: components["schemas"]["McpManagedServer"];
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+        };
+        /**
+         * McpManagedLocalPackageEvidence
+         * @description Durable content-free identity for one verified installed package tree.
+         */
+        McpManagedLocalPackageEvidence: {
+            /** Artifact Bytes */
+            artifact_bytes: number;
+            /** Artifact Sha256 */
+            artifact_sha256: string;
+            /**
+             * License State
+             * @default declared
+             * @constant
+             */
+            license_state: "declared";
+            /** Manifest Digest */
+            manifest_digest: string;
+            /**
+             * Manifest Version
+             * @enum {string}
+             */
+            manifest_version: "0.3" | "0.4";
+            /**
+             * Runtime Kind
+             * @enum {string}
+             */
+            runtime_kind: "node" | "python" | "binary";
+            /** Runtime Version */
+            runtime_version?: string | null;
+            /** Tree Digest */
+            tree_digest: string;
+        };
+        /** McpManagedLocalRollbackCleanupPreview */
+        McpManagedLocalRollbackCleanupPreview: {
+            /**
+             * Action
+             * @default cleanup_rollback_generation
+             * @constant
+             */
+            action: "cleanup_rollback_generation";
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "available" | "unavailable";
+            /**
+             * Contract Version
+             * @default mcp-managed-local-rollback-cleanup-preview.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-rollback-cleanup-preview.v1";
+            /** Effects */
+            effects: ("verify_rollback_tree_digest" | "quarantine_verified_rollback_generation" | "remove_quarantined_rollback_generation" | "keep_current_generation_installed" | "no_process_start" | "no_connection_retained" | "no_tool_authority")[];
+            /** Expected Revision */
+            expected_revision: number;
+            /** Management Id */
+            management_id: string;
+            /**
+             * Native Confirmation Required
+             * @default true
+             * @constant
+             */
+            native_confirmation_required: true;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "ready_for_native_confirmation" | "local_package_required" | "install_required" | "cleanup_required" | "operation_in_progress" | "rollback_generation_missing" | "local_installer_unavailable";
+            /** Rollback Plan Revision */
+            rollback_plan_revision?: string | null;
+            /** Rollback Version */
+            rollback_version?: string | null;
+        };
+        /** McpManagedLocalRollbackCleanupReceipt */
+        McpManagedLocalRollbackCleanupReceipt: {
+            /**
+             * Action
+             * @default cleanup_rollback_generation
+             * @constant
+             */
+            action: "cleanup_rollback_generation";
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /**
+             * Contract Version
+             * @default mcp-managed-local-rollback-cleanup-receipt.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-rollback-cleanup-receipt.v1";
+            /**
+             * Endpoint Connected
+             * @default false
+             * @constant
+             */
+            endpoint_connected: false;
+            /** Filesystem Changed */
+            filesystem_changed: boolean;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            /**
+             * Persistent Host Started
+             * @default false
+             * @constant
+             */
+            persistent_host_started: false;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Process Started
+             * @default false
+             * @constant
+             */
+            process_started: false;
+            /**
+             * Rollback Generation Retained
+             * @default false
+             * @constant
+             */
+            rollback_generation_retained: false;
+            server: components["schemas"]["McpManagedServer"];
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+        };
+        /**
+         * McpManagedLocalRollbackGeneration
+         * @description One bounded content-free generation retained for an exact rollback.
+         */
+        McpManagedLocalRollbackGeneration: {
+            /** Catalog Id */
+            catalog_id: string;
+            /** Generation Id */
+            generation_id: string;
+            /**
+             * Installed At
+             * Format: date-time
+             */
+            installed_at: string;
+            local_package_evidence: components["schemas"]["McpManagedLocalPackageEvidence"];
+            /** Option Id */
+            option_id: string;
+            /** Option Label */
+            option_label: string;
+            /** Package Identifier */
+            package_identifier: string;
+            /** Package Version */
+            package_version?: string | null;
+            /** Plan Revision */
+            plan_revision: string;
+            probe: components["schemas"]["McpManagedHostProbe"];
+            /**
+             * Registry Type
+             * @default mcpb
+             * @constant
+             */
+            registry_type: "mcpb";
+            /** Required Permissions */
+            required_permissions: ("process_spawn" | "filesystem_read" | "filesystem_write" | "network_egress" | "credential_use")[];
+            /**
+             * Retained At
+             * Format: date-time
+             */
+            retained_at: string;
+            /** Risks */
+            risks: ("downloads_package" | "executes_local_code" | "package_integrity_not_declared" | "command_arguments_declared" | "filesystem_input_declared" | "credential_input_declared" | "remote_network_egress" | "insecure_remote_transport")[];
+            /** Runtime Hint */
+            runtime_hint?: string | null;
+            /** Server Name */
+            server_name: string;
+            /**
+             * Server Status At Review
+             * @enum {string}
+             */
+            server_status_at_review: "active" | "deprecated" | "deleted";
+            /** Server Title */
+            server_title: string;
+            /** Server Version */
+            server_version: string;
+            /**
+             * Transport
+             * @default stdio
+             * @constant
+             */
+            transport: "stdio";
+        };
+        /** McpManagedLocalRollbackPreview */
+        McpManagedLocalRollbackPreview: {
+            /**
+             * Action
+             * @default rollback
+             * @constant
+             */
+            action: "rollback";
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "available" | "unavailable";
+            /**
+             * Contract Version
+             * @default mcp-managed-local-rollback-preview.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-rollback-preview.v1";
+            /** Current Plan Revision */
+            current_plan_revision: string;
+            /** Current Version */
+            current_version: string;
+            /** Effects */
+            effects: ("verify_current_tree_digest" | "verify_rollback_tree_digest" | "atomically_swap_verified_generations" | "retain_superseded_current_generation" | "no_process_start" | "no_connection_retained" | "no_tool_authority")[];
+            /** Expected Revision */
+            expected_revision: number;
+            /** Management Id */
+            management_id: string;
+            /**
+             * Native Confirmation Required
+             * @default true
+             * @constant
+             */
+            native_confirmation_required: true;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "ready_for_native_confirmation" | "local_package_required" | "install_required" | "cleanup_required" | "operation_in_progress" | "rollback_generation_missing" | "local_installer_unavailable";
+            /** Target Plan Revision */
+            target_plan_revision?: string | null;
+            /** Target Version */
+            target_version?: string | null;
+        };
+        /** McpManagedLocalRollbackReceipt */
+        McpManagedLocalRollbackReceipt: {
+            /**
+             * Action
+             * @default rollback
+             * @constant
+             */
+            action: "rollback";
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /**
+             * Contract Version
+             * @default mcp-managed-local-rollback-receipt.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-rollback-receipt.v1";
+            /**
+             * Endpoint Connected
+             * @default false
+             * @constant
+             */
+            endpoint_connected: false;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            /**
+             * Package Changed
+             * @default true
+             * @constant
+             */
+            package_changed: true;
+            /**
+             * Persistent Host Started
+             * @default false
+             * @constant
+             */
+            persistent_host_started: false;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Process Started
+             * @default false
+             * @constant
+             */
+            process_started: false;
+            /**
+             * Process Tree Cleanup
+             * @default not_applicable
+             * @constant
+             */
+            process_tree_cleanup: "not_applicable";
+            /**
+             * Rollback Generation Retained
+             * @default true
+             * @constant
+             */
+            rollback_generation_retained: true;
+            server: components["schemas"]["McpManagedServer"];
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+        };
+        /** McpManagedLocalUpdatePreview */
+        McpManagedLocalUpdatePreview: {
+            /**
+             * Action
+             * @default update
+             * @constant
+             */
+            action: "update";
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "available" | "unavailable";
+            /**
+             * Contract Version
+             * @default mcp-managed-local-update-preview.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-update-preview.v1";
+            /** Current Plan Revision */
+            current_plan_revision: string;
+            /** Current Version */
+            current_version: string;
+            /** Effects */
+            effects: ("resolve_official_latest_exact_version" | "download_exact_target_package" | "verify_target_artifact_sha256" | "stage_target_in_isolation" | "execute_bounded_target_probe" | "stop_and_verify_target_process_tree" | "retain_verified_rollback_generation" | "publish_verified_target_package" | "no_connection_retained" | "no_tool_authority")[];
+            /** Expected Revision */
+            expected_revision: number;
+            /** Management Id */
+            management_id: string;
+            /**
+             * Native Confirmation Required
+             * @default true
+             * @constant
+             */
+            native_confirmation_required: true;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "ready_for_native_confirmation" | "local_package_required" | "install_required" | "cleanup_required" | "operation_in_progress" | "registry_unavailable" | "already_latest" | "current_version_metadata_changed" | "rollback_cleanup_required" | "configuration_migration_required" | "target_not_installable" | "target_option_ambiguous" | "permission_change_required" | "local_installer_unavailable";
+            /** Target Catalog Id */
+            target_catalog_id?: string | null;
+            /** Target Option Id */
+            target_option_id?: string | null;
+            /** Target Plan Revision */
+            target_plan_revision?: string | null;
+            /** Target Version */
+            target_version?: string | null;
+        };
+        /** McpManagedLocalUpdateReceipt */
+        McpManagedLocalUpdateReceipt: {
+            /**
+             * Action
+             * @default update
+             * @constant
+             */
+            action: "update";
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /**
+             * Contract Version
+             * @default mcp-managed-local-update-receipt.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-local-update-receipt.v1";
+            /**
+             * Endpoint Connected
+             * @default false
+             * @constant
+             */
+            endpoint_connected: false;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            /**
+             * Package Changed
+             * @default true
+             * @constant
+             */
+            package_changed: true;
+            /**
+             * Persistent Host Started
+             * @default false
+             * @constant
+             */
+            persistent_host_started: false;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Process Started
+             * @default true
+             * @constant
+             */
+            process_started: true;
+            /**
+             * Process Tree Cleanup
+             * @default verified
+             * @constant
+             */
+            process_tree_cleanup: "verified";
+            /**
+             * Rollback Generation Retained
+             * @default true
+             * @constant
+             */
+            rollback_generation_retained: true;
+            server: components["schemas"]["McpManagedServer"];
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+        };
+        /** McpManagedProbeReceipt */
+        McpManagedProbeReceipt: {
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /**
+             * Contract Version
+             * @default mcp-managed-server.v2
+             * @constant
+             */
+            contract_version: "mcp-managed-server.v2";
+            /**
+             * Endpoint Connection Attempted
+             * @default true
+             * @constant
+             */
+            endpoint_connection_attempted: true;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            /**
+             * Package Changed
+             * @default false
+             * @constant
+             */
+            package_changed: false;
+            probe: components["schemas"]["McpManagedHostProbe"];
+            server: components["schemas"]["McpManagedServer"];
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+            /**
+             * Tool Results Requested
+             * @default false
+             * @constant
+             */
+            tool_results_requested: false;
+        };
+        /** McpManagedProjectBinding */
+        McpManagedProjectBinding: {
+            /**
+             * Admission State
+             * @enum {string}
+             */
+            admission_state: "disabled" | "review_required" | "admitted";
+            /** Admitted Tool Ids */
+            admitted_tool_ids: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Effective State
+             * @enum {string}
+             */
+            effective_state: "disabled" | "inactive_tool_review_required" | "inactive_install_required" | "inactive_host_unavailable";
+            /** Enabled */
+            enabled: boolean;
+            /** Granted Permissions */
+            granted_permissions: ("process_spawn" | "filesystem_read" | "filesystem_write" | "network_egress" | "credential_use")[];
+            /** Project Id */
+            project_id: string;
+            /** Project Name */
+            project_name: string;
+            /** Required Permissions */
+            required_permissions: ("process_spawn" | "filesystem_read" | "filesystem_write" | "network_egress" | "credential_use")[];
+            /** Revision */
+            revision: number;
+            /** Tool Snapshot Id */
+            tool_snapshot_id?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** McpManagedRequirement */
+        McpManagedRequirement: {
+            /**
+             * Configuration State
+             * @enum {string}
+             */
+            configuration_state: "publisher_value_declared" | "registry_default_declared" | "value_required" | "value_pending_store" | "value_stored" | "value_store_failed" | "value_pending_removal" | "value_cleanup_required" | "optional_unset" | "secret_missing" | "secret_pending_store" | "secret_stored" | "secret_store_failed" | "secret_pending_removal" | "secret_cleanup_required";
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "string" | "number" | "boolean" | "filepath" | "unknown";
+            /**
+             * Location
+             * @enum {string}
+             */
+            location: "runtime_argument" | "package_argument" | "environment_variable" | "transport_header" | "remote_variable";
+            /** Name */
+            name: string;
+            /** Required */
+            required: boolean;
+            /** Requirement Id */
+            requirement_id: string;
+            /** Secret */
+            secret: boolean;
+            /** Secret Vault Provider */
+            secret_vault_provider: "windows_credential_manager" | null;
+            /** User Value Needed */
+            user_value_needed: boolean;
+            /** Value Vault Provider */
+            value_vault_provider?: "windows_credential_manager" | null;
+        };
+        /**
+         * McpManagedReviewedTool
+         * @description One owner-reviewable, local-only MCP tool contract.
+         */
+        McpManagedReviewedTool: {
+            /** Contract Digest */
+            contract_digest: string;
+            /** Description */
+            description?: string | null;
+            /** Input Schema */
+            input_schema: {
+                [key: string]: unknown;
+            };
+            /** Input Schema Digest */
+            input_schema_digest: string;
+            /** Model Alias */
+            model_alias: string;
+            /** Model Input Schema */
+            model_input_schema: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+            /** Output Schema */
+            output_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Output Schema Digest */
+            output_schema_digest?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Tool Id */
+            tool_id: string;
+        };
+        /** McpManagedSecretVaultStatus */
+        McpManagedSecretVaultStatus: {
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "available" | "unavailable";
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "windows_credential_manager" | "unavailable";
+            /**
+             * Values In Api Responses
+             * @default false
+             * @constant
+             */
+            values_in_api_responses: false;
+            /**
+             * Values In Database
+             * @default false
+             * @constant
+             */
+            values_in_database: false;
+            /**
+             * Values In Model Context
+             * @default false
+             * @constant
+             */
+            values_in_model_context: false;
+        };
+        /** McpManagedServer */
+        McpManagedServer: {
+            /** Catalog Id */
+            catalog_id: string;
+            /**
+             * Contract Version
+             * @default mcp-managed-server.v2
+             * @constant
+             */
+            contract_version: "mcp-managed-server.v2";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Endpoint Host */
+            endpoint_host?: string | null;
+            /**
+             * Endpoint State
+             * @enum {string}
+             */
+            endpoint_state: "not_applicable" | "fixed_host" | "template_requires_configuration" | "invalid";
+            /**
+             * Health State
+             * @default not_checked
+             * @enum {string}
+             */
+            health_state: "not_checked" | "compatible";
+            /**
+             * Host State
+             * @default not_started
+             * @constant
+             */
+            host_state: "not_started";
+            /**
+             * Install Action
+             * @enum {string}
+             */
+            readonly install_action: "available_native_confirmation_required" | "unavailable_compatibility_check_required" | "unavailable_configuration_required" | "unavailable_package_registry_not_supported" | "unavailable_package_integrity_required" | "unavailable_local_transport_unsupported" | "unavailable_configuration_inspection_required" | "unavailable_cleanup_required" | "unavailable_operation_in_progress" | "not_applicable_already_installed";
+            /**
+             * Installation Kind
+             * @default none
+             * @enum {string}
+             */
+            installation_kind: "none" | "remote_activation" | "local_package";
+            /**
+             * Installation State
+             * @default not_installed
+             * @enum {string}
+             */
+            installation_state: "not_installed" | "installed" | "cleanup_required";
+            /** Installed At */
+            installed_at?: string | null;
+            /** Installed Plan Revision */
+            installed_plan_revision?: string | null;
+            /** Last Health Checked At */
+            last_health_checked_at?: string | null;
+            last_probe?: components["schemas"]["McpManagedHostProbe"] | null;
+            /** Latest Available Version */
+            latest_available_version?: null;
+            /**
+             * Lifecycle State
+             * @default planned
+             * @enum {string}
+             */
+            lifecycle_state: "planned" | "installed" | "cleanup_required";
+            local_configuration_inspection?: components["schemas"]["McpManagedLocalConfigurationInspection"] | null;
+            local_package_evidence?: components["schemas"]["McpManagedLocalPackageEvidence"] | null;
+            /** Management Id */
+            management_id: string;
+            /**
+             * Operation State
+             * @default idle
+             * @enum {string}
+             */
+            operation_state: "idle" | "installing" | "updating" | "uninstalling" | "rolling_back" | "cleaning_up" | "cleanup_required";
+            /** Option Id */
+            option_id: string;
+            /**
+             * Option Kind
+             * @enum {string}
+             */
+            option_kind: "local_package" | "remote_server";
+            /** Option Label */
+            option_label: string;
+            /** Package Identifier */
+            package_identifier?: string | null;
+            /** Package Version */
+            package_version?: string | null;
+            /** Plan Revision */
+            plan_revision: string;
+            /**
+             * Probe Action
+             * @enum {string}
+             */
+            readonly probe_action: "available_native_confirmation_required" | "unavailable_install_required" | "unavailable_configuration_required" | "unavailable_option_unsupported" | "not_applicable_verified_during_install";
+            /**
+             * Process Tree Cleanup
+             * @default not_applicable
+             * @enum {string}
+             */
+            process_tree_cleanup: "not_applicable" | "verified" | "unconfirmed";
+            /** Project Bindings */
+            project_bindings: components["schemas"]["McpManagedProjectBinding"][];
+            /** Registry Type */
+            registry_type?: string | null;
+            /** Required Permissions */
+            required_permissions: ("process_spawn" | "filesystem_read" | "filesystem_write" | "network_egress" | "credential_use")[];
+            /** Requirements */
+            requirements: components["schemas"]["McpManagedRequirement"][];
+            /** Revision */
+            revision: number;
+            /** Risks */
+            risks: ("downloads_package" | "executes_local_code" | "package_integrity_not_declared" | "command_arguments_declared" | "filesystem_input_declared" | "credential_input_declared" | "remote_network_egress" | "insecure_remote_transport")[];
+            rollback_generation?: components["schemas"]["McpManagedLocalRollbackGeneration"] | null;
+            /** Runtime Hint */
+            runtime_hint?: string | null;
+            /** Secure Transport */
+            secure_transport: boolean | null;
+            /** Server Name */
+            server_name: string;
+            /**
+             * Server Status At Review
+             * @enum {string}
+             */
+            server_status_at_review: "active" | "deprecated" | "deleted";
+            /** Server Title */
+            server_title: string;
+            /** Server Version */
+            server_version: string;
+            /**
+             * Tool Review State
+             * @default probe_required
+             * @enum {string}
+             */
+            tool_review_state: "probe_required" | "reviewable";
+            /**
+             * Tool Routing State
+             * @default inactive
+             * @constant
+             */
+            tool_routing_state: "inactive";
+            tool_snapshot?: components["schemas"]["McpManagedToolSnapshotSummary"] | null;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "stdio" | "streamable-http" | "sse" | "unknown";
+            /**
+             * Uninstall Action
+             * @enum {string}
+             */
+            readonly uninstall_action: "available_native_confirmation_required" | "not_applicable_not_installed" | "unavailable_cleanup_required" | "unavailable_operation_in_progress";
+            /**
+             * Update State
+             * @default not_checked
+             * @constant
+             */
+            update_state: "not_checked";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** McpManagedServerList */
+        McpManagedServerList: {
+            /**
+             * Contract Version
+             * @default mcp-managed-server.v2
+             * @constant
+             */
+            contract_version: "mcp-managed-server.v2";
+            /**
+             * Execution Truth
+             * @default reviewed_tool_admission_without_persistent_host_or_tool_authority
+             * @constant
+             */
+            execution_truth: "reviewed_tool_admission_without_persistent_host_or_tool_authority";
+            secret_vault: components["schemas"]["McpManagedSecretVaultStatus"];
+            /** Servers */
+            servers: components["schemas"]["McpManagedServer"][];
+            /** Total */
+            total: number;
+        };
+        /** McpManagedServerReceipt */
+        McpManagedServerReceipt: {
+            /**
+             * Contract Version
+             * @default mcp-managed-server.v2
+             * @constant
+             */
+            contract_version: "mcp-managed-server.v2";
+            /**
+             * Endpoint Connected
+             * @default false
+             * @constant
+             */
+            endpoint_connected: false;
+            /** Idempotent Replay */
+            idempotent_replay: boolean;
+            /**
+             * Package Changed
+             * @default false
+             * @constant
+             */
+            package_changed: false;
+            /**
+             * Process Started
+             * @default false
+             * @constant
+             */
+            process_started: false;
+            server: components["schemas"]["McpManagedServer"];
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+        };
+        /** McpManagedToolSnapshot */
+        McpManagedToolSnapshot: {
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /**
+             * Contract Version
+             * @default mcp-managed-tool-snapshot.v1
+             * @constant
+             */
+            contract_version: "mcp-managed-tool-snapshot.v1";
+            /** Management Id */
+            management_id: string;
+            /** Plan Revision */
+            plan_revision: string;
+            /** Protocol Version */
+            protocol_version: string;
+            /**
+             * Reviewed At
+             * Format: date-time
+             */
+            reviewed_at: string;
+            /** Schema Digest */
+            schema_digest: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "remote_probe" | "local_package_probe";
+            /** Source Manifest Digest */
+            source_manifest_digest?: string | null;
+            /** Source Tree Digest */
+            source_tree_digest?: string | null;
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+            /** Tool Count */
+            tool_count: number;
+            /**
+             * Tool Names Retained Locally
+             * @default true
+             * @constant
+             */
+            tool_names_retained_locally: true;
+            /**
+             * Tool Schemas Retained Locally
+             * @default true
+             * @constant
+             */
+            tool_schemas_retained_locally: true;
+            /** Tools */
+            tools: components["schemas"]["McpManagedReviewedTool"][];
+        };
+        /** McpManagedToolSnapshotSummary */
+        McpManagedToolSnapshotSummary: {
+            /**
+             * Connection Retained
+             * @default false
+             * @constant
+             */
+            connection_retained: false;
+            /** Plan Revision */
+            plan_revision: string;
+            /** Protocol Version */
+            protocol_version: string;
+            /**
+             * Reviewed At
+             * Format: date-time
+             */
+            reviewed_at: string;
+            /** Schema Digest */
+            schema_digest: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "remote_probe" | "local_package_probe";
+            /** Source Manifest Digest */
+            source_manifest_digest?: string | null;
+            /** Source Tree Digest */
+            source_tree_digest?: string | null;
+            /**
+             * Tool Authority Granted
+             * @default false
+             * @constant
+             */
+            tool_authority_granted: false;
+            /** Tool Count */
+            tool_count: number;
+            /**
+             * Tool Names Retained Locally
+             * @default true
+             * @constant
+             */
+            tool_names_retained_locally: true;
+            /**
+             * Tool Schemas Retained Locally
+             * @default true
+             * @constant
+             */
+            tool_schemas_retained_locally: true;
+        };
+        /** McpRegistryCatalog */
+        McpRegistryCatalog: {
+            /**
+             * Contract Version
+             * @default mcp-registry-catalog.v1
+             * @constant
+             */
+            contract_version: "mcp-registry-catalog.v1";
+            /**
+             * Management Truth
+             * @default registry_only_no_install_authority
+             * @constant
+             */
+            management_truth: "registry_only_no_install_authority";
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Partial */
+            partial: boolean;
+            /** Search */
+            search: string;
+            /** Servers */
+            servers: components["schemas"]["McpRegistryServer"][];
+            source: components["schemas"]["McpRegistrySourceStatus"];
+        };
+        /** McpRegistryIcon */
+        McpRegistryIcon: {
+            /**
+             * Mime Type
+             * @enum {string}
+             */
+            mime_type: "image/png" | "image/jpeg" | "image/webp";
+            /** Path */
+            path: string;
+        };
+        /** McpRegistryInputRequirement */
+        McpRegistryInputRequirement: {
+            /** Choices Count */
+            choices_count: number;
+            /** Default Declared */
+            default_declared: boolean;
+            /** Description */
+            description?: string | null;
+            /** Fixed Value Declared */
+            fixed_value_declared: boolean;
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "string" | "number" | "boolean" | "filepath" | "unknown";
+            /**
+             * Location
+             * @enum {string}
+             */
+            location: "runtime_argument" | "package_argument" | "environment_variable" | "transport_header" | "remote_variable";
+            /** Name */
+            name: string;
+            /** Repeated */
+            repeated: boolean;
+            /** Required */
+            required: boolean;
+            /** Requirement Id */
+            requirement_id: string;
+            /** Secret */
+            secret: boolean;
+            /** User Value Needed */
+            user_value_needed: boolean;
+        };
+        /** McpRegistryInstallOption */
+        McpRegistryInstallOption: {
+            /**
+             * Checksum State
+             * @enum {string}
+             */
+            checksum_state: "declared" | "not_declared" | "not_applicable";
+            compatibility: components["schemas"]["McpRegistryOptionCompatibility"];
+            /** Endpoint Host */
+            endpoint_host?: string | null;
+            /**
+             * Endpoint State
+             * @enum {string}
+             */
+            endpoint_state: "not_applicable" | "fixed_host" | "template_requires_configuration" | "invalid";
+            /**
+             * Execution State
+             * @default preview_only
+             * @constant
+             */
+            execution_state: "preview_only";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "local_package" | "remote_server";
+            /** Label */
+            label: string;
+            /** Option Id */
+            option_id: string;
+            /** Package Identifier */
+            package_identifier?: string | null;
+            /** Package Version */
+            package_version?: string | null;
+            /** Registry Type */
+            registry_type?: string | null;
+            /** Requirements */
+            requirements: components["schemas"]["McpRegistryInputRequirement"][];
+            /** Risks */
+            risks: ("downloads_package" | "executes_local_code" | "package_integrity_not_declared" | "command_arguments_declared" | "filesystem_input_declared" | "credential_input_declared" | "remote_network_egress" | "insecure_remote_transport")[];
+            /** Runtime Hint */
+            runtime_hint?: string | null;
+            /** Secure Transport */
+            secure_transport: boolean | null;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "stdio" | "streamable-http" | "sse" | "unknown";
+        };
+        /** McpRegistryOptionCompatibility */
+        McpRegistryOptionCompatibility: {
+            /**
+             * Mcp Handshake
+             * @default not_performed
+             * @constant
+             */
+            mcp_handshake: "not_performed";
+            /**
+             * Platform Compatibility
+             * @default unverified
+             * @constant
+             */
+            platform_compatibility: "unverified";
+            /** Reasons */
+            reasons: ("known_package_registry" | "unknown_package_registry" | "supported_transport" | "unknown_transport" | "runtime_hint_missing" | "configuration_required" | "endpoint_template_requires_configuration" | "endpoint_invalid" | "machine_runtime_not_probed" | "platform_not_declared" | "mcp_handshake_not_performed")[];
+            /**
+             * Runtime Availability
+             * @default unverified
+             * @constant
+             */
+            runtime_availability: "unverified";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "reviewable" | "requires_configuration" | "unsupported";
+        };
+        /** McpRegistryPackage */
+        McpRegistryPackage: {
+            /** Checksum Available */
+            checksum_available: boolean;
+            /** Identifier */
+            identifier: string;
+            /** Registry Type */
+            registry_type: string;
+            /** Runtime Hint */
+            runtime_hint?: string | null;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "stdio" | "streamable-http" | "sse" | "unknown";
+            /** Version */
+            version?: string | null;
+        };
+        /** McpRegistryProvenance */
+        McpRegistryProvenance: {
+            /**
+             * License State
+             * @default not_declared_by_registry_contract
+             * @constant
+             */
+            license_state: "not_declared_by_registry_contract";
+            /** Publisher Namespace */
+            publisher_namespace: string;
+            /**
+             * Registry
+             * @default official_mcp_registry
+             * @constant
+             */
+            registry: "official_mcp_registry";
+            /**
+             * Registry Membership Security Review
+             * @default not_claimed
+             * @constant
+             */
+            registry_membership_security_review: "not_claimed";
+            /** Repository Identity Declared */
+            repository_identity_declared: boolean;
+            /** Repository Source */
+            repository_source?: string | null;
+            /** Repository Subfolder Declared */
+            repository_subfolder_declared: boolean;
+            /** Repository Url */
+            repository_url?: string | null;
+            /** Schema Url */
+            schema_url?: string | null;
+            /** Website Url */
+            website_url?: string | null;
+        };
+        /** McpRegistryRemote */
+        McpRegistryRemote: {
+            /** Endpoint Host */
+            endpoint_host?: string | null;
+            /**
+             * Endpoint State
+             * @enum {string}
+             */
+            endpoint_state: "fixed_host" | "template_requires_configuration";
+            /** Secure */
+            secure: boolean | null;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "stdio" | "streamable-http" | "sse" | "unknown";
+        };
+        /** McpRegistryServer */
+        McpRegistryServer: {
+            /** Catalog Id */
+            catalog_id: string;
+            /** Description */
+            description: string;
+            icon: components["schemas"]["McpRegistryIcon"] | null;
+            /**
+             * Install Action
+             * @default unavailable
+             * @constant
+             */
+            install_action: "unavailable";
+            /**
+             * Install Reason
+             * @default guarded_install_host_not_implemented
+             * @constant
+             */
+            install_reason: "guarded_install_host_not_implemented";
+            /**
+             * Management State
+             * @default not_managed
+             * @constant
+             */
+            management_state: "not_managed";
+            /** Name */
+            name: string;
+            /** Packages */
+            packages: components["schemas"]["McpRegistryPackage"][];
+            /** Presentation Revision */
+            presentation_revision: string;
+            /** Publisher */
+            publisher: string;
+            /** Remotes */
+            remotes: components["schemas"]["McpRegistryRemote"][];
+            /** Repository Url */
+            repository_url?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "deprecated" | "deleted" | "unknown";
+            /** Supports Local */
+            supports_local: boolean;
+            /** Supports Remote */
+            supports_remote: boolean;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
+            /** Version */
+            version: string;
+            /** Website Url */
+            website_url?: string | null;
+        };
+        /** McpRegistryServerReview */
+        McpRegistryServerReview: {
+            /**
+             * Contract Version
+             * @default mcp-registry-server-review.v1
+             * @constant
+             */
+            contract_version: "mcp-registry-server-review.v1";
+            /**
+             * Install Action
+             * @default unavailable
+             * @constant
+             */
+            install_action: "unavailable";
+            /**
+             * Management State
+             * @default not_managed
+             * @constant
+             */
+            management_state: "not_managed";
+            /** Options */
+            options: components["schemas"]["McpRegistryInstallOption"][];
+            /** Partial */
+            partial: boolean;
+            /** Plan Revision */
+            plan_revision: string;
+            provenance: components["schemas"]["McpRegistryProvenance"];
+            /**
+             * Review Truth
+             * @default preview_only_no_install_or_connection_authority
+             * @constant
+             */
+            review_truth: "preview_only_no_install_or_connection_authority";
+            server: components["schemas"]["McpRegistryServer"];
+            source: components["schemas"]["McpRegistrySourceStatus"];
+            /**
+             * Uninstall Action
+             * @default not_applicable
+             * @constant
+             */
+            uninstall_action: "not_applicable";
+            /**
+             * Version History State
+             * @enum {string}
+             */
+            version_history_state: "live" | "partial" | "unavailable";
+            /** Versions */
+            versions: components["schemas"]["McpRegistryVersionSummary"][];
+        };
+        /** McpRegistrySourceStatus */
+        McpRegistrySourceStatus: {
+            /**
+             * Base Url
+             * @default https://registry.modelcontextprotocol.io
+             * @constant
+             */
+            base_url: "https://registry.modelcontextprotocol.io";
+            /** Cache Age Seconds */
+            cache_age_seconds: number;
+            /**
+             * Delivery
+             * @enum {string}
+             */
+            delivery: "live" | "cached";
+            /**
+             * Fetched At
+             * Format: date-time
+             */
+            fetched_at: string;
+            /**
+             * Registry
+             * @default official_mcp_registry
+             * @constant
+             */
+            registry: "official_mcp_registry";
+        };
+        /** McpRegistryVersionSummary */
+        McpRegistryVersionSummary: {
+            /** Selected */
+            selected: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "deprecated" | "deleted" | "unknown";
+            /** Updated At */
+            updated_at: string | null;
+            /** Version */
+            version: string;
+        };
         /** MergeTasksRequest */
         MergeTasksRequest: {
             /** Candidate Ids */
@@ -5654,6 +12190,11 @@ export interface components {
         };
         /** MetricAgreement */
         MetricAgreement: {
+            /**
+             * Abstained Pairs
+             * @default 0
+             */
+            abstained_pairs: number;
             /** Agreement Rate */
             agreement_rate?: number | null;
             /** Cohen Kappa */
@@ -5666,6 +12207,11 @@ export interface components {
             reason?: string | null;
             /** State */
             state: string;
+            /**
+             * Unmatched Ratings
+             * @default 0
+             */
+            unmatched_ratings: number;
         };
         /** MetricCoverageMetric */
         MetricCoverageMetric: {
@@ -6817,7 +13363,7 @@ export interface components {
             notes?: string | null;
             /**
              * Prompt Version
-             * @default prompt-check-commentary-v1
+             * @default prompt-check-commentary-v2-complete-json
              */
             prompt_version: string;
             /**
@@ -7505,12 +14051,12 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "source_schema_unsupported" | "provider_protocol_rejected" | "provider_unavailable" | "local_model_ensemble_execution_failed" | "model_ensemble_persistence_failed";
+            code: "source_schema_unsupported" | "provider_protocol_rejected" | "provider_unavailable" | "local_model_ensemble_execution_failed" | "model_ensemble_cleanup_unconfirmed" | "model_ensemble_persistence_failed";
             /**
              * Message
              * @enum {string}
              */
-            message: "bounded local source read failed" | "local model ensemble execution failed" | "local model ensemble persistence failed";
+            message: "bounded local source read failed" | "local model ensemble execution failed" | "local model cleanup was not confirmed; new model runs are paused" | "local model ensemble persistence failed";
         };
         /** ModelEnsembleUnavailableFailureResponse */
         ModelEnsembleUnavailableFailureResponse: {
@@ -7594,6 +14140,10 @@ export interface components {
              * @enum {string}
              */
             provider: "codex" | "claude_code";
+            /** Quarantine Reason Code */
+            quarantine_reason_code?: string | null;
+            /** Quarantined */
+            quarantined?: boolean | null;
             /**
              * Serial Model Execution
              * @default true
@@ -7680,7 +14230,7 @@ export interface components {
              */
             created_at: string;
             /** Error Code */
-            error_code: ("candidate_evaluation_incomplete" | "model_evaluation_failed") | null;
+            error_code: ("candidate_evaluation_incomplete" | "model_evaluation_failed" | "application_shutdown" | "model_evaluation_cleanup_unconfirmed") | null;
             /** Job Id */
             job_id: string;
             /** Outcomes */
@@ -7693,7 +14243,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "completed" | "failed";
+            status: "queued" | "running" | "completed" | "failed" | "cancelled";
         };
         /** ModelEvaluationRequestDto */
         ModelEvaluationRequestDto: {
@@ -7757,6 +14307,10 @@ export interface components {
         ModelJudgeSweepFailureCode: "no_active_model" | "session_not_found" | "consent_required" | "window_unavailable" | "model_unreachable" | "model_not_active" | "model_error" | "model_reply_invalid" | "model_judge_catalog_unavailable" | "judge_failed";
         /** ModelJudgment */
         ModelJudgment: {
+            /** Case Fingerprint */
+            case_fingerprint?: string | null;
+            /** Case Version */
+            case_version?: string | null;
             /**
              * Judged At
              * Format: date-time
@@ -8576,6 +15130,18 @@ export interface components {
             /** Links */
             links: components["schemas"]["PeerLink"][];
         };
+        /**
+         * PlacementAdmissionReason
+         * @description Closed, content-free reasons behind one placement decision.
+         * @enum {string}
+         */
+        PlacementAdmissionReason: "cpu_available" | "accelerator_evidence_unavailable" | "model_size_unavailable" | "layer_count_unavailable" | "context_exceeds_model_metadata" | "gpu_estimate_fits" | "gpu_estimate_exceeds_free_memory" | "split_estimate_available" | "split_estimate_exceeds_free_memory" | "owned_runtime_requires_cleanup_recheck";
+        /**
+         * PlacementAdmissionState
+         * @description Whether a placement can start from the current hardware snapshot.
+         * @enum {string}
+         */
+        PlacementAdmissionState: "available" | "blocked" | "recheck_required";
         /** PlanCoordinate */
         PlanCoordinate: {
             /** Clause Index */
@@ -8593,6 +15159,20 @@ export interface components {
          * @enum {string}
          */
         PredictiveMetricTarget: "metric_value" | "outcome_forecast";
+        /** PreviewAgentArtifactCapture */
+        PreviewAgentArtifactCapture: {
+            /** Path */
+            path: string;
+            /** Title */
+            title?: string | null;
+        };
+        /** ProbeMcpManagedServer */
+        ProbeMcpManagedServer: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Request Id */
+            request_id: string;
+        };
         /**
          * ProjectQualityAggregate
          * @description Identifier-free wrapper around the existing compatibility-safe aggregate.
@@ -9131,6 +15711,8 @@ export interface components {
             ratings: {
                 [key: string]: components["schemas"]["RatingLabel"];
             };
+            /** Review Id */
+            review_id?: string | null;
             /** Session Id */
             session_id: string;
         };
@@ -9220,6 +15802,13 @@ export interface components {
          * @enum {string}
          */
         RejectionReason: "not_a_task" | "wrong_grouping" | "duplicate" | "other";
+        /** ReleaseAgentControllerOwnership */
+        ReleaseAgentControllerOwnership: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Session Id */
+            session_id: string;
+        };
         /**
          * RemoteAnnotationDisclosure
          * @description Closed pre-send disclosure for the explicit remote annotation action.
@@ -9338,6 +15927,30 @@ export interface components {
             stored_locally_as?: string | null;
             /** Submitted */
             submitted: number;
+        };
+        /** RemoveAgentArtifact */
+        RemoveAgentArtifact: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "move_archived_artifact_record_to_removed";
+            /** Expected Revision */
+            expected_revision: number;
+        };
+        /** RemoveMcpManagedConfiguration */
+        RemoveMcpManagedConfiguration: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Request Id */
+            request_id: string;
+        };
+        /** RemoveMcpManagedSecret */
+        RemoveMcpManagedSecret: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Request Id */
+            request_id: string;
         };
         /** RequirementAcceptanceAppendCommand */
         RequirementAcceptanceAppendCommand: {
@@ -11163,10 +17776,43 @@ export interface components {
             url: string;
         };
         /**
+         * ResumeAgentSession
+         * @description Revision-bound recovery request; authority is never restored by it.
+         */
+        ResumeAgentSession: {
+            /** Expected Catalog Revision */
+            expected_catalog_revision: number;
+            /** Expected History Revision */
+            expected_history_revision: number;
+        };
+        /**
          * RetentionClass
          * @enum {string}
          */
         RetentionClass: "local_ephemeral" | "remote_zero_retention" | "remote_30_day" | "remote_provider_standard";
+        /**
+         * RevalidateAgentAuthority
+         * @description Native-presence-gated capabilities for a recovered, idle chat.
+         */
+        RevalidateAgentAuthority: {
+            /**
+             * Allow Commands
+             * @default false
+             */
+            allow_commands: boolean;
+            /**
+             * Allow Web
+             * @default false
+             */
+            allow_web: boolean;
+            /**
+             * Allow Writes
+             * @default false
+             */
+            allow_writes: boolean;
+            /** Expected Catalog Revision */
+            expected_catalog_revision: number;
+        };
         /**
          * ReviewedAutomationResourcePolicyRequest
          * @description The only resource profile accepted for newly issued grants.
@@ -11208,6 +17854,92 @@ export interface components {
              */
             route: "balanced";
         };
+        /** RevokeAgentMcpConnection */
+        RevokeAgentMcpConnection: {
+            /** Expected Revision */
+            expected_revision: number;
+        };
+        /** RotateAgentMcpConnection */
+        RotateAgentMcpConnection: {
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Expires In Days
+             * @default 90
+             */
+            expires_in_days: number;
+            /** Request Id */
+            request_id: string;
+        };
+        /** RuntimeCapabilities */
+        RuntimeCapabilities: {
+            /**
+             * Audio
+             * @default false
+             */
+            audio: boolean;
+            /** Error Code */
+            error_code?: string | null;
+            /**
+             * Probe Version
+             * @default local-runtime-multimodal-probe.v2
+             * @constant
+             */
+            probe_version: "local-runtime-multimodal-probe.v2";
+            /**
+             * Recording
+             * @default false
+             */
+            recording: boolean;
+            /** @default not_probed */
+            state: components["schemas"]["RuntimeCapabilityState"];
+            /**
+             * Structured Output
+             * @default false
+             */
+            structured_output: boolean;
+            /**
+             * Text
+             * @default false
+             */
+            text: boolean;
+            /**
+             * Tools
+             * @default false
+             */
+            tools: boolean;
+            /**
+             * Vision
+             * @default false
+             */
+            vision: boolean;
+        };
+        /**
+         * RuntimeCapabilityState
+         * @enum {string}
+         */
+        RuntimeCapabilityState: "not_probed" | "verified" | "failed";
+        /** RuntimeCleanupReceipt */
+        RuntimeCleanupReceipt: {
+            /** Gpu Memory Free After Mb */
+            gpu_memory_free_after_mb?: number | null;
+            /** Gpu Memory Free Before Mb */
+            gpu_memory_free_before_mb?: number | null;
+            /** Gpu Memory Released Mb */
+            gpu_memory_released_mb?: number | null;
+            /**
+             * Process Exit Confirmed
+             * @default true
+             */
+            process_exit_confirmed: boolean;
+            /** @default not_required */
+            state: components["schemas"]["RuntimeCleanupState"];
+        };
+        /**
+         * RuntimeCleanupState
+         * @enum {string}
+         */
+        RuntimeCleanupState: "not_required" | "measured" | "unknown" | "failed";
         /** RuntimeComponentLivenessDto */
         RuntimeComponentLivenessDto: {
             /** Alive */
@@ -11220,6 +17952,60 @@ export interface components {
             /** Configured */
             configured: boolean;
         };
+        /**
+         * RuntimeContextStatus
+         * @description Truth about the last context preflight for the currently served model.
+         *
+         *     ``used_tokens`` is only populated from llama.cpp's chat-template-aware
+         *     ``/v1/chat/completions/input_tokens`` endpoint. The app deliberately does
+         *     not substitute a character heuristic or a tokenizer from another model.
+         */
+        RuntimeContextStatus: {
+            /** Available Output Tokens */
+            available_output_tokens?: number | null;
+            /**
+             * Compacted Messages
+             * @default 0
+             */
+            compacted_messages: number;
+            /** Limit Tokens */
+            limit_tokens?: number | null;
+            /**
+             * Policy
+             * @default runtime_enforced
+             * @enum {string}
+             */
+            policy: "runtime_enforced" | "exact_admitted" | "exact_compacted" | "exact_refused";
+            /** @default runtime_not_served */
+            reason_code: components["schemas"]["ContextAdmissionReason"] | null;
+            /** Requested Output Tokens */
+            requested_output_tokens?: number | null;
+            /**
+             * Scope
+             * @default runtime_limit
+             * @enum {string}
+             */
+            scope: "runtime_limit" | "last_request";
+            /**
+             * Source
+             * @default runtime_limit_only
+             * @enum {string}
+             */
+            source: "runtime_limit_only" | "runtime_chat_input_tokens";
+            /**
+             * State
+             * @default unknown
+             * @enum {string}
+             */
+            state: "unknown" | "known";
+            /** Used Tokens */
+            used_tokens?: number | null;
+        };
+        /**
+         * RuntimeCoordinatorState
+         * @enum {string}
+         */
+        RuntimeCoordinatorState: "idle" | "draining" | "unloading" | "loading" | "ready" | "failed" | "cleanup_unknown" | "quarantined";
         /** RuntimeLivenessDto */
         RuntimeLivenessDto: {
             /** Components */
@@ -11306,7 +18092,15 @@ export interface components {
         SemanticUnitKind: "request_revision" | "requirement" | "constraint" | "deliverable" | "ambiguity" | "clarification" | "scope_change" | "feedback" | "hypothesis" | "decision" | "open_loop" | "action" | "verification";
         /** SendMessage */
         SendMessage: {
-            /** Text */
+            /**
+             * Attachment Ids
+             * @default []
+             */
+            attachment_ids: string[];
+            /**
+             * Text
+             * @default
+             */
             text: string;
         };
         /** SessionAnalysisEvidenceDto */
@@ -11575,6 +18369,11 @@ export interface components {
             metrics_seen: number;
             /** Model Alias */
             model_alias: string;
+            /**
+             * Prompt Version
+             * @default interpret-v2-complete-json
+             */
+            prompt_version: string;
             /** Reframed Prompt */
             reframed_prompt?: string | null;
             /** Session Id */
@@ -11592,11 +18391,24 @@ export interface components {
          * @description Every stored judgment for one session, grouped by model, with the questions asked.
          */
         SessionJudgments: {
+            /**
+             * Accepted Case Version
+             * @default calibration-case.v1
+             */
+            accepted_case_version: string;
+            /**
+             * Accepted Prompt Versions
+             * @default [
+             *       "judge-v4-complete-json-anchor-15k",
+             *       "judge-v4-complete-json-anchor-6k"
+             *     ]
+             */
+            accepted_prompt_versions: string[];
             /** Active Model Alias */
             active_model_alias?: string | null;
             /**
              * Caveat
-             * @default Model judgments are labels from a local model, stored apart from metrics; they are never metric values.
+             * @default Model judgments are labels stored apart from metrics; they are never metric values. Historical protocols and unbound cases remain visible but are excluded from current agreement.
              */
             caveat: string;
             /**
@@ -12245,6 +19057,22 @@ export interface components {
             /** Turns */
             turns: components["schemas"]["ReaderTurn"][];
         };
+        /** SetMcpManagedProjectBinding */
+        SetMcpManagedProjectBinding: {
+            /**
+             * Admitted Tool Ids
+             * @default []
+             */
+            admitted_tool_ids: string[];
+            /** Enabled */
+            enabled: boolean;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Granted Permissions */
+            granted_permissions: ("process_spawn" | "filesystem_read" | "filesystem_write" | "network_egress" | "credential_use")[];
+            /** Request Id */
+            request_id: string;
+        };
         /** ShareFolderBody */
         ShareFolderBody: {
             /** Name */
@@ -12312,8 +19140,116 @@ export interface components {
              */
             task_categories: components["schemas"]["TaskCategory"][];
         };
+        /**
+         * StageInlineAgentAttachment
+         * @description One path-free attachment supplied by an authenticated controller.
+         *
+         *     The caller declares byte length and digest so the loopback endpoint can
+         *     reject truncated, altered, or ambiguously encoded tool arguments before
+         *     the private attachment vault sees them.  The request deliberately has no
+         *     filesystem path, URL, attachment identifier, or source-authority field.
+         */
+        StageInlineAgentAttachment: {
+            /** Byte Size */
+            byte_size: number;
+            /** Data Base64 */
+            data_base64: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Media Type
+             * @enum {string}
+             */
+            media_type: "image/png" | "image/jpeg" | "audio/wav" | "text/plain" | "text/markdown" | "application/json" | "text/csv" | "text/tab-separated-values" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document" | "application/vnd.openxmlformats-officedocument.presentationml.presentation" | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" | "application/vnd.oasis.opendocument.text";
+            /** Sha256 */
+            sha256: string;
+        };
+        /** StopLocalRuntime */
+        StopLocalRuntime: {
+            /** Alias */
+            alias: string;
+            /** Expected Revision */
+            expected_revision: number;
+        };
+        /**
+         * StoreMcpManagedConfiguration
+         * @description One non-secret user value still retained only in the OS vault.
+         */
+        StoreMcpManagedConfiguration: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Request Id */
+            request_id: string;
+            /**
+             * Value
+             * Format: password
+             */
+            value: string;
+        };
+        /** StoreMcpManagedSecret */
+        StoreMcpManagedSecret: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Request Id */
+            request_id: string;
+            /**
+             * Value
+             * Format: password
+             */
+            value: string;
+        };
+        /**
+         * StoredAgentEvent
+         * @description Privacy-bounded event admitted to the durable append-only journal.
+         */
+        StoredAgentEvent: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: components["schemas"]["AgentMessageAttachment"][];
+            /** Call Id */
+            call_id?: string | null;
+            execution_receipt?: components["schemas"]["AgentToolExecutionReceipt"] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "user" | "assistant" | "tool_call" | "tool_result" | "status" | "error" | "done";
+            mcp_result?: components["schemas"]["AgentMcpToolResultReceipt"] | null;
+            mcp_tool?: components["schemas"]["AgentMcpToolDescriptor"] | null;
+            /** Ok */
+            ok?: boolean | null;
+            /** Reasoning */
+            reasoning?: string | null;
+            /** Seq */
+            seq: number;
+            /** Stream Id */
+            stream_id?: string | null;
+            /** Stream Status */
+            stream_status?: ("complete" | "stopped" | "failed") | null;
+            /** Text */
+            text?: string | null;
+            /** Tool */
+            tool?: string | null;
+            /** Tool State */
+            tool_state?: ("succeeded" | "failed" | "not_approved" | "cancelled" | "unverified") | null;
+            /** Turn Id */
+            turn_id?: string | null;
+            turn_summary?: components["schemas"]["AgentTurnSummary"] | null;
+            write_receipt?: components["schemas"]["AgentWriteReceipt"] | null;
+        };
         /** SubmitAnnotation */
         SubmitAnnotation: {
+            /** Case Fingerprint */
+            case_fingerprint?: string | null;
+            /** Case Version */
+            case_version?: string | null;
             /** Labels */
             labels: {
                 [key: string]: components["schemas"]["RatingLabel"];
@@ -12339,6 +19275,43 @@ export interface components {
             session_id: string;
             /** Stored */
             stored: number;
+        };
+        /**
+         * SwitchAgentSessionModel
+         * @description Revision-bound model rebinding for one idle, live Agent chat.
+         */
+        SwitchAgentSessionModel: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Model Alias */
+            model_alias: string;
+        };
+        /** SwitchLocalRuntime */
+        SwitchLocalRuntime: {
+            /** Alias */
+            alias: string;
+            /** Context Size */
+            context_size?: number | null;
+            device?: components["schemas"]["DeviceMode"] | null;
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Fast Attention
+             * @default true
+             */
+            fast_attention: boolean;
+            /** Gpu Layers */
+            gpu_layers?: number | null;
+            /**
+             * Remember
+             * @default false
+             */
+            remember: boolean;
+            /**
+             * Tool Calling
+             * @default true
+             */
+            tool_calling: boolean;
         };
         /** SyncReport */
         SyncReport: {
@@ -12805,6 +19778,44 @@ export interface components {
             /** Source Schema Version */
             source_schema_version: string;
         };
+        /** UpdateAgentArtifact */
+        UpdateAgentArtifact: {
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "rename" | "archive" | "restore" | "recover";
+            /** Title */
+            title?: string | null;
+        };
+        /** UpdateAgentCatalogSession */
+        UpdateAgentCatalogSession: {
+            /** Archived */
+            archived?: boolean | null;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Model Alias */
+            model_alias?: string | null;
+            /** Pinned */
+            pinned?: boolean | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Title */
+            title?: string | null;
+        };
+        /** UpdateAgentProject */
+        UpdateAgentProject: {
+            /** Archived */
+            archived?: boolean | null;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Name */
+            name?: string | null;
+            /** Pinned */
+            pinned?: boolean | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -12887,6 +19898,13 @@ export interface components {
         };
         /** WorkWindow */
         WorkWindow: {
+            /** Case Fingerprint */
+            case_fingerprint: string;
+            /**
+             * Case Version
+             * @default calibration-case.v1
+             */
+            case_version: string;
             /**
              * Contract Version
              * @default annotation.v1
@@ -12947,6 +19965,267 @@ export interface components {
             revision: string;
             /** Session Id */
             session_id: string;
+        };
+        /** WorkspaceCreateApplyCommand */
+        WorkspaceCreateApplyCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_reviewed_workspace_create";
+            /** Content */
+            content: string;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /** Path */
+            path: string;
+            /** Proposed Revision */
+            proposed_revision: string;
+        };
+        /** WorkspaceCreateApplyResult */
+        WorkspaceCreateApplyResult: {
+            /**
+             * Applied
+             * @default true
+             * @constant
+             */
+            applied: true;
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /**
+             * Operation
+             * @default created
+             * @constant
+             */
+            operation: "created";
+            /** Path */
+            path: string;
+            /** Revision */
+            revision: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkspaceCreatePreview */
+        WorkspaceCreatePreview: {
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /** Diff */
+            diff: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /** Path */
+            path: string;
+            /** Preview Id */
+            preview_id: string;
+            /** Proposed Revision */
+            proposed_revision: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkspaceCreatePreviewCommand */
+        WorkspaceCreatePreviewCommand: {
+            /** Content */
+            content: string;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /** Path */
+            path: string;
+        };
+        /** WorkspaceDirectoryCreateApplyCommand */
+        WorkspaceDirectoryCreateApplyCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_reviewed_workspace_directory_create";
+            /** Path */
+            path: string;
+        };
+        /** WorkspaceDirectoryCreateApplyResult */
+        WorkspaceDirectoryCreateApplyResult: {
+            /**
+             * Applied
+             * @default true
+             * @constant
+             */
+            applied: true;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /**
+             * Operation
+             * @default directory_created
+             * @constant
+             */
+            operation: "directory_created";
+            /** Path */
+            path: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkspaceDirectoryCreatePreview */
+        WorkspaceDirectoryCreatePreview: {
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Path */
+            path: string;
+            /** Preview Id */
+            preview_id: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkspaceDirectoryCreatePreviewCommand */
+        WorkspaceDirectoryCreatePreviewCommand: {
+            /** Path */
+            path: string;
+        };
+        /** WorkspaceDirectoryMoveApplyCommand */
+        WorkspaceDirectoryMoveApplyCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_reviewed_workspace_directory_move";
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+        };
+        /** WorkspaceDirectoryMoveApplyResult */
+        WorkspaceDirectoryMoveApplyResult: {
+            /**
+             * Applied
+             * @default true
+             * @constant
+             */
+            applied: true;
+            /**
+             * Contents Reviewed
+             * @default false
+             * @constant
+             */
+            contents_reviewed: false;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /**
+             * Operation
+             * @default directory_moved
+             * @constant
+             */
+            operation: "directory_moved";
+            /** Session Id */
+            session_id: string;
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+        };
+        /** WorkspaceDirectoryMovePreview */
+        WorkspaceDirectoryMovePreview: {
+            /**
+             * Contents Reviewed
+             * @default false
+             * @constant
+             */
+            contents_reviewed: false;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Preview Id */
+            preview_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+        };
+        /** WorkspaceDirectoryMovePreviewCommand */
+        WorkspaceDirectoryMovePreviewCommand: {
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+        };
+        /** WorkspaceDiscovery */
+        WorkspaceDiscovery: {
+            /**
+             * Contract Version
+             * @default local-agent-workspace-discovery.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-discovery.v1";
+            /** Files */
+            files: components["schemas"]["WorkspaceDiscoveryFile"][];
+            /** Git Change Count */
+            git_change_count: number | null;
+            /** Git Changes */
+            git_changes: components["schemas"]["WorkspaceGitChange"][];
+            git_coverage: components["schemas"]["WorkspaceGitCoverage"];
+            /** Git Reasons */
+            git_reasons: components["schemas"]["WorkspaceGitReason"][];
+            git_state: components["schemas"]["WorkspaceGitState"];
+            inventory_coverage: components["schemas"]["WorkspaceInventoryCoverage"];
+            /** Inventory Reasons */
+            inventory_reasons: components["schemas"]["WorkspaceInventoryReason"][];
+            /** Observed File Count */
+            observed_file_count: number;
+            /** Scanned Entry Count */
+            scanned_entry_count: number;
+            /**
+             * Scope
+             * @constant
+             */
+            scope: "selected_workspace";
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkspaceDiscoveryFile */
+        WorkspaceDiscoveryFile: {
+            /** Byte Size */
+            byte_size: number;
+            /** Editable Candidate */
+            editable_candidate: boolean;
+            /** Path */
+            path: string;
         };
         /** WorkspaceEditPreview */
         WorkspaceEditPreview: {
@@ -13018,11 +20297,227 @@ export interface components {
             /** Session Id */
             session_id: string;
         };
+        /** WorkspaceFileTrashApplyCommand */
+        WorkspaceFileTrashApplyCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_reviewed_workspace_file_trash";
+            /** Expected Revision */
+            expected_revision: string;
+            /** Path */
+            path: string;
+        };
+        /** WorkspaceFileTrashApplyResult */
+        WorkspaceFileTrashApplyResult: {
+            /**
+             * Applied
+             * @default true
+             * @constant
+             */
+            applied: true;
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /**
+             * Operation
+             * @default trashed
+             * @constant
+             */
+            operation: "trashed";
+            /** Path */
+            path: string;
+            /**
+             * Permanent
+             * @default false
+             * @constant
+             */
+            permanent: false;
+            /**
+             * Recovery
+             * @default windows_recycle_bin
+             * @constant
+             */
+            recovery: "windows_recycle_bin";
+            /** Revision */
+            revision: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkspaceFileTrashPreview */
+        WorkspaceFileTrashPreview: {
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /** Expected Revision */
+            expected_revision: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Path */
+            path: string;
+            /**
+             * Permanent
+             * @default false
+             * @constant
+             */
+            permanent: false;
+            /** Preview Id */
+            preview_id: string;
+            /**
+             * Recovery
+             * @default windows_recycle_bin
+             * @constant
+             */
+            recovery: "windows_recycle_bin";
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkspaceFileTrashPreviewCommand */
+        WorkspaceFileTrashPreviewCommand: {
+            /** Expected Revision */
+            expected_revision: string;
+            /** Path */
+            path: string;
+        };
+        /** WorkspaceGitChange */
+        WorkspaceGitChange: {
+            kind: components["schemas"]["WorkspaceGitChangeKind"];
+            /** Path */
+            path: string;
+            /** Staged */
+            staged: boolean;
+            /** Unstaged */
+            unstaged: boolean;
+        };
+        /**
+         * WorkspaceGitChangeKind
+         * @enum {string}
+         */
+        WorkspaceGitChangeKind: "modified" | "added" | "deleted" | "renamed" | "copied" | "type_changed" | "untracked" | "conflicted" | "unknown";
+        /**
+         * WorkspaceGitCoverage
+         * @enum {string}
+         */
+        WorkspaceGitCoverage: "complete" | "partial" | "not_applicable" | "unavailable";
+        /**
+         * WorkspaceGitReason
+         * @enum {string}
+         */
+        WorkspaceGitReason: "command_cleanup_unconfirmed" | "command_in_progress" | "deadline_reached" | "display_limit" | "executable_unavailable" | "excluded_paths" | "output_limit" | "repository_changed" | "repository_layout_unsupported" | "status_failed" | "status_invalid" | "unrepresentable_paths";
+        /**
+         * WorkspaceGitState
+         * @enum {string}
+         */
+        WorkspaceGitState: "available" | "not_repository" | "unavailable";
+        /**
+         * WorkspaceInventoryCoverage
+         * @enum {string}
+         */
+        WorkspaceInventoryCoverage: "complete" | "partial";
+        /**
+         * WorkspaceInventoryReason
+         * @enum {string}
+         */
+        WorkspaceInventoryReason: "deadline_reached" | "depth_limit" | "display_limit" | "entry_limit" | "excluded_directories" | "link_or_reparse_entries" | "unavailable_entries" | "unrepresentable_entries";
         /**
          * WorkspaceLineEnding
          * @enum {string}
          */
         WorkspaceLineEnding: "lf" | "crlf" | "none";
+        /** WorkspaceMoveApplyCommand */
+        WorkspaceMoveApplyCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_reviewed_workspace_move";
+            /** Expected Revision */
+            expected_revision: string;
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+        };
+        /** WorkspaceMoveApplyResult */
+        WorkspaceMoveApplyResult: {
+            /**
+             * Applied
+             * @default true
+             * @constant
+             */
+            applied: true;
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /**
+             * Operation
+             * @default moved
+             * @constant
+             */
+            operation: "moved";
+            /** Revision */
+            revision: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+        };
+        /** WorkspaceMovePreview */
+        WorkspaceMovePreview: {
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-lifecycle.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-lifecycle.v1";
+            /** Expected Revision */
+            expected_revision: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Preview Id */
+            preview_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+        };
+        /** WorkspaceMovePreviewCommand */
+        WorkspaceMovePreviewCommand: {
+            /** Expected Revision */
+            expected_revision: string;
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+        };
         /** WorkspacePreviewCommand */
         WorkspacePreviewCommand: {
             /** Content */
@@ -13032,6 +20527,189 @@ export interface components {
             line_ending: components["schemas"]["WorkspaceLineEnding"];
             /** Path */
             path: string;
+        };
+        /** WorkspaceSearchMatch */
+        WorkspaceSearchMatch: {
+            /** Line Number */
+            line_number: number;
+            /** Path */
+            path: string;
+            /** Preview */
+            preview: string;
+        };
+        /** WorkspaceSearchResult */
+        WorkspaceSearchResult: {
+            /**
+             * Contract Version
+             * @default local-agent-workspace-search.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace-search.v1";
+            /**
+             * Coverage
+             * @enum {string}
+             */
+            coverage: "complete" | "partial";
+            /** Inspected Byte Count */
+            inspected_byte_count: number;
+            /** Match Count */
+            match_count: number;
+            /** Matches */
+            matches: components["schemas"]["WorkspaceSearchMatch"][];
+            /** Reason Code */
+            reason_code?: string | null;
+            /** Reasons */
+            reasons: string[];
+            /** Scanned Entry Count */
+            scanned_entry_count: number;
+            /**
+             * Scope
+             * @default application_readable_utf8_text
+             * @constant
+             */
+            scope: "application_readable_utf8_text";
+            /** Session Id */
+            session_id: string;
+            /** Skipped Entry Count */
+            skipped_entry_count: number;
+        };
+        /** WorkspaceTransactionApplyChange */
+        WorkspaceTransactionApplyChange: {
+            /** Content */
+            content: string;
+            /** Expected Revision */
+            expected_revision?: string | null;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /**
+             * Operation
+             * @default edit
+             * @enum {string}
+             */
+            operation: "create" | "edit";
+            /** Path */
+            path: string;
+            /** Proposed Revision */
+            proposed_revision: string;
+        };
+        /** WorkspaceTransactionApplyCommand */
+        WorkspaceTransactionApplyCommand: {
+            /** Changes */
+            changes: components["schemas"]["WorkspaceTransactionApplyChange"][];
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_reviewed_workspace_transaction";
+        };
+        /** WorkspaceTransactionApplyResult */
+        WorkspaceTransactionApplyResult: {
+            /**
+             * Contract Version
+             * @default local-agent-workspace-transaction.v2
+             * @constant
+             */
+            contract_version: "local-agent-workspace-transaction.v2";
+            /** File Count */
+            file_count: number;
+            /** Files */
+            files: components["schemas"]["WorkspaceTransactionFileResult"][];
+            /** Plan Id */
+            plan_id: string;
+            /** Reason */
+            reason?: ("workspace_write_failed" | "workspace_cleanup_failed" | "workspace_verification_failed" | "workspace_revision_changed" | "workspace_file_unavailable" | "workspace_transaction_unverified" | "tool_cancelled") | null;
+            /** Session Id */
+            session_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "committed" | "rejected" | "rolled_back" | "unverified";
+        };
+        /** WorkspaceTransactionChangeCommand */
+        WorkspaceTransactionChangeCommand: {
+            /** Content */
+            content: string;
+            /** Expected Revision */
+            expected_revision?: string | null;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /**
+             * Operation
+             * @default edit
+             * @enum {string}
+             */
+            operation: "create" | "edit";
+            /** Path */
+            path: string;
+        };
+        /** WorkspaceTransactionFileResult */
+        WorkspaceTransactionFileResult: {
+            /** Byte Size */
+            byte_size?: number | null;
+            /** Path */
+            path: string;
+            /** Revision */
+            revision?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "committed" | "restored" | "removed" | "not_applied" | "unverified";
+        };
+        /** WorkspaceTransactionPreview */
+        WorkspaceTransactionPreview: {
+            /** Added Lines */
+            added_lines: number;
+            /**
+             * Contract Version
+             * @default local-agent-workspace-transaction.v2
+             * @constant
+             */
+            contract_version: "local-agent-workspace-transaction.v2";
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** File Count */
+            file_count: number;
+            /** Files */
+            files: components["schemas"]["WorkspaceTransactionPreviewFile"][];
+            /** Plan Id */
+            plan_id: string;
+            /** Removed Lines */
+            removed_lines: number;
+            /** Session Id */
+            session_id: string;
+            /** Total Byte Size */
+            total_byte_size: number;
+        };
+        /** WorkspaceTransactionPreviewCommand */
+        WorkspaceTransactionPreviewCommand: {
+            /** Changes */
+            changes: components["schemas"]["WorkspaceTransactionChangeCommand"][];
+        };
+        /** WorkspaceTransactionPreviewFile */
+        WorkspaceTransactionPreviewFile: {
+            /** Added Lines */
+            added_lines: number;
+            /** Diff */
+            diff: string;
+            /** Expected Revision */
+            expected_revision?: string | null;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "create" | "edit";
+            /** Path */
+            path: string;
+            /** Proposed Byte Size */
+            proposed_byte_size: number;
+            /** Proposed Revision */
+            proposed_revision: string;
+            /** Removed Lines */
+            removed_lines: number;
         };
         /** WorkspaceTree */
         WorkspaceTree: {
@@ -13232,6 +20910,949 @@ export interface operations {
             };
         };
     };
+    list_catalog_sessions_v1_agent_catalog_sessions_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                include_archived?: boolean;
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCatalogSessionList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_catalog_session_v1_agent_catalog_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCatalogSessionRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_catalog_session_v1_agent_catalog_sessions__session_id__delete: {
+        parameters: {
+            query: {
+                expected_catalog_revision: number;
+                expected_history_revision: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_catalog_session_v1_agent_catalog_sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgentCatalogSession"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCatalogSessionRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    orchestration_manifest_v1_agent_orchestration_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentOrchestrationManifest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_projects_v1_agent_projects_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                include_archived?: boolean;
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProjectList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_project_v1_agent_projects_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentProject"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProjectRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_v1_agent_projects__project_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProjectRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_project_v1_agent_projects__project_id__delete: {
+        parameters: {
+            query: {
+                expected_revision: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_v1_agent_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgentProject"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProjectRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_project_sessions_v1_agent_projects__project_id__sessions_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                include_archived?: boolean;
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCatalogSessionList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_session_artifacts_v1_agent_projects__project_id__sessions__session_id__artifacts_get: {
+        parameters: {
+            query?: {
+                view?: "active" | "archived" | "removed" | "all";
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifactList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    capture_session_artifact_v1_agent_projects__project_id__sessions__session_id__artifacts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptureAgentArtifact"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifactDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_session_artifact_capture_v1_agent_projects__project_id__sessions__session_id__artifacts_capture_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewAgentArtifactCapture"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifactCapturePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_artifact_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifactDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_session_artifact_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgentArtifact"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifact"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_session_artifact_lineage_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__export_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportAgentArtifact"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifactExport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_session_artifact_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__remove_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveAgentArtifact"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifact"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_artifact_content_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__versions__version_id__content_get: {
+        parameters: {
+            query?: {
+                download?: boolean;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+                artifact_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description Partial Content */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_artifact_document_preview_v1_agent_projects__project_id__sessions__session_id__artifacts__artifact_id__versions__version_id__preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+                artifact_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentDocumentPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stage_inline_attachment_v1_agent_projects__project_id__sessions__session_id__attachments_stage_inline_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageInlineAgentAttachment"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAttachment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    persisted_session_events_v1_agent_projects__project_id__sessions__session_id__events_get: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentEvents"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_session_history_v1_agent_projects__project_id__sessions__session_id__export_get: {
+        parameters: {
+            query?: {
+                expected_catalog_revision?: number | null;
+                expected_history_revision?: number | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentHistoryExport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fork_retained_session_v1_agent_projects__project_id__sessions__session_id__forks_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkAgentSession"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionForkReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_session_v1_agent_projects__project_id__sessions__session_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResumeAgentSession"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_sessions_v1_agent_sessions_get: {
         parameters: {
             query?: never;
@@ -13336,7 +21957,11 @@ export interface operations {
     };
     delete_session_v1_agent_sessions__session_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                expected_project_id?: string | null;
+                expected_catalog_revision?: number | null;
+                expected_history_revision?: number | null;
+            };
             header?: {
                 "X-Prompt-Enhancer-Token"?: string | null;
                 "X-Prompt-Enhancer-CSRF"?: string | null;
@@ -13393,6 +22018,399 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_attachments_v1_agent_sessions__session_id__attachments_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAttachmentList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stage_attachment_v1_agent_sessions__session_id__attachments_post: {
+        parameters: {
+            query: {
+                name: string;
+                source?: "file" | "microphone";
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAttachment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_attachment_v1_agent_sessions__session_id__attachments__attachment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attachment_content_v1_agent_sessions__session_id__attachments__attachment_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attachment_document_preview_v1_agent_sessions__session_id__attachments__attachment_id__document_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAttachmentDocumentPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revalidate_session_authority_v1_agent_sessions__session_id__authority_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevalidateAgentAuthority"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_changes_v1_agent_sessions__session_id__changes_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentChangeSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_change_diff_v1_agent_sessions__session_id__changes_diff_get: {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentChangeDiff"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_change_restore_v1_agent_sessions__session_id__changes_restores_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentChangeRestorePreviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentChangeRestorePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_change_restore_v1_agent_sessions__session_id__changes_restores__preview_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+                preview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentChangeRestoreApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentChangeRestoreApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_context_v1_agent_sessions__session_id__context_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionContextStatus"];
                 };
             };
             /** @description Validation Error */
@@ -13480,6 +22498,44 @@ export interface operations {
             };
         };
     };
+    propose_lifecycle_v1_agent_sessions__session_id__lifecycle_proposals_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentLifecycleProposal"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLifecycleProposalReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     send_message_v1_agent_sessions__session_id__messages_post: {
         parameters: {
             query?: never;
@@ -13500,6 +22556,44 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    switch_session_model_v1_agent_sessions__session_id__model_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchAgentSessionModel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13552,6 +22646,274 @@ export interface operations {
             };
         };
     };
+    preview_workspace_create_v1_agent_sessions__session_id__workspace_creates_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceCreatePreviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceCreatePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_workspace_create_v1_agent_sessions__session_id__workspace_creates__preview_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+                preview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceCreateApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceCreateApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_workspace_directory_create_v1_agent_sessions__session_id__workspace_directories_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceDirectoryCreatePreviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDirectoryCreatePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_workspace_directory_create_v1_agent_sessions__session_id__workspace_directories__preview_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+                preview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceDirectoryCreateApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDirectoryCreateApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_workspace_directory_move_v1_agent_sessions__session_id__workspace_directory_moves_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceDirectoryMovePreviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDirectoryMovePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_workspace_directory_move_v1_agent_sessions__session_id__workspace_directory_moves__preview_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+                preview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceDirectoryMoveApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDirectoryMoveApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workspace_discovery_v1_agent_sessions__session_id__workspace_discovery_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDiscovery"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     workspace_file_v1_agent_sessions__session_id__workspace_file_get: {
         parameters: {
             query: {
@@ -13575,6 +22937,162 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceFile"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_workspace_file_trash_v1_agent_sessions__session_id__workspace_file_trash_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceFileTrashPreviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceFileTrashPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_workspace_file_trash_v1_agent_sessions__session_id__workspace_file_trash__preview_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+                preview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceFileTrashApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceFileTrashApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_workspace_move_v1_agent_sessions__session_id__workspace_moves_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceMovePreviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMovePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_workspace_move_v1_agent_sessions__session_id__workspace_moves__preview_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+                preview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceMoveApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMoveApplyResult"];
                 };
             };
             /** @description Validation Error */
@@ -13666,6 +23184,122 @@ export interface operations {
             };
         };
     };
+    workspace_search_v1_agent_sessions__session_id__workspace_search_get: {
+        parameters: {
+            query: {
+                query: string;
+                glob?: string;
+                regex?: boolean;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceSearchResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_workspace_transaction_v1_agent_sessions__session_id__workspace_transactions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceTransactionPreviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceTransactionPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_workspace_transaction_v1_agent_sessions__session_id__workspace_transactions__plan_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceTransactionApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceTransactionApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     workspace_tree_v1_agent_sessions__session_id__workspace_tree_get: {
         parameters: {
             query?: {
@@ -13689,6 +23323,82 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceTree"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    propose_write_v1_agent_sessions__session_id__write_proposals_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentWriteProposal"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWriteProposalReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    propose_write_transaction_v1_agent_sessions__session_id__write_transaction_proposals_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentWriteTransactionProposal"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWriteTransactionProposalReceipt"];
                 };
             };
             /** @description Validation Error */
@@ -14587,6 +24297,42 @@ export interface operations {
             };
         };
     };
+    review_v1_calibration_review_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalibrationReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     sample_v1_calibration_sample_get: {
         parameters: {
             query?: {
@@ -14833,6 +24579,75 @@ export interface operations {
             };
         };
     };
+    agent_hardening_v1_diagnostics_agent_hardening_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentHardeningSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    begin_agent_native_acceptance_v1_diagnostics_agent_native_acceptance_start_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BeginAgentNativeAcceptance"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentNativeAcceptanceStartReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     candidate_inbox_v1_discovery_candidates_get: {
         parameters: {
             query?: {
@@ -14969,6 +24784,1292 @@ export interface operations {
             };
         };
     };
+    list_connections_v1_integrations_agent_mcp_connections_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMcpConnectionList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_connection_v1_integrations_agent_mcp_connections_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentMcpConnection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMcpConnectionCredential"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    release_controller_ownership_v1_integrations_agent_mcp_connections_ownerships_release_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseAgentControllerOwnership"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentControllerOwnershipReleaseReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_connection_v1_integrations_agent_mcp_connections__connection_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeAgentMcpConnection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMcpConnection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_connection_v1_integrations_agent_mcp_connections__connection_id__rotate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateAgentMcpConnection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMcpConnectionCredential"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    client_setup_v1_integrations_agent_mcp_setup_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMcpClientSetup"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_catalog_v1_integrations_mcp_store_catalog_get: {
+        parameters: {
+            query?: {
+                search?: string;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpRegistryCatalog"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_icon_v1_integrations_mcp_store_icons__icon_key__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                icon_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A bounded raster icon proxied from an approved host. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
+                    "image/png": unknown;
+                    "image/webp": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_managed_v1_integrations_mcp_store_managed_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedServerList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_managed_v1_integrations_mcp_store_managed_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMcpManagedServer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedServerReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_managed_v1_integrations_mcp_store_managed__management_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedServer"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_local_cleanup_v1_integrations_mcp_store_managed__management_id__cleanup_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyMcpManagedLocalCleanup"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalCleanupReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    local_cleanup_preview_v1_integrations_mcp_store_managed__management_id__cleanup_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalCleanupPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    inspect_local_configuration_v1_integrations_mcp_store_managed__management_id__configuration_inspection_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InspectMcpManagedLocalConfiguration"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalConfigurationInspectionReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    configuration_inspection_preview_v1_integrations_mcp_store_managed__management_id__configuration_inspection_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalConfigurationInspectionPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    store_configuration_v1_integrations_mcp_store_managed__management_id__configuration__requirement_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+                requirement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreMcpManagedConfiguration"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedServerReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_configuration_v1_integrations_mcp_store_managed__management_id__configuration__requirement_id__remove_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+                requirement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveMcpManagedConfiguration"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedServerReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    install_managed_v1_integrations_mcp_store_managed__management_id__install_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyMcpManagedLifecycle"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLifecycleReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    install_preview_v1_integrations_mcp_store_managed__management_id__install_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLifecyclePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    probe_managed_v1_integrations_mcp_store_managed__management_id__probe_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProbeMcpManagedServer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedProbeReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_project_binding_v1_integrations_mcp_store_managed__management_id__projects__project_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetMcpManagedProjectBinding"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedServerReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recover_local_operation_v1_integrations_mcp_store_managed__management_id__recovery_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyMcpManagedLocalOperationRecovery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalOperationRecoveryReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    local_operation_recovery_preview_v1_integrations_mcp_store_managed__management_id__recovery_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalOperationRecoveryPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rollback_managed_local_package_v1_integrations_mcp_store_managed__management_id__rollback_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyMcpManagedLocalRollback"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalRollbackReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cleanup_local_rollback_generation_v1_integrations_mcp_store_managed__management_id__rollback_cleanup_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyMcpManagedLocalRollbackCleanup"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalRollbackCleanupReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    local_rollback_cleanup_preview_v1_integrations_mcp_store_managed__management_id__rollback_cleanup_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalRollbackCleanupPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    local_rollback_preview_v1_integrations_mcp_store_managed__management_id__rollback_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalRollbackPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    store_secret_v1_integrations_mcp_store_managed__management_id__secrets__requirement_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+                requirement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreMcpManagedSecret"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedServerReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_secret_v1_integrations_mcp_store_managed__management_id__secrets__requirement_id__remove_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+                requirement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveMcpManagedSecret"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedServerReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_managed_tools_v1_integrations_mcp_store_managed__management_id__tools_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedToolSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    uninstall_managed_v1_integrations_mcp_store_managed__management_id__uninstall_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyMcpManagedLifecycle"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLifecycleReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    uninstall_preview_v1_integrations_mcp_store_managed__management_id__uninstall_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLifecyclePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_managed_local_package_v1_integrations_mcp_store_managed__management_id__update_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyMcpManagedLocalUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalUpdateReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    local_update_preview_v1_integrations_mcp_store_managed__management_id__update_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                management_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpManagedLocalUpdatePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_server_v1_integrations_mcp_store_servers__catalog_id__review_get: {
+        parameters: {
+            query: {
+                name: string;
+                version: string;
+                presentation_revision: string;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                catalog_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpRegistryServerReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     overview_v1_local_models_get: {
         parameters: {
             query?: never;
@@ -15037,6 +26138,38 @@ export interface operations {
             };
         };
     };
+    compatibility_v1_local_models_compatibility_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelCompatibilityCatalog"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     start_download_v1_local_models_downloads_post: {
         parameters: {
             query?: never;
@@ -15062,6 +26195,15 @@ export interface operations {
                     "application/json": components["schemas"]["DownloadStatus"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadConflictFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -15069,6 +26211,320 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUpstreamFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUnavailableFailureResponse"];
+                };
+            };
+        };
+    };
+    cancel_download_v1_local_models_downloads__download_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                download_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DownloadCommandRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadStatus"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadNotFoundFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadConflictFailureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUpstreamFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUnavailableFailureResponse"];
+                };
+            };
+        };
+    };
+    pause_download_v1_local_models_downloads__download_id__pause_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                download_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DownloadCommandRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadStatus"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadNotFoundFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadConflictFailureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUpstreamFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUnavailableFailureResponse"];
+                };
+            };
+        };
+    };
+    resume_download_v1_local_models_downloads__download_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                download_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DownloadCommandRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadStatus"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadNotFoundFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadConflictFailureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUpstreamFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUnavailableFailureResponse"];
+                };
+            };
+        };
+    };
+    retry_download_v1_local_models_downloads__download_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                download_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DownloadCommandRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadStatus"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadNotFoundFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadConflictFailureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUpstreamFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelDownloadUnavailableFailureResponse"];
                 };
             };
         };
@@ -15092,6 +26548,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelContextFailureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    openai_chat_input_tokens_v1_local_models_openai_v1_chat_completions_input_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatInputTokenCount"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelContextFailureResponse"];
                 };
             };
             /** @description Validation Error */
@@ -15169,6 +26675,164 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    runtime_status_v1_local_models_runtime_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRuntimeCoordinatorStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_runtime_v1_local_models_runtime_stop_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StopLocalRuntime"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRuntimeCoordinatorStatus"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelActivationConflictFailureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelStopFailureResponse"];
+                };
+            };
+        };
+    };
+    switch_runtime_v1_local_models_runtime_switch_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchLocalRuntime"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRuntimeCoordinatorStatus"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelNotFoundFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelActivationConflictFailureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelActivationFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelStopFailureResponse"];
                 };
             };
         };
@@ -15392,6 +27056,58 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelContextFailureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_input_tokens_v1_local_models__alias__chat_completions_input_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                alias: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatInputTokenCount"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelContextFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -15455,6 +27171,42 @@ export interface operations {
             };
         };
     };
+    placement_admission_v1_local_models__alias__placement_get: {
+        parameters: {
+            query?: {
+                context_size?: number | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                alias: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelPlacementAdmission"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     chat_completions_openai_base_v1_local_models__alias__v1_chat_completions_post: {
         parameters: {
             query?: never;
@@ -15476,6 +27228,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelContextFailureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_input_tokens_openai_base_v1_local_models__alias__v1_chat_completions_input_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                alias: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatInputTokenCount"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelContextFailureResponse"];
                 };
             };
             /** @description Validation Error */

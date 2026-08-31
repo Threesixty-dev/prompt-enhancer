@@ -12,7 +12,8 @@ import re
 import secrets
 import subprocess
 import sys
-from threading import RLock, Thread
+from threading import Event, RLock, Thread
+from time import monotonic
 from types import MappingProxyType
 from typing import Callable, Mapping
 
@@ -21,6 +22,7 @@ from .compatibility import (
     ModelRuntimeInventory,
     build_model_compatibility_catalog,
     cached_runtime_inventory,
+    _terminate_accelerator_probe_process_tree as _terminate_evaluation_process_tree,
 )
 from .loader import repository_root
 
@@ -87,6 +89,18 @@ class ModelEvaluationError(RuntimeError):
 
 
 class ModelEvaluationBusyError(ModelEvaluationError):
+    pass
+
+
+class ModelEvaluationUnavailableError(ModelEvaluationError):
+    pass
+
+
+class ModelEvaluationCancelled(ModelEvaluationError):
+    pass
+
+
+class ModelEvaluationCleanupError(ModelEvaluationError):
     pass
 
 
@@ -175,7 +189,14 @@ def _child_environment(root: Path) -> dict[str, str]:
     return allowed
 
 
-def run_model_evaluation_subprocess(request: ModelEvaluationRequest) -> Mapping[str, object]:
+def run_model_evaluation_subprocess(
+    request: ModelEvaluationRequest,
+    *,
+    cancellation: Event | None = None,
+) -> Mapping[str, object]:
+    cancellation = cancellation if cancellation is not None else Event()
+    if cancellation.is_set():
+        raise ModelEvaluationCancelled("application_shutdown")
     root = repository_root()
     script = root / "scripts" / "evaluate_local_text_models.py"
     if not script.is_file():
@@ -192,28 +213,81 @@ def run_model_evaluation_subprocess(request: ModelEvaluationRequest) -> Mapping[
         command.append("--smoke")
     if request.allow_download:
         command.append("--download")
-    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    creation_flags = (
+        getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    ) if os.name == "nt" else 0
+    process = None
+    reader = None
+    captured = bytearray()
+    read_finished = Event()
+    read_failed = Event()
+    output_limit = 2 * 1024 * 1024
+
+    def read_bounded() -> None:
+        try:
+            assert process is not None and process.stdout is not None
+            while len(captured) <= output_limit:
+                chunk = process.stdout.read(min(64 * 1024, output_limit + 1 - len(captured)))
+                if not chunk:
+                    break
+                captured.extend(chunk)
+        except (OSError, ValueError):
+            read_failed.set()
+        finally:
+            read_finished.set()
+
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=root,
             env=_child_environment(root),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=1_800,
-            check=False,
+            bufsize=0,
+            shell=False,
             creationflags=creation_flags,
+            start_new_session=os.name != "nt",
         )
-    except subprocess.TimeoutExpired:
-        raise ModelEvaluationError("model evaluation timed out") from None
-    if len(completed.stdout) > 2 * 1024 * 1024:
-        raise ModelEvaluationError("model evaluation output exceeded bound")
+        reader = Thread(target=read_bounded, name="model-evaluation-output", daemon=True)
+        reader.start()
+        deadline = monotonic() + 1_800
+        while True:
+            if cancellation.is_set():
+                raise ModelEvaluationCancelled("application_shutdown")
+            if len(captured) > output_limit:
+                raise ModelEvaluationError("model evaluation output exceeded bound")
+            if read_failed.is_set():
+                raise ModelEvaluationError("model evaluation output invalid")
+            if read_finished.is_set() and process.poll() is not None:
+                break
+            if monotonic() >= deadline:
+                raise ModelEvaluationError("model evaluation timed out")
+            cancellation.wait(0.05)
+    except BaseException:
+        cleanup_confirmed = process is None or _terminate_evaluation_process_tree(process)
+        if reader is not None and reader.ident is not None:
+            reader.join(timeout=1)
+            cleanup_confirmed = not reader.is_alive() and cleanup_confirmed
+        if not cleanup_confirmed:
+            raise ModelEvaluationCleanupError("model_evaluation_cleanup_unconfirmed") from None
+        raise
+    finally:
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
+    if reader is not None:
+        reader.join(timeout=1)
     try:
-        payload = json.loads(completed.stdout.decode("utf-8"))
+        payload = json.loads(captured.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise ModelEvaluationError("model evaluation output invalid") from None
     if not isinstance(payload, dict):
+        raise ModelEvaluationError("model evaluation output invalid")
+    if process.returncode not in {0, 2} or (
+        process.returncode == 0 and payload.get("status") != "completed"
+    ) or (
+        process.returncode == 2 and payload.get("status") not in {"not_completed", "completed_with_failures"}
+    ):
         raise ModelEvaluationError("model evaluation output invalid")
     return payload
 
@@ -338,11 +412,14 @@ def summarize_model_report(report: Mapping[str, object]) -> tuple[str, tuple[Can
 class LocalTextModelEvaluationService:
     """One process-local model job at a time; no session input is accepted."""
 
-    def __init__(self, runner: Runner = run_model_evaluation_subprocess) -> None:
-        self._runner = runner
+    def __init__(self, runner: Runner | None = None) -> None:
+        self._stop = Event()
+        self._runner = runner or (lambda request: run_model_evaluation_subprocess(request, cancellation=self._stop))
         self._lock = RLock()
         self._jobs: dict[str, ModelEvaluationJob] = {}
         self._active_job_id: str | None = None
+        self._thread: Thread | None = None
+        self._cleanup_failed = False
 
     def inventory(self, *, force_refresh: bool = False) -> ModelRuntimeInventory:
         return runtime_inventory(force_refresh=force_refresh)
@@ -352,6 +429,8 @@ class LocalTextModelEvaluationService:
 
     def start(self, request: ModelEvaluationRequest) -> ModelEvaluationJob:
         with self._lock:
+            if self._stop.is_set() or self._cleanup_failed:
+                raise ModelEvaluationUnavailableError("model_evaluation_shutting_down")
             if self._active_job_id is not None:
                 active = self._jobs.get(self._active_job_id)
                 if active and active.status in {"queued", "running"}:
@@ -366,8 +445,35 @@ class LocalTextModelEvaluationService:
             self._jobs[job_id] = job
             self._active_job_id = job_id
             self._trim_locked()
-        Thread(target=self._execute, args=(job_id,), daemon=True).start()
+            start_failed = False
+            try:
+                thread = Thread(target=self._execute, args=(job_id,), name="local-model-evaluation", daemon=True)
+                self._thread = thread
+                thread.start()
+            except Exception:
+                self._jobs.pop(job_id, None)
+                self._active_job_id = None
+                self._thread = None
+                start_failed = True
+            if start_failed:
+                raise ModelEvaluationUnavailableError("model_evaluation_start_failed")
         return job
+
+    def shutdown(self, *, timeout: float = 5.0) -> None:
+        with self._lock:
+            self._stop.set()
+            thread = self._thread
+        failed = False
+        if thread is not None:
+            try:
+                thread.join(timeout=max(0.0, timeout))
+                failed = thread.is_alive()
+            except Exception:
+                failed = True
+        with self._lock:
+            failed = self._cleanup_failed or failed
+        if failed:
+            raise RuntimeError("model_evaluation_shutdown_incomplete")
 
     def get(self, job_id: str) -> ModelEvaluationJob:
         if _JOB_ID.fullmatch(job_id) is None:
@@ -384,9 +490,13 @@ class LocalTextModelEvaluationService:
             job = replace(job, status="running", started_at=datetime.now(UTC))
             self._jobs[job_id] = job
         try:
+            if self._stop.is_set():
+                raise ModelEvaluationCancelled("application_shutdown")
             report = self._runner(job.request)
             device, outcomes = summarize_model_report(report)
-            failed = any(item.status == "not_completed" for item in outcomes)
+            failed = report.get("status") in {"not_completed", "completed_with_failures"} or any(
+                item.status == "not_completed" for item in outcomes
+            )
             final = replace(
                 job,
                 status="failed" if failed else "completed",
@@ -395,6 +505,12 @@ class LocalTextModelEvaluationService:
                 error_code="candidate_evaluation_incomplete" if failed else None,
                 outcomes=outcomes,
             )
+        except ModelEvaluationCancelled:
+            final = replace(job, status="cancelled", completed_at=datetime.now(UTC), error_code="application_shutdown")
+        except ModelEvaluationCleanupError:
+            with self._lock:
+                self._cleanup_failed = True
+            final = replace(job, status="failed", completed_at=datetime.now(UTC), error_code="model_evaluation_cleanup_unconfirmed")
         except Exception:
             final = replace(
                 job,
@@ -403,6 +519,8 @@ class LocalTextModelEvaluationService:
                 error_code="model_evaluation_failed",
             )
         with self._lock:
+            if self._stop.is_set() and final.status == "completed":
+                final = replace(job, status="cancelled", completed_at=datetime.now(UTC), error_code="application_shutdown")
             self._jobs[job_id] = final
             if self._active_job_id == job_id:
                 self._active_job_id = None

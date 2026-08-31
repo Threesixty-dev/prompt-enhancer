@@ -135,10 +135,19 @@ export function MetricEvidenceFilePanel({
         || bindingRef.current !== binding
         || transportRef.current !== transport
       ) return;
+      if (page.session_id !== sessionId || page.complete !== true || !Array.isArray(page.proposals)
+        || !Number.isSafeInteger(page.total) || page.total !== page.proposals.length
+        || page.proposals.some((proposal) => proposal.session_id !== sessionId)
+        || new Set(page.proposals.map((proposal) => proposal.proposal_id)).size !== page.proposals.length) {
+        setLoading(false);
+        setError({ kind: "load", message: "The exact-run proposal list is incomplete or could not be verified. Refresh before reviewing evidence." });
+        return;
+      }
       setProposals(page.proposals.filter((proposal) => (
         isExactProposal(proposal, sessionId, sourceRunId)
       )));
-      setConfirmationAvailable(userPresence?.confirmation_available === true);
+      setConfirmationAvailable(userPresence?.contract_version === "native-user-presence-capability-v1"
+        && userPresence.confirmation_available === true && userPresence.mode === "native_bridge_bound_token");
       setLoading(false);
     }).catch(() => {
       if (
@@ -163,6 +172,29 @@ export function MetricEvidenceFilePanel({
       restoreDecisionFocusRef.current = false;
     }
   }, [pendingDecision]);
+
+  useEffect(() => {
+    if (preview === null || busy) return;
+    const ownerBinding = stateBinding;
+    const ownerTransport = stateTransport;
+    const expiresIn = Date.parse(preview.expires_at) - Date.now();
+    const expire = () => {
+      if (bindingRef.current !== ownerBinding || transportRef.current !== ownerTransport) return;
+      setPreview(null);
+      setPayload(null);
+      setNotice("");
+      setError({
+        kind: "stale",
+        message: "The strict preview expired. Select the canonical file again before importing.",
+      });
+    };
+    if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+      expire();
+      return;
+    }
+    const timer = window.setTimeout(expire, Math.min(expiresIn, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [busy, preview, stateBinding, stateTransport]);
 
   useEffect(() => {
     if (preview !== null) previewRef.current?.focus();

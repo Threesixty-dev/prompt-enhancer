@@ -42,6 +42,10 @@ import { createHttpTransport, TransportError } from "../../shared/api/httpTransp
 import { MetricWorkspace } from "./MetricWorkspace";
 import { ModelEnsemblePanel } from "./ModelEnsemblePanel";
 import {
+  TRAJECTORY_RETRY_LIMIT,
+  TRAJECTORY_RETRY_MS,
+} from "./canonicalPolling";
+import {
   modelEnsembleCompletedSmallExperts,
   modelEnsembleRadarAxes,
 } from "./ModelEnsembleRadar";
@@ -706,6 +710,39 @@ function renderPanel(
 }
 
 describe("model ensemble response contract", () => {
+  it("explains quarantined cleanup without promising a completed result or automatic retry", async () => {
+    const snapshot = watchFixture();
+    snapshot.watch.state = "failed";
+    snapshot.watch.quarantined = true;
+    snapshot.watch.quarantine_reason_code = "model_ensemble_cleanup_unconfirmed";
+    snapshot.watch.last_error_code = "model_ensemble_cleanup_unconfirmed";
+    const disableModelEnsembleWatch = vi.fn(async () => ({ ...snapshot, watch: { ...snapshot.watch, state: "disabled" as const } }));
+    renderPanel({
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleWatch: async () => snapshot,
+      disableModelEnsembleWatch,
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent(/Model process cleanup was not confirmed/);
+    expect(screen.getByRole("status")).toHaveTextContent(/Automatic retries are paused/);
+    expect(screen.getByRole("status")).toHaveTextContent(/restart the app before retrying/);
+    expect(screen.getByText(/No completed snapshot is available here/)).toBeVisible();
+    expect(screen.queryByText(/Start one explicit run/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop continuous updates" }));
+    await waitFor(() => expect(disableModelEnsembleWatch).toHaveBeenCalledTimes(1));
+    await screen.findByRole("button", { name: "Watch this session" });
+    expect(screen.getByRole("status")).toHaveTextContent(/Model process cleanup was not confirmed/);
+    expect(screen.queryByText(/Start one explicit run/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the fixed cleanup recovery message on direct model-run errors", async () => {
+    const startModelEnsemble = vi.fn().mockRejectedValue(new TransportError("unavailable", 503, "model_ensemble_cleanup_unconfirmed"));
+    renderPanel({ ...createSyntheticTransport(), startModelEnsemble });
+    fireEvent.click(screen.getByRole("button", { name: "Analyze metric ranges" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Model process cleanup was not confirmed.*Automatic retries are paused/);
+    expect(screen.queryByText(/Start one explicit run/)).not.toBeInTheDocument();
+    expect(startModelEnsemble).toHaveBeenCalledTimes(1);
+  });
+
   it("strictly parses the minimized declared-profile binding and classifies future identities", () => {
     const binding = {
       profile_source: "declared_task_profile",
@@ -2896,11 +2933,75 @@ describe("ModelEnsemblePanel", () => {
     const partialHead = structuredClone(failedHead);
     partialHead.latest_attempt!.state = "partial";
     partialHead.latest_attempt!.warning_count = 2;
-    view.unmount();
-    renderPanel({
-      ...transport,
-      getSessionModelEnsembleCanonicalHead: vi.fn(async () => partialHead),
-    });
-    expect(await screen.findByRole("status")).toHaveTextContent(/completed with 2 warnings/i);
+   view.unmount();
+   renderPanel({
+     ...transport,
+     getSessionModelEnsembleCanonicalHead: vi.fn(async () => partialHead),
+   });
+   expect(await screen.findByRole("status")).toHaveTextContent(/completed with 2 warnings/i);
+ });
+
+  it("keeps an explicit command error visible across later successful polls", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const getActiveModelEnsembleWatch = vi.fn(async () => watchFixture(null));
+      const startModelEnsemble = vi.fn().mockRejectedValue(
+        new TransportError("unavailable", 503, "provider_unavailable"),
+      );
+      const transport: PromptEnhancerTransport = {
+        ...createSyntheticTransport(),
+        getLatestModelEnsemble: vi.fn().mockRejectedValue(new TransportError("not found", 404)),
+        getSessionModelEnsembleCanonicalHead: undefined,
+        getActiveModelEnsembleWatch,
+        startModelEnsemble,
+      };
+      renderPanel(transport);
+      fireEvent.click(await screen.findByRole("button", { name: "Analyze metric ranges" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/timed out or became unavailable/i);
+      const pollsBefore = getActiveModelEnsembleWatch.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(70_000);
+      await waitFor(() =>
+        expect(getActiveModelEnsembleWatch.mock.calls.length).toBeGreaterThan(pollsBefore));
+      expect(screen.getByRole("alert")).toHaveTextContent(/timed out or became unavailable/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a transient trajectory read a bounded number of times, then offers manual history retry with no loaded page", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const run = runFixture();
+      const trajectory = trajectoryFixture();
+      const getModelEnsembleTrajectory = vi.fn()
+        .mockRejectedValue(new TransportError("unavailable", 503));
+      const transport: PromptEnhancerTransport = {
+        ...createSyntheticTransport(),
+        getLatestModelEnsemble: vi.fn(async () => structuredClone(run)),
+        getSessionModelEnsembleCanonicalHead: undefined,
+        getActiveModelEnsembleWatch: vi.fn(async () => watchFixture(run)),
+        getModelEnsembleTrajectory,
+      };
+      renderPanel(transport);
+
+      await waitFor(() => expect(getModelEnsembleTrajectory).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(TRAJECTORY_RETRY_MS * (TRAJECTORY_RETRY_LIMIT + 2));
+      await waitFor(() =>
+        expect(getModelEnsembleTrajectory).toHaveBeenCalledTimes(TRAJECTORY_RETRY_LIMIT));
+      await vi.advanceTimersByTimeAsync(TRAJECTORY_RETRY_MS * 2);
+      expect(getModelEnsembleTrajectory).toHaveBeenCalledTimes(TRAJECTORY_RETRY_LIMIT);
+
+      fireEvent.click(screen.getByText("History"));
+      expect(screen.getByText(/no previously loaded trajectory is available/i)).toBeVisible();
+      getModelEnsembleTrajectory.mockResolvedValue(structuredClone(trajectory));
+      fireEvent.click(screen.getByRole("button", { name: "Retry history" }));
+
+      await waitFor(() =>
+        expect(getModelEnsembleTrajectory).toHaveBeenCalledTimes(TRAJECTORY_RETRY_LIMIT + 1));
+      expect(await screen.findByRole("button", { name: "Open live snapshot" })).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

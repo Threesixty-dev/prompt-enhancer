@@ -365,7 +365,9 @@ describe("RequirementActionEvidencePanel", () => {
     await screen.findByText("Create the synthetic artifact.");
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
     fireEvent.click(screen.getByRole("button", { name: "Confirm exact reviewed graph" }));
-    expect(screen.getByRole("button", { name: "Apply exact confirmation" })).toBeVisible();
+    expect(await screen.findByRole("button", {
+      name: "Apply exact confirmation",
+    })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Switch public binding" }));
 
@@ -554,8 +556,11 @@ describe("RequirementActionEvidencePanel", () => {
     expect(screen.getAllByRole("button", { name: "Reject" })).toHaveLength(2);
     fireEvent.click(inspect);
     expect(await screen.findByText(/Create the synthetic artifact\./)).toBeVisible();
+    await act(async () => {});
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm exact reviewed graph" }));
+    const confirm = screen.getByRole("button", { name: "Confirm exact reviewed graph" });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
     fireEvent.click(await screen.findByRole("button", { name: "Apply exact confirmation" }));
     await waitFor(() => expect(local.decideRequirementActionProposal).toHaveBeenCalledWith(
       SESSION,
@@ -768,7 +773,10 @@ describe("RequirementActionEvidencePanel", () => {
       compact={false} publicEvidenceSource="awaiting_review" sessionId={SESSION} sourceProjectionVersion="metric-contract-v2-projection-7"
       sourceRunId={RUN} transport={first}
     />);
-    fireEvent.click(await screen.findByRole("button", { name: "Inspect every item" }));
+    const inspect = await screen.findByRole("button", { name: "Inspect every item" });
+    // Finish the asynchronous receipt and its acknowledgement-reset effect
+    // before simulating the person's review acknowledgement.
+    await act(async () => { fireEvent.click(inspect); });
     expect(await screen.findByText(/Create the synthetic artifact\./)).toBeVisible();
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
     expect(screen.getByRole("button", { name: "Confirm exact reviewed graph" })).toBeEnabled();
@@ -825,6 +833,7 @@ describe("RequirementActionEvidencePanel", () => {
     />);
     fireEvent.click(await screen.findByRole("button", { name: "Inspect every item" }));
     expect(await screen.findByText(/Create the synthetic artifact\./)).toBeVisible();
+    await act(async () => {});
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
     expect(screen.getByRole("button", { name: "Confirm exact reviewed graph" })).toBeEnabled();
 
@@ -836,7 +845,7 @@ describe("RequirementActionEvidencePanel", () => {
 
     await waitFor(() => expect(screen.queryByText(/Create the synthetic artifact\./)).not.toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Confirm exact reviewed graph" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Inspect every item" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Inspect every item" })).toBeEnabled();
     expect(local.getRequirementActionEvidenceContract).toHaveBeenCalledTimes(2);
   });
 
@@ -1014,6 +1023,183 @@ describe("RequirementActionEvidencePanel", () => {
     fireEvent.keyDown(reviewRegion, { key: "Escape" });
     await waitFor(() => expect(screen.queryByText("Create the synthetic artifact.")).not.toBeInTheDocument());
     await waitFor(() => expect(inspect).toHaveFocus());
+  });
+
+  it("closes the complete review from its header and restores focus without any native decision", async () => {
+    const local = transport();
+    render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceSource="awaiting_review" sessionId={SESSION}
+      sourceProjectionVersion="metric-contract-v2-projection-7" sourceRunId={RUN} transport={local}
+    />);
+    const inspect = await screen.findByRole("button", { name: "Inspect every item" });
+    fireEvent.click(inspect);
+    const reviewRegion = await screen.findByRole("region", { name: `Complete review for proposal ${PROPOSAL}` });
+    await waitFor(() => expect(reviewRegion).toHaveFocus());
+    fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
+    expect(screen.getByRole("button", { name: "Confirm exact reviewed graph" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close review" }));
+
+    await waitFor(() => expect(screen.queryByText("Create the synthetic artifact.")).not.toBeInTheDocument());
+    await waitFor(() => expect(inspect).toHaveFocus());
+    expect(screen.queryByRole("button", { name: "Confirm exact reviewed graph" })).not.toBeInTheDocument();
+    expect(local.decideRequirementActionProposal).not.toHaveBeenCalled();
+    expect(local.importRequirementActionEvidence).not.toHaveBeenCalled();
+
+    fireEvent.click(inspect);
+    expect(await screen.findByText("Create the synthetic artifact.")).toBeVisible();
+    expect(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i)).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Confirm exact reviewed graph" })).toBeDisabled();
+  });
+
+  it("clears the native file input before reading so the same file can be reselected after a failed preview", async () => {
+    const local = transport([]);
+    local.previewRequirementActionEvidence = vi.fn()
+      .mockRejectedValueOnce(new Error("synthetic transient preview failure"))
+      .mockResolvedValueOnce(preview());
+    render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceSource="awaiting_review" sessionId={SESSION}
+      sourceProjectionVersion="metric-contract-v2-projection-7" sourceRunId={RUN} transport={local}
+    />);
+    await screen.findByText(/Bound to sealed run/i);
+    const file = new File(["{}"], "example.json", { type: "application/json" });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode("{}").buffer });
+    const input = screen.getByLabelText("Choose canonical requirement-action evidence file") as HTMLInputElement;
+    let selected: File[] = [];
+    Object.defineProperty(input, "files", { configurable: true, get: () => selected });
+    Object.defineProperty(input, "value", {
+      configurable: true,
+      get: () => (selected.length === 0 ? "" : `C:\\fakepath\\${selected[0].name}`),
+      set: (next: string) => {
+        if (next !== "") throw new Error("a native file input value can only be cleared");
+        selected = [];
+      },
+    });
+    // Native semantics: clearing the value empties the selection, so a same-file reselect emits a fresh change.
+    const selectSameFile = () => {
+      expect(input.value).toBe("");
+      selected = [file];
+      fireEvent.change(input);
+    };
+
+    selectSameFile();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/failed strict local validation/i);
+    expect(input.value).toBe("");
+
+    selectSameFile();
+
+    expect(await screen.findByRole("button", { name: "Import as unconfirmed" })).toBeVisible();
+    expect(local.previewRequirementActionEvidence).toHaveBeenCalledTimes(2);
+    expect(local.importRequirementActionEvidence).not.toHaveBeenCalled();
+    expect(screen.queryByText("example.json")).not.toBeInTheDocument();
+  });
+
+  it("recovers a transient requirement-action load failure only through an explicit retry", async () => {
+    const local = transport([proposal()]);
+    local.getRequirementActionEvidenceContract = vi.fn()
+      .mockRejectedValueOnce(new Error("synthetic transient load failure"))
+      .mockResolvedValueOnce(contract());
+    const recovered = render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceSource="awaiting_review" sessionId={SESSION}
+      sourceProjectionVersion="metric-contract-v2-projection-7" sourceRunId={RUN} transport={local}
+    />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/temporarily unavailable/i);
+    expect(local.getRequirementActionEvidenceContract).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Inspect every item" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry exact source contract" }));
+
+    expect(await screen.findByText(/Bound to sealed run/i)).toBeVisible();
+    expect(local.getRequirementActionEvidenceContract).toHaveBeenCalledTimes(2);
+    expect(local.listRequirementActionProposals).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry exact source contract" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspect every item" })).toBeEnabled();
+    expect(local.decideRequirementActionProposal).not.toHaveBeenCalled();
+    expect(local.importRequirementActionEvidence).not.toHaveBeenCalled();
+    recovered.unmount();
+
+    const failClosed = transport([]);
+    render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceBinding={reviewedPublicBinding("a")} publicEvidenceSource="awaiting_review"
+      sessionId={SESSION} sourceProjectionVersion="metric-contract-v2-projection-7"
+      sourceRunId={RUN} transport={failClosed}
+    />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/do not describe this exact selected run/i);
+    expect(screen.queryByRole("button", { name: "Retry exact source contract" })).not.toBeInTheDocument();
+    expect(failClosed.getRequirementActionEvidenceContract).not.toHaveBeenCalled();
+  });
+
+  it("keeps the inert file workflow and disabled decisions when the presence probe rejects", async () => {
+    const local = transport([proposal()]);
+    local.getUserPresenceCapability = vi.fn().mockRejectedValue(new Error("synthetic presence probe failure"));
+    local.previewRequirementActionEvidence = vi.fn().mockResolvedValue(preview());
+    render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceSource="awaiting_review" sessionId={SESSION}
+      sourceProjectionVersion="metric-contract-v2-projection-7" sourceRunId={RUN} transport={local}
+    />);
+
+    expect(await screen.findByText(/Bound to sealed run/i)).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspect every item" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled();
+    expect(screen.getByText(/review and decisions are disabled/i)).toBeVisible();
+
+    const file = new File(["{}"], "example.json", { type: "application/json" });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode("{}").buffer });
+    fireEvent.change(screen.getByLabelText("Choose canonical requirement-action evidence file"), {
+      target: { files: [file] },
+    });
+
+    expect(await screen.findByRole("button", { name: "Import as unconfirmed" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Inspect every item" })).toBeDisabled();
+    expect(local.reviewRequirementActionProposal).not.toHaveBeenCalled();
+    expect(local.decideRequirementActionProposal).not.toHaveBeenCalled();
+  });
+
+  it("marks a resolved wrong verification binding retryable and recovers, while unknown capability never enables approvals", async () => {
+    const local = transport([proposal()]);
+    local.getRequirementActionEvidenceContract = vi.fn()
+      .mockResolvedValueOnce(contract("f".repeat(64), "e".repeat(64)))
+      .mockResolvedValueOnce(contract());
+    const view = render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceSource="awaiting_review" sessionId={SESSION}
+      sourceProjectionVersion="metric-contract-v2-projection-7" sourceRunId={RUN} transport={local}
+    />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not bound to this exact sealed r7 run/i);
+    expect(screen.queryByRole("button", { name: "Inspect every item" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry exact source contract" }));
+
+    expect(await screen.findByText(/Bound to sealed run/i)).toBeVisible();
+    expect(local.getRequirementActionEvidenceContract).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry exact source contract" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspect every item" })).toBeEnabled();
+    expect(local.decideRequirementActionProposal).not.toHaveBeenCalled();
+    view.unmount();
+
+    const malformedCapability = transport([proposal()]);
+    malformedCapability.getUserPresenceCapability = vi.fn().mockResolvedValue({
+      contract_version: "native-user-presence-capability-v2",
+      confirmation_available: true,
+      mode: "native_bridge_bound_token",
+    });
+    render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceSource="awaiting_review" sessionId={SESSION}
+      sourceProjectionVersion="metric-contract-v2-projection-7" sourceRunId={RUN}
+      transport={malformedCapability}
+    />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not bound to this exact sealed r7 run/i);
+    expect(screen.getByRole("button", { name: "Retry exact source contract" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Inspect every item" })).not.toBeInTheDocument();
+    expect(malformedCapability.reviewRequirementActionProposal).not.toHaveBeenCalled();
+    expect(malformedCapability.decideRequirementActionProposal).not.toHaveBeenCalled();
   });
 
   it("discards a delayed A import completion after a same-binding transport B replacement", async () => {

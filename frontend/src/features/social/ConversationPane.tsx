@@ -147,12 +147,17 @@ function Composer({
         type="text"
         value={draft}
       />
-      <button className="button button--primary" disabled={!allowed || draft.trim() === ""} type="submit">
+      <button
+        aria-describedby={`${inputId}-hint`}
+        className="button button--primary"
+        disabled={!allowed || draft.trim() === ""}
+        type="submit"
+      >
         <Icon name="send" /> Add locally
       </button>
       <p className="social-composer__hint" id={`${inputId}-hint`}>
         {allowed
-          ? `Posting as ${role === null ? "no role" : ROLE_LABELS[role]} · appended to this browser's memory only · never delivered · ${PAYLOAD_POLICY_COPY}`
+          ? `${draft.trim() === "" ? "Type a message to enable Add locally. " : "Ready to add this message locally. "}Posting as ${role === null ? "no role" : ROLE_LABELS[role]} · appended to this browser's memory only · never delivered · ${PAYLOAD_POLICY_COPY}`
           : friendshipActive
             ? `Your role (${role === null ? "not a member" : ROLE_LABELS[role]}) is not permitted to ${threadRootId === null ? "post" : "reply in threads"} here.`
             : "This direct conversation is read-only because direct-message operations require a current friendship."}

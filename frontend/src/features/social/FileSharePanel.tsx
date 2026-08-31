@@ -272,6 +272,17 @@ function OfferForm({
   const meOnline = personIsOnline(personById(snapshot, snapshot.me_person_id));
   const size = Number.parseFloat(sizeMb);
   const valid = displayName.trim() !== "" && Number.isFinite(size) && size > 0 && selected.length > 0;
+  const validationHint = displayName.trim() === ""
+    ? "Enter a display name to enable the metadata-only offer."
+    : !Number.isFinite(size) || size <= 0
+      ? "Enter a size greater than zero to enable the metadata-only offer."
+      : selected.length === 0
+        ? "Select at least one recipient to enable the metadata-only offer."
+        : "Required metadata and recipient scope are ready.";
+  const senderStateHint = meOnline
+    ? "You are online, so a direct transfer could start once a recipient consents and a direct path exists."
+    : "You are not currently shared as online: the metadata offer is queued on this device with a bounded expiry (never on a server), and bytes move only after you explicitly share an online state.";
+  const submitHint = `${validationHint} ${senderStateHint}`;
   return (
     <form
       aria-describedby={`${nameId}-boundary`}
@@ -332,13 +343,16 @@ function OfferForm({
         })}
       </fieldset>
       <div className="social-offer-form__submit">
-        <button className="button button--primary" disabled={!valid} type="submit">
+        <button
+          aria-describedby={`${nameId}-boundary ${nameId}-submit-hint`}
+          className="button button--primary"
+          disabled={!valid}
+          type="submit"
+        >
           <Icon name="file" /> {meOnline ? "Offer to" : "Queue offer for"} {selected.length} {selected.length === 1 ? "recipient" : "recipients"}
         </button>
-        <span data-sender-online={meOnline ? "true" : "false"}>
-          {meOnline
-            ? "You are online, so a direct transfer could start once a recipient consents and a direct path exists."
-            : "You are not currently shared as online: the metadata offer is queued on this device with a bounded expiry (never on a server), and bytes move only after you explicitly share an online state."}
+        <span data-sender-online={meOnline ? "true" : "false"} id={`${nameId}-submit-hint`}>
+          {submitHint}
         </span>
       </div>
     </form>

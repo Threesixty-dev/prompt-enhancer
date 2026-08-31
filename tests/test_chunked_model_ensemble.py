@@ -981,6 +981,9 @@ def test_unconfirmed_subprocess_cleanup_raises_distinct_fatal_error(
         stdin = None
         stdout = None
 
+        def poll(self):
+            return None
+
         def communicate(self, *, input, timeout):  # type: ignore[no-untyped-def]
             raise model_ensemble_module.subprocess.TimeoutExpired(
                 "synthetic-model-child",
@@ -1001,7 +1004,7 @@ def test_unconfirmed_subprocess_cleanup_raises_distinct_fatal_error(
     monkeypatch.setattr(
         model_ensemble_module,
         "_terminate_ensemble_process_tree",
-        lambda process, environment: False,
+        lambda process, environment, close_pipes=True: False,
     )
 
     with pytest.raises(

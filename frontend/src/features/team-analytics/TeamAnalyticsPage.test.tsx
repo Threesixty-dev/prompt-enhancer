@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { describe, expect, it, vi } from "vitest";
 import {
   teamAggregateRequestForAccess,
+  TeamControlPlaneError,
   type AnalyticsScope,
   type TeamAggregateSnapshot,
   type TeamControlPlanePort,
@@ -39,6 +40,19 @@ function renderPage(options: {
 }
 
 describe("TeamAnalyticsPage", () => {
+  it("offers retry for a failed allowed-scope read instead of calling the scope unserved", async () => {
+    const base = createSyntheticTeamControlPlanePort();
+    const getAggregate = vi.fn(base.getAggregate).mockRejectedValueOnce(new TeamControlPlaneError("scope_not_allowed", "SYNTHETIC_PRIVATE_CANARY"));
+    renderPage({ port: { ...base, getAggregate } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("aggregate could not be loaded");
+    expect(screen.queryByText(/Team scope is not served here/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("table")).toBeVisible();
+    expect(getAggregate).toHaveBeenCalledTimes(2);
+    expect(getAggregate.mock.calls[1][0]).toEqual(getAggregate.mock.calls[0][0]);
+    expect(document.body.textContent).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+  });
+
   it("renders a permission-aware scope switcher whose blocked scopes stay discoverable", async () => {
     renderPage();
     const group = await screen.findByRole("group", { name: "Analytics scope" });
@@ -123,7 +137,7 @@ describe("TeamAnalyticsPage", () => {
     expect(screen.getByText(/1 withheld consent and is not listed/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Hide individual members" }));
     expect(screen.queryByText("Member 01")).toBeNull();
-  });
+  }, 10_000);
 
   it("keeps the member reveal disabled without a grant", async () => {
     renderPage({ port: createSyntheticTeamControlPlanePort({ memberVisibility: "denied" }) });

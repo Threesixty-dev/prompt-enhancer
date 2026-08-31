@@ -70,3 +70,40 @@ for models *outside* the app to annotate, and a central store.
 - Verified locally end to end on real sessions: an "agent" (scripted client)
   annotated through the endpoint, and a remote batch was annotated by the
   27B model through the central routes and stored centrally.
+
+## Structured response acceptance (2026-08-26)
+
+Central inference uses the same completed-assistant-response and strict bounded
+JSON acceptance as the local judge. An invalid item is skipped without storing
+its window/labels or preventing a later valid item in the batch from completing.
+The current prompt/acceptance protocol is recorded; historical protocol rows
+remain readable but do not count as current agreement or suppress explicitly
+requested current-protocol annotation work. Direct agent label submissions are
+still typed declarative annotations, not proof of the agent's generation or task
+success. Allowance, destination disclosure and explicit submission gates remain.
+
+Checkpoint 24 validation used fictional in-memory data and disposable synthetic
+stores only. No external service was called, no real sessions were read, and no
+GPU model was loaded. This evidence does not revalidate the historical real-data
+claim above or certify a future remote deployment.
+
+## Case-bound annotation receipts (2026-08-26, checkpoint 25)
+
+Work windows now expose `case_fingerprint` and `case_version` alongside their
+source-window fingerprint. A current agent annotation must echo that exact case
+to enter reviewed-case comparison; older submissions remain stored as unbound
+labels. Completing annotation work requires all rubric labels for one coherent
+case, protocol and recorded model identity, not just one row for a session.
+
+Central batch items/results carry the same provenance. The server validates the
+case against the actual redacted window before inference; the client rejects
+foreign or partial case receipts and counts only sessions whose returned labels
+were accepted locally. A remote `stored` count is not authoritative evidence of
+local completion. The SQLite store closes its connections after transactions and
+reads, including failure paths. No old central rows are relabelled as current.
+
+These are provenance and accounting checks, not proof of an external agent's
+generation, model quality, human independence or delivery reconciliation. The
+allowance, destination preview and explicit submission gates remain unchanged.
+Tests use fictional cases and disposable stores only; no remote model or real
+provider transcript was used for this checkpoint.

@@ -139,12 +139,42 @@ class AppSettings(BaseModel):
         return self.home / "metrics.sqlite3"
 
     @property
+    def agent_catalog_path(self) -> Path:
+        """Sensitive owner-authored Agent project/session navigation metadata."""
+
+        return self.home / "agent-catalog.sqlite3"
+
+    @property
+    def mcp_registry_cache_path(self) -> Path:
+        """Normalized public MCP Registry metadata used for offline fallback."""
+
+        return self.home / "mcp-registry-cache.json"
+
+    @property
+    def mcp_packages_dir(self) -> Path:
+        """Isolated, application-owned MCP package trees and transient staging."""
+
+        return self.home / "mcp-packages"
+
+    @property
     def pseudonym_key_path(self) -> Path:
         return self.home / "pseudonym.key"
 
     @property
     def api_token_path(self) -> Path:
         return self.home / "api.token"
+
+    @property
+    def native_agent_lifecycle_path(self) -> Path:
+        """Content-free latest native Agent lifecycle marker."""
+
+        return self.home / "diagnostics" / "native-agent-lifecycle.json"
+
+    @property
+    def native_overlay_lifecycle_path(self) -> Path:
+        """Content-free latest metrics-overlay lifecycle marker."""
+
+        return self.home / "diagnostics" / "native-overlay-lifecycle.json"
 
     @property
     def claude_home_override_path(self) -> Path:

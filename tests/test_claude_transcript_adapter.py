@@ -13,10 +13,15 @@ import io
 import json
 from pathlib import Path
 import sqlite3
+import threading
 
 import pytest
 
 from prompt_enhancer.adapters.base import AdapterHealth
+from prompt_enhancer.application.runtime_cancellation import (
+    RuntimeCooperativeStop,
+    runtime_request_scope,
+)
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.database import Database
@@ -102,6 +107,22 @@ def test_scan_head_and_parse_are_deterministic_and_bounded(env) -> None:
     assert usage[0].usage.input_tokens == 1200 and usage[0].usage.cached_input_tokens == 800 and usage[0].usage.model_id == "claude-opus-5"
     assert all(e.sequence >= 3_000_000 for e in usage)
     assert parsed.complete is True and parsed.first_at == T0 and parsed.last_at == T0 + timedelta(seconds=40)
+
+
+def test_transcript_scan_and_parse_honor_background_shutdown(env) -> None:
+    _settings, claude_home = env
+    path = write_session(claude_home, SESSION_A, T0)
+    cancelled = threading.Event()
+    cancelled.set()
+
+    with runtime_request_scope(cancelled), pytest.raises(
+        RuntimeCooperativeStop, match="^claude_transcript_scan_cancelled$"
+    ):
+        scan_transcripts(claude_home)
+    with runtime_request_scope(cancelled), pytest.raises(
+        RuntimeCooperativeStop, match="^claude_transcript_parse_cancelled$"
+    ):
+        parse_events(path, SESSION_A)
 
 
 @pytest.mark.parametrize(

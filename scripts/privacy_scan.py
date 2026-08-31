@@ -49,6 +49,9 @@ _SKIPPED_GENERATED_PARTS = frozenset(
         "venv",
     }
 )
+_SKIPPED_GENERATED_PREFIXES = (
+    ("src", "prompt_enhancer", "_resources", "dashboard"),
+)
 _PROHIBITED_NAMES = frozenset(
     {
         ".claude.json",
@@ -192,12 +195,19 @@ def _candidate_files(root: Path, paths: Iterable[Path] | None) -> Iterable[Path]
             relative = _lexical_relative(path, root)
         except ValueError:
             continue
+        folded_relative_parts = tuple(part.casefold() for part in relative.parts)
         directory_parts = {part.casefold() for part in relative.parts[:-1]}
         if directory_parts & _ALWAYS_SKIPPED_PARTS:
             continue
         if (
             ignore_generated_directories
-            and directory_parts & _SKIPPED_GENERATED_PARTS
+            and (
+                directory_parts & _SKIPPED_GENERATED_PARTS
+                or any(
+                    folded_relative_parts[: len(prefix)] == prefix
+                    for prefix in _SKIPPED_GENERATED_PREFIXES
+                )
+            )
         ):
             continue
         if path.is_symlink() or path.is_file():

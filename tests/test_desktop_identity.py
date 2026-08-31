@@ -206,8 +206,13 @@ def _json_response(handler: BaseHTTPRequestHandler, payload: object, *, status: 
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json")
     handler.send_header("Content-Length", str(len(body)))
-    handler.end_headers()
-    handler.wfile.write(body)
+    try:
+        handler.end_headers()
+        handler.wfile.write(body)
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        # Timeout tests intentionally close the client before this synthetic
+        # response arrives. Do not emit a background traceback with host paths.
+        return
 
 
 def _raw_response(
@@ -559,16 +564,33 @@ def test_launcher_verifies_the_real_service_and_refuses_the_wrong_token(served_a
 def test_launcher_attaches_to_a_trusted_service_without_owning_or_disclosing(
     served_app: AppSettings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    class ClosedEvent:
+        def __init__(self) -> None:
+            self.handlers: list[Callable[[], None]] = []
+
+        def __iadd__(self, handler: Callable[[], None]):
+            self.handlers.append(handler)
+            return self
+
+        def emit(self) -> None:
+            for handler in tuple(self.handlers):
+                handler()
+
+    class Window:
+        def __init__(self) -> None:
+            self.events = type("Events", (), {"closed": ClosedEvent()})()
+
     class FakeWebview:
         def __init__(self) -> None:
             self.created: list[dict[str, Any]] = []
+            self.window = Window()
 
         def create_window(self, *_args: object, **kwargs: object) -> object:
             self.created.append(dict(kwargs))
-            return object()
+            return self.window
 
         def start(self, **_kwargs: object) -> None:
-            return None
+            self.window.events.closed.emit()
 
     webview = FakeWebview()
     monkeypatch.setattr(desktop_overlay, "sys_platform_is_windows", lambda: True)
@@ -600,6 +622,8 @@ def test_launcher_refuses_a_squatter_before_rendering(monkeypatch: pytest.Monkey
             "_load_webview",
             lambda: pytest.fail("an untrusted listener must never be rendered"),
         )
-        with pytest.raises(desktop_overlay.DesktopOverlayServiceError, match="untrusted service"):
+        with pytest.raises(desktop_overlay.DesktopOverlayServiceError) as caught:
             desktop_overlay.run_desktop_overlay(settings)
+        assert caught.value.reason_code == "service_untrusted"
+        assert str(caught.value) == desktop_overlay._FAILURE_MESSAGES["service_untrusted"]
         _assert_probe_disclosed_nothing(squatter)

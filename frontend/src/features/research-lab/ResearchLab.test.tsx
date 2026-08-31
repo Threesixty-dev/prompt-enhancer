@@ -1,11 +1,115 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelEvaluationJob, ModelRuntimeInventory } from "../../shared/api/contracts";
 import { ModelCompatibilityPayloadError } from "../../shared/api/modelCompatibilityContract";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
 import { ResearchLab } from "./ResearchLab";
 
+afterEach(() => vi.useRealTimers());
+
+function benchmarkJob(status: ModelEvaluationJob["status"] = "queued"): ModelEvaluationJob {
+  return { job_id: "a".repeat(32), status,
+    candidate: { allow_download: false, candidate: "session-link", device: "auto", mode: "smoke" },
+    created_at: "2040-01-03T09:00:00Z", started_at: null, completed_at: null,
+    error_code: null, resolved_device: null, outcomes: [] };
+}
+
 describe("ResearchLab", () => {
+  it("renders shutdown cancellation as terminal without claiming a completed screen", async () => {
+    const transport = createSyntheticTransport();
+    transport.startTextModelEvaluation = vi.fn(async () => ({
+      ...benchmarkJob("cancelled"), error_code: "application_shutdown" as const,
+    }));
+    transport.getTextModelEvaluation = vi.fn();
+    render(<ResearchLab transport={transport} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Model candidates" }));
+    fireEvent.click(screen.getByRole("button", { name: "Test cached session models" }));
+    expect(await screen.findByText("Screen cancelled")).toBeVisible();
+    expect(screen.getByText(/No evaluation result was accepted/)).toBeVisible();
+    expect(screen.queryByText("Screen in progress")).toBeNull();
+    expect(screen.queryByText("Screen complete")).toBeNull();
+    expect(transport.getTextModelEvaluation).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "rejected"] as const)("does not show an endless device check when runtime inventory is %s", async (kind) => {
+    const transport = createSyntheticTransport();
+    const inventory = await transport.getTextModelRuntime!();
+    const getRuntime = vi.fn().mockRejectedValueOnce(new Error("synthetic read failure")).mockResolvedValue(inventory);
+    const start = vi.spyOn(transport, "startTextModelEvaluation");
+    transport.getTextModelRuntime = kind === "missing" ? undefined : getRuntime;
+    render(<ResearchLab transport={transport} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Model candidates" }));
+    const panel = screen.getByRole("region", { name: "Prepare real local models" });
+    expect(await within(panel).findByText(/Local runtime inventory is unavailable/)).toBeVisible();
+    expect(within(panel).queryByText("Checking…")).toBeNull();
+    if (kind === "rejected") {
+      fireEvent.click(within(panel).getByRole("button", { name: "Retry runtime status" }));
+      expect(await within(panel).findByText(inventory.preferred_device.toUpperCase())).toBeVisible();
+      expect(getRuntime).toHaveBeenCalledTimes(2);
+    } else expect(within(panel).queryByRole("button", { name: "Retry runtime status" })).toBeNull();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("recovers a failed status poll by retrying the same job, never by starting another benchmark", async () => {
+    const transport = createSyntheticTransport();
+    transport.startTextModelEvaluation = vi.fn(async () => benchmarkJob());
+    const poll = vi.fn().mockRejectedValueOnce(new Error("example-status-unavailable")).mockResolvedValue(benchmarkJob("completed"));
+    transport.getTextModelEvaluation = poll;
+    render(<ResearchLab transport={transport} />);
+    await screen.findByRole("tab", { name: "Model candidates" });
+    fireEvent.click(screen.getByRole("tab", { name: "Model candidates" }));
+    vi.useFakeTimers();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Test cached session models" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+    expect(screen.getByText("Benchmark status unknown")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Download & test session models" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry benchmark status" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+    expect(screen.getByText("Screen complete")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Test cached session models" })).toBeEnabled();
+    expect(poll).toHaveBeenCalledTimes(2);
+    expect(poll.mock.calls.every(([id]) => id === "a".repeat(32))).toBe(true);
+    expect(transport.startTextModelEvaluation).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("The local benchmark status is unavailable.")).not.toBeInTheDocument();
+  });
+
+  it("keeps failed status reads unknown and retryable without inventing a failed job", async () => {
+    const transport = createSyntheticTransport();
+    transport.startTextModelEvaluation = vi.fn(async () => benchmarkJob());
+    transport.getTextModelEvaluation = vi.fn().mockRejectedValue(new Error("example-poll-failure"));
+    render(<ResearchLab transport={transport} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Model candidates" }));
+    vi.useFakeTimers();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Test cached session models" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+    fireEvent.click(screen.getByRole("button", { name: "Retry benchmark status" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+    expect(screen.getByText("Benchmark status unknown")).toBeVisible();
+    expect(screen.queryByText("Screen incomplete")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry benchmark status" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Run all cached candidates" })).toBeDisabled();
+    expect(transport.startTextModelEvaluation).toHaveBeenCalledTimes(1);
+  });
+
+  it("disowns a pending start after transport replacement and prevents double submission", async () => {
+    let resolve!: (value: ModelEvaluationJob) => void;
+    const pending = new Promise<ModelEvaluationJob>((accept) => { resolve = accept; });
+    const transport = createSyntheticTransport();
+    const start = vi.fn((_request: unknown, _signal?: AbortSignal) => pending);
+    transport.startTextModelEvaluation = start;
+    const view = render(<ResearchLab transport={transport} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Model candidates" }));
+    const button = screen.getByRole("button", { name: "Test cached session models" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(start).toHaveBeenCalledTimes(1);
+    view.rerender(<ResearchLab transport={createSyntheticTransport()} />);
+    await act(async () => { resolve(benchmarkJob("completed")); await pending; });
+    expect(start.mock.calls[0][1]?.aborted).toBe(true);
+    expect(screen.queryByText("Screen complete")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Test cached session models" })).toBeEnabled();
+  });
+
   it("shows a compact metric roadmap without reading sessions or activating models", async () => {
     const transport = createSyntheticTransport();
     const inventorySpy = vi.spyOn(transport, "getModelLabInventory");
@@ -75,6 +179,7 @@ describe("ResearchLab", () => {
         mode: "smoke",
         allow_download: false,
       },
+      expect.any(AbortSignal),
     );
     expect(sessionSpy).not.toHaveBeenCalled();
   });

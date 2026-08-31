@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 import type { PromptCheckRecord, PromptCheckResult } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
-import { PromptCheckPage, shortName } from "./PromptCheckPage";
+import { PromptCheckPage, promptReadingLabel, shortName } from "./PromptCheckPage";
 import { PromptMetricRadar, PromptMetricTrend, promptMetricQualityValue } from "./promptCheckPlots";
 
 const CHECK = "c".repeat(64);
@@ -82,6 +82,72 @@ function deferred<T>() {
 }
 
 describe("PromptCheckPage", () => {
+  it("explains the empty prompt prerequisite and enables the check when text is present", () => {
+    render(<PromptCheckPage navigate={vi.fn()} transport={{ checkPrompt: vi.fn(), getPromptCheck: vi.fn(), getPromptCheckHistory: vi.fn(async () => ({ contract_version: "prompt-check.v1" as const, checks: [], limit: 60, offset: 0 })) }} />);
+    const submit = screen.getByRole("button", { name: "Check prompt" });
+    expect(submit).toBeDisabled();
+    expect(submit).toHaveAccessibleDescription(/enter a prompt before running the check/i);
+
+    fireEvent.change(screen.getByLabelText("Prompt to check"), { target: { value: "Add a bounded retry to the example uploader." } });
+    expect(submit).toBeEnabled();
+    expect(submit).not.toHaveAttribute("aria-describedby");
+  });
+
+  it.each([
+    [reading("example", 0.5, { numerator: 1, denominator: 2 }), "1/2"],
+    [reading("example", 0.5, { numerator: 3, denominator: null }), "0.5"],
+    [reading("example", 0.5, { numerator: null, denominator: null }), "0.5"],
+    [reading("example", null, { numerator: 0, denominator: 3 }), "unknown"],
+    [reading("example", Number.NaN, { numerator: null, denominator: null }), "Value unavailable"],
+  ])("shows a truthful metric label without fabricating a fraction", (metric, expected) => {
+    expect(promptReadingLabel(metric)).toBe(expected);
+  });
+
+  it("retries a failed history load without submitting the draft", async () => {
+    const getPromptCheckHistory = vi.fn().mockRejectedValueOnce(new Error("example-history-error")).mockResolvedValue({ checks: [record()], limit: 60, offset: 0 });
+    const checkPrompt = vi.fn();
+    render(<PromptCheckPage navigate={vi.fn()} transport={{ checkPrompt, getPromptCheckHistory, getPromptCheck: vi.fn() }} />);
+    fireEvent.change(screen.getByLabelText("Prompt to check"), { target: { value: "Example unsent draft" } });
+    await screen.findByText("The history could not be read.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry history" }));
+    expect(await screen.findByText(/claude_code · claude-opus-5/)).toBeVisible();
+    expect(screen.getByLabelText("Prompt to check")).toHaveValue("Example unsent draft");
+    expect(checkPrompt).not.toHaveBeenCalled();
+  });
+
+  it("does not let an old history load erase a newly stored check", async () => {
+    const pending = deferred<{ contract_version: "prompt-check.v1"; checks: PromptCheckRecord[]; limit: number; offset: number }>();
+    const getPromptCheckHistory = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue({ checks: [record()], limit: 60, offset: 0 });
+    render(<PromptCheckPage navigate={vi.fn()} transport={{ checkPrompt: vi.fn(async () => result()), getPromptCheckHistory, getPromptCheck: vi.fn() }} />);
+    fireEvent.change(screen.getByLabelText("Prompt to check"), { target: { value: "Example new check" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check prompt" }));
+    await screen.findByText(/claude_code · claude-opus-5/);
+    await act(async () => { pending.resolve({ contract_version: "prompt-check.v1", checks: [], limit: 60, offset: 0 }); await pending.promise; });
+    expect(screen.getByText(/claude_code · claude-opus-5/)).toBeVisible();
+    expect(screen.queryByText(/No check yet/)).not.toBeInTheDocument();
+  });
+
+  it("aborts a check when its session context changes and ignores the late result", async () => {
+    const pending = deferred<PromptCheckResult>();
+    const checkPrompt = vi.fn((_request: unknown, _signal?: AbortSignal) => pending.promise);
+    const transport = { checkPrompt, getPromptCheckHistory: vi.fn(async () => ({ contract_version: "prompt-check.v1" as const, checks: [], limit: 60, offset: 0 })), getPromptCheck: vi.fn() };
+    const view = render(<PromptCheckPage navigate={vi.fn()} sessionId={"a".repeat(64)} transport={transport} />);
+    fireEvent.change(screen.getByLabelText("Prompt to check"), { target: { value: "Example context-specific check" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check prompt" }));
+    view.rerender(<PromptCheckPage navigate={vi.fn()} sessionId={"b".repeat(64)} transport={transport} />);
+    await act(async () => { pending.resolve(result()); await pending.promise; });
+    expect(checkPrompt.mock.calls[0][1]?.aborted).toBe(true);
+    expect(screen.queryByRole("heading", { name: "Result" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check prompt" })).toBeEnabled();
+  });
+
+  it("keeps the runtime-unavailable boundary accessible and explains how to use the feature", async () => {
+    render(<PromptCheckPage navigate={vi.fn()} transport={{ checkPrompt: vi.fn(), getPromptCheck: vi.fn(), getPromptCheckHistory: vi.fn().mockRejectedValue(new TransportError("unavailable", 404)) }} />);
+    await screen.findByText("Prompt checks are not available in this runtime.");
+    expect(screen.getByRole("heading", { name: "Check a prompt", level: 1 })).toBeVisible();
+    expect(screen.getByText(/Open the local application/)).toBeVisible();
+  });
+
   it("checks a pasted prompt with earlier turns and shows cues, commentary, reformulation and history", async () => {
     const checkPrompt = vi.fn(async (_request: { prompt: string; prior_messages?: { role: string; content: string }[] | null; want_commentary?: boolean }) => result());
     const transport = {

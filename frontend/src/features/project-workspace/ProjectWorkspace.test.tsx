@@ -451,6 +451,63 @@ function workspaceTransport() {
 }
 
 describe("ProjectWorkspace", () => {
+  it("keeps a failed stored-metric read content-free and retries the same session", async () => {
+    const { transport, getSessionMetrics } = workspaceTransport();
+    getSessionMetrics
+      .mockRejectedValueOnce(new Error("SYNTHETIC_PRIVATE_METRIC_FAILURE"))
+      .mockResolvedValueOnce({ session_id: sessionId, metrics: storedMetrics });
+
+    render(
+      <ProjectWorkspace
+        navigate={vi.fn()}
+        route={{ name: "session_metrics", projectId, sessionId, category: "tools" }}
+        transport={transport}
+      />,
+    );
+
+    expect(await screen.findByText("Stored metrics for this session could not be loaded.")).toBeVisible();
+    expect(document.body).not.toHaveTextContent("SYNTHETIC_PRIVATE_METRIC_FAILURE");
+    const readsBeforeRetry = getSessionMetrics.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("Tool result count")).toBeVisible();
+    await waitFor(() => expect(getSessionMetrics).toHaveBeenCalledTimes(readsBeforeRetry + 1));
+    await waitFor(() => {
+      expect(screen.queryByText("Stored metrics for this session could not be loaded.")).not.toBeInTheDocument();
+    });
+  });
+
+  it("opens a selected older session without weakening the 100-session project analysis boundary", async () => {
+    const { transport, getSessionMetrics } = workspaceTransport();
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({ ...sessions[0], session_id: index.toString(16).padStart(64, "0") }));
+    transport.listProjectSessions = vi.fn(async (_project, limit, offset = 0) => ({
+      sessions: offset === 0 ? firstPage : [sessions[0]], limit: limit ?? 100, offset, total: 101, has_more: offset === 0,
+    }));
+    const { rerender } = render(<ProjectWorkspace navigate={vi.fn()} route={{ name: "session_metrics", projectId, sessionId: sessions[0].session_id, category: "tools" }} transport={transport} />);
+    expect(await screen.findByText("Tool result count")).toBeVisible();
+    expect(transport.listProjectSessions).toHaveBeenCalledWith(projectId, 100, 100, expect.any(AbortSignal));
+    expect(getSessionMetrics).toHaveBeenCalledWith(sessions[0].session_id, expect.any(AbortSignal));
+    expect(screen.queryByText(/selected session is not part/)).toBeNull();
+    rerender(<ProjectWorkspace navigate={vi.fn()} route={{ name: "project_metrics", projectId, category: "prompt-quality" }} transport={transport} />);
+    expect(await screen.findByRole("heading", { name: "Choose at most 100 sessions" })).toBeVisible();
+  });
+
+  it("bounds older-session lookup and lets the user explicitly search the next pages", async () => {
+    const { transport } = workspaceTransport();
+    const olderId = "e".repeat(64);
+    transport.listProjectSessions = vi.fn(async (_project, limit, offset = 0) => ({
+      sessions: offset === 1000 ? [{ ...sessions[0], session_id: olderId }] : Array.from({ length: 100 }, (_, index) => ({ ...sessions[0], session_id: (offset + index).toString(16).padStart(64, "0") })),
+      limit: limit ?? 100, offset, total: 1001, has_more: offset < 1000,
+    }));
+    render(<ProjectWorkspace navigate={vi.fn()} route={{ name: "session_metrics", projectId, sessionId: olderId, category: "tools" }} transport={transport} />);
+    const next = await screen.findByRole("button", { name: "Search next 1,000 sessions" });
+    expect(transport.listProjectSessions).toHaveBeenCalledTimes(10);
+    expect(screen.queryByText(/selected session is not part/)).toBeNull();
+    fireEvent.click(next);
+    expect(await screen.findByText("Tool result count")).toBeVisible();
+    expect(transport.listProjectSessions).toHaveBeenCalledTimes(11);
+  });
+
   it("mounts project-scoped coverage only on the overview", async () => {
     const { transport } = workspaceTransport();
     const report = {
@@ -854,6 +911,7 @@ describe("ProjectWorkspace", () => {
 
   it("sets a useful route title for a valid project with no indexed sessions", async () => {
     const { transport } = workspaceTransport();
+    const navigate = vi.fn();
     transport.listProjectSessions = vi.fn(async () => ({
       sessions: [],
       limit: 100,
@@ -863,7 +921,7 @@ describe("ProjectWorkspace", () => {
     }));
     render(
       <ProjectWorkspace
-        navigate={vi.fn()}
+        navigate={navigate}
         route={{ name: "project_overview", projectId }}
         transport={transport}
       />,
@@ -877,6 +935,29 @@ describe("ProjectWorkspace", () => {
     await waitFor(() =>
       expect(document.title).toBe("Metric deck · Unnamed project · Prompt Enhancer"),
     );
+    fireEvent.click(screen.getByRole("button", { name: "Back to projects" }));
+    expect(navigate).toHaveBeenCalledWith({ name: "projects" });
+  });
+
+  it("offers a direct project-session recovery when a selected session is absent", async () => {
+    const { transport } = workspaceTransport();
+    const navigate = vi.fn();
+    render(
+      <ProjectWorkspace
+        navigate={navigate}
+        route={{
+          name: "session_metrics",
+          projectId,
+          sessionId: "f".repeat(64),
+          category: "tools",
+        }}
+        transport={transport}
+      />,
+    );
+
+    expect(await screen.findByText("The selected session is not part of this indexed project.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Open project sessions" }));
+    expect(navigate).toHaveBeenCalledWith({ name: "project_sessions", projectId });
   });
 
   it("names each review context as signals rather than a universal metric", async () => {
@@ -1424,6 +1505,7 @@ describe("ProjectWorkspace", () => {
       expect.any(AbortSignal),
     );
     expect(await screen.findByText("Coherent metric pack v1")).toBeVisible();
+    expect(screen.getByText("Analysis completed and stored locally. The latest metric profile is now shown.")).toBeVisible();
     await waitFor(() =>
       expect(
         screen.queryByRole("dialog", { name: "Ready to analyze" }),

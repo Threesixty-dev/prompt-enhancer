@@ -98,6 +98,21 @@ function transportWithSessions(): {
 }
 
 describe("ProjectCatalog", () => {
+  it("drops selected projects removed by a verified catalog reload", async () => {
+    const { transport } = transportWithSessions();
+    const { rerender } = render(<ProjectCatalog navigate={vi.fn()} transport={transport} />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Sample Workshop/ }));
+    expect(screen.getByRole("complementary", { name: "Project aggregate selection" })).toHaveTextContent("1 project selected");
+    const nextTransport = {
+      ...transport,
+      listCodexSessions: vi.fn(async () => ({ sessions: sessions.filter((item) => item.project_id !== projectB), limit: 100, offset: 0 })),
+    };
+    rerender(<ProjectCatalog navigate={vi.fn()} transport={nextTransport} />);
+    await screen.findByText("Example Observatory");
+    expect(screen.queryByRole("complementary", { name: "Project aggregate selection" })).toBeNull();
+    expect(screen.queryByText(/hidden by the current filter/)).toBeNull();
+  });
+
   it("mounts provider-wide coverage without coupling it to catalog success", async () => {
     const { transport } = transportWithSessions();
     const getMetricCoverage = vi.fn(async () => SYNTHETIC_METRIC_COVERAGE);

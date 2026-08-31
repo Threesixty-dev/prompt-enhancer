@@ -212,6 +212,19 @@ async function chooseGrantScope() {
 }
 
 describe("ProjectAutomationSettings", () => {
+  it.each(["codex", "claude_code"] as const)("names the actual %s source on the consent gate", async (provider) => {
+    const local = localTransport();
+    local.listProjectSessions.mockResolvedValue({ sessions: [{ ...session(), provider }], limit: 100, offset: 0, total: 1, has_more: false });
+    const syntheticClaudeStatus = await createSyntheticTransport().getClaudeLocalSourceStatus();
+    local.transport.getClaudeLocalSourceStatus = vi.fn(async () => ({ ...syntheticClaudeStatus, consent_active: true, indexed_sessions: 1, indexed_projects: 1 }));
+    renderLocal(local.transport);
+    await screen.findByText("Consent active");
+    const label = provider === "claude_code" ? "Claude Code" : "Codex";
+    expect(screen.getByText(`Redacted-content access for the local ${label} source`)).toBeVisible();
+    if (provider === "claude_code") expect(local.getCodexLocalSourceStatus).not.toHaveBeenCalled();
+    else expect(local.transport.getClaudeLocalSourceStatus).not.toHaveBeenCalled();
+  });
+
   it("fails closed in synthetic demo without reading or creating standing consent", () => {
     const local = localTransport();
     render(

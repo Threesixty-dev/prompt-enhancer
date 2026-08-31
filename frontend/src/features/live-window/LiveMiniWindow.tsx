@@ -38,12 +38,22 @@ function summarizeRun(value: unknown): { status: string; known: number; total: n
   let firstPass: string | null = null;
   if (fp) {
     const fraction = isRecord(fp.fraction) ? fp.fraction : null;
-    firstPass = fp.value_state === "known" && fraction
-      ? `${String(fraction.numerator)}/${String(fraction.denominator)}`
-      : String(fp.value_state ?? "unknown").replace("_", " ");
+    const numerator = fraction && typeof fraction.numerator === "number" && Number.isFinite(fraction.numerator) ? fraction.numerator : null;
+    const denominator = fraction && typeof fraction.denominator === "number" && Number.isFinite(fraction.denominator) ? fraction.denominator : null;
+    if (fp.value_state === "known") {
+      // A known metric with a missing or invalid fraction stays unknown; never print "undefined/undefined".
+      firstPass = numerator !== null && denominator !== null
+        && Number.isSafeInteger(numerator) && Number.isSafeInteger(denominator)
+        && denominator > 0 && numerator >= 0 && numerator <= denominator
+        ? `${numerator}/${denominator}` : "unknown";
+    } else {
+      firstPass = String(fp.value_state ?? "unknown").replace("_", " ");
+    }
   }
   return { status: String(value.run.status ?? "unknown"), known, total: results.length, firstPass };
 }
+
+type MetaState = "loading" | "known" | "none" | "unavailable";
 
 /**
  * Compact live view of one project or session: name, provider, the
@@ -63,9 +73,27 @@ export function LiveMiniWindow({
   const [session, setSession] = useState<SessionCatalogItem | null>(null);
   const [projectName, setProjectName] = useState<string>("");
   const [run, setRun] = useState<ReturnType<typeof summarizeRun>>(null);
+  const [runState, setRunState] = useState<MetaState>("loading");
   const [job, setJob] = useState<string>("");
+  const [jobState, setJobState] = useState<MetaState>("loading");
   const [paused, setPaused] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  // A new owner must never see the previous owner's data, even for one render.
+  const ownerKey = `${projectId}::${sessionId ?? ""}`;
+  const [lastOwner, setLastOwner] = useState({ key: ownerKey, transport });
+  if (lastOwner.key !== ownerKey || lastOwner.transport !== transport) {
+    setLastOwner({ key: ownerKey, transport });
+    setSession(null);
+    setProjectName("");
+    setRun(null);
+    setRunState("loading");
+    setJob("");
+    setJobState("loading");
+    setUpdatedAt(null);
+    setLoadFailed(false);
+  }
 
   useEffect(() => {
     if (paused) return;
@@ -90,16 +118,40 @@ export function LiveMiniWindow({
             transport.getLatestSessionAnalysisJob(sessionId, controller.signal),
           ]);
           if (controller.signal.aborted) return;
-          setRun(latestRun.status === "fulfilled" ? summarizeRun(latestRun.value) : null);
+          if (latestRun.status === "fulfilled") {
+            const summary = summarizeRun(latestRun.value);
+            if (summary) { setRun(summary); setRunState("known"); } else { setRunState("unavailable"); }
+          } else if (latestRun.reason instanceof TransportError && latestRun.reason.status === 404) {
+            setRun(null);
+            setRunState("none");
+          } else {
+            if (latestRun.reason instanceof TransportError && latestRun.reason.status === 403) setRun(null);
+            setRunState("unavailable"); // keep the last good summary, marked stale
+          }
           if (latestJob.status === "fulfilled" && isRecord(latestJob.value)) {
             setJob(String(latestJob.value.state ?? ""));
+            setJobState("known");
+          } else if (latestJob.status === "rejected" && latestJob.reason instanceof TransportError && latestJob.reason.status === 404) {
+            setJob("");
+            setJobState("none");
           } else {
-            setJob(latestJob.status === "rejected" && latestJob.reason instanceof TransportError && latestJob.reason.status === 404 ? "none" : "");
+            if (latestJob.status === "rejected" && latestJob.reason instanceof TransportError && latestJob.reason.status === 403) setJob("");
+            setJobState("unavailable"); // keep the last good state, marked stale
           }
         }
+        setLoadFailed(false);
         setUpdatedAt(new Date());
-      } catch {
-        /* keep the last good view; the timestamp shows staleness */
+      } catch (caught) {
+        if (controller.signal.aborted) return;
+        if (caught instanceof TransportError && [403, 404, 410].includes(caught.status)) {
+          setSession(null);
+          setProjectName("");
+          setRun(null);
+          setJob("");
+          setRunState("unavailable");
+          setJobState("unavailable");
+        }
+        setLoadFailed(true); // temporary failure keeps the last good view, marked stale
       }
     })();
     return () => controller.abort();
@@ -136,21 +188,42 @@ export function LiveMiniWindow({
 
       {sessionId && (
         <dl className="live-window__facts">
-          <div><dt>Latest analysis</dt><dd>{run ? `${run.status} · ${run.known}/${run.total} known` : "none yet"}</dd></div>
-          <div><dt>First-pass verification</dt><dd>{run?.firstPass ?? "—"}</dd></div>
-          <div><dt>Analysis job</dt><dd>{job || "—"}</dd></div>
+          <div>
+            <dt>Latest analysis</dt>
+            <dd>
+              {runState === "loading" && "—"}
+              {runState === "none" && "none yet"}
+              {(runState === "known" || runState === "unavailable") && (run
+                ? `${run.status} · ${run.known}/${run.total} known${runState === "unavailable" ? " (stale)" : ""}`
+                : "unavailable")}
+            </dd>
+          </div>
+          <div><dt>First-pass verification</dt><dd>{run?.firstPass ?? "—"}{run && (runState === "unavailable" || loadFailed) ? " (stale)" : ""}</dd></div>
+          <div>
+            <dt>Analysis job</dt>
+            <dd>
+              {jobState === "loading" && "—"}
+              {jobState === "none" && "none"}
+              {(jobState === "known" || jobState === "unavailable") && (job
+                ? `${job}${jobState === "unavailable" ? " (stale)" : ""}`
+                : "unavailable")}
+            </dd>
+          </div>
         </dl>
       )}
 
-      <div className="live-window__body" key={`panes-${tick}`}>
+      <div className="live-window__body">
         {sessionId
-          ? <SessionTimelinePane sessionId={sessionId} transport={transport} />
-          : <ProjectTimelinePane projectId={projectId} transport={transport} />}
+          ? <SessionTimelinePane refreshToken={tick} sessionId={sessionId} transport={transport} />
+          : <ProjectTimelinePane projectId={projectId} refreshToken={tick} transport={transport} />}
       </div>
 
       <footer className="live-window__foot">
         <span aria-live="polite">
-          {updatedAt ? `Updated ${updatedAt.toLocaleTimeString()}` : "Loading…"}{paused ? " · paused" : ` · every ${LIVE_REFRESH_SECONDS}s`}
+          {updatedAt
+            ? `Updated ${updatedAt.toLocaleTimeString()}${loadFailed ? " · stale" : ""}`
+            : loadFailed ? "Could not load · use Refresh to retry" : "Loading…"}
+          {paused ? " · paused" : ` · every ${LIVE_REFRESH_SECONDS}s`}
         </span>
         <span>Local only</span>
       </footer>

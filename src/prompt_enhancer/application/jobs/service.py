@@ -314,6 +314,7 @@ class AnalysisJobExecutionContext:
         authorization_check: AuthorizationCheck,
         fingerprint_resolver: FingerprintResolver,
         execution_stop_callback: ExecutionStopCallback,
+        stop_requested: Callable[[], bool] = lambda: False,
     ) -> None:
         self._repository = repository
         self._job = job
@@ -324,6 +325,7 @@ class AnalysisJobExecutionContext:
         self._authorization_check = authorization_check
         self._fingerprint_resolver = fingerprint_resolver
         self._execution_stop_callback = execution_stop_callback
+        self._stop_requested = stop_requested
         self._lock = Lock()
         self._publication_committed = False
         self._publication_monotonic_cutoff: float | None = None
@@ -489,6 +491,8 @@ class AnalysisJobExecutionContext:
             self._job = persisted
             if persisted.state in TERMINAL_ANALYSIS_JOB_STATES:
                 self._raise_cooperative_stop(persisted)
+            if not self._publication_committed and self._stop_requested():
+                raise AnalysisJobExecutionError("application_shutdown", retryable=True)
             return self._check_publication_deadline_locked()
 
     def mark_publication_committed(self) -> None:
@@ -542,6 +546,10 @@ class AnalysisJobExecutionContext:
         self._job = persisted
         if self._publication_committed:
             return persisted
+        if self._stop_requested():
+            # Preserve the reviewed retry/attempt budget. A stopped attempt is
+            # not published as a successful or failed model measurement.
+            raise AnalysisJobExecutionError("application_shutdown", retryable=True)
         if persisted.cancel_requested:
             reason = persisted.last_error_code or "cancellation_requested"
             terminal = (
@@ -710,6 +718,8 @@ class AnalysisJobWorker:
                 self._stop_event.wait(self._poll_seconds)
 
     def run_once(self) -> bool:
+        if self._stop_event.is_set():
+            return False
         now = self._clock()
         self._execution_recovery_callback(now)
         token = secrets.token_hex(32)
@@ -749,6 +759,7 @@ class AnalysisJobWorker:
                 authorization_check=self._authorization_check,
                 fingerprint_resolver=self._fingerprint_resolver,
                 execution_stop_callback=self._execution_stop_callback,
+                stop_requested=self._stop_event.is_set,
             )
             context.enter_stage(1, progress_completed=0, progress_total=1)
             result = handler(context.job, context)

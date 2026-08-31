@@ -373,6 +373,8 @@ export function RequirementActionEvidencePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const sourceProjectionLabel = sourceProjectionVersion.replace(
     "metric-contract-v2-projection-",
     "r",
@@ -423,6 +425,7 @@ export function RequirementActionEvidencePanel({
     setBusy(false);
     setError("");
     setCopyStatus("");
+    setLoadFailed(false);
     if (!capabilities) return;
     if (!publicBindingInputCurrent(publicEvidenceBinding, publicEvidenceSource, sourceRunId)) {
       setError("The public requirement-action source marker and binding do not describe this exact selected run.");
@@ -435,7 +438,10 @@ export function RequirementActionEvidencePanel({
       transport.listRequirementActionProposals!(sessionId, controller.signal),
       transport.getUserPresenceCapability === undefined
         ? Promise.resolve(null)
-        : transport.getUserPresenceCapability(controller.signal),
+        // A rejected presence probe means the native capability is unknown. Unknown is caught to
+        // null so the inert preview/import workflow stays available, while presenceCurrent(null)
+        // and every approval/review gate keep decisions fail-closed (approvals are never enabled).
+        : transport.getUserPresenceCapability(controller.signal).catch(() => null),
     ]).then(([loadedContract, collection, presence]) => {
       if (controller.signal.aborted || !sameOwner(owner, ownerRef.current)) return;
       if (
@@ -448,6 +454,9 @@ export function RequirementActionEvidencePanel({
         || !presenceCurrent(presence)
       ) {
         setError(`Requirement-action review is not bound to this exact sealed ${sourceProjectionLabel} run and source window.`);
+        // Still strictly fail closed (no contract, no proposals, no approvals), but a resolved
+        // wrong verification/list/presence binding is retryable exactly like a rejected load.
+        setLoadFailed(true);
         return;
       }
       setContract(loadedContract);
@@ -456,10 +465,11 @@ export function RequirementActionEvidencePanel({
     }).catch(() => {
       if (!controller.signal.aborted && sameOwner(owner, ownerRef.current)) {
         setError("Reviewed requirement-action evidence is temporarily unavailable.");
+        setLoadFailed(true);
       }
     });
     return () => controller.abort();
-  }, [capabilities, publicEvidenceBinding, publicEvidenceSource, selectedBinding, sessionId, sourceProjectionVersion, sourceRunId, transport]);
+  }, [capabilities, publicEvidenceBinding, publicEvidenceSource, retryToken, selectedBinding, sessionId, sourceProjectionVersion, sourceRunId, transport]);
 
   useEffect(() => {
     if (review === null) return;
@@ -523,6 +533,7 @@ export function RequirementActionEvidencePanel({
   const currentBusy = contextCurrent && busy;
   const currentError = contextCurrent ? error : "";
   const currentCopyStatus = contextCurrent ? copyStatus : "";
+  const currentLoadFailed = contextCurrent && loadFailed;
   const authorityStateRef = useRef({
     owner: currentOwner,
     contract: currentContract,
@@ -582,6 +593,13 @@ export function RequirementActionEvidencePanel({
 
   function stillCurrent(operation: Operation): boolean {
     return !operation.controller.signal.aborted && sameOwner(operation.owner, ownerRef.current);
+  }
+
+  /** Explicit person-initiated reload only: aborts the scoped operation and re-runs the exact owner-scoped load. */
+  function retryLoad(owner: AuthorityOwner): void {
+    if (!sameOwner(owner, ownerRef.current)) return;
+    operationRef.current?.abort();
+    setRetryToken((token) => token + 1);
   }
 
   function clearReview(): void {
@@ -921,9 +939,14 @@ export function RequirementActionEvidencePanel({
       {!capabilities ? (
         <p className="metric-evidence-file__state" role="status">This local runtime does not expose the complete {sourceProjectionLabel} requirement-action boundary. Preview, import, review, and decisions are unavailable.</p>
       ) : currentContract === null ? (
-        <p className={`metric-evidence-file__state${currentError === "" ? "" : " metric-evidence-file__state--error"}`} role={currentError === "" ? "status" : "alert"}>{currentError === ""
-          ? `Loading the exact content-free ${sourceProjectionLabel} contract…`
-          : currentError}</p>
+        <>
+          <p className={`metric-evidence-file__state${currentError === "" ? "" : " metric-evidence-file__state--error"}`} role={currentError === "" ? "status" : "alert"}>{currentError === ""
+            ? `Loading the exact content-free ${sourceProjectionLabel} contract…`
+            : currentError}</p>
+          {currentLoadFailed && (
+            <button disabled={currentBusy} onClick={() => retryLoad(currentOwner)} type="button">Retry exact source contract</button>
+          )}
+        </>
       ) : (
         <>
           <p>Bound to sealed run <code className="metric-evidence-file__opaque-id">{sourceRunId}</code>, projection <code>{sourceProjectionVersion}</code>, reviewed r6 requirements, and {currentContract.candidate_manifest.actions.length} application-issued safe action candidate{currentContract.candidate_manifest.actions.length === 1 ? "" : "s"}. Unknown is never rendered as zero.</p>
@@ -960,7 +983,12 @@ export function RequirementActionEvidencePanel({
               accept={`.json,${REQUIREMENT_ACTION_MEDIA_TYPE}`}
               aria-label="Choose canonical requirement-action evidence file"
               disabled={currentBusy}
-              onChange={(event) => void chooseFile(currentOwner, currentContract, event.currentTarget.files?.[0])}
+              onChange={(event) => {
+                const input = event.currentTarget;
+                const file = input.files?.[0];
+                input.value = "";
+                void chooseFile(currentOwner, currentContract, file);
+              }}
               type="file"
             />
             <small>One local canonical JSON file, 1–65,536 bytes. File names and raw bytes are never displayed.</small>
@@ -1045,6 +1073,11 @@ export function RequirementActionEvidencePanel({
                         <header>
                           <strong>Complete local review</strong>
                           <small>All receipts below are complete opaque identifiers; none are visually shortened.</small>
+                          <button
+                            disabled={currentBusy}
+                            onClick={() => closeReview(currentOwner, proposalReview)}
+                            type="button"
+                          >Close review</button>
                         </header>
                         <dl className="requirement-action-evidence__review-receipts">
                           <div><dt>Review receipt</dt><dd><code>{proposalReview.review_receipt_id}</code></dd></div>

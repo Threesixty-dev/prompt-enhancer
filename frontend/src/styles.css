@@ -1929,6 +1929,93 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
   .task-summary { grid-template-columns: minmax(0, 1fr); }
 }
 
+/*
+ * Agent is already a complete project/chat workbench with its own navigation
+ * rail. At medium desktop widths the global rail would create two permanent
+ * sidebars and squeeze the conversation into a narrow column. Keep the global
+ * destinations reachable in the compact header while giving the workbench the
+ * full window width. Other routes retain the normal desktop shell.
+ */
+@media (min-width: 861px) and (max-width: 1180px) {
+  .app-shell--agent-focus { display: block; overflow: clip; }
+  .app-shell--agent-focus > .sidebar,
+  .app-shell--agent-focus > .workspace > .topbar { display: none; }
+  .app-shell--agent-focus > .mobile-shell-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    min-width: 0;
+    display: grid;
+    grid-template-areas: "identity runtime actions";
+    grid-template-columns: minmax(0, 1fr) minmax(11rem, 0.65fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 64px;
+    padding: 9px clamp(14px, 2.4vw, 24px);
+    border-bottom: 1px solid var(--line);
+    background: var(--shell-panel);
+    box-shadow: 0 8px 22px var(--pa-12-31-37-90);
+    backdrop-filter: blur(14px);
+  }
+  .app-shell--agent-focus .mobile-shell-header__identity {
+    grid-area: identity;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .app-shell--agent-focus .mobile-shell-header__identity .brand__mark { width: 34px; height: 34px; }
+  .app-shell--agent-focus .mobile-shell-header__identity > span:last-child { min-width: 0; display: grid; gap: 1px; }
+  .app-shell--agent-focus .mobile-shell-header__identity strong,
+  .app-shell--agent-focus .mobile-shell-header__identity small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-shell--agent-focus .mobile-shell-header__identity strong { color: var(--ink-900); font-size: 0.78rem; }
+  .app-shell--agent-focus .mobile-shell-header__identity small { color: var(--ink-500); font-size: 0.7rem; }
+  .app-shell--agent-focus .mobile-shell-header__actions {
+    grid-area: actions;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .app-shell--agent-focus .mobile-shell-header__actions .theme-toggle,
+  .app-shell--agent-focus .mobile-shell-header__menu { min-height: 44px; }
+  .app-shell--agent-focus .mobile-shell-header__menu {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 11px;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    color: var(--ink-800);
+    background: var(--surface);
+    font-size: 0.74rem;
+    font-weight: 720;
+  }
+  .app-shell--agent-focus .mobile-shell-header__menu svg { width: 18px; height: 18px; }
+  .app-shell--agent-focus .mobile-runtime-marker {
+    grid-area: runtime;
+    min-width: 0;
+    min-height: 44px;
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 8px;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--ink-650);
+    background: var(--surface-soft);
+  }
+  .app-shell--agent-focus .mobile-runtime-marker__icon { width: 28px; height: 28px; display: grid; place-content: center; border-radius: 8px; color: var(--teal-700); background: var(--teal-100); }
+  .app-shell--agent-focus .mobile-runtime-marker__icon svg { width: 15px; height: 15px; }
+  .app-shell--agent-focus .mobile-runtime-marker > span:nth-child(2) { min-width: 0; display: grid; gap: 0; }
+  .app-shell--agent-focus .mobile-runtime-marker strong,
+  .app-shell--agent-focus .mobile-runtime-marker small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-shell--agent-focus .mobile-runtime-marker strong { color: var(--ink-800); font-size: 0.7rem; }
+  .app-shell--agent-focus .mobile-runtime-marker small { font-size: 0.68rem; }
+  .app-shell--agent-focus > .workspace { grid-column: auto; }
+  .app-shell--agent-focus main { min-height: calc(100vh - 64px); }
+}
+
 @media (max-width: 860px) {
   .app-shell { display: block; overflow: clip; }
   .sidebar, .topbar { display: none; }

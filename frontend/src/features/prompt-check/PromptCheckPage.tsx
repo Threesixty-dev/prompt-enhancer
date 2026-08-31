@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   PromptCheckRecord,
   PromptCheckRequest,
@@ -7,7 +7,7 @@ import type {
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import type { AppRoute } from "../../shared/platform/platform";
-import { PromptMetricRadar, PromptMetricTrend } from "./promptCheckPlots";
+import { PromptMetricRadar, PromptMetricTrend, promptMetricQualityValue } from "./promptCheckPlots";
 import "./PromptCheckPage.css";
 
 type Reading = PromptCheckResult["metrics"][number];
@@ -47,7 +47,17 @@ function parsePriorMessages(raw: string): PromptCheckRequest["prior_messages"] {
 }
 
 function readingValue(reading: Reading): number | null {
-  return reading.state === "known" && typeof reading.value === "number" ? reading.value : null;
+  return reading.state === "known" && typeof reading.value === "number" && Number.isFinite(reading.value) ? reading.value : null;
+}
+
+export function promptReadingLabel(reading: Reading): string {
+  if (reading.state !== "known") return reading.state.replace(/_/g, " ");
+  if (typeof reading.numerator === "number" && Number.isFinite(reading.numerator)
+    && typeof reading.denominator === "number" && Number.isFinite(reading.denominator) && reading.denominator > 0) {
+    return `${reading.numerator}/${reading.denominator}`;
+  }
+  const value = readingValue(reading);
+  return value === null ? "Value unavailable" : new Intl.NumberFormat("en", { maximumFractionDigits: 3 }).format(value);
 }
 
 /**
@@ -80,24 +90,48 @@ export function PromptCheckPage({
   const [storedState, setStoredState] = useState<StoredCheckState>("idle");
   const [storedRetry, setStoredRetry] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const historyRequest = useRef<AbortController | null>(null);
+  const checkRequest = useRef<AbortController | null>(null);
+  const copyVersion = useRef(0);
 
-  const loadHistory = useCallback(async (signal?: AbortSignal) => {
+  const loadHistory = useCallback(async () => {
+    historyRequest.current?.abort();
+    const controller = new AbortController();
+    historyRequest.current = controller;
+    const owns = () => historyRequest.current === controller && !controller.signal.aborted;
+    setHistoryState("loading");
     try {
-      const page = await transport.getPromptCheckHistory(60, 0, signal);
-      if (signal?.aborted) return;
+      const page = await transport.getPromptCheckHistory(60, 0, controller.signal);
+      if (!owns()) return;
       setHistory(page.checks);
       setHistoryState("ready");
     } catch (caught) {
-      if (signal?.aborted) return;
+      if (!owns()) return;
       setHistoryState(caught instanceof TransportError && caught.status === 404 ? "unavailable" : "error");
+    } finally {
+      if (owns()) historyRequest.current = null;
     }
   }, [transport]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void loadHistory(controller.signal);
-    return () => controller.abort();
+    void loadHistory();
+    return () => { historyRequest.current?.abort(); historyRequest.current = null; };
   }, [loadHistory]);
+
+  useEffect(() => {
+    setBusy(false);
+    setError("");
+    setCopied(false);
+    setCopyError("");
+    return () => {
+      checkRequest.current?.abort();
+      checkRequest.current = null;
+      copyVersion.current += 1;
+    };
+  }, [checkId, sessionId, transport]);
+
+  useEffect(() => { setResult(null); }, [sessionId, transport]);
 
   useEffect(() => {
     if (!checkId) {
@@ -123,10 +157,15 @@ export function PromptCheckPage({
 
   async function run() {
     const text = prompt.trim();
-    if (!text || busy) return;
+    if (!text || checkRequest.current) return;
+    const controller = new AbortController();
+    checkRequest.current = controller;
+    const owns = () => checkRequest.current === controller && !controller.signal.aborted;
+    copyVersion.current += 1;
     setBusy(true);
     setError("");
     setCopied(false);
+    setCopyError("");
     try {
       const value = await transport.checkPrompt({
         prompt: text,
@@ -134,22 +173,44 @@ export function PromptCheckPage({
         session_id: sessionId ?? null,
         provider: "other",
         want_commentary: wantCommentary,
-      });
+      }, controller.signal);
+      if (!owns()) return;
       setResult(value);
       await loadHistory();
     } catch (caught) {
+      if (!owns()) return;
       setError(caught instanceof TransportError && caught.status === 422
         ? "The prompt or the earlier turns are too long or empty."
-        : "The check did not run. Nothing was changed.");
+        : "The check could not be confirmed. Your draft is still here. Retry history to check whether metrics were saved.");
     } finally {
-      setBusy(false);
+      if (owns()) { checkRequest.current = null; setBusy(false); }
+    }
+  }
+
+  async function copyReformulation(text: string) {
+    const version = ++copyVersion.current;
+    setCopied(false);
+    setCopyError("");
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(text);
+      if (version === copyVersion.current) setCopied(true);
+    } catch {
+      if (version === copyVersion.current) setCopyError("Clipboard access is unavailable. Select and copy the reformulated prompt below.");
     }
   }
 
   const trend = useMemo(() => [...history].reverse(), [history]);
 
   if (historyState === "unavailable") {
-    return <section className="prompt-check"><p className="prompt-check__note">Prompt checks are not available in this runtime.</p></section>;
+    return (
+      <section aria-labelledby="prompt-check-title" className="prompt-check">
+        <h1 id="prompt-check-title">Check a prompt</h1>
+        <p className="prompt-check__note">Prompt checks are not available in this runtime.</p>
+        <p className="prompt-check__note">Open the local application with the prompt-check service enabled. A local model is optional for commentary; deterministic cues do not require one.</p>
+        <button className="button button--ghost" onClick={() => navigate({ name: "overview" })} type="button">Back to overview</button>
+      </section>
+    );
   }
 
   return (
@@ -189,8 +250,9 @@ export function PromptCheckPage({
             <input checked={wantCommentary} onChange={(e) => setWantCommentary(e.currentTarget.checked)} type="checkbox" />
             <span>Ask the local model for commentary and a reformulation (slower)</span>
           </label>
-          <button className="button button--primary" disabled={busy || !prompt.trim()} type="submit">{busy ? "Checking…" : "Check prompt"}</button>
+          <button aria-describedby={busy || !prompt.trim() ? "prompt-check-submit-requirement" : undefined} className="button button--primary" disabled={busy || !prompt.trim()} type="submit">{busy ? "Checking…" : "Check prompt"}</button>
         </div>
+        <span className="sr-only" id="prompt-check-submit-requirement">{busy ? "Wait for the current prompt check to finish." : "Enter a prompt before running the check."}</span>
       </form>
       {error && <p className="prompt-check__error" role="alert">{error}</p>}
 
@@ -207,7 +269,7 @@ export function PromptCheckPage({
                     <div className="prompt-check__metric-head">
                       <strong>{m.display_name}</strong>
                       <span className="prompt-check__metric-value">
-                        {m.state === "known" && m.numerator !== null && m.numerator !== undefined ? `${m.numerator}/${m.denominator}` : m.state.replace(/_/g, " ")}
+                        {promptReadingLabel(m)}
                       </span>
                     </div>
                     {m.cues.length > 0 && (
@@ -277,14 +339,13 @@ export function PromptCheckPage({
                       <h4>Reformulated prompt</h4>
                       <button
                         className="button button--ghost"
-                        onClick={() => {
-                          void navigator.clipboard?.writeText(result.commentary.reformulated_prompt ?? "").then(() => setCopied(true)).catch(() => setCopied(false));
-                        }}
+                        onClick={() => void copyReformulation(result.commentary.reformulated_prompt ?? "")}
                         type="button"
                       >
                         {copied ? "Copied" : "Copy"}
                       </button>
                     </div>
+                    {copyError && <p className="prompt-check__error" role="alert">{copyError}</p>}
                     <pre>{result.commentary.reformulated_prompt}</pre>
                   </div>
                 )}
@@ -333,6 +394,7 @@ export function PromptCheckPage({
         <h2 id="prompt-check-history-title">Your checks over time</h2>
         {historyState === "loading" && <p className="prompt-check__note">Loading…</p>}
         {historyState === "error" && <p className="prompt-check__note" role="alert">The history could not be read.</p>}
+        {(historyState === "error" || error !== "") && <button className="button button--ghost" disabled={historyState === "loading"} onClick={() => void loadHistory()} type="button">Retry history</button>}
         {historyState === "ready" && history.length === 0 && <p className="prompt-check__note">No check yet. The first one appears here with its plots.</p>}
         {historyState === "ready" && history.length > 0 && (
           <>
@@ -349,6 +411,7 @@ export function PromptCheckPage({
             />
             <div className="prompt-check__table-wrap">
               <table className="prompt-check__table">
+                <caption>Quality-oriented cue values, matching the plots: higher is stronger. Missing readings are not zero.</caption>
                 <thead>
                   <tr><th scope="col">When</th><th scope="col">Via</th><th scope="col">Task</th><th scope="col">Size</th>{Object.keys(SHORT_NAMES).map((key) => <th key={key} scope="col">{shortName(key)}</th>)}<th scope="col">Model</th></tr>
                 </thead>
@@ -361,8 +424,10 @@ export function PromptCheckPage({
                       <td>{record.prompt_chars}</td>
                       {Object.keys(SHORT_NAMES).map((key) => {
                         const reading = record.metrics.find((m) => m.key === key);
-                        const value = reading ? readingValue(reading as Reading) : null;
-                        return <td key={key} data-state={reading?.state ?? "unknown"}>{value === null ? "—" : `${Math.round(value * 100)}%`}</td>;
+                        const raw = reading ? readingValue(reading as Reading) : null;
+                        const value = promptMetricQualityValue(raw, reading?.higher_is_better ?? true);
+                        const detail = raw !== null && reading?.higher_is_better === false ? `Raw ${Math.round(raw * 100)}%; lower is better` : undefined;
+                        return <td key={key} data-state={reading?.state ?? "unknown"} title={detail}>{value === null ? "—" : `${Math.round(value * 100)}%`}</td>;
                       })}
                       <td>{record.commentary_state === "ok" ? record.commentary_model_alias : record.commentary_state.replace(/_/g, " ")}</td>
                     </tr>

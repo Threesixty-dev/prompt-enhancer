@@ -22,6 +22,10 @@ from prompt_enhancer.application.analysis.model_ensemble_watch import (
 )
 from prompt_enhancer.application.automation.service import AutomationGrantWorker
 from prompt_enhancer.application.jobs.service import AnalysisJobWorker
+from prompt_enhancer.application.runtime_cancellation import (
+    current_runtime_cancellation,
+    raise_if_runtime_cancelled,
+)
 
 
 _PRIVATE_START_CANARY = "SYNTHETIC-PRIVATE-WORKER-START-CANARY"
@@ -45,10 +49,12 @@ class _IdleAutomationService:
 
 
 class _IdleWatchService:
+    cleanup_unconfirmed = False
+
     def recover_orphaned_leases(self) -> int:
         return 0
 
-    def run_once(self) -> None:
+    def run_once(self, **_kwargs: object) -> None:
         return None
 
 
@@ -90,6 +96,54 @@ def _wait_until(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
     while not predicate() and time.monotonic() < deadline:
         threading.Event().wait(0.005)
     assert predicate()
+
+
+def test_automation_worker_propagates_shutdown_to_blocked_poll_work() -> None:
+    entered = threading.Event()
+    observed: list[threading.Event | None] = []
+
+    class CooperativePoll:
+        def poll_due(self) -> object:
+            observed.append(current_runtime_cancellation())
+            entered.set()
+            while True:
+                raise_if_runtime_cancelled("synthetic_automation_shutdown")
+                threading.Event().wait(0.005)
+
+    worker = AutomationGrantWorker(
+        CooperativePoll(),  # type: ignore[arg-type]
+        poll_seconds=1,
+    )
+    worker.start()
+    assert entered.wait(1.5)
+
+    started = time.monotonic()
+    worker.stop(timeout=0.5)
+
+    assert time.monotonic() - started < 0.5
+    assert len(observed) == 1 and observed[0] is not None
+    assert worker.is_alive() is False
+
+
+def test_automation_worker_keeps_startup_quiet_until_first_interval() -> None:
+    polled = threading.Event()
+
+    class ObservedPoll:
+        def poll_due(self) -> object:
+            polled.set()
+            return object()
+
+    worker = AutomationGrantWorker(
+        ObservedPoll(),  # type: ignore[arg-type]
+        poll_seconds=1,
+    )
+    worker.start()
+    assert polled.wait(0.05) is False
+
+    worker.stop(timeout=0.5)
+
+    assert polled.is_set() is False
+    assert worker.is_alive() is False
 
 
 @pytest.mark.parametrize(

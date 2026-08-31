@@ -52,6 +52,8 @@ export function parseModelEnsembleWatch(value: unknown): ModelEnsembleWatch {
     "next_check_at", "updated_at", "serial_model_execution",
     "process_isolated_model_release", "cuda_resource_retry_on_cpu",
     "content_persisted", "calibrated_as_truth",
+    ...("quarantined" in watch || "quarantine_reason_code" in watch
+      ? ["quarantined", "quarantine_reason_code"] : []),
   ]);
   for (const key of ["watch_id", "project_id", "session_id"] as const) {
     if (typeof watch[key] !== "string" || !HEX_64.test(watch[key])) {
@@ -59,7 +61,7 @@ export function parseModelEnsembleWatch(value: unknown): ModelEnsembleWatch {
     }
   }
   if (
-    watch.provider !== "codex" ||
+    !["codex", "claude_code"].includes(String(watch.provider)) ||
     !Number.isInteger(watch.max_messages) ||
     (watch.max_messages as number) < 1 || (watch.max_messages as number) > 100 ||
     !["queued", "running", "idle", "failed", "disabled"].includes(String(watch.state)) ||
@@ -74,6 +76,15 @@ export function parseModelEnsembleWatch(value: unknown): ModelEnsembleWatch {
     watch.cuda_resource_retry_on_cpu !== true ||
     watch.content_persisted !== false || watch.calibrated_as_truth !== false
   ) throw new ModelEnsembleWatchPayloadError();
+  if ("quarantined" in watch) {
+    if (
+      (watch.quarantined !== null && typeof watch.quarantined !== "boolean") ||
+      (watch.quarantine_reason_code !== null &&
+        (typeof watch.quarantine_reason_code !== "string" || !SAFE_REASON.test(watch.quarantine_reason_code))) ||
+      (watch.quarantined === true) !== (watch.quarantine_reason_code !== null) ||
+      (watch.quarantined === true && !["failed", "disabled"].includes(String(watch.state)))
+    ) throw new ModelEnsembleWatchPayloadError();
+  }
   timestamp(watch.next_check_at);
   timestamp(watch.updated_at);
   return value as ModelEnsembleWatch;

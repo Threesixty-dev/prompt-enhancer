@@ -344,6 +344,17 @@ export function AnalyzeLocallyDialog({
     }
     const timeout = window.setTimeout(() => {
       if (!canInteract() || previewRef.current !== preview) return;
+      if (approvalStartedRef.current === preview.preview_id) {
+        // Privacy TTL: erase the expired sensitive preview text immediately,
+        // but never disown the approval that was already dispatched for this
+        // exact preview. Its one-shot receipt (or failure) stays
+        // authoritative, and no new approval is possible because the
+        // preview is gone.
+        previewRef.current = null;
+        setPreview(null);
+        approvalKeyRef.current = "";
+        return;
+      }
       clearPreview();
       setError("The ten-minute in-memory preview expired. Prepare a fresh preview before approving.");
     }, remaining);
@@ -469,7 +480,10 @@ export function AnalyzeLocallyDialog({
         canInteract() &&
         requestEpochRef.current === epoch &&
         requestControllerRef.current === controller &&
-        previewRef.current === approvedPreview
+        // The sensitive preview may already have been erased by the privacy
+        // TTL while this exact approval was in flight; the dispatched
+        // approval id, not the erased preview, owns this receipt.
+        approvalStartedRef.current === approvedPreview.preview_id
       ) {
         // Approval resolves only after the immutable completed run has been
         // fetched and validated by the workspace. Drop the sensitive preview
@@ -571,7 +585,7 @@ export function AnalyzeLocallyDialog({
         : pendingAction === "compatibility"
           ? "Rechecking compatibility…"
           : compatibilityBlocked
-            ? "Recheck compatibility"
+            ? onCheckCompatibility ? "Recheck compatibility" : "Close"
             : terminalPreparationFailure
               ? "Close"
               : requiresRefresh
@@ -758,7 +772,9 @@ export function AnalyzeLocallyDialog({
                 : pendingAction === "compatibility"
                   ? "Refreshing installed-schema compatibility without reading a session…"
                   : compatibilityBlocked
-                    ? "Preview preparation is paused until compatibility is refreshed."
+                    ? onCheckCompatibility
+                      ? "Preview preparation is paused until compatibility is refreshed."
+                      : "Compatibility rechecking is unavailable here. Close this dialog and review the provider status before trying again."
                     : terminalPreparationFailure
                       ? "This request is finished. Repeating it now would use the same session, adapter, and limits."
                     : requiresRefresh

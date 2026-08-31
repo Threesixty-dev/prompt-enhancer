@@ -26,6 +26,9 @@ mode; that is exactly the device option the owner asked for.
    detected on PATH or configured (`PROMPT_ENHANCER_LLAMA_SERVER`); the app
    never downloads or executes a binary without an explicit, size-stated
    confirmation in the dashboard.
+   On Windows every runtime is spawned directly with `shell=False`, redirected
+   standard handles, and `CREATE_NO_WINDOW`; read-only registry/status/overview
+   operations never start a process.
 2. **Registry.** Installed models (alias, source repo/file or local path,
    format, size, sha256 when known, default device, context size) live in
    `local-models/registry.json` under the app home (registered in the private
@@ -133,3 +136,170 @@ for itself.
   and labelled "Download unavailable" whenever eligibility is false. The
   recommended list only looks a repository up; nothing downloads from it, and there
   is no automatic "latest model" download anywhere.
+
+## Completion and judgment acceptance (2026-08-26)
+
+The local judge and session interpretation require one completed assistant text
+response before accepting structured output. A token limit, filtering, missing
+receipt, tool request or ambiguous response is not a successful judgment. The
+bounded JSON decoder rejects duplicate keys, invalid Unicode, non-finite values,
+excessive depth and surrounding prose. One exact outer JSON fence remains
+compatible. Interpretations reject invalid fields instead of manufacturing text
+or returning a successful empty explanation. Failed generation never replaces
+previous valid labels or explanations.
+
+The main and context-retry protocols are now
+`judge-v4-complete-json-anchor-15k` and `judge-v4-complete-json-anchor-6k`.
+The rubric questions and sealed window renderer are unchanged; the version bump
+records the stricter completion/output acceptance policy. Existing rows are not
+relabelled or deleted. Current agreement excludes older/unknown protocols and
+reserved missing window identities, reports the excluded count, and leaves
+agreement unknown when no eligible pairs exist. The session view keeps historical
+labels visible with their protocol and exclusion status. A sweep may rejudge
+older rows; historical results do not suppress current-protocol work.
+
+Interpretations report `interpret-v2-complete-json`. A valid completion receipt is
+not proof of task success, model accuracy, calibrated metrics, matching human
+rating windows or independent verification. No activation or privacy gate changes.
+
+## Reviewed-case comparison (2026-08-26, checkpoint 25)
+
+Current agreement additionally requires `calibration-case.v1`: the provider,
+session, source-window identity and exact canonical rendered evidence. Both the
+human review endpoint and local judge use this same case preparation. A shortened
+context retry records the evidence actually submitted. Human ratings with an
+unexpired review receipt use `calibration-rating-v2-reviewed-case`; schema 61
+stores nullable case provenance without backfilling historical labels.
+
+Current protocols alone no longer qualify a judgment for comparison. The human
+rating and model judgment must identify the same case and source window, and the
+model's recorded identity must be coherent. A reused explicit alias with mixed
+recorded identities cannot be pooled. Either side's `cannot_judge` is an
+abstention; unmatched and abstained counts are separate, and empty agreement stays
+unknown. Historical rows remain visible and can be explicitly reviewed again.
+
+Review receipts are bounded, expiring, memory-only metadata. Displayed evidence
+honors reader/consent checks and private/no-store transport. A receipt is not
+human authentication, proof of independent assessment or a model-activation
+decision. Recorded model names are not promoted to verified immutable weight
+revisions. See the checkpoint 25 handoff for synthetic verification and remaining
+quality/owner-review limits.
+
+## Agent usage trailers and cancellable reads (checkpoint 26)
+
+Agent streaming requests ask the loopback runtime for `stream_options.include_usage`.
+Usage may accompany the finish chunk or arrive as an empty-choices metadata
+trailer. Only the owned HTTP adapter can collect that trailing metadata, bounded
+by 250 ms, 32 lines and 64 KB. Further answer/tool output is not admitted; absent
+or malformed metadata leaves counts unavailable instead of stalling completion.
+The runtime option is documented in the
+[llama.cpp server schema](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/server-schema.cpp).
+
+The HTTP response retains standard HTTP framing over an owned nonblocking
+socket reader. Reads use a 100 ms cancellation-check interval; an absolute metadata
+deadline also covers slow partial lines. This avoids a reproduced Windows wait
+on cross-thread buffered-reader closure. Socket ownership remains local; proxies
+and redirects are still refused. No runtime listening address is broadened.
+
+These are transport observations, not token estimates, GPU inference timings or
+certified immutable model identity. Header-wait cancellation, command interruption
+and all-installed-runtime compatibility are not established by these synthetic
+checks. See the checkpoint 26 handoff for exact coverage.
+
+### Checkpoint 27: ownership before headers and through disconnect
+
+Content-free request cancellation is now scoped through the HTTP adapter, not
+the model process. Cancellable connect/upload operations use numeric loopback
+destinations without DNS or tunnelling; existing proxy/redirect refusal and
+standard HTTP framing remain intact. Header and body reads share that request's
+event but keep reader-local cleanup separate from turn cancellation.
+
+All three chat proxy routes move runtime I/O off the API event loop. One ASGI
+disconnect watcher spans initial headers and streaming, signals cancellation,
+joins the worker and closes the upstream reply. Server-side request cancellation
+does not manufacture a runtime-error response, while actual upstream errors
+retain their status. Concurrent conversations using the same alias are isolated.
+
+The [checkpoint 27 handoff](../checkpoint-27-handoff.md) records real-loopback
+header/body/disconnect tests and controlled connect/upload fault checks. These
+supersede the earlier header-wait gap; they do not certify every runtime's
+internal generation-abort implementation, unload GPU weights, or establish
+background-job cancellation and command interruption.
+
+### Checkpoint 28: background subprocess control and retry quarantine
+
+The serial ensemble and probabilistic runner share per-invocation cancellation
+ownership. Progress failures are sticky across model-stage, fallback and deep
+paths, and callback references are cleared in a finalizer. Separate joined pipe
+workers keep a blocked stdin write from suppressing timeout/cancellation on
+Windows. Output is bounded during execution; JSON and exit-status receipts must
+agree with the documented child protocol.
+
+The shared service lane checks cooperative cancellation while waiting and
+before a new source read. Intentional stops retain their type through execution
+and publication. Cleanup uncertainty is a distinct, nonretryable failure: the
+runner and service reject later work in that instance, and the watch scheduler
+quarantines the attempt without automatically allocating another model.
+
+Cleanup uncertainty can arrive after cancellation has already sealed the
+attempt and released its lease. A narrow transactional fallback verifies the
+original claim token, generation and stopped state before recording the watch's
+quarantine. It never rewrites the sealed attempt or an earlier published head,
+never re-enables a disabled watch, and cannot affect a queued replacement or a
+later generation. The worker retains this uncertainty after its thread exits;
+neither repeated Stop nor starting that same worker instance can report a clean
+resource lifecycle.
+
+Minimized API status exposes quarantine independently from ordinary failure.
+Missing legacy metadata remains unknown. UI Stop does not clear evidence of
+unconfirmed runtime cleanup; inspect the local runtime before restarting and
+explicitly retrying. This does not establish arbitrary injected-adapter
+preemption or every orphan-process behavior. See the
+[checkpoint 28 handoff](../checkpoint-28-handoff.md) for bounded evidence and
+remaining limits. Agent command interruption remains separate.
+
+### Agent checkpoint 06: explicit projectors and live multimodal capabilities
+
+Local model records can name one explicit `mmproj_path`. Activation passes it
+to `llama-server` with `--mmproj`; registry scans skip projector files and do
+not infer a pairing from names. The runtime's
+`local-runtime-multimodal-probe.v2` result is bound to the exact served alias
+and fails closed. A registry field, repository description, architecture name,
+or filename cannot make image/audio controls available by itself.
+
+Verified image requests use OpenAI `image_url` content and verified PCM-WAV
+requests use llama.cpp's experimental `input_audio` content. The app does not
+claim video, arbitrary audio codecs, every multimodal architecture, or a
+portable tokenizer/media-token count. If the runtime does not report media
+context usage, the coordinator keeps it unknown. `recording` cannot be true
+unless audio is verified, and the UI additionally requires an available local
+microphone API and user permission. The runtime remains loopback-only and no
+model was launched for the synthetic checkpoint receipt.
+
+### Agent checkpoint 07: executable compatibility and exact context admission
+
+`local-model-compatibility.v1` separates discovery evidence from executable
+support. A registered GGUF is not advertised as usable until the exact served
+alias passes a live text request through `llama.cpp-openai-gguf.v1`. Stopped
+models remain `unknown`; missing artifacts and live failures have distinct
+closed reason codes. The adapter receipt includes its version, bounded runtime
+version, runtime-binary digest when readable, and capability-probe version.
+Model digest, source revision, licence, architecture, tokenizer family and
+training context remain nullable when their exact evidence is unavailable.
+Filenames and repository names never fill those fields.
+
+The GGUF reader is deliberately bounded and reads only exact metadata keys for
+architecture, tokenizer family, block count and training context. Other runtime
+families or model formats require a separate versioned adapter and contract row;
+this checkpoint does not claim arbitrary Hugging Face compatibility.
+
+Request context is measured with llama.cpp's chat-template-aware
+`POST /v1/chat/completions/input_tokens`. On measured overflow the Agent drops
+only whole older conversation units and recounts. Leading system instructions,
+tool schemas and the current request are protected. If the protected minimum
+plus an explicit output reservation cannot fit, inference is refused. If the
+counter is absent, malformed or fails, context remains `unknown`; no character
+ratio, alternate tokenizer or model-name estimate replaces it, and llama.cpp
+remains the final enforcement boundary. See the
+[Agent-07 handoff](../checkpoint-agent-07-handoff.md) and generated
+[compatibility matrix](../local-model-compatibility-matrix.md).

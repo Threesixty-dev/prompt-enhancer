@@ -257,6 +257,25 @@ function idleCanonicalHead(run: ModelEnsembleRun): ModelEnsembleCanonicalHead {
 }
 
 describe("ModelEnsembleOverlay", () => {
+  it.each(["cleanup", "streak", "legacy"])("does not invent automatic retries for %s job status", async (kind) => {
+    const snapshot = watchSnapshot();
+    snapshot.watch.state = "failed";
+    snapshot.watch.last_error_code = kind === "cleanup" ? "model_ensemble_cleanup_unconfirmed" : "local_model_ensemble_execution_failed";
+    if (kind !== "legacy") {
+      snapshot.watch.quarantined = true;
+      snapshot.watch.quarantine_reason_code = kind === "cleanup" ? "model_ensemble_cleanup_unconfirmed" : "watch_failure_streak_exhausted";
+    }
+    render(<ModelEnsembleOverlay transport={{ ...createSyntheticTransport(), getActiveModelEnsembleWatch: async () => snapshot }} />);
+    if (kind === "legacy") {
+      expect(await screen.findByText(/automatic retry status unavailable/)).toBeVisible();
+    } else {
+      expect(await screen.findByText(/Automatic retries are paused/)).toBeVisible();
+    }
+    expect(screen.queryByText(/automatic retry \d\d:/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/retaining the last valid/i)).not.toBeInTheDocument();
+    if (kind === "cleanup") expect(screen.getByText(/restart the app before retrying/)).toBeVisible();
+  });
+
   it("renders absent stage case counts as unavailable rather than zero", () => {
     expect(stageCaseCountCopy({
       contributed_case_count: null,

@@ -29,7 +29,10 @@ from prompt_enhancer.application.analysis.model_judge import (
     ModelJudgeService,
     ModelJudgeSweepFailureCode,
     ModelJudgment,
+    render_window,
 )
+from prompt_enhancer.application.analysis.calibration_cases import prepare_calibration_case
+from prompt_enhancer.domain import Provider
 from prompt_enhancer.application.analysis.text_contracts import (
     EphemeralRedactedMessage,
     TextLanguage,
@@ -230,6 +233,11 @@ def _stored_judgments(
             prompt_version=prompt_version,
             window_fingerprint=window_fingerprint,
             judged_at=datetime(2026, 8, 24, 10, 0, tzinfo=UTC),
+            case_version="calibration-case.v1",
+            case_fingerprint=prepare_calibration_case(
+                session_id=SESSION_ID, provider=Provider.CODEX, window_fingerprint=window_fingerprint,
+                rendered_window=render_window(_synthetic_window(window_fingerprint)),
+            ).case_fingerprint,
         )
         for key in keys
     )
@@ -298,8 +306,10 @@ def test_sweep_accepts_only_complete_matching_current_judgment_sets(
             WINDOW_FINGERPRINT,
         ),
         (_stored_judgments(window_fingerprint="d" * 64), WINDOW_FINGERPRINT),
+        (_stored_judgments(prompt_version="judge-v3-untrusted-json-anchor-15k"), WINDOW_FINGERPRINT),
+        (_stored_judgments(prompt_version="judge-v3-untrusted-json-anchor-6k"), WINDOW_FINGERPRINT),
     ],
-    ids=("partial-keys", "changed-identity", "changed-window"),
+    ids=("partial-keys", "changed-identity", "changed-window", "unchecked-main-protocol", "unchecked-retry-protocol"),
 )
 def test_sweep_rejudges_partial_identity_or_window_mismatches(
     rows: tuple[ModelJudgment, ...], current_fingerprint: str
@@ -674,7 +684,8 @@ def test_explicit_alias_reads_do_not_require_the_active_model_catalog() -> None:
     report = service.agreement("stored-model")
 
     assert report.model_alias == "stored-model"
-    assert report.judged_sessions == 1
+    assert report.judged_sessions == 0
+    assert report.excluded_judgments == 1
     assert active_calls == 0
 
 

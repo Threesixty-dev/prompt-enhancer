@@ -448,6 +448,30 @@ class _SchemaDeclaredTaskProfileService:
     pass
 
 
+class _SchemaAgentHardeningService:
+    """Non-executing stand-in for content-free Agent diagnostic signatures."""
+
+    pass
+
+
+class _SchemaAgentMcpConnectionService:
+    """Non-executing stand-in for scoped Agent MCP connection signatures."""
+
+    pass
+
+
+class _SchemaMcpRegistryCatalogService:
+    """Non-executing stand-in for read-only public MCP Store signatures."""
+
+    pass
+
+
+class _SchemaMcpServerManagementService:
+    """Non-executing stand-in for durable MCP plan-management signatures."""
+
+    pass
+
+
 class _SchemaRequirementPlanEvidenceService:
     """Non-executing stand-in for reviewed requirement-plan routes."""
 
@@ -564,6 +588,10 @@ def _build_schema_app(*, include_control_plane: bool):
         model_judge_service=_SchemaModelJudgeService(),  # type: ignore[arg-type]
         prompt_check_service=_SchemaPromptCheckService(),  # type: ignore[arg-type]
         local_agent_service=_SchemaLocalAgentService(),  # type: ignore[arg-type]
+        agent_hardening_service=_SchemaAgentHardeningService(),  # type: ignore[arg-type]
+        agent_mcp_connection_service=_SchemaAgentMcpConnectionService(),  # type: ignore[arg-type]
+        mcp_registry_catalog_service=_SchemaMcpRegistryCatalogService(),  # type: ignore[arg-type]
+        mcp_server_management_service=_SchemaMcpServerManagementService(),  # type: ignore[arg-type]
         declared_task_profile_service=_SchemaDeclaredTaskProfileService(),  # type: ignore[arg-type]
         requirement_plan_evidence_service=_SchemaRequirementPlanEvidenceService(),  # type: ignore[arg-type]
         requirement_action_evidence_service=_SchemaRequirementActionEvidenceService(),  # type: ignore[arg-type]

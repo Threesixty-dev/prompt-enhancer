@@ -32,7 +32,7 @@ function overviewTransport(indexedSessions: [number | null, number | null]) {
     listCodexSessions: vi.fn(async () => ({ limit: 100, offset: 0, sessions: [] })),
     getCalibrationSample: vi.fn(async () => ({ contract_version: "calibration.v1", frozen_at: "2026-08-19T00:00:00Z", metric_keys: [], members: [] }) as never),
     getModelJudgeAgreement: vi.fn(async () => ({ contract_version: "model-judge.v1" as const, model_alias: "synthetic-local", judged_sessions: 0, metrics: [], caveat: "synthetic" }) as never),
-    getLocalModels: vi.fn(async () => ({ contract_version: "local-models.v1" as const, runtime_available: false, storage_root: "D:/synthetic", downloads: [], hardware: { gpu_name: null, gpu_memory_mb: null, gpu_memory_free_mb: null, ram_mb: 8192, llama_server_path: null, llama_server_version: null }, models: [] })),
+    getLocalModels: vi.fn(async () => ({ contract_version: "local-models.v1" as const, runtime_available: false, storage_root: "D:/synthetic", storage_free_bytes: 64 * 1024 ** 3, download_reserve_bytes: 512 * 1024 ** 2, download_ledger_error_code: null, downloads: [], hardware: { gpu_name: null, gpu_memory_mb: null, gpu_memory_free_mb: null, ram_mb: 8192, llama_server_path: null, llama_server_version: null }, models: [] })),
     getPromptCheckHistory: vi.fn(async () => ({ contract_version: "prompt-check.v1" as const, limit: 60, offset: 0, checks: [] })),
   };
 }
@@ -178,10 +178,10 @@ describe("OverviewPage", () => {
       listCodexSessions: vi.fn(async () => ({ limit: 100, offset: 0, sessions: [session("2026-08-19T08:00:00Z"), session("2026-08-17T08:00:00Z", "claude_code")] })),
       getCalibrationSample: vi.fn(async () => ({ contract_version: "calibration.v1", frozen_at: "2026-08-19T00:00:00Z", metric_keys: ["a", "b", "c"], members: [{ session_id: "d".repeat(64), project_id: "c".repeat(64), provider: "codex", project_display_name: null, session_display_name: null, started_at: "2026-08-01T00:00:00Z", rated_metric_keys: ["a", "b", "c"] }, { session_id: "e".repeat(64), project_id: "c".repeat(64), provider: "codex", project_display_name: null, session_display_name: null, started_at: "2026-08-02T00:00:00Z", rated_metric_keys: [] }] }) as never),
       getModelJudgeAgreement: vi.fn(async () => ({ contract_version: "model-judge.v1" as const, model_alias: "orca27b-iq3m", judged_sessions: 62, metrics: [{ metric_key: "a", pairs: 1, agreement_rate: 1, cohen_kappa: null, state: "insufficient_data", reason: null }], caveat: "c" }) as never),
-      getLocalModels: vi.fn(async () => ({ contract_version: "local-models.v1" as const, runtime_available: true, storage_root: "D:/x", downloads: [], hardware: { gpu_name: "Example GPU", gpu_memory_mb: 16384, gpu_memory_free_mb: 4096, ram_mb: 32768, llama_server_path: "x", llama_server_version: "b1" }, models: [] })),
+      getLocalModels: vi.fn(async () => ({ contract_version: "local-models.v1" as const, runtime_available: true, storage_root: "D:/synthetic", storage_free_bytes: 64 * 1024 ** 3, download_reserve_bytes: 512 * 1024 ** 2, download_ledger_error_code: null, downloads: [], hardware: { gpu_name: "Example GPU", gpu_memory_mb: 16384, gpu_memory_free_mb: 4096, ram_mb: 32768, llama_server_path: "synthetic-runtime", llama_server_version: "synthetic-v1" }, models: [] })),
       getPromptCheckHistory: vi.fn(async () => ({ contract_version: "prompt-check.v1" as const, limit: 60, offset: 0, checks: [] })),
     };
-    render(<OverviewPage navigate={navigate} now={() => NOW} transport={transport} />);
+    render(<OverviewPage navigate={navigate} now={() => NOW} runtimeMode="local_real" transport={transport} />);
     await screen.findByText("62");
     expect(screen.getByText(/Codex 62/)).toBeTruthy();
     expect(screen.getByText("1/2")).toBeTruthy();
@@ -196,5 +196,28 @@ describe("OverviewPage", () => {
     expect(navigate).toHaveBeenCalledWith({ name: "models" });
     fireEvent.click(screen.getByText("Prompt checks").closest("button") as HTMLButtonElement);
     expect(navigate).toHaveBeenCalledWith({ name: "prompt_checks" });
+  });
+
+  it("labels a capped history as partial instead of claiming a complete 30-day total", async () => {
+    const listCodexSessions = vi.fn(async (limit: number, offset: number) => ({ limit, offset, sessions: Array.from({ length: 100 }, (_, index) => ({ ...session("2026-08-19T08:00:00Z"), session_id: (offset + index).toString(16).padStart(64, "0") })) }));
+    render(<OverviewPage navigate={vi.fn()} now={() => NOW} transport={{ ...overviewTransport([700, 0]), listCodexSessions }} />);
+    expect(await screen.findByText("At least 500 in the last 30 days · first 500 sessions only")).toBeVisible();
+    expect(listCodexSessions).toHaveBeenCalledTimes(5);
+    expect(screen.getByRole("img", { name: /Sessions per day.*partial history/ })).toBeVisible();
+  });
+
+  it("does not offer unavailable local-source navigation in synthetic mode", async () => {
+    const base = overviewTransport([0, 0]);
+    const getOnboardingStatus = vi.fn(async () => ({ ...await base.getOnboardingStatus(), providers: [{ provider: "codex" as const, installed: true, signal: "codex_cli_on_path" as const, consent_active: false, indexed_sessions: 0, transcript_files: null }] }));
+    render(<OverviewPage navigate={vi.fn()} runtimeMode="synthetic_demo" transport={{ ...base, getOnboardingStatus }} />);
+    await screen.findByText(/No local model is active/);
+    expect(screen.queryByText(/A detected tool is not loaded yet/)).not.toBeInTheDocument();
+  });
+
+  it("does not describe missing capability checks as everything being up to date", async () => {
+    const failed = vi.fn().mockRejectedValue(new Error("example-unavailable"));
+    render(<OverviewPage navigate={vi.fn()} transport={{ getOnboardingStatus: failed, listCodexSessions: failed, getCalibrationSample: failed, getModelJudgeAgreement: failed, getLocalModels: failed, getPromptCheckHistory: failed }} />);
+    expect(await screen.findByText(/Some checks are unavailable/)).toBeVisible();
+    expect(screen.queryByText(/Nothing is waiting on you/)).not.toBeInTheDocument();
   });
 });

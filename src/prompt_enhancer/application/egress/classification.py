@@ -63,6 +63,18 @@ EGRESS_REGISTRY: tuple[EgressRegistration, ...] = (
     # Prompt-check hook (ADR 0015): a Claude Code hook process posting the
     # person's prompt to this app's own loopback API and printing the advice.
     EgressRegistration(module="prompt_enhancer.interfaces.hooks.prompt_check_hook", egress_class=EgressClass.LOOPBACK_OWNED_SERVICE, state=FutureEgressState.ACTIVE_LOCAL_ONLY, reason_code="owned_loopback_prompt_check_hook"),
+    # Controller bridge (ADR 0016): one exact HTTP origin that has already
+    # passed the loopback-only constructor boundary. Proxies and redirects are
+    # disabled, response sizes are bounded, and the bridge never starts the app.
+    EgressRegistration(module="prompt_enhancer.infrastructure.agent_controller_http", egress_class=EgressClass.LOOPBACK_OWNED_SERVICE, state=FutureEgressState.ACTIVE_LOCAL_ONLY, reason_code="owned_loopback_agent_controller"),
+    # MCP Store discovery fetches bounded public metadata from the documented
+    # Official MCP Registry only after a person opens or searches the Store.
+    EgressRegistration(module="prompt_enhancer.infrastructure.mcp_registry", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.ACTIVE_EXPLICIT_APPROVAL, reason_code="official_mcp_registry_request"),
+    # A remote MCP compatibility check dials only the exact reviewed HTTPS
+    # origin after native confirmation. DNS is public-only and pinned; proxies,
+    # redirects, tool calls, unbounded responses, and persistent hosts are
+    # refused by the guarded-host boundary.
+    EgressRegistration(module="prompt_enhancer.infrastructure.mcp_guarded_host", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.ACTIVE_EXPLICIT_APPROVAL, reason_code="confirmed_mcp_compatibility_probe"),
     EgressRegistration(module="prompt_enhancer.infrastructure.estimator_runners.codex", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="bounded_child_cli_runner_uncomposed"),
     # Shared team folders (ADR 0018): the peer client dials exactly the URL the
     # person typed when joining a teammate's folder; the share action on the

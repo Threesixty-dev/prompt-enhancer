@@ -50,7 +50,12 @@ export default defineConfig(({ mode }) => ({
     // Keep the locked quality gate stable on high-core hosts: each JSDOM file
     // worker is memory- and transform-heavy, and unbounded fan-out can make
     // otherwise deterministic five-second interaction tests starve.
-    maxWorkers: 4,
+    maxWorkers: 2,
+    // The Agent workspace is intentionally exercised as one large integration
+    // surface. A bounded 15-second ceiling preserves hang detection while
+    // avoiding false failures when Windows schedules its JSDOM worker behind
+    // another transform-heavy file.
+    testTimeout: 15_000,
     setupFiles: ["./src/test/setup.ts"],
     css: true,
     coverage: {

@@ -1,3 +1,5 @@
+import { readLocalModelChat } from "./localModelChatStream";
+import { parseLocalModelPlacement } from "./localModelPlacementContract";
 import type {
   AnalysisJobIdentity,
   AnalysisJobPage,
@@ -79,14 +81,15 @@ import type {
   CalibrationProgress,
   CalibrationRating,
   CalibrationSample,
+  CalibrationReview,
   SessionTimeline,
   ProjectTimeline,
   LocalModelsOverview,
   LocalModelStatus,
   LocalModelRecord,
-  LocalModelChatDelta,
   LocalModelChatRequest,
-  LocalModelChatResult,
+  LocalRuntimeCoordinatorStatus,
+  LocalModelCompatibilityCatalog,
   DownloadStatus,
   RemoteRepoFiles,
   ScanFolderResult,
@@ -108,10 +111,123 @@ import type {
   PromptCheckResult,
   PromptCheckRecord,
   PromptCheckHistory,
+  AgentOrchestrationManifest,
+  AgentHardeningSnapshot,
+  AgentNativeAcceptanceStartReceipt,
   AgentSettings,
   AgentSessionView,
+  AgentSessionContextStatus,
   AgentEvents,
+  AgentCatalogQuery,
+  AgentCatalogSessionQuery,
+  AgentProject,
+  AgentProjectList,
+  AgentCatalogSession,
+  AgentCatalogSessionList,
+  AgentHistoryExportRequest,
+  AgentSessionForkReceipt,
+  CreateAgentProject,
+  UpdateAgentProject,
+  UpdateAgentCatalogSession,
+  AgentHistoryExport,
+  ResumeAgentSession,
+  RevalidateAgentAuthority,
+  AgentArtifactContent,
+  AgentArtifactCapturePreview,
+  AgentArtifact,
+  AgentArtifactDetail,
+  AgentArtifactExport,
+  AgentArtifactList,
+  AgentArtifactListView,
+  AgentArtifactVersion,
+  AgentDocumentPreview,
+  CaptureAgentArtifact,
+  ExportAgentArtifact,
+  RemoveAgentArtifact,
+  UpdateAgentArtifact,
+  PreviewAgentArtifactCapture,
+  AgentAttachment,
+  AgentAttachmentContent,
+  AgentAttachmentList,
+  AgentAttachmentUpload,
 } from "./contracts";
+import {
+  AgentOrchestrationPayloadError,
+  parseAgentOrchestrationManifest,
+} from "./agentOrchestrationContract";
+import {
+  AgentHardeningPayloadError,
+  parseAgentHardeningSnapshot,
+} from "./agentHardeningContract";
+import {
+  AgentMcpConnectionPayloadError,
+  parseAgentControllerOwnershipReleaseReceipt,
+  parseAgentMcpClientSetup,
+  parseAgentMcpConnection,
+  parseAgentMcpConnectionCredential,
+  parseAgentMcpConnectionList,
+} from "./agentMcpConnectionContract";
+import {
+  isSafeMcpRegistryText,
+  McpRegistryCatalogPayloadError,
+  parseMcpRegistryCatalog,
+} from "./mcpRegistryCatalogContract";
+import {
+  McpRegistryServerReviewPayloadError,
+  parseMcpRegistryServerReview,
+} from "./mcpRegistryServerReviewContract";
+import {
+  McpManagedServerPayloadError,
+  parseMcpManagedLifecyclePreview,
+  parseMcpManagedLifecycleReceipt,
+  parseMcpManagedLocalConfigurationInspectionPreview,
+  parseMcpManagedLocalConfigurationInspectionReceipt,
+  parseMcpManagedLocalCleanupPreview,
+  parseMcpManagedLocalCleanupReceipt,
+  parseMcpManagedLocalUpdatePreview,
+  parseMcpManagedLocalUpdateReceipt,
+  parseMcpManagedLocalRollbackPreview,
+  parseMcpManagedLocalRollbackReceipt,
+  parseMcpManagedLocalRollbackCleanupPreview,
+  parseMcpManagedLocalRollbackCleanupReceipt,
+  parseMcpManagedLocalOperationRecoveryPreview,
+  parseMcpManagedLocalOperationRecoveryReceipt,
+  parseMcpManagedProbeReceipt,
+  parseMcpManagedServer,
+  parseMcpManagedServerList,
+  parseMcpManagedServerReceipt,
+  parseMcpManagedToolSnapshot,
+} from "./mcpManagedServerContract";
+import {
+  McpManagedRuntimePayloadError,
+  parseMcpManagedHostStartPreview,
+  parseMcpManagedHostStatus,
+  parseMcpManagedProjectRuntime,
+} from "./mcpManagedRuntimeContract";
+import {
+  AgentNativeAcceptancePayloadError,
+  parseAgentNativeAcceptanceStartReceipt,
+} from "./agentNativeAcceptanceContract";
+import {
+  AgentSessionContextPayloadError,
+  parseAgentSessionContext,
+} from "./agentSessionContextContract";
+import {
+  LocalRuntimePayloadError,
+  parseLocalRuntimeCoordinator,
+} from "./localRuntimeContract";
+import {
+  LocalModelCompatibilityPayloadError,
+  parseLocalModelCompatibility,
+} from "./localModelCompatibilityContract";
+import {
+  AgentCatalogPayloadError,
+  parseAgentCatalogSession,
+  parseAgentCatalogSessionList,
+  parseAgentProject,
+  parseAgentProjectList,
+  parseAgentSessionForkReceipt,
+} from "./agentCatalogContract";
 import {
   AgentWorkspacePayloadError,
   parseAgentWorkspaceApplyResult,
@@ -119,6 +235,42 @@ import {
   parseAgentWorkspacePreview,
   parseAgentWorkspaceTree,
 } from "./agentWorkspaceContract";
+import {
+  AgentWorkspaceSearchPayloadError,
+  parseAgentWorkspaceSearchResult,
+} from "./agentWorkspaceSearchContract";
+import {
+  AgentWorkspaceLifecyclePayloadError,
+  parseAgentWorkspaceCreatePreview,
+  parseAgentWorkspaceCreateResult,
+  parseAgentWorkspaceDirectoryCreatePreview,
+  parseAgentWorkspaceDirectoryCreateResult,
+  parseAgentWorkspaceDirectoryMovePreview,
+  parseAgentWorkspaceDirectoryMoveResult,
+  parseAgentWorkspaceFileTrashPreview,
+  parseAgentWorkspaceFileTrashResult,
+  parseAgentWorkspaceMovePreview,
+  parseAgentWorkspaceMoveResult,
+} from "./agentWorkspaceLifecycleContract";
+import {
+  AgentWorkspaceDiscoveryPayloadError,
+  parseAgentWorkspaceDiscovery,
+} from "./agentWorkspaceDiscoveryContract";
+import {
+  AgentWorkspaceTransactionPayloadError,
+  parseAgentWorkspaceTransactionPreview,
+  parseAgentWorkspaceTransactionResult,
+} from "./agentWorkspaceTransactionContract";
+import {
+  AgentChangeSetPayloadError,
+  parseAgentChangeDiff,
+  parseAgentChangeSet,
+} from "./agentChangeSetContract";
+import {
+  AgentChangeRestorePayloadError,
+  parseAgentChangeRestorePreview,
+  parseAgentChangeRestoreResult,
+} from "./agentChangeRestoreContract";
 import {
   ModelEnsembleHeadPayloadError,
   parseModelEnsembleAttemptSnapshot,
@@ -192,7 +344,23 @@ import {
   parseDeclaredTaskProfileCurrent,
   parseDeclaredTaskProfileOutcome,
 } from "./declaredTaskProfileContract";
-import { AgentEventPayloadError, parseAgentEvents } from "./agentEventContract";
+import { AgentEventPayloadError, parseAgentEvents, parseAgentSession } from "./agentEventContract";
+import { AgentHistoryPayloadError, parseAgentHistoryExport } from "./agentHistoryContract";
+import {
+  AgentArtifactPayloadError,
+  parseAgentArtifact,
+  parseAgentArtifactCapturePreview,
+  parseAgentArtifactDetail,
+  parseAgentArtifactExport,
+  parseAgentDocumentPreview,
+  parseAgentArtifactList,
+} from "./agentArtifactContract";
+import {
+  AgentAttachmentPayloadError,
+  parseAgentAttachment,
+  parseAgentAttachmentDocumentPreview,
+  parseAgentAttachmentList,
+} from "./agentAttachmentContract";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -224,6 +392,302 @@ export class TransportError extends Error {
     this.status = status;
     this.reasonCode = reasonCode;
   }
+}
+
+function agentSessionResponse(value: unknown, expectedSessionId?: string): AgentSessionView {
+  try {
+    return parseAgentSession(value, expectedSessionId);
+  } catch (error) {
+    if (error instanceof AgentEventPayloadError) throw new TransportError("Local agent session response was invalid", 200);
+    throw error;
+  }
+}
+
+function agentSessionContextResponse(
+  value: unknown,
+  expectedSessionId: string,
+): AgentSessionContextStatus {
+  try {
+    return parseAgentSessionContext(value, expectedSessionId);
+  } catch (error) {
+    if (error instanceof AgentSessionContextPayloadError) {
+      throw new TransportError("Agent session context response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentProjectResponse(value: unknown, expectedProjectId?: string): AgentProject {
+  try {
+    const project = parseAgentProject(value);
+    if (expectedProjectId !== undefined && project.project_id !== expectedProjectId) {
+      throw new AgentCatalogPayloadError();
+    }
+    return project;
+  } catch (error) {
+    if (error instanceof AgentCatalogPayloadError) {
+      throw new TransportError("Agent project response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentProjectListResponse(value: unknown): AgentProjectList {
+  try {
+    return parseAgentProjectList(value);
+  } catch (error) {
+    if (error instanceof AgentCatalogPayloadError) {
+      throw new TransportError("Agent project list response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentCatalogSessionResponse(
+  value: unknown,
+  expectedSessionId?: string,
+  expectedProjectId?: string,
+): AgentCatalogSession {
+  try {
+    return parseAgentCatalogSession(value, expectedSessionId, expectedProjectId);
+  } catch (error) {
+    if (error instanceof AgentCatalogPayloadError) {
+      throw new TransportError("Agent catalog session response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentCatalogSessionListResponse(
+  value: unknown,
+  expectedProjectId?: string,
+): AgentCatalogSessionList {
+  try {
+    return parseAgentCatalogSessionList(value, expectedProjectId);
+  } catch (error) {
+    if (error instanceof AgentCatalogPayloadError) {
+      throw new TransportError("Agent catalog session list response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentSessionForkResponse(
+  value: unknown,
+  expectedRequestId: string,
+  expectedSourceProjectId: string,
+  expectedSourceSessionId: string,
+): AgentSessionForkReceipt {
+  try {
+    const receipt = parseAgentSessionForkReceipt(value);
+    const lineage = receipt.session.lineage;
+    if (
+      receipt.request_id !== expectedRequestId
+      || lineage === null
+      || lineage === undefined
+      || lineage.source_project_id !== expectedSourceProjectId
+      || lineage.source_session_id !== expectedSourceSessionId
+    ) throw new AgentCatalogPayloadError();
+    return receipt;
+  } catch (error) {
+    if (error instanceof AgentCatalogPayloadError) {
+      throw new TransportError("Agent session fork response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentArtifactListResponse(
+  value: unknown,
+  projectId: string,
+  sessionId: string,
+  view: AgentArtifactListView,
+): AgentArtifactList {
+  try {
+    return parseAgentArtifactList(value, projectId, sessionId, view);
+  } catch (error) {
+    if (error instanceof AgentArtifactPayloadError) {
+      throw new TransportError("Agent artifact list response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentArtifactResponse(
+  value: unknown,
+  projectId: string,
+  sessionId: string,
+  artifactId: string,
+): AgentArtifact {
+  try {
+    return parseAgentArtifact(value, projectId, sessionId, artifactId);
+  } catch (error) {
+    if (error instanceof AgentArtifactPayloadError) {
+      throw new TransportError("Agent artifact response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentArtifactDetailResponse(
+  value: unknown,
+  projectId: string,
+  sessionId: string,
+  artifactId?: string,
+): AgentArtifactDetail {
+  try {
+    return parseAgentArtifactDetail(value, projectId, sessionId, artifactId);
+  } catch (error) {
+    if (error instanceof AgentArtifactPayloadError) {
+      throw new TransportError("Agent artifact response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentArtifactExportResponse(
+  value: unknown,
+  projectId: string,
+  sessionId: string,
+  artifactId: string,
+  request: ExportAgentArtifact,
+): AgentArtifactExport {
+  try {
+    return parseAgentArtifactExport(
+      value,
+      projectId,
+      sessionId,
+      artifactId,
+      request.expected_revision,
+      request.version_id,
+    );
+  } catch (error) {
+    if (error instanceof AgentArtifactPayloadError) {
+      throw new TransportError("Agent artifact export response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentArtifactCapturePreviewResponse(
+  value: unknown,
+  projectId: string,
+  sessionId: string,
+  request: PreviewAgentArtifactCapture,
+): AgentArtifactCapturePreview {
+  try {
+    return parseAgentArtifactCapturePreview(
+      value,
+      projectId,
+      sessionId,
+      request.path,
+      request.title,
+    );
+  } catch (error) {
+    if (error instanceof AgentArtifactPayloadError) {
+      throw new TransportError("Agent artifact capture preview response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentArtifactDocumentPreviewResponse(
+  value: unknown,
+  projectId: string,
+  sessionId: string,
+  artifactId: string,
+  version: AgentArtifactVersion,
+): AgentDocumentPreview {
+  try {
+    return parseAgentDocumentPreview(
+      value,
+      projectId,
+      sessionId,
+      artifactId,
+      version,
+    );
+  } catch (error) {
+    if (error instanceof AgentArtifactPayloadError) {
+      throw new TransportError("Agent document preview response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function localRuntimeResponse(value: unknown): LocalRuntimeCoordinatorStatus {
+  try {
+    return parseLocalRuntimeCoordinator(value);
+  } catch (error) {
+    if (error instanceof LocalRuntimePayloadError) {
+      throw new TransportError("Local runtime response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentOrchestrationResponse(value: unknown): AgentOrchestrationManifest {
+  try {
+    return parseAgentOrchestrationManifest(value);
+  } catch (error) {
+    if (error instanceof AgentOrchestrationPayloadError) {
+      throw new TransportError("Agent controller manifest was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentHardeningResponse(value: unknown): AgentHardeningSnapshot {
+  try {
+    return parseAgentHardeningSnapshot(value);
+  } catch (error) {
+    if (error instanceof AgentHardeningPayloadError) {
+      throw new TransportError("Agent hardening response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentNativeAcceptanceResponse(value: unknown): AgentNativeAcceptanceStartReceipt {
+  try {
+    return parseAgentNativeAcceptanceStartReceipt(value);
+  } catch (error) {
+    if (error instanceof AgentNativeAcceptancePayloadError) {
+      throw new TransportError("Agent native acceptance response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function localModelCompatibilityResponse(value: unknown): LocalModelCompatibilityCatalog {
+  try {
+    return parseLocalModelCompatibility(value);
+  } catch (error) {
+    if (error instanceof LocalModelCompatibilityPayloadError) {
+      throw new TransportError("Local model compatibility response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentCatalogQuery(query: AgentCatalogQuery = {}): string {
+  const params = new URLSearchParams();
+  if (query.search !== undefined) {
+    if (Array.from(query.search).length > 120) {
+      throw new TransportError("Agent catalog query was invalid", 422);
+    }
+    params.set("search", query.search);
+  }
+  if (query.includeArchived !== undefined) {
+    params.set("include_archived", String(query.includeArchived));
+  }
+  if (query.limit !== undefined) {
+    if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 200) {
+      throw new TransportError("Agent catalog query was invalid", 422);
+    }
+    params.set("limit", String(query.limit));
+  }
+  const encoded = params.toString();
+  return encoded.length === 0 ? "" : `?${encoded}`;
 }
 
 export type SafeTransportReasonCode =
@@ -268,6 +732,7 @@ export type SafeTransportReasonCode =
   | "invalid_model_ensemble_request"
   | "model_ensemble_confirmation_required"
   | "local_model_ensemble_execution_failed"
+  | "model_ensemble_cleanup_unconfirmed"
   | "model_ensemble_persistence_failed"
   | "invalid_model_ensemble_watch_request"
   | "model_ensemble_watch_not_found"
@@ -277,8 +742,228 @@ export type SafeTransportReasonCode =
   | "claude_code_not_installed"
   | "model_not_ready"
   | "no_active_model"
+  | "model_not_active"
+  | "model_not_found"
+  | "model_file_missing"
+  | "model_projector_invalid"
+  | "model_projector_missing"
+  | "runtime_unavailable"
+  | "runtime_placement_unavailable"
+  | "runtime_gpu_layers_invalid"
+  | "runtime_context_unsupported"
+  | "runtime_activation_superseded"
+  | "runtime_shutdown_in_progress"
+  | "runtime_spawn_failed"
+  | "runtime_not_healthy"
+  | "runtime_capability_probe_failed"
+  | "runtime_busy"
+  | "runtime_revision_conflict"
+  | "runtime_quarantined"
+  | "runtime_cleanup_unconfirmed"
+  | "runtime_stop_failed"
+  | "runtime_crashed"
+  | "runtime_out_of_memory"
+  | "download_not_found"
+  | "download_revision_conflict"
+  | "download_action_invalid"
+  | "download_ledger_invalid"
+  | "download_ledger_unavailable"
+  | "download_adapter_incompatible"
+  | "download_cleanup_failed"
+  | "provenance_mismatch"
+  | "file_not_eligible"
+  | "model_reply_invalid"
+  | "calibration_review_disabled"
+  | "calibration_review_consent_required"
+  | "calibration_review_unavailable"
+  | "calibration_window_unavailable"
+  | "calibration_review_missing"
+  | "calibration_review_mismatch"
+  | "calibration_review_expired"
   | "too_many_sessions"
   | "turn_in_progress"
+  | "session_closing"
+  | "session_stop_timeout"
+  | "command_cleanup_unconfirmed"
+  | "approval_not_pending"
+  | "approval_already_settled"
+  | "workspace_not_a_folder"
+  | "workspace_not_allowed"
+  | "workspace_root_changed"
+  | "workspace_inspection_timeout"
+  | "workspace_query_empty"
+  | "workspace_query_too_large"
+  | "workspace_regex_invalid"
+  | "workspace_glob_invalid"
+  | "workspace_write_failed"
+  | "workspace_cleanup_failed"
+  | "workspace_verification_failed"
+  | "workspace_parent_unavailable"
+  | "workspace_path_not_found"
+  | "workspace_directory_unavailable"
+  | "workspace_not_a_directory"
+  | "workspace_revision_changed"
+  | "workspace_preview_not_found"
+  | "workspace_preview_expired"
+  | "workspace_preview_mismatch"
+  | "workspace_link_or_reparse_refused"
+  | "path_invalid"
+  | "path_outside_workspace"
+  | "workspace_lifecycle_target_exists"
+  | "workspace_lifecycle_same_path"
+  | "workspace_lifecycle_preview_not_found"
+  | "workspace_lifecycle_preview_expired"
+  | "workspace_lifecycle_preview_mismatch"
+  | "workspace_lifecycle_unverified"
+  | "workspace_directory_create_failed"
+  | "workspace_directory_create_unverified"
+  | "workspace_directory_move_into_self"
+  | "workspace_directory_move_unsupported"
+  | "workspace_directory_move_failed"
+  | "workspace_directory_move_unverified"
+  | "workspace_file_trash_unsupported"
+  | "workspace_file_trash_failed"
+  | "workspace_file_trash_unverified"
+  | "workspace_move_unsupported"
+  | "workspace_move_failed"
+  | "workspace_move_unverified"
+  | "workspace_transaction_invalid"
+  | "workspace_transaction_changed"
+  | "workspace_transaction_no_change"
+  | "workspace_transaction_too_large"
+  | "workspace_transaction_diff_too_large"
+  | "workspace_transaction_not_found"
+  | "workspace_transaction_expired"
+  | "workspace_transaction_mismatch"
+  | "change_path_not_found"
+  | "change_already_reverted"
+  | "change_restore_baseline_unavailable"
+  | "change_restore_unavailable"
+  | "change_restore_mismatch"
+  | "change_restore_verification_failed"
+  | "agent_catalog_unavailable"
+  | "agent_catalog_path_invalid"
+  | "agent_catalog_path_unsafe"
+  | "agent_catalog_storage_unavailable"
+  | "agent_catalog_schema_newer"
+  | "agent_project_not_found"
+  | "agent_project_archived"
+  | "agent_project_conflict"
+  | "agent_project_revision_conflict"
+  | "agent_project_not_empty"
+  | "agent_default_project_protected"
+  | "too_many_agent_projects"
+  | "agent_catalog_session_not_found"
+  | "agent_catalog_session_conflict"
+  | "agent_catalog_session_revision_conflict"
+  | "agent_catalog_session_live"
+  | "too_many_agent_catalog_sessions"
+  | "agent_catalog_session_archived"
+  | "agent_history_not_retained"
+  | "agent_history_revision_conflict"
+  | "agent_history_sequence_conflict"
+  | "agent_history_limit_reached"
+  | "agent_history_event_too_large"
+  | "agent_history_corrupt"
+  | "agent_history_storage_unavailable"
+  | "agent_history_write_failed"
+  | "agent_session_fork_point_invalid"
+  | "agent_session_fork_request_conflict"
+  | "agent_session_fork_conflict"
+  | "agent_artifact_unavailable"
+  | "agent_artifact_storage_unavailable"
+  | "agent_artifact_not_found"
+  | "agent_artifact_version_not_found"
+  | "agent_artifact_retention_required"
+  | "agent_artifact_revision_changed"
+  | "agent_artifact_stale"
+  | "agent_artifact_missing"
+  | "agent_artifact_malformed"
+  | "agent_artifact_preview_unsupported"
+  | "agent_artifact_too_large"
+  | "agent_artifact_limit_reached"
+  | "agent_artifact_version_limit_reached"
+  | "agent_artifact_conflict"
+  | "agent_artifact_revision_conflict"
+  | "agent_artifact_state_conflict"
+  | "agent_artifact_no_change"
+  | "agent_artifact_archive_required"
+  | "agent_artifact_removed"
+  | "agent_attachment_unavailable"
+  | "agent_attachment_capabilities_unavailable"
+  | "agent_attachment_not_found"
+  | "agent_attachment_empty"
+  | "agent_attachment_media_unsupported"
+  | "agent_attachment_media_mismatch"
+  | "agent_attachment_dimensions_unsupported"
+  | "agent_attachment_audio_unsupported"
+  | "agent_attachment_duration_unsupported"
+  | "agent_attachment_image_capability_unavailable"
+  | "agent_attachment_audio_capability_unavailable"
+  | "agent_attachment_document_capability_unavailable"
+  | "agent_attachment_document_encoding_unsupported"
+  | "agent_attachment_document_structure_invalid"
+  | "agent_attachment_document_empty"
+  | "agent_attachment_document_message_too_large"
+  | "agent_attachment_content_preview_unsupported"
+  | "agent_attachment_document_preview_unsupported"
+  | "agent_attachment_too_large"
+  | "agent_attachment_message_too_large"
+  | "agent_attachment_session_too_large"
+  | "agent_attachment_stage_limit"
+  | "agent_attachment_message_limit"
+  | "agent_attachment_duplicate"
+  | "agent_attachment_model_changed"
+  | "agent_attachment_retention_changed"
+  | "agent_attachment_already_sent"
+  | "agent_attachment_state_changed"
+  | "agent_attachment_corrupt"
+  | "agent_attachment_conflict"
+  | "agent_attachment_storage_unavailable"
+  | "mcp_registry_response_invalid"
+  | "mcp_registry_identity_conflict"
+  | "mcp_registry_pagination_cycle"
+  | "mcp_registry_source_disagreement"
+  | "mcp_host_protocol_unsupported"
+  | "mcp_host_transport_mismatch"
+  | "mcp_host_tool_alias_collision"
+  | "mcp_host_tool_count_exceeded"
+  | "mcp_host_tool_identity_conflict"
+  | "mcp_host_tool_identity_invalid"
+  | "mcp_host_tool_metadata_invalid"
+  | "mcp_host_tool_metadata_total_exceeded"
+  | "mcp_host_tool_schema_dialect_unsupported"
+  | "mcp_host_tool_schema_external_ref"
+  | "mcp_host_tool_schema_format_unsupported"
+  | "mcp_host_tool_schema_invalid"
+  | "mcp_host_tool_schema_keyword_unsupported"
+  | "mcp_host_tool_schema_pattern_unsafe"
+  | "mcp_host_tool_schema_recursive"
+  | "mcp_host_tool_schema_ref_invalid"
+  | "mcp_host_tool_schema_too_complex"
+  | "mcp_host_tool_schema_too_large"
+  | "mcp_host_tool_schema_total_exceeded"
+  | "mcp_host_endpoint_unresolvable"
+  | "mcp_host_endpoint_unreachable"
+  | "mcp_host_endpoint_not_public"
+  | "mcp_host_egress_origin_changed"
+  | "mcp_host_tls_policy_invalid"
+  | "mcp_host_redirect_refused"
+  | "mcp_host_headers_too_large"
+  | "mcp_host_headers_invalid"
+  | "mcp_host_content_encoding_unsupported"
+  | "mcp_host_response_too_large"
+  | "mcp_host_response_count_exceeded"
+  | "mcp_host_sse_event_count_exceeded"
+  | "mcp_host_process_output_limit"
+  | "mcp_host_visible_window_detected"
+  | "mcp_host_process_visibility_unconfirmed"
+  | "mcp_host_deadline_exceeded"
+  | "mcp_host_probe_failed"
+  | "mcp_host_cleanup_unconfirmed"
+  | "mcp_managed_host_start_cancelled"
+  | "mcp_managed_host_start_timeout"
+  | "mcp_managed_host_stop_timeout"
   | "codex_not_installed";
 
 const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
@@ -323,6 +1008,7 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "invalid_model_ensemble_request",
   "model_ensemble_confirmation_required",
   "local_model_ensemble_execution_failed",
+  "model_ensemble_cleanup_unconfirmed",
   "model_ensemble_persistence_failed",
   "invalid_model_ensemble_watch_request",
   "model_ensemble_watch_not_found",
@@ -332,8 +1018,228 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "claude_code_not_installed",
   "model_not_ready",
   "no_active_model",
+  "model_not_active",
+  "model_not_found",
+  "model_file_missing",
+  "model_projector_invalid",
+  "model_projector_missing",
+  "runtime_unavailable",
+  "runtime_placement_unavailable",
+  "runtime_gpu_layers_invalid",
+  "runtime_context_unsupported",
+  "runtime_activation_superseded",
+  "runtime_shutdown_in_progress",
+  "runtime_spawn_failed",
+  "runtime_not_healthy",
+  "runtime_capability_probe_failed",
+  "runtime_busy",
+  "runtime_revision_conflict",
+  "runtime_quarantined",
+  "runtime_cleanup_unconfirmed",
+  "runtime_stop_failed",
+  "runtime_crashed",
+  "runtime_out_of_memory",
+  "download_not_found",
+  "download_revision_conflict",
+  "download_action_invalid",
+  "download_ledger_invalid",
+  "download_ledger_unavailable",
+  "download_adapter_incompatible",
+  "download_cleanup_failed",
+  "provenance_mismatch",
+  "file_not_eligible",
+  "model_reply_invalid",
+  "calibration_review_disabled",
+  "calibration_review_consent_required",
+  "calibration_review_unavailable",
+  "calibration_window_unavailable",
+  "calibration_review_missing",
+  "calibration_review_mismatch",
+  "calibration_review_expired",
   "too_many_sessions",
   "turn_in_progress",
+  "session_closing",
+  "session_stop_timeout",
+  "command_cleanup_unconfirmed",
+  "approval_not_pending",
+  "approval_already_settled",
+  "workspace_not_a_folder",
+  "workspace_not_allowed",
+  "workspace_root_changed",
+  "workspace_inspection_timeout",
+  "workspace_query_empty",
+  "workspace_query_too_large",
+  "workspace_regex_invalid",
+  "workspace_glob_invalid",
+  "workspace_write_failed",
+  "workspace_cleanup_failed",
+  "workspace_verification_failed",
+  "workspace_parent_unavailable",
+  "workspace_path_not_found",
+  "workspace_directory_unavailable",
+  "workspace_not_a_directory",
+  "workspace_revision_changed",
+  "workspace_preview_not_found",
+  "workspace_preview_expired",
+  "workspace_preview_mismatch",
+  "workspace_link_or_reparse_refused",
+  "path_invalid",
+  "path_outside_workspace",
+  "workspace_lifecycle_target_exists",
+  "workspace_lifecycle_same_path",
+  "workspace_lifecycle_preview_not_found",
+  "workspace_lifecycle_preview_expired",
+  "workspace_lifecycle_preview_mismatch",
+  "workspace_lifecycle_unverified",
+  "workspace_directory_create_failed",
+  "workspace_directory_create_unverified",
+  "workspace_directory_move_into_self",
+  "workspace_directory_move_unsupported",
+  "workspace_directory_move_failed",
+  "workspace_directory_move_unverified",
+  "workspace_file_trash_unsupported",
+  "workspace_file_trash_failed",
+  "workspace_file_trash_unverified",
+  "workspace_move_unsupported",
+  "workspace_move_failed",
+  "workspace_move_unverified",
+  "workspace_transaction_invalid",
+  "workspace_transaction_changed",
+  "workspace_transaction_no_change",
+  "workspace_transaction_too_large",
+  "workspace_transaction_diff_too_large",
+  "workspace_transaction_not_found",
+  "workspace_transaction_expired",
+  "workspace_transaction_mismatch",
+  "change_path_not_found",
+  "change_already_reverted",
+  "change_restore_baseline_unavailable",
+  "change_restore_unavailable",
+  "change_restore_mismatch",
+  "change_restore_verification_failed",
+  "agent_catalog_unavailable",
+  "agent_catalog_path_invalid",
+  "agent_catalog_path_unsafe",
+  "agent_catalog_storage_unavailable",
+  "agent_catalog_schema_newer",
+  "agent_project_not_found",
+  "agent_project_archived",
+  "agent_project_conflict",
+  "agent_project_revision_conflict",
+  "agent_project_not_empty",
+  "agent_default_project_protected",
+  "too_many_agent_projects",
+  "agent_catalog_session_not_found",
+  "agent_catalog_session_conflict",
+  "agent_catalog_session_revision_conflict",
+  "agent_catalog_session_live",
+  "too_many_agent_catalog_sessions",
+  "agent_catalog_session_archived",
+  "agent_history_not_retained",
+  "agent_history_revision_conflict",
+  "agent_history_sequence_conflict",
+  "agent_history_limit_reached",
+  "agent_history_event_too_large",
+  "agent_history_corrupt",
+  "agent_history_storage_unavailable",
+  "agent_history_write_failed",
+  "agent_session_fork_point_invalid",
+  "agent_session_fork_request_conflict",
+  "agent_session_fork_conflict",
+  "agent_artifact_unavailable",
+  "agent_artifact_storage_unavailable",
+  "agent_artifact_not_found",
+  "agent_artifact_version_not_found",
+  "agent_artifact_retention_required",
+  "agent_artifact_revision_changed",
+  "agent_artifact_stale",
+  "agent_artifact_missing",
+  "agent_artifact_malformed",
+  "agent_artifact_preview_unsupported",
+  "agent_artifact_too_large",
+  "agent_artifact_limit_reached",
+  "agent_artifact_version_limit_reached",
+  "agent_artifact_conflict",
+  "agent_artifact_revision_conflict",
+  "agent_artifact_state_conflict",
+  "agent_artifact_no_change",
+  "agent_artifact_archive_required",
+  "agent_artifact_removed",
+  "agent_attachment_unavailable",
+  "agent_attachment_capabilities_unavailable",
+  "agent_attachment_not_found",
+  "agent_attachment_empty",
+  "agent_attachment_media_unsupported",
+  "agent_attachment_media_mismatch",
+  "agent_attachment_dimensions_unsupported",
+  "agent_attachment_audio_unsupported",
+  "agent_attachment_duration_unsupported",
+  "agent_attachment_image_capability_unavailable",
+  "agent_attachment_audio_capability_unavailable",
+  "agent_attachment_document_capability_unavailable",
+  "agent_attachment_document_encoding_unsupported",
+  "agent_attachment_document_structure_invalid",
+  "agent_attachment_document_empty",
+  "agent_attachment_document_message_too_large",
+  "agent_attachment_content_preview_unsupported",
+  "agent_attachment_document_preview_unsupported",
+  "agent_attachment_too_large",
+  "agent_attachment_message_too_large",
+  "agent_attachment_session_too_large",
+  "agent_attachment_stage_limit",
+  "agent_attachment_message_limit",
+  "agent_attachment_duplicate",
+  "agent_attachment_model_changed",
+  "agent_attachment_retention_changed",
+  "agent_attachment_already_sent",
+  "agent_attachment_state_changed",
+  "agent_attachment_corrupt",
+  "agent_attachment_conflict",
+  "agent_attachment_storage_unavailable",
+  "mcp_registry_response_invalid",
+  "mcp_registry_identity_conflict",
+  "mcp_registry_pagination_cycle",
+  "mcp_registry_source_disagreement",
+  "mcp_host_protocol_unsupported",
+  "mcp_host_transport_mismatch",
+  "mcp_host_tool_alias_collision",
+  "mcp_host_tool_count_exceeded",
+  "mcp_host_tool_identity_conflict",
+  "mcp_host_tool_identity_invalid",
+  "mcp_host_tool_metadata_invalid",
+  "mcp_host_tool_metadata_total_exceeded",
+  "mcp_host_tool_schema_dialect_unsupported",
+  "mcp_host_tool_schema_external_ref",
+  "mcp_host_tool_schema_format_unsupported",
+  "mcp_host_tool_schema_invalid",
+  "mcp_host_tool_schema_keyword_unsupported",
+  "mcp_host_tool_schema_pattern_unsafe",
+  "mcp_host_tool_schema_recursive",
+  "mcp_host_tool_schema_ref_invalid",
+  "mcp_host_tool_schema_too_complex",
+  "mcp_host_tool_schema_too_large",
+  "mcp_host_tool_schema_total_exceeded",
+  "mcp_host_endpoint_unresolvable",
+  "mcp_host_endpoint_unreachable",
+  "mcp_host_endpoint_not_public",
+  "mcp_host_egress_origin_changed",
+  "mcp_host_tls_policy_invalid",
+  "mcp_host_redirect_refused",
+  "mcp_host_headers_too_large",
+  "mcp_host_headers_invalid",
+  "mcp_host_content_encoding_unsupported",
+  "mcp_host_response_too_large",
+  "mcp_host_response_count_exceeded",
+  "mcp_host_sse_event_count_exceeded",
+  "mcp_host_process_output_limit",
+  "mcp_host_visible_window_detected",
+  "mcp_host_process_visibility_unconfirmed",
+  "mcp_host_deadline_exceeded",
+  "mcp_host_probe_failed",
+  "mcp_host_cleanup_unconfirmed",
+  "mcp_managed_host_start_cancelled",
+  "mcp_managed_host_start_timeout",
+  "mcp_managed_host_stop_timeout",
   "codex_not_installed",
 ]);
 
@@ -447,9 +1353,9 @@ function allowlistedReason(value: unknown): SafeTransportReasonCode | null {
 }
 
 function safeReasonFromErrorPayload(value: unknown): SafeTransportReasonCode | null {
-  return isRecord(value) && isRecord(value.detail)
-    ? allowlistedReason(value.detail.code)
-    : null;
+  if (!isRecord(value)) return null;
+  if (isRecord(value.detail)) return allowlistedReason(value.detail.code);
+  return allowlistedReason(value.detail);
 }
 
 export function parseSessionTextAnalysisCapability(
@@ -2134,6 +3040,17 @@ export function parseRuntimeHealth(value: unknown): RuntimeHealth {
   };
 }
 
+function validManagedMutation(
+  managementId: string,
+  payload: { request_id: string; expected_revision: number; preview_digest: string },
+): boolean {
+  return /^[0-9a-f]{32}$/u.test(managementId)
+    && /^[0-9a-f]{32}$/u.test(payload.request_id)
+    && Number.isInteger(payload.expected_revision)
+    && payload.expected_revision >= 1
+    && /^[0-9a-f]{64}$/u.test(payload.preview_digest);
+}
+
 export function createHttpTransport(options: {
   fetch?: FetchLike;
   origin?: string;
@@ -2373,6 +3290,7 @@ export function createHttpTransport(options: {
     readSafeErrorReason = false,
     requirePrivateNoStore = false,
     requireUserPresence = false,
+    responseMode: "json" | "no_content" = "json",
   ): Promise<T> {
     const target = assertSameOriginRelativePath(path, origin);
     const method = (init.method ?? "GET").toUpperCase();
@@ -2444,10 +3362,140 @@ export function createHttpTransport(options: {
     ) {
       throw new TransportError("Private local response was not cache-safe", response.status);
     }
+    if (responseMode === "no_content") {
+      if (response.status !== 204) {
+        throw new TransportError("Local API did not confirm the operation", response.status);
+      }
+      return undefined as T;
+    }
     if (!isJsonResponse(response)) {
       throw new TransportError("Local API returned an unexpected content type", response.status);
     }
     return (await response.json()) as T;
+  }
+
+  async function requestAgentArtifactContent(
+    path: string,
+    expectedDisposition: "inline" | "attachment",
+    signal?: AbortSignal,
+  ): Promise<AgentArtifactContent> {
+    const target = assertSameOriginRelativePath(path, origin);
+    const csrfToken = await ensureBrowserSession(signal);
+    const send = () => fetchRequest(target, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      signal,
+      headers: {
+        Accept: "application/octet-stream, application/pdf, image/png, image/jpeg, image/gif, text/plain",
+      },
+    });
+    let response = await send();
+    if (response.status === 401) {
+      if (sessionAuth?.csrfToken === csrfToken) sessionAuth = undefined;
+      await ensureBrowserSession(signal);
+      response = await send();
+    }
+    if (!response.ok) {
+      throw new TransportError(`Local API request failed (${response.status})`, response.status);
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const dispositionMatch = /^(inline|attachment); filename="(agent-artifact-[0-9a-f]{8}(?:\.[A-Za-z0-9]{1,15})?)"$/u.exec(disposition);
+    const lengthText = response.headers.get("content-length") ?? "";
+    const byteSize = /^\d{1,8}$/u.test(lengthText) ? Number(lengthText) : Number.NaN;
+    const allowedTypes = new Set([
+      "application/octet-stream",
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "text/plain; charset=utf-8",
+    ]);
+    if (
+      response.status !== 200
+      || response.headers.get("cache-control") !== "no-store, private"
+      || response.headers.get("pragma") !== "no-cache"
+      || response.headers.get("accept-ranges") !== "bytes"
+      || response.headers.get("content-security-policy") !== "default-src 'none'; sandbox"
+      || response.headers.get("referrer-policy") !== "no-referrer"
+      || response.headers.get("x-content-type-options") !== "nosniff"
+      || dispositionMatch === null
+      || dispositionMatch[1] !== expectedDisposition
+      || !allowedTypes.has(contentType)
+      || !Number.isSafeInteger(byteSize)
+      || byteSize < 0
+      || byteSize > 24 * 1024 * 1024
+    ) {
+      throw new TransportError("Agent artifact content response was invalid", response.status);
+    }
+    const blob = await response.blob();
+    if (blob.size !== byteSize) {
+      throw new TransportError("Agent artifact content response was invalid", response.status);
+    }
+    return {
+      blob,
+      contentType,
+      filename: dispositionMatch[2],
+      byteSize,
+    };
+  }
+
+  async function requestAgentAttachmentContent(
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<AgentAttachmentContent> {
+    const target = assertSameOriginRelativePath(path, origin);
+    const csrfToken = await ensureBrowserSession(signal);
+    const send = () => fetchRequest(target, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      signal,
+      headers: { Accept: "image/png, image/jpeg, audio/wav" },
+    });
+    let response = await send();
+    if (response.status === 401) {
+      if (sessionAuth?.csrfToken === csrfToken) sessionAuth = undefined;
+      await ensureBrowserSession(signal);
+      response = await send();
+    }
+    if (!response.ok) {
+      throw new TransportError(`Local API request failed (${response.status})`, response.status);
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const dispositionMatch = /^inline; filename="(agent-attachment-[0-9a-f]{8}\.(?:png|jpg|wav))"$/u.exec(disposition);
+    const lengthText = response.headers.get("content-length") ?? "";
+    const byteSize = /^\d{1,8}$/u.test(lengthText) ? Number(lengthText) : Number.NaN;
+    if (
+      response.status !== 200
+      || response.headers.get("cache-control") !== "no-store, private"
+      || response.headers.get("pragma") !== "no-cache"
+      || response.headers.get("content-security-policy") !== "default-src 'none'; sandbox"
+      || response.headers.get("cross-origin-resource-policy") !== "same-origin"
+      || response.headers.get("referrer-policy") !== "no-referrer"
+      || response.headers.get("x-content-type-options") !== "nosniff"
+      || dispositionMatch === null
+      || !["image/png", "image/jpeg", "audio/wav"].includes(contentType)
+      || !Number.isSafeInteger(byteSize)
+      || byteSize < 1
+      || byteSize > 12 * 1024 * 1024
+    ) throw new TransportError("Agent attachment content response was invalid", response.status);
+    const blob = await response.blob();
+    if (blob.size !== byteSize || blob.type !== contentType) {
+      throw new TransportError("Agent attachment content response was invalid", response.status);
+    }
+    return {
+      blob,
+      contentType: contentType as AgentAttachmentContent["contentType"],
+      filename: dispositionMatch[1],
+      byteSize,
+    };
   }
 
   return {
@@ -2667,10 +3715,10 @@ export function createHttpTransport(options: {
       return request<OnboardingStatus>("/v1/onboarding", { method: "GET" }, signal);
     },
     judgeSessionWithModel(sessionId, signal) {
-      return request<JudgeOutcome>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}`, { method: "POST" }, signal);
+      return request<JudgeOutcome>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}`, { method: "POST" }, signal, true);
     },
     startModelJudgeSweep(signal, scope = "sample") {
-      return request<JudgeSweepStatus>(`/v1/model-judge/sweep?scope=${scope}`, { method: "POST" }, signal);
+      return request<JudgeSweepStatus>(`/v1/model-judge/sweep?scope=${scope}`, { method: "POST" }, signal, true);
     },
     getModelJudgeSweep(signal) {
       return request<JudgeSweepStatus>("/v1/model-judge/sweep", { method: "GET" }, signal);
@@ -2688,20 +3736,1774 @@ export function createHttpTransport(options: {
     getPromptCheck(checkId, signal) {
       return request<PromptCheckRecord>(`/v1/prompt-checks/${encodeURIComponent(checkId)}`, { method: "GET" }, signal);
     },
-    listAgentSessions(signal) {
-      return request<AgentSessionView[]>("/v1/agent/sessions", { method: "GET" }, signal);
+    async getAgentOrchestration(signal) {
+      const value = await request<unknown>(
+        "/v1/agent/orchestration",
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return agentOrchestrationResponse(value);
     },
-    createAgentSession(settings, signal) {
-      return request<AgentSessionView>("/v1/agent/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }, signal, true);
+    async getAgentHardening(signal) {
+      const value = await request<unknown>(
+        "/v1/diagnostics/agent-hardening",
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return agentHardeningResponse(value);
     },
-    getAgentSession(sessionId, signal) {
-      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" }, signal);
+    async listAgentMcpConnections(signal) {
+      const value = await request<unknown>(
+        "/v1/integrations/agent-mcp/connections",
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentMcpConnectionList(value);
+      } catch (error) {
+        if (error instanceof AgentMcpConnectionPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async getAgentMcpClientSetup(signal) {
+      const value = await request<unknown>(
+        "/v1/integrations/agent-mcp/setup",
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentMcpClientSetup(value);
+      } catch (error) {
+        if (error instanceof AgentMcpConnectionPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async listMcpRegistryCatalog(query = {}, signal) {
+      const search = query.search ?? "";
+      const normalizedSearch = search.normalize("NFC").trim().replace(/\s+/gu, " ");
+      const cursor = query.cursor;
+      const limit = query.limit ?? 24;
+      if (
+        !isSafeMcpRegistryText(normalizedSearch, 0, 100)
+        || /\p{C}/u.test(search)
+        || (cursor !== undefined && (
+          !isSafeMcpRegistryText(cursor, 1, 512)
+        ))
+        || !Number.isInteger(limit)
+        || limit < 1
+        || limit > 48
+      ) {
+        throw new TransportError("MCP Registry catalog query was invalid", 422);
+      }
+      const params = new URLSearchParams();
+      if (normalizedSearch !== "") params.set("search", normalizedSearch);
+      if (cursor !== undefined) params.set("cursor", cursor);
+      params.set("limit", String(limit));
+      const value = await request<unknown>(
+        `/v1/integrations/mcp-store/catalog?${params.toString()}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        const catalog = parseMcpRegistryCatalog(value);
+        if (catalog.search !== normalizedSearch) {
+          throw new McpRegistryCatalogPayloadError();
+        }
+        return catalog;
+      } catch (error) {
+        if (error instanceof McpRegistryCatalogPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+        }
+      },
+      async getMcpRegistryServerReview(query, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(query.catalog_id)
+          || query.name.length < 3
+          || query.name.length > 241
+          || !/^[A-Za-z0-9.-]{1,160}\/[A-Za-z0-9._-]{1,80}$/u.test(query.name)
+          || query.version.length < 1
+          || query.version.length > 255
+          || !isSafeMcpRegistryText(query.version, 1, 255)
+          || !/^[0-9a-f]{64}$/u.test(query.presentation_revision)
+        ) {
+          throw new TransportError("MCP Registry server identity was invalid", 422);
+        }
+        const params = new URLSearchParams({
+          name: query.name,
+          version: query.version,
+          presentation_revision: query.presentation_revision,
+        });
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/servers/${query.catalog_id}/review?${params.toString()}`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const review = parseMcpRegistryServerReview(value);
+          if (
+            review.server.catalog_id !== query.catalog_id
+            || review.server.name !== query.name
+            || review.server.version !== query.version
+            || review.server.presentation_revision !== query.presentation_revision
+          ) {
+            throw new McpRegistryServerReviewPayloadError();
+          }
+          return review;
+        } catch (error) {
+          if (error instanceof McpRegistryServerReviewPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async listMcpManagedServers(signal) {
+        const value = await request<unknown>(
+          "/v1/integrations/mcp-store/managed",
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          return parseMcpManagedServerList(value);
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedServer(managementId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(managementId)) {
+          throw new TransportError("MCP managed-server identity was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const server = parseMcpManagedServer(value);
+          if (server.management_id !== managementId) throw new McpManagedServerPayloadError();
+          return server;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedToolSnapshot(managementId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(managementId)) {
+          throw new TransportError("MCP managed-server identity was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/tools`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const snapshot = parseMcpManagedToolSnapshot(value);
+          if (snapshot.management_id !== managementId) {
+            throw new McpManagedServerPayloadError();
+          }
+          return snapshot;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedHostStatus(managementId, projectId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(managementId) || !/^[0-9a-f]{32}$/u.test(projectId)) {
+          throw new TransportError("MCP managed-host identity was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/projects/${projectId}/host`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const status = parseMcpManagedHostStatus(value);
+          if (status.management_id !== managementId || status.project_id !== projectId) {
+            throw new McpManagedRuntimePayloadError();
+          }
+          return status;
+        } catch (error) {
+          if (error instanceof McpManagedRuntimePayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedHostStartPreview(
+        managementId,
+        projectId,
+        expectedServerRevision,
+        expectedProjectBindingRevision,
+        expectedToolSnapshotId,
+        signal,
+      ) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(projectId)
+          || !Number.isInteger(expectedServerRevision) || expectedServerRevision < 1
+          || !Number.isInteger(expectedProjectBindingRevision) || expectedProjectBindingRevision < 1
+          || !/^[0-9a-f]{32}$/u.test(expectedToolSnapshotId)
+        ) {
+          throw new TransportError("MCP managed-host preview request was invalid", 422);
+        }
+        const params = new URLSearchParams({
+          expected_server_revision: String(expectedServerRevision),
+          expected_project_binding_revision: String(expectedProjectBindingRevision),
+          expected_tool_snapshot_id: expectedToolSnapshotId,
+        });
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/projects/${projectId}/host/start-preview?${params.toString()}`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const preview = parseMcpManagedHostStartPreview(value);
+          if (
+            preview.binding.management_id !== managementId
+            || preview.binding.project_id !== projectId
+            || preview.binding.server_revision !== expectedServerRevision
+            || preview.binding.project_binding_revision !== expectedProjectBindingRevision
+            || preview.binding.tool_snapshot_id !== expectedToolSnapshotId
+          ) throw new McpManagedRuntimePayloadError();
+          return preview;
+        } catch (error) {
+          if (error instanceof McpManagedRuntimePayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async startMcpManagedHost(managementId, projectId, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(projectId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_server_revision) || payload.expected_server_revision < 1
+          || !Number.isInteger(payload.expected_project_binding_revision) || payload.expected_project_binding_revision < 1
+          || !/^[0-9a-f]{32}$/u.test(payload.expected_tool_snapshot_id)
+          || !/^[0-9a-f]{64}$/u.test(payload.preview_digest)
+          || (payload.deadline_seconds !== undefined
+            && (!Number.isFinite(payload.deadline_seconds)
+              || payload.deadline_seconds < 0.1 || payload.deadline_seconds > 20))
+        ) throw new TransportError("MCP managed-host start request was invalid", 422);
+        const path = `/v1/integrations/mcp-store/managed/${managementId}/projects/${projectId}/host/start`;
+        const value = await request<unknown>(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }, signal, true, true, true);
+        try {
+          const status = parseMcpManagedHostStatus(value);
+          if (status.management_id !== managementId || status.project_id !== projectId
+            || status.state !== "ready"
+            || status.binding?.server_revision !== payload.expected_server_revision
+            || status.binding.project_binding_revision !== payload.expected_project_binding_revision
+            || status.binding.tool_snapshot_id !== payload.expected_tool_snapshot_id) {
+            throw new McpManagedRuntimePayloadError();
+          }
+          return status;
+        } catch (error) {
+          if (error instanceof McpManagedRuntimePayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async stopMcpManagedHost(managementId, projectId, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(projectId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || (payload.expected_instance_id !== null
+            && !/^[0-9a-f]{32}$/u.test(payload.expected_instance_id))
+          || (payload.deadline_seconds !== undefined
+            && (!Number.isFinite(payload.deadline_seconds)
+              || payload.deadline_seconds < 0.1 || payload.deadline_seconds > 20))
+        ) throw new TransportError("MCP managed-host stop request was invalid", 422);
+        const path = `/v1/integrations/mcp-store/managed/${managementId}/projects/${projectId}/host/stop`;
+        const value = await request<unknown>(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }, signal, true, true);
+        try {
+          const status = parseMcpManagedHostStatus(value);
+          if (status.management_id !== managementId || status.project_id !== projectId
+            || status.state !== "not_started") throw new McpManagedRuntimePayloadError();
+          return status;
+        } catch (error) {
+          if (error instanceof McpManagedRuntimePayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedProjectRuntime(projectId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(projectId)) {
+          throw new TransportError("MCP managed project identity was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/agent/mcp/projects/${projectId}/runtime`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const runtime = parseMcpManagedProjectRuntime(value);
+          if (runtime.project_id !== projectId) throw new McpManagedRuntimePayloadError();
+          return runtime;
+        } catch (error) {
+          if (error instanceof McpManagedRuntimePayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async createMcpManagedServer(payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !/^[0-9a-f]{32}$/u.test(payload.catalog_id)
+          || !/^[A-Za-z0-9.-]{1,160}\/[A-Za-z0-9._-]{1,80}$/u.test(payload.name)
+          || payload.version.length < 1 || payload.version.length > 255
+          || payload.version.trim() !== payload.version
+          || /[\u0000-\u001f\u007f]/u.test(payload.version)
+          || !/^[0-9a-f]{32}$/u.test(payload.option_id)
+          || !/^[0-9a-f]{64}$/u.test(payload.plan_revision)
+        ) {
+          throw new TransportError("MCP managed-server plan was invalid", 422);
+        }
+        const value = await request<unknown>(
+          "/v1/integrations/mcp-store/managed",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedServerReceipt(value);
+          if (
+            receipt.server.catalog_id !== payload.catalog_id
+            || receipt.server.server_name !== payload.name
+            || receipt.server.server_version !== payload.version
+            || receipt.server.option_id !== payload.option_id
+            || receipt.server.plan_revision !== payload.plan_revision
+          ) throw new McpManagedServerPayloadError();
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async probeMcpManagedServer(managementId, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_revision)
+          || payload.expected_revision < 1
+        ) {
+          throw new TransportError("MCP managed-server probe request was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/probe`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedProbeReceipt(value);
+          if (receipt.server.management_id !== managementId
+            || receipt.probe.request_id !== payload.request_id) {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedLifecyclePreview(managementId, action, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !["install", "uninstall"].includes(action)
+        ) {
+          throw new TransportError("MCP managed lifecycle preview was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/${action}-preview`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const preview = parseMcpManagedLifecyclePreview(value);
+          if (preview.management_id !== managementId || preview.action !== action) {
+            throw new McpManagedServerPayloadError();
+          }
+          return preview;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedLocalConfigurationInspectionPreview(managementId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(managementId)) {
+          throw new TransportError("MCP package configuration inspection preview was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/configuration-inspection-preview`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const preview = parseMcpManagedLocalConfigurationInspectionPreview(value);
+          if (preview.management_id !== managementId) {
+            throw new McpManagedServerPayloadError();
+          }
+          return preview;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async inspectMcpManagedLocalConfiguration(managementId, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_revision)
+          || payload.expected_revision < 1
+          || !/^[0-9a-f]{64}$/u.test(payload.preview_digest)
+        ) {
+          throw new TransportError("MCP package configuration inspection request was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/configuration-inspection`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedLocalConfigurationInspectionReceipt(value);
+          if (receipt.server.management_id !== managementId
+            || receipt.preview_digest !== payload.preview_digest) {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async applyMcpManagedLifecycle(managementId, action, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !["install", "uninstall"].includes(action)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_revision)
+          || payload.expected_revision < 1
+          || !/^[0-9a-f]{64}$/u.test(payload.preview_digest)
+        ) {
+          throw new TransportError("MCP managed lifecycle request was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/${action}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedLifecycleReceipt(value);
+          if (receipt.server.management_id !== managementId
+            || receipt.action !== action
+            || receipt.preview_digest !== payload.preview_digest) {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedLocalCleanupPreview(managementId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(managementId)) {
+          throw new TransportError("MCP managed cleanup preview was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/cleanup-preview`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const preview = parseMcpManagedLocalCleanupPreview(value);
+          if (preview.management_id !== managementId) {
+            throw new McpManagedServerPayloadError();
+          }
+          return preview;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedLocalUpdatePreview(managementId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(managementId)) {
+          throw new TransportError("MCP managed update preview was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/update-preview`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const preview = parseMcpManagedLocalUpdatePreview(value);
+          if (preview.management_id !== managementId) {
+            throw new McpManagedServerPayloadError();
+          }
+          return preview;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async applyMcpManagedLocalUpdate(managementId, payload, signal) {
+        if (!validManagedMutation(managementId, payload)) {
+          throw new TransportError("MCP managed update request was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/update`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedLocalUpdateReceipt(value);
+          if (receipt.server.management_id !== managementId
+            || receipt.preview_digest !== payload.preview_digest) {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedLocalRollbackPreview(managementId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(managementId)) {
+          throw new TransportError("MCP managed rollback preview was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/rollback-preview`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const preview = parseMcpManagedLocalRollbackPreview(value);
+          if (preview.management_id !== managementId) throw new McpManagedServerPayloadError();
+          return preview;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async applyMcpManagedLocalRollback(managementId, payload, signal) {
+        if (!validManagedMutation(managementId, payload)) {
+          throw new TransportError("MCP managed rollback request was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/rollback`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedLocalRollbackReceipt(value);
+          if (receipt.server.management_id !== managementId
+            || receipt.preview_digest !== payload.preview_digest) {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedLocalRollbackCleanupPreview(managementId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(managementId)) {
+          throw new TransportError("MCP managed rollback cleanup preview was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/rollback-cleanup-preview`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const preview = parseMcpManagedLocalRollbackCleanupPreview(value);
+          if (preview.management_id !== managementId) throw new McpManagedServerPayloadError();
+          return preview;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async cleanupMcpManagedLocalRollback(managementId, payload, signal) {
+        if (!validManagedMutation(managementId, payload)) {
+          throw new TransportError("MCP managed rollback cleanup request was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/rollback-cleanup`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedLocalRollbackCleanupReceipt(value);
+          if (receipt.server.management_id !== managementId
+            || receipt.preview_digest !== payload.preview_digest) {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async getMcpManagedLocalOperationRecoveryPreview(managementId, signal) {
+        if (!/^[0-9a-f]{32}$/u.test(managementId)) {
+          throw new TransportError("MCP managed recovery preview was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/recovery-preview`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const preview = parseMcpManagedLocalOperationRecoveryPreview(value);
+          if (preview.management_id !== managementId) throw new McpManagedServerPayloadError();
+          return preview;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async recoverMcpManagedLocalOperation(managementId, payload, signal) {
+        if (!validManagedMutation(managementId, payload)) {
+          throw new TransportError("MCP managed recovery request was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/recovery`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedLocalOperationRecoveryReceipt(value);
+          if (receipt.server.management_id !== managementId
+            || receipt.preview_digest !== payload.preview_digest) {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async completeMcpManagedLocalCleanup(managementId, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_revision)
+          || payload.expected_revision < 1
+          || !/^[0-9a-f]{64}$/u.test(payload.preview_digest)
+        ) {
+          throw new TransportError("MCP managed cleanup request was invalid", 422);
+        }
+        const value = await request<unknown>(
+          `/v1/integrations/mcp-store/managed/${managementId}/cleanup`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedLocalCleanupReceipt(value);
+          if (receipt.server.management_id !== managementId
+            || receipt.preview_digest !== payload.preview_digest) {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async setMcpManagedProjectBinding(managementId, projectId, payload, signal) {
+        const permissionOrder = [
+          "process_spawn", "filesystem_read", "filesystem_write", "network_egress", "credential_use",
+        ] as const;
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(projectId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_revision) || payload.expected_revision < 1
+          || typeof payload.enabled !== "boolean"
+          || !Array.isArray(payload.granted_permissions)
+          || payload.granted_permissions.some((item) => !permissionOrder.includes(item))
+          || new Set(payload.granted_permissions).size !== payload.granted_permissions.length
+          || permissionOrder.filter((item) => payload.granted_permissions.includes(item)).join("\u0000") !== payload.granted_permissions.join("\u0000")
+          || (!payload.enabled && payload.granted_permissions.length > 0)
+          || !Array.isArray(payload.admitted_tool_ids)
+          || payload.admitted_tool_ids.length > 256
+          || payload.admitted_tool_ids.some((item) => !/^[0-9a-f]{32}$/u.test(item))
+          || new Set(payload.admitted_tool_ids).size !== payload.admitted_tool_ids.length
+          || [...payload.admitted_tool_ids].sort().join("\u0000") !== payload.admitted_tool_ids.join("\u0000")
+          || (payload.enabled ? payload.admitted_tool_ids.length === 0 : payload.admitted_tool_ids.length > 0)
+        ) {
+          throw new TransportError("MCP managed project binding was invalid", 422);
+        }
+        const path = `/v1/integrations/mcp-store/managed/${managementId}/projects/${projectId}`;
+        const value = await request<unknown>(
+          path,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedServerReceipt(value);
+          const binding = receipt.server.project_bindings.find((item) => item.project_id === projectId);
+          if (receipt.server.management_id !== managementId || binding === undefined
+            || binding.enabled !== payload.enabled
+            || binding.granted_permissions.join("\u0000") !== payload.granted_permissions.join("\u0000")
+            || binding.admitted_tool_ids.join("\u0000") !== payload.admitted_tool_ids.join("\u0000")) {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async storeMcpManagedSecret(managementId, requirementId, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(requirementId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_revision) || payload.expected_revision < 1
+          || typeof payload.value !== "string" || payload.value.length < 1 || payload.value.length > 2_048
+          || payload.value.includes("\u0000")
+          || new TextEncoder().encode(payload.value).byteLength > 2_048
+        ) {
+          throw new TransportError("MCP managed secret request was invalid", 422);
+        }
+        const path = `/v1/integrations/mcp-store/managed/${managementId}/secrets/${requirementId}`;
+        const value = await request<unknown>(
+          path,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedServerReceipt(value);
+          const requirement = receipt.server.requirements.find((item) => item.requirement_id === requirementId);
+          if (receipt.server.management_id !== managementId
+            || requirement?.configuration_state !== "secret_stored") {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async removeMcpManagedSecret(managementId, requirementId, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(requirementId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_revision) || payload.expected_revision < 1
+        ) {
+          throw new TransportError("MCP managed secret-removal request was invalid", 422);
+        }
+        const path = `/v1/integrations/mcp-store/managed/${managementId}/secrets/${requirementId}/remove`;
+        const value = await request<unknown>(
+          path,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedServerReceipt(value);
+          const requirement = receipt.server.requirements.find((item) => item.requirement_id === requirementId);
+          if (receipt.server.management_id !== managementId
+            || requirement?.configuration_state !== "secret_missing") {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async storeMcpManagedConfiguration(managementId, requirementId, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(requirementId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_revision) || payload.expected_revision < 1
+          || typeof payload.value !== "string" || payload.value.length < 1 || payload.value.length > 2_048
+          || /[\u0000\r\n]/u.test(payload.value)
+          || new TextEncoder().encode(payload.value).byteLength > 2_048
+        ) {
+          throw new TransportError("MCP managed configuration request was invalid", 422);
+        }
+        const path = `/v1/integrations/mcp-store/managed/${managementId}/configuration/${requirementId}`;
+        const value = await request<unknown>(
+          path,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedServerReceipt(value);
+          const requirement = receipt.server.requirements.find((item) => item.requirement_id === requirementId);
+          if (receipt.server.management_id !== managementId
+            || requirement?.configuration_state !== "value_stored") {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async removeMcpManagedConfiguration(managementId, requirementId, payload, signal) {
+        if (
+          !/^[0-9a-f]{32}$/u.test(managementId)
+          || !/^[0-9a-f]{32}$/u.test(requirementId)
+          || !/^[0-9a-f]{32}$/u.test(payload.request_id)
+          || !Number.isInteger(payload.expected_revision) || payload.expected_revision < 1
+        ) {
+          throw new TransportError("MCP managed configuration-removal request was invalid", 422);
+        }
+        const path = `/v1/integrations/mcp-store/managed/${managementId}/configuration/${requirementId}/remove`;
+        const value = await request<unknown>(
+          path,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+          true,
+          true,
+        );
+        try {
+          const receipt = parseMcpManagedServerReceipt(value);
+          const requirement = receipt.server.requirements.find((item) => item.requirement_id === requirementId);
+          if (receipt.server.management_id !== managementId
+            || requirement?.configuration_state !== "value_required") {
+            throw new McpManagedServerPayloadError();
+          }
+          return receipt;
+        } catch (error) {
+          if (error instanceof McpManagedServerPayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      },
+      async createAgentMcpConnection(payload, signal) {
+      const value = await request<unknown>(
+        "/v1/integrations/agent-mcp/connections",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentMcpConnectionCredential(value);
+      } catch (error) {
+        if (error instanceof AgentMcpConnectionPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async rotateAgentMcpConnection(connectionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/integrations/agent-mcp/connections/${encodeURIComponent(connectionId)}/rotate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentMcpConnectionCredential(value);
+      } catch (error) {
+        if (error instanceof AgentMcpConnectionPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async revokeAgentMcpConnection(connectionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/integrations/agent-mcp/connections/${encodeURIComponent(connectionId)}/revoke`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentMcpConnection(value);
+      } catch (error) {
+        if (error instanceof AgentMcpConnectionPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async releaseAgentControllerOwnership(payload, signal) {
+      const value = await request<unknown>(
+        "/v1/integrations/agent-mcp/connections/ownerships/release",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentControllerOwnershipReleaseReceipt(value);
+      } catch (error) {
+        if (error instanceof AgentMcpConnectionPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async beginAgentNativeAcceptance(payload, signal) {
+      const value = await request<unknown>(
+        "/v1/diagnostics/agent-native-acceptance/start",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      return agentNativeAcceptanceResponse(value);
+    },
+    async listAgentProjects(query, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/projects${agentCatalogQuery(query)}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return agentProjectListResponse(value);
+    },
+    async createAgentProject(project, signal) {
+      const value = await request<unknown>(
+        "/v1/agent/projects",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(project),
+        },
+        signal,
+        true,
+        true,
+      );
+      return agentProjectResponse(value);
+    },
+    async getAgentProject(projectId, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/projects/${encodeURIComponent(projectId)}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return agentProjectResponse(value, projectId);
+    },
+    async updateAgentProject(projectId, project, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/projects/${encodeURIComponent(projectId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(project),
+        },
+        signal,
+        true,
+        true,
+      );
+      return agentProjectResponse(value, projectId);
+    },
+    async deleteAgentProject(projectId, command, signal) {
+      const query = new URLSearchParams({
+        expected_revision: String(command.expected_revision),
+      });
+      await request<void>(
+        `/v1/agent/projects/${encodeURIComponent(projectId)}?${query.toString()}`,
+        { method: "DELETE" },
+        signal,
+        true,
+        true,
+        false,
+        "no_content",
+      );
+    },
+    async listAgentCatalogSessions(query: AgentCatalogSessionQuery = {}, signal) {
+      const { projectId, ...catalogQuery } = query;
+      const path = projectId === undefined
+        ? "/v1/agent/catalog/sessions"
+        : `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions`;
+      const value = await request<unknown>(
+        `${path}${agentCatalogQuery(catalogQuery)}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return agentCatalogSessionListResponse(value, projectId);
+    },
+    async getAgentCatalogSession(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/catalog/sessions/${encodeURIComponent(sessionId)}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return agentCatalogSessionResponse(value, sessionId);
+    },
+    async updateAgentCatalogSession(sessionId, session, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/catalog/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(session),
+        },
+        signal,
+        true,
+        true,
+      );
+      return agentCatalogSessionResponse(value, sessionId);
+    },
+    async deleteAgentCatalogSession(sessionId, command, signal) {
+      const query = new URLSearchParams({
+        expected_catalog_revision: String(command.expected_catalog_revision),
+        expected_history_revision: String(command.expected_history_revision),
+      });
+      await request<void>(
+        `/v1/agent/catalog/sessions/${encodeURIComponent(sessionId)}?${query.toString()}`,
+        { method: "DELETE" },
+        signal,
+        true,
+        true,
+        false,
+        "no_content",
+      );
+    },
+    async getAgentPersistedEvents(projectId, sessionId, after, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/events?after=${after}&limit=${AGENT_EVENT_PAGE_LIMIT}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseAgentEvents(value, sessionId, after);
+      } catch (error) {
+        if (error instanceof AgentEventPayloadError) {
+          throw new TransportError("Retained agent history response was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async forkAgentSession(projectId, sessionId, command, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/forks`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(command),
+        },
+        signal,
+        true,
+        true,
+      );
+      return agentSessionForkResponse(
+        value,
+        command.request_id,
+        projectId,
+        sessionId,
+      );
+    },
+    async resumeAgentSession(projectId, sessionId, resume: ResumeAgentSession, signal) {
+      const recovered = agentSessionResponse(
+        await request<unknown>(
+          `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/resume`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(resume),
+          },
+          signal,
+          true,
+          true,
+        ),
+        sessionId,
+      );
+      if (recovered.settings.project_id !== projectId) {
+        throw new TransportError("Recovered Agent session project identity was invalid", 200);
+      }
+      return recovered;
+    },
+    async exportAgentHistory(projectId, sessionId, exportRequest, signal): Promise<AgentHistoryExport> {
+      if (
+        !Number.isSafeInteger(exportRequest.expected_catalog_revision)
+        || exportRequest.expected_catalog_revision < 1
+        || !Number.isSafeInteger(exportRequest.expected_history_revision)
+        || exportRequest.expected_history_revision < 0
+      ) {
+        throw new TransportError("Agent history export revision was invalid", 400);
+      }
+      const query = new URLSearchParams({
+        expected_catalog_revision: String(exportRequest.expected_catalog_revision),
+        expected_history_revision: String(exportRequest.expected_history_revision),
+      });
+      const value = await request<unknown>(
+        `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/export?${query.toString()}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseAgentHistoryExport(value, projectId, sessionId);
+      } catch (error) {
+        if (error instanceof AgentHistoryPayloadError) {
+          throw new TransportError("Agent history export response was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async listAgentArtifacts(projectId, sessionId, view = "active", signal) {
+      if (!["active", "archived", "removed", "all"].includes(view)) {
+        throw new TransportError("Agent artifact lifecycle view was invalid", 400);
+      }
+      const query = new URLSearchParams({ view });
+      const value = await request<unknown>(
+        `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts?${query.toString()}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return agentArtifactListResponse(value, projectId, sessionId, view);
+    },
+    async getAgentArtifact(projectId, sessionId, artifactId, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return agentArtifactDetailResponse(value, projectId, sessionId, artifactId);
+    },
+    async exportAgentArtifact(projectId, sessionId, artifactId, exportRequest, signal) {
+      if (
+        !Number.isSafeInteger(exportRequest.expected_revision)
+        || exportRequest.expected_revision < 1
+        || exportRequest.expected_revision > Number.MAX_SAFE_INTEGER
+        || !/^[0-9a-f]{32}$/u.test(exportRequest.version_id)
+      ) {
+        throw new TransportError("Agent artifact export request was invalid", 400);
+      }
+      const path = `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/export`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(exportRequest),
+        },
+        signal,
+        true,
+        true,
+      );
+      return agentArtifactExportResponse(
+        value,
+        projectId,
+        sessionId,
+        artifactId,
+        exportRequest,
+      );
+    },
+    async updateAgentArtifact(
+      projectId,
+      sessionId,
+      artifactId,
+      update: UpdateAgentArtifact,
+      signal,
+    ) {
+      const rename = update.operation === "rename";
+      const title = update.title;
+      if (
+        !Number.isSafeInteger(update.expected_revision)
+        || update.expected_revision < 1
+        || update.expected_revision > Number.MAX_SAFE_INTEGER
+        || !["rename", "archive", "restore", "recover"].includes(update.operation)
+        || (rename && (
+          typeof title !== "string"
+          || title !== title.trim()
+          || Array.from(title).length < 1
+          || Array.from(title).length > 120
+        ))
+        || (!rename && title !== undefined && title !== null)
+      ) {
+        throw new TransportError("Agent artifact lifecycle request was invalid", 400);
+      }
+      const path = `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(update),
+        },
+        signal,
+        true,
+        true,
+      );
+      return agentArtifactResponse(value, projectId, sessionId, artifactId);
+    },
+    async removeAgentArtifact(
+      projectId,
+      sessionId,
+      artifactId,
+      removal: RemoveAgentArtifact,
+      signal,
+    ) {
+      if (
+        !Number.isSafeInteger(removal.expected_revision)
+        || removal.expected_revision < 1
+        || removal.expected_revision > Number.MAX_SAFE_INTEGER
+        || removal.confirmation !== "move_archived_artifact_record_to_removed"
+      ) {
+        throw new TransportError("Agent artifact removal request was invalid", 400);
+      }
+      const path = `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/remove`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(removal),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      return agentArtifactResponse(value, projectId, sessionId, artifactId);
+    },
+    async previewAgentArtifactCapture(projectId, sessionId, preview, signal) {
+      const path = `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts/capture-preview`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(preview),
+        },
+        signal,
+        false,
+        true,
+      );
+      return agentArtifactCapturePreviewResponse(value, projectId, sessionId, preview);
+    },
+    async captureAgentArtifact(
+      projectId,
+      sessionId,
+      capture: CaptureAgentArtifact,
+      signal,
+    ) {
+      const path = `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(capture),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      return agentArtifactDetailResponse(value, projectId, sessionId);
+    },
+    async getAgentArtifactDocumentPreview(
+      projectId,
+      sessionId,
+      artifactId,
+      version,
+      signal,
+    ) {
+      const path = `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(version.version_id)}/preview`;
+      const value = await request<unknown>(
+        path,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return agentArtifactDocumentPreviewResponse(
+        value,
+        projectId,
+        sessionId,
+        artifactId,
+        version,
+      );
+    },
+    getAgentArtifactContent(
+      projectId,
+      sessionId,
+      artifactId,
+      versionId,
+      download,
+      signal,
+    ) {
+      const path = `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}/content${download ? "?download=true" : ""}`;
+      return requestAgentArtifactContent(
+        path,
+        download ? "attachment" : "inline",
+        signal,
+      );
+    },
+    async listAgentSessions(signal) {
+      const value = await request<unknown>("/v1/agent/sessions", { method: "GET" }, signal);
+      if (!Array.isArray(value) || value.length > 12) throw new TransportError("Local agent session response was invalid", 200);
+      const views = value.map((item) => agentSessionResponse(item));
+      if (new Set(views.map((item) => item.session_id)).size !== views.length) throw new TransportError("Local agent session response was invalid", 200);
+      return views;
+    },
+    async createAgentSession(settings, signal) {
+      return agentSessionResponse(await request<unknown>("/v1/agent/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }, signal, true));
+    },
+    async getAgentSession(sessionId, signal) {
+      return agentSessionResponse(await request<unknown>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" }, signal), sessionId);
+    },
+    async getAgentSessionContext(sessionId, signal) {
+      return agentSessionContextResponse(
+        await request<unknown>(
+          `/v1/agent/sessions/${encodeURIComponent(sessionId)}/context`,
+          { method: "GET" },
+          signal,
+        ),
+        sessionId,
+      );
+    },
+    async switchAgentSessionModel(sessionId, model, signal) {
+      return agentSessionResponse(
+        await request<unknown>(
+          `/v1/agent/sessions/${encodeURIComponent(sessionId)}/model`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(model),
+          },
+          signal,
+          true,
+        ),
+        sessionId,
+      );
+    },
+    async revalidateAgentAuthority(sessionId, authority: RevalidateAgentAuthority, signal) {
+      return agentSessionResponse(
+        await request<unknown>(
+          `/v1/agent/sessions/${encodeURIComponent(sessionId)}/authority`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(authority),
+          },
+          signal,
+          true,
+          true,
+          true,
+        ),
+        sessionId,
+      );
     },
     async deleteAgentSession(sessionId, signal) {
-      await request<unknown>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }, signal);
+      await request<void>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}`,
+        { method: "DELETE" }, signal, true, false, false, "no_content",
+      );
     },
-    sendAgentMessage(sessionId, text, signal) {
-      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }, signal, true);
+    async listAgentAttachments(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/attachments`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentAttachmentList(value, sessionId);
+      } catch (error) {
+        if (error instanceof AgentAttachmentPayloadError) {
+          throw new TransportError("Local Agent attachment list was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async stageAgentAttachment(sessionId, upload, signal) {
+      if (
+        upload.displayName.length < 1
+        || Array.from(upload.displayName).length > 120
+        || /[\\/\u0000-\u001f\u007f]/u.test(upload.displayName)
+        || (upload.source !== "file" && upload.source !== "microphone")
+        || ![
+          "image/png",
+          "image/jpeg",
+          "audio/wav",
+          "text/plain",
+          "text/markdown",
+          "application/json",
+          "text/csv",
+          "text/tab-separated-values",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.oasis.opendocument.text",
+        ].includes(upload.blob.type)
+        || upload.blob.size < 1
+        || upload.blob.size > 12 * 1024 * 1024
+      ) throw new TransportError("Local Agent attachment upload was invalid", 422);
+      const path = `/v1/agent/sessions/${encodeURIComponent(sessionId)}/attachments?name=${encodeURIComponent(upload.displayName)}&source=${upload.source}`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "POST",
+          headers: { "Content-Type": upload.blob.type },
+          body: upload.blob,
+        },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentAttachment(value, sessionId);
+      } catch (error) {
+        if (error instanceof AgentAttachmentPayloadError) {
+          throw new TransportError("Local Agent attachment response was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async deleteAgentAttachment(sessionId, attachmentId, signal) {
+      await request<void>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}`,
+        { method: "DELETE" },
+        signal,
+        true,
+        true,
+        false,
+        "no_content",
+      );
+    },
+    async getAgentAttachmentContent(sessionId, attachmentId, signal) {
+      return requestAgentAttachmentContent(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/content`,
+        signal,
+      );
+    },
+    async getAgentAttachmentDocumentPreview(sessionId, attachmentId, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/document-preview`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentAttachmentDocumentPreview(value, sessionId, attachmentId);
+      } catch (error) {
+        if (error instanceof AgentAttachmentPayloadError) {
+          throw new TransportError("Local Agent document preview was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async sendAgentMessage(sessionId, text, attachmentIds = [], signal) {
+      return agentSessionResponse(await request<unknown>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, attachment_ids: [...attachmentIds] }) }, signal, true), sessionId);
+    },
+    async getAgentChangeSet(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/changes`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentChangeSet(value, sessionId);
+      } catch (error) {
+        if (error instanceof AgentChangeSetPayloadError) {
+          throw new TransportError("Local agent change-set response was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async getAgentChangeDiff(sessionId, path, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/changes/diff?path=${encodeURIComponent(path)}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentChangeDiff(value, sessionId, path);
+      } catch (error) {
+        if (error instanceof AgentChangeSetPayloadError) {
+          throw new TransportError("Local agent change diff response was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async previewAgentChangeRestore(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/changes/restores`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentChangeRestorePreview(value, sessionId, payload.path);
+      } catch (error) {
+        if (error instanceof AgentChangeRestorePayloadError) {
+          throw new TransportError("Local agent change restore preview was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async applyAgentChangeRestore(sessionId, previewId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/changes/restores/${encodeURIComponent(previewId)}/apply`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentChangeRestoreResult(
+          value,
+          sessionId,
+          payload.path,
+          payload.operation,
+        );
+      } catch (error) {
+        if (error instanceof AgentChangeRestorePayloadError) {
+          throw new TransportError("Local agent change restore result was invalid", 200);
+        }
+        throw error;
+      }
     },
     async getAgentEvents(sessionId, after, signal) {
       const value = await request<unknown>(
@@ -2822,17 +5624,36 @@ export function createHttpTransport(options: {
         reader.releaseLock();
       }
     },
-    decideAgentApproval(sessionId, approvalId, approved, signal) {
-      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(approvalId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved }) }, signal, false, false, true);
+    async decideAgentApproval(sessionId, approvalId, approved, signal) {
+      return agentSessionResponse(await request<unknown>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(approvalId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved }) }, signal, true, false, true), sessionId);
     },
-    stopAgentSession(sessionId, signal) {
-      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" }, signal);
+    async stopAgentSession(sessionId, signal) {
+      return agentSessionResponse(await request<unknown>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" }, signal), sessionId);
+    },
+    async getAgentWorkspaceDiscovery(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/discovery`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceDiscovery(value, sessionId);
+      } catch (error) {
+        if (error instanceof AgentWorkspaceDiscoveryPayloadError) {
+          throw new TransportError("Local agent workspace discovery response was invalid", 200);
+        }
+        throw error;
+      }
     },
     async getAgentWorkspaceTree(sessionId, path, signal) {
       const value = await request<unknown>(
         `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/tree?path=${encodeURIComponent(path)}`,
         { method: "GET" },
         signal,
+        true,
+        true,
       );
       try {
         return parseAgentWorkspaceTree(value, sessionId, path);
@@ -2843,11 +5664,35 @@ export function createHttpTransport(options: {
         throw error;
       }
     },
+    async getAgentWorkspaceSearch(sessionId, search, signal) {
+      const params = new URLSearchParams({
+        query: search.query,
+        glob: search.glob,
+        regex: search.regex ? "true" : "false",
+      });
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/search?${params.toString()}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceSearchResult(value, sessionId);
+      } catch (error) {
+        if (error instanceof AgentWorkspaceSearchPayloadError) {
+          throw new TransportError("Local agent workspace search response was invalid", 200);
+        }
+        throw error;
+      }
+    },
     async getAgentWorkspaceFile(sessionId, path, signal) {
       const value = await request<unknown>(
         `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/file?path=${encodeURIComponent(path)}`,
         { method: "GET" },
         signal,
+        true,
+        true,
       );
       try {
         return parseAgentWorkspaceFile(value, sessionId, path);
@@ -2863,6 +5708,8 @@ export function createHttpTransport(options: {
         `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/previews`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         signal,
+        true,
+        true,
       );
       try {
         return parseAgentWorkspacePreview(
@@ -2884,8 +5731,8 @@ export function createHttpTransport(options: {
         `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/previews/${encodeURIComponent(previewId)}/apply`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         signal,
-        false,
-        false,
+        true,
+        true,
         true,
       );
       try {
@@ -2902,8 +5749,247 @@ export function createHttpTransport(options: {
         throw error;
       }
     },
+    async previewAgentWorkspaceCreate(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/creates`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+      );
+      try {
+        const diskContent = payload.line_ending === "crlf"
+          ? payload.content.replaceAll("\n", "\r\n")
+          : payload.content;
+        return parseAgentWorkspaceCreatePreview(
+          value,
+          sessionId,
+          payload.path,
+          payload.line_ending,
+          new TextEncoder().encode(diskContent).byteLength,
+        );
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace create preview was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async applyAgentWorkspaceCreate(sessionId, preview, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/creates/${encodeURIComponent(preview.preview_id)}/apply`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceCreateResult(value, sessionId, preview);
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace create result was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async previewAgentWorkspaceDirectoryCreate(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/directories`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceDirectoryCreatePreview(
+          value,
+          sessionId,
+          payload.path,
+        );
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace directory preview was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async applyAgentWorkspaceDirectoryCreate(sessionId, preview, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/directories/${encodeURIComponent(preview.preview_id)}/apply`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceDirectoryCreateResult(value, sessionId, preview);
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace directory result was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async previewAgentWorkspaceDirectoryMove(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/directory-moves`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceDirectoryMovePreview(
+          value,
+          sessionId,
+          payload.source_path,
+          payload.target_path,
+        );
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace directory move preview was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async applyAgentWorkspaceDirectoryMove(sessionId, preview, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/directory-moves/${encodeURIComponent(preview.preview_id)}/apply`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceDirectoryMoveResult(value, sessionId, preview);
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace directory move result was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async previewAgentWorkspaceFileTrash(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/file-trash`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceFileTrashPreview(
+          value,
+          sessionId,
+          payload.path,
+          payload.expected_revision,
+        );
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace Recycle Bin preview was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async applyAgentWorkspaceFileTrash(sessionId, preview, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/file-trash/${encodeURIComponent(preview.preview_id)}/apply`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceFileTrashResult(value, sessionId, preview);
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace Recycle Bin result was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async previewAgentWorkspaceMove(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/moves`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceMovePreview(
+          value,
+          sessionId,
+          payload.source_path,
+          payload.target_path,
+          payload.expected_revision,
+        );
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace move preview was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async applyAgentWorkspaceMove(sessionId, preview, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/moves/${encodeURIComponent(preview.preview_id)}/apply`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceMoveResult(value, sessionId, preview);
+      } catch (error) {
+        if (error instanceof AgentWorkspaceLifecyclePayloadError) {
+          throw new TransportError("Local agent workspace move result was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async previewAgentWorkspaceTransaction(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/transactions`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceTransactionPreview(value, sessionId, payload);
+      } catch (error) {
+        if (error instanceof AgentWorkspaceTransactionPayloadError) {
+          throw new TransportError("Local agent workspace transaction preview was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async applyAgentWorkspaceTransaction(sessionId, preview, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/transactions/${encodeURIComponent(preview.plan_id)}/apply`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseAgentWorkspaceTransactionResult(value, sessionId, preview);
+      } catch (error) {
+        if (error instanceof AgentWorkspaceTransactionPayloadError) {
+          throw new TransportError("Local agent workspace transaction result was invalid", 200);
+        }
+        throw error;
+      }
+    },
     interpretSessionWithModel(sessionId, signal) {
-      return request<SessionInterpretation>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}/interpret`, { method: "POST" }, signal);
+      return request<SessionInterpretation>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}/interpret`, { method: "POST" }, signal, true);
     },
     getModelJudgments(sessionId, signal) {
       return request<SessionJudgments>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" }, signal);
@@ -2973,6 +6059,21 @@ export function createHttpTransport(options: {
     getLocalModels(signal) {
       return request<LocalModelsOverview>("/v1/local-models", { method: "GET" }, signal);
     },
+    async getLocalModelPlacement(alias, contextSize, signal) {
+      const query = new URLSearchParams({ context_size: String(contextSize) });
+      return parseLocalModelPlacement(
+        await request<unknown>(
+          `/v1/local-models/${encodeURIComponent(alias)}/placement?${query.toString()}`,
+          { method: "GET" },
+          signal,
+        ),
+      );
+    },
+    async getLocalModelCompatibility(signal) {
+      return localModelCompatibilityResponse(
+        await request<unknown>("/v1/local-models/compatibility", { method: "GET" }, signal),
+      );
+    },
     addLocalModel(payload, signal) {
       return request<LocalModelRecord>(
         "/v1/local-models",
@@ -2992,6 +6093,39 @@ export function createHttpTransport(options: {
         `/v1/local-models/${encodeURIComponent(alias)}/deactivate`,
         { method: "POST" },
         signal,
+      );
+    },
+    async getLocalRuntime(signal) {
+      return localRuntimeResponse(
+        await request<unknown>("/v1/local-models/runtime", { method: "GET" }, signal),
+      );
+    },
+    async switchLocalRuntime(payload, signal) {
+      return localRuntimeResponse(
+        await request<unknown>(
+          "/v1/local-models/runtime/switch",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+        ),
+      );
+    },
+    async stopLocalRuntime(payload, signal) {
+      return localRuntimeResponse(
+        await request<unknown>(
+          "/v1/local-models/runtime/stop",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          signal,
+          true,
+        ),
       );
     },
     async removeLocalModel(alias, deleteWeights, signal) {
@@ -3067,70 +6201,13 @@ export function createHttpTransport(options: {
         }
         throw new TransportError(`Local model chat failed (${response.status})`, response.status, reasonCode);
       }
-      const result: LocalModelChatResult = { content: "", reasoning: "", finish_reason: null, elapsed_ms: 0 };
-      const apply = (delta: LocalModelChatDelta) => {
-        if (delta.content) result.content += delta.content;
-        if (delta.reasoning) result.reasoning += delta.reasoning;
-        onDelta(delta);
-      };
-      const contentType = response.headers.get("content-type") ?? "";
-      if (!contentType.startsWith("text/event-stream")) {
-        // A runtime that ignored `stream` still answers with one JSON body.
-        const whole = (await response.json()) as { choices?: { message?: { content?: unknown; reasoning_content?: unknown }; finish_reason?: unknown }[] };
-        const choice = whole.choices?.[0];
-        apply({
-          content: typeof choice?.message?.content === "string" ? choice.message.content : "",
-          reasoning: typeof choice?.message?.reasoning_content === "string" ? choice.message.reasoning_content : "",
-        });
-        result.finish_reason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null;
-        result.elapsed_ms = Date.now() - started;
-        return result;
-      }
-      if (!response.body) {
-        throw new TransportError("Local model chat returned no stream", response.status);
-      }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffered = "";
-      let finished = false;
-      while (!finished) {
-        const { value, done } = await reader.read();
-        buffered += done ? decoder.decode() : decoder.decode(value, { stream: true });
-        let newline = buffered.indexOf("\n");
-        while (newline !== -1) {
-          const line = buffered.slice(0, newline).replace(/\r$/, "");
-          buffered = buffered.slice(newline + 1);
-          newline = buffered.indexOf("\n");
-          if (!line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (data === "[DONE]") {
-            finished = true;
-            break;
-          }
-          let event: unknown;
-          try {
-            event = JSON.parse(data);
-          } catch {
-            continue;
-          }
-          const choice = (event as { choices?: { delta?: { content?: unknown; reasoning_content?: unknown }; finish_reason?: unknown }[] }).choices?.[0];
-          if (!choice) continue;
-          const delta = choice.delta ?? {};
-          apply({
-            content: typeof delta.content === "string" ? delta.content : "",
-            reasoning: typeof delta.reasoning_content === "string" ? delta.reasoning_content : "",
-          });
-          if (typeof choice.finish_reason === "string") result.finish_reason = choice.finish_reason;
-        }
-        if (done) break;
-      }
       try {
-        await reader.cancel();
+        return await readLocalModelChat(response, onDelta, signal, started);
       } catch {
-        // The stream is already closed; nothing to release.
+        if (signal?.aborted) throw new DOMException("The model reply was cancelled.", "AbortError");
+        // No raw runtime payload, parse detail or reader exception leaves this boundary.
+        throw new TransportError("The local model reply did not complete.", response.status);
       }
-      result.elapsed_ms = Date.now() - started;
-      return result;
     },
     getProjectTimeline(projectId, signal) {
       return request<ProjectTimeline>(
@@ -3150,11 +6227,18 @@ export function createHttpTransport(options: {
       const query = raterLabel ? `?rater_label=${encodeURIComponent(raterLabel)}` : "";
       return request<CalibrationSample>(`/v1/calibration/sample${query}`, { method: "GET" }, signal);
     },
+    reviewCalibrationCase(sessionId, windowCharacters, signal) {
+      return request<CalibrationReview>("/v1/calibration/review", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, window_characters: windowCharacters }),
+      }, signal, true, true);
+    },
     submitCalibrationRatings(payload, signal) {
       return request<CalibrationProgress>(
         "/v1/calibration/ratings",
         { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         signal,
+        true,
       );
     },
     getCalibrationRatings(raterLabel, signal) {
@@ -3176,6 +6260,34 @@ export function createHttpTransport(options: {
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         signal,
         true,
+      );
+    },
+    pauseLocalModelDownload(downloadId, statusRevision, signal) {
+      return request<DownloadStatus>(
+        `/v1/local-models/downloads/${encodeURIComponent(downloadId)}/pause`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_status_revision: statusRevision }) },
+        signal,
+      );
+    },
+    resumeLocalModelDownload(downloadId, statusRevision, signal) {
+      return request<DownloadStatus>(
+        `/v1/local-models/downloads/${encodeURIComponent(downloadId)}/resume`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_status_revision: statusRevision }) },
+        signal,
+      );
+    },
+    retryLocalModelDownload(downloadId, statusRevision, signal) {
+      return request<DownloadStatus>(
+        `/v1/local-models/downloads/${encodeURIComponent(downloadId)}/retry`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_status_revision: statusRevision }) },
+        signal,
+      );
+    },
+    cancelLocalModelDownload(downloadId, statusRevision, signal) {
+      return request<DownloadStatus>(
+        `/v1/local-models/downloads/${encodeURIComponent(downloadId)}/cancel`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_status_revision: statusRevision }) },
+        signal,
       );
     },
     getSessionTranscript(sessionId, signal) {

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { exampleAgentSession } from "./agentSession.test-support";
+import { exampleAgentOrchestrationManifest } from "./agentOrchestrationFixtures.test-support";
 import type {
+  AgentArtifactVersion,
   AgentSettings,
   AnalysisJobState,
   AutomationGrantRecord,
@@ -71,6 +74,7 @@ const AUTH_RESPONSE = {
 const USER_PRESENCE_TOKEN = "u".repeat(48);
 const AGENT_SETTINGS: AgentSettings = {
   workspace: "D:\\example\\workspace",
+  project_id: "b".repeat(32),
   model_alias: "synthetic-model",
   parameters: {
     temperature: 0.2,
@@ -85,7 +89,200 @@ const AGENT_SETTINGS: AgentSettings = {
   max_steps: 10,
   command_timeout_seconds: 120,
   title: null,
+  retention_policy: "metadata_only",
 };
+const AGENT_PROJECT_ID = "1".repeat(32);
+const AGENT_CATALOG_SESSION_ID = "2".repeat(32);
+const AGENT_ARTIFACT_ID = "3".repeat(32);
+const AGENT_ARTIFACT_VERSION_ID = "4".repeat(32);
+const AGENT_ATTACHMENT_ID = "5".repeat(32);
+
+function agentProject(overrides: Record<string, unknown> = {}) {
+  return {
+    contract_version: "agent-catalog.v2",
+    project_id: AGENT_PROJECT_ID,
+    name: "Example project",
+    created_at: "2040-01-01T10:00:00Z",
+    updated_at: "2040-01-01T10:01:00Z",
+    revision: 2,
+    pinned: false,
+    archived_at: null,
+    session_count: 1,
+    is_default: false,
+    ...overrides,
+  };
+}
+
+function agentCatalogSession(overrides: Record<string, unknown> = {}) {
+  return {
+    contract_version: "agent-catalog.v2",
+    session_id: AGENT_CATALOG_SESSION_ID,
+    project_id: AGENT_PROJECT_ID,
+    title: "Example chat",
+    workspace: "D:\\example\\workspace",
+    model_alias: "example-model",
+    created_at: "2040-01-01T10:00:00Z",
+    updated_at: "2040-01-01T10:01:00Z",
+    last_opened_at: "2040-01-01T10:00:00Z",
+    revision: 2,
+    pinned: true,
+    archived_at: null,
+    history_state: "memory_only",
+    retention_policy: "metadata_only",
+    history_revision: 0,
+    last_event_seq: 0,
+    turn_count: 0,
+    conversation_available: false,
+    lineage: null,
+    ...overrides,
+  };
+}
+
+function agentArtifactVersion(overrides: Record<string, unknown> = {}) {
+  return {
+    contract_version: "agent-artifact.v3",
+    version_id: AGENT_ARTIFACT_VERSION_ID,
+    artifact_id: AGENT_ARTIFACT_ID,
+    version_number: 1,
+    created_at: "2040-01-01T10:01:00Z",
+    path: "docs/example.md",
+    media_type: "text/markdown; charset=utf-8",
+    preview_kind: "text",
+    provenance: "verified_output",
+    sha256: "5".repeat(64),
+    byte_size: 27,
+    source_turn_id: null,
+    source_event_seq: null,
+    ...overrides,
+  };
+}
+
+function agentArtifact(overrides: Record<string, unknown> = {}) {
+  return {
+    contract_version: "agent-artifact.v3",
+    artifact_id: AGENT_ARTIFACT_ID,
+    project_id: AGENT_PROJECT_ID,
+    session_id: AGENT_CATALOG_SESSION_ID,
+    title: "example.md",
+    kind: "markdown",
+    path: "docs/example.md",
+    created_at: "2040-01-01T10:01:00Z",
+    updated_at: "2040-01-01T10:01:00Z",
+    revision: 1,
+    version_count: 1,
+    availability: "available",
+    lifecycle_state: "active",
+    archived_at: null,
+    removed_at: null,
+    latest_version: agentArtifactVersion(),
+    ...overrides,
+  };
+}
+
+function agentArtifactExport(overrides: Record<string, unknown> = {}) {
+  const selected = agentArtifactVersion();
+  return {
+    contract_version: "agent-artifact-export.v1",
+    exported_at: "2040-01-01T10:04:00Z",
+    artifact: { ...agentArtifact(), versions: [selected] },
+    selected_version: selected,
+    evidence: {
+      verification: "exact_current_workspace_readback",
+      algorithm: "sha256",
+      sha256: selected.sha256,
+      byte_size: selected.byte_size,
+      verified: true,
+    },
+    content_included: false,
+    absolute_path_included: false,
+    sensitivity: "sensitive_local_metadata",
+    ...overrides,
+  };
+}
+
+function agentAttachment(overrides: Record<string, unknown> = {}) {
+  return {
+    contract_version: "agent-attachment.v2",
+    attachment_id: AGENT_ATTACHMENT_ID,
+    session_id: AGENT_CATALOG_SESSION_ID,
+    display_name: "example.png",
+    kind: "image",
+    media_type: "image/png",
+    byte_size: 3,
+    sha256: "6".repeat(64),
+    width: 1,
+    height: 1,
+    duration_ms: null,
+    sample_rate_hz: null,
+    channels: null,
+    routing: "native_multimodal",
+    document_format: null,
+    projected_characters: null,
+    projection_truncated: null,
+    omitted_features: [],
+    context_tokens: null,
+    context_cost_source: "runtime_unreported",
+    model_alias: "example-model",
+    capability_probe_version: "local-runtime-multimodal-probe.v2",
+    source: "file",
+    retention: "memory_only",
+    state: "staged",
+    created_at: "2040-01-01T10:00:00Z",
+    expires_at: "2040-01-01T11:00:00Z",
+    attached_event_seq: null,
+    ...overrides,
+  };
+}
+
+function privateArtifactResponse(body: BodyInit, contentType = "text/plain; charset=utf-8") {
+  const byteSize = typeof body === "string" ? new TextEncoder().encode(body).length : 27;
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": contentType,
+      "Content-Length": String(byteSize),
+      "Content-Disposition": `inline; filename="agent-artifact-${AGENT_ARTIFACT_ID.slice(0, 8)}"`,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "no-store, private",
+      Pragma: "no-cache",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+function localRuntime(overrides: Record<string, unknown> = {}) {
+  return {
+    contract_version: "local-runtime-coordinator.v2",
+    revision: 4,
+    state: "ready",
+    requested: { alias: "example-model", device: "split", gpu_layers: 20, context_size: 8192 },
+    served: {
+      alias: "example-model", device: "split", gpu_layers: 20, context_size: 8192,
+      started_at: "2040-01-01T10:00:00Z", pid: 1234,
+    },
+    cleanup: {
+      state: "not_required", process_exit_confirmed: true,
+      gpu_memory_free_before_mb: null, gpu_memory_free_after_mb: null,
+      gpu_memory_released_mb: null,
+    },
+    capabilities: {
+      state: "verified", probe_version: "local-runtime-multimodal-probe.v2",
+      text: true, tools: true, vision: false, audio: false, recording: false,
+      structured_output: false, error_code: null,
+    },
+    context: {
+      state: "unknown", used_tokens: null, limit_tokens: 8192,
+      requested_output_tokens: null, available_output_tokens: null,
+      source: "runtime_limit_only", scope: "runtime_limit", policy: "runtime_enforced",
+      compacted_messages: 0, reason_code: "no_request_measured",
+    },
+    active_requests: 0,
+    last_error_code: null,
+    ...overrides,
+  };
+}
 
 async function sha256(value: string): Promise<string> {
   const digest = new Uint8Array(
@@ -510,6 +707,21 @@ describe("same-origin HTTP transport", () => {
       reasonCode: "local_model_execution_failed",
     });
     expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+  });
+
+  it("preserves the fixed model-cleanup reason without exposing server error text", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: {
+        code: "model_ensemble_cleanup_unconfirmed", message: "SYNTHETIC_PRIVATE_CANARY",
+      } }, 503));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const error = await transport.startModelEnsemble("a".repeat(64), {
+      confirmation: "run_local_metric_cascade_on_selected_redacted_text",
+    }, "example-cleanup-error").catch((value: unknown) => value);
+    expect(error).toMatchObject({ status: 503, reasonCode: "model_ensemble_cleanup_unconfirmed" });
+    expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("reads the content-free research catalog without a mutation", async () => {
@@ -2317,6 +2529,1302 @@ describe("same-origin HTTP transport", () => {
 });
 
 describe("local agent model-readiness transport", () => {
+  it("uses revision-bound runtime and session-model endpoints without losing identity", async () => {
+    const switchedSession = exampleAgentSession({
+      model_alias: "example-model",
+      settings: { ...exampleAgentSession().settings, model_alias: "example-model" },
+    });
+    const idle = localRuntime({
+      revision: 6,
+      state: "idle",
+      requested: null,
+      served: null,
+      capabilities: {
+        ...localRuntime().capabilities,
+        state: "not_probed",
+        text: false,
+        tools: false,
+      },
+      context: {
+        ...localRuntime().context,
+        limit_tokens: null,
+        reason_code: "runtime_not_served",
+      },
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(localRuntime()))
+      .mockResolvedValueOnce(jsonResponse(localRuntime({ revision: 5 })))
+      .mockResolvedValueOnce(jsonResponse(switchedSession))
+      .mockResolvedValueOnce(jsonResponse(idle));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getLocalRuntime()).resolves.toMatchObject({
+      state: "ready",
+      served: { alias: "example-model" },
+    });
+    await expect(transport.switchLocalRuntime({
+      alias: "example-model",
+      expected_revision: 4,
+      device: "split",
+      gpu_layers: 20,
+      context_size: 8192,
+      remember: true,
+      fast_attention: true,
+      tool_calling: true,
+    })).resolves.toMatchObject({ revision: 5, state: "ready" });
+    await expect(transport.switchAgentSessionModel(switchedSession.session_id, {
+      model_alias: "example-model",
+      expected_revision: 2,
+    })).resolves.toMatchObject({ model_alias: "example-model" });
+    await expect(transport.stopLocalRuntime({
+      alias: "example-model",
+      expected_revision: 5,
+    })).resolves.toMatchObject({ revision: 6, state: "idle" });
+
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      "/v1/local-models/runtime",
+      "/v1/local-models/runtime/switch",
+      `/v1/agent/sessions/${switchedSession.session_id}/model`,
+      "/v1/local-models/runtime/stop",
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toMatchObject({
+      alias: "example-model",
+      expected_revision: 4,
+      device: "split",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({
+      model_alias: "example-model",
+      expected_revision: 2,
+    });
+  });
+
+  it("requests context-bound placement admission without exposing a model path", async () => {
+    const admission = {
+      contract_version: "local-model-placement.v1",
+      alias: "example-model",
+      context_size: 32768,
+      gpu_memory_free_mb: 12000,
+      actual_offload_verified: false,
+      options: [
+        { device: "gpu", state: "available", reason_code: "gpu_estimate_fits", recommended_gpu_layers: 8, estimated_vram_required_mb: 6000 },
+        { device: "split", state: "available", reason_code: "split_estimate_available", recommended_gpu_layers: 6, estimated_vram_required_mb: 5000 },
+        { device: "cpu", state: "available", reason_code: "cpu_available", recommended_gpu_layers: 0, estimated_vram_required_mb: 0 },
+      ],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(admission));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getLocalModelPlacement("example-model", 32768)).resolves.toEqual(admission);
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/v1/local-models/example-model/placement?context_size=32768",
+    );
+    expect(JSON.stringify(fetchMock.mock.calls[1])).not.toContain("models\\example");
+  });
+
+  it("sends revision-checked durable download commands to their exact closed routes", async () => {
+    const downloadId = "d".repeat(64);
+    const response = { download_id: downloadId, state: "paused", status_revision: 10 };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(response))
+      .mockResolvedValueOnce(jsonResponse(response))
+      .mockResolvedValueOnce(jsonResponse(response))
+      .mockResolvedValueOnce(jsonResponse(response));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await transport.pauseLocalModelDownload(downloadId, 6);
+    await transport.resumeLocalModelDownload(downloadId, 7);
+    await transport.retryLocalModelDownload(downloadId, 8);
+    await transport.cancelLocalModelDownload(downloadId, 9);
+
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      `/v1/local-models/downloads/${downloadId}/pause`,
+      `/v1/local-models/downloads/${downloadId}/resume`,
+      `/v1/local-models/downloads/${downloadId}/retry`,
+      `/v1/local-models/downloads/${downloadId}/cancel`,
+    ]);
+    expect(fetchMock.mock.calls.slice(1).map((call) => JSON.parse(call[1].body as string))).toEqual([
+      { expected_status_revision: 6 },
+      { expected_status_revision: 7 },
+      { expected_status_revision: 8 },
+      { expected_status_revision: 9 },
+    ]);
+  });
+
+  it.each([
+    "runtime_activation_superseded",
+    "runtime_shutdown_in_progress",
+    "runtime_placement_unavailable",
+    "runtime_gpu_layers_invalid",
+    "runtime_context_unsupported",
+  ] as const)(
+    "preserves the safe %s lifecycle reason without exposing server detail",
+    async (reasonCode) => {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+        .mockResolvedValueOnce(jsonResponse({
+          detail: {
+            code: reasonCode,
+            message: "SYNTHETIC_PRIVATE_RUNTIME_DETAIL_CANARY",
+          },
+        }, 409));
+      const transport = createHttpTransport({
+        fetch: fetchMock as unknown as typeof fetch,
+        origin: "http://127.0.0.1:4173",
+      });
+
+      const error = await transport.switchLocalRuntime({
+        alias: "example-model",
+        expected_revision: 4,
+        device: "cpu",
+        gpu_layers: 0,
+        context_size: 8192,
+        remember: true,
+        fast_attention: true,
+        tool_calling: true,
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ status: 409, reasonCode });
+      expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_RUNTIME_DETAIL_CANARY");
+    },
+  );
+
+  it("reads only the strict context receipt for the requested Agent chat", async () => {
+    const sessionId = "a".repeat(32);
+    const receipt = {
+      contract_version: "agent-session-context.v1",
+      session_id: sessionId,
+      revision: 0,
+      binding_state: "unmeasured",
+      source: "runtime_chat_template_preflight",
+      unknown_reason: "no_request_measured",
+      turn_id: null,
+      turn_number: null,
+      model_alias: null,
+      observed_at: null,
+      context: null,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(receipt))
+      .mockResolvedValueOnce(privateJsonResponse({
+        ...receipt,
+        session_id: "b".repeat(32),
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getAgentSessionContext!(sessionId)).resolves.toEqual(receipt);
+    await expect(transport.getAgentSessionContext!(sessionId)).rejects.toMatchObject({ status: 200 });
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      `/v1/agent/sessions/${sessionId}/context`,
+      `/v1/agent/sessions/${sessionId}/context`,
+    ]);
+  });
+
+  it("reads the strict path-free local model compatibility receipt", async () => {
+    const receipt = {
+      contract_version: "local-model-compatibility.v1",
+      adapter: {
+        adapter_id: "llama.cpp-openai-gguf",
+        adapter_version: "llama.cpp-openai-gguf.v1",
+        runtime_version: null,
+        runtime_identity_state: "unknown",
+        runtime_binary_sha256: null,
+        capability_probe_version: "local-runtime-multimodal-probe.v2",
+      },
+      models: [{
+        alias: "example-model",
+        state: "unknown",
+        reason_code: "model_not_executed",
+        format: "gguf",
+        architecture: null,
+        tokenizer_model: null,
+        training_context_size: null,
+        metadata_reader_version: "gguf-metadata.v1",
+        artifact_identity_state: "unverified",
+        artifact_sha256: null,
+        source_revision: null,
+        source_license: null,
+        source_license_policy: null,
+        execution_state: "not_run",
+        context_counter_state: "not_run",
+      }],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(receipt));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(transport.getLocalModelCompatibility?.()).resolves.toMatchObject(receipt);
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/local-models/compatibility");
+  });
+
+  it("fails closed on an incoherent runtime status payload", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(localRuntime({
+        context: { ...localRuntime().context, limit_tokens: 4096 },
+      })));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(transport.getLocalRuntime()).rejects.toMatchObject({ status: 200 });
+  });
+
+  it("discovers the complete private Agent controller contract and rejects truncation", async () => {
+    const valid = exampleAgentOrchestrationManifest();
+    const truncated = structuredClone(valid);
+    truncated.endpoints.pop();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(valid))
+      .mockResolvedValueOnce(privateJsonResponse(truncated));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getAgentOrchestration()).resolves.toMatchObject({
+      contract_version: "local-agent-orchestration.v21",
+      route_coverage: "all_agent_routes_plus_controller_runtime_routes",
+    });
+    await expect(transport.getAgentOrchestration()).rejects.toMatchObject({ status: 200 });
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      "/v1/agent/orchestration",
+      "/v1/agent/orchestration",
+    ]);
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect(call[1]).toEqual(expect.objectContaining({ cache: "no-store" }));
+    }
+  });
+
+  it("manages direct Agent MCP credentials only through private native-confirmed requests", async () => {
+    const connectionId = "a".repeat(32);
+    const projectId = "b".repeat(32);
+    const sessionId = "c".repeat(32);
+    const token = `pemcp2.${connectionId}.1.${"A".repeat(43)}`;
+    const endpoint = "http://127.0.0.1:4173/mcp/agent";
+    const codexConfig = [
+      "[mcp_servers.prompt-enhancer-agent]",
+      `url = ${JSON.stringify(endpoint)}`,
+      'bearer_token_env_var = "PROMPT_ENHANCER_AGENT_MCP_TOKEN"',
+      "tool_timeout_sec = 330",
+      'default_tools_approval_mode = "prompt"',
+    ].join("\n");
+    const claudeConfig = JSON.stringify({
+      mcpServers: {
+        "prompt-enhancer-agent": {
+          type: "http",
+          url: endpoint,
+          headers: {
+            Authorization: "Bearer ${PROMPT_ENHANCER_AGENT_MCP_TOKEN}",
+          },
+        },
+      },
+    });
+    const connection = {
+      contract_version: "agent-mcp-connection.v4",
+      connection_id: connectionId,
+      label: "Synthetic Codex connection",
+      client_kind: "codex",
+      created_at: "2026-08-28T12:00:00+00:00",
+      updated_at: "2026-08-28T12:00:00+00:00",
+      expires_at: "2026-11-26T12:00:00+00:00",
+      last_used_at: null,
+      last_tool_at: null,
+      last_tool_name: null,
+      last_tool_outcome: null,
+      last_tool_source: null,
+      last_auth_rejected_at: null,
+      revoked_at: null,
+      revision: 1,
+      credential_revision: 1,
+      allow_model_lifecycle: false,
+      scope: {
+        contract_version: "agent-mcp-scope.v1",
+        state: "bound",
+        project_id: projectId,
+        project_name: "Synthetic project",
+        catalog_access: "project_only",
+        chat_access: "project_only",
+        workspace_access: "project_only",
+        native_approval_inherited: false,
+      },
+      state: "active",
+    } as const;
+    const credential = {
+      contract_version: "agent-mcp-connection.v4",
+      connection,
+      endpoint_url: endpoint,
+      bearer_token: token,
+      codex_toml: codexConfig,
+      claude_json: claudeConfig,
+      idempotent_replay: false,
+      secret_stored_by_server: false,
+      starts_process: false,
+      starts_terminal: false,
+    } as const;
+    const clientSetup = {
+      contract_version: "agent-mcp-client-setup.v1",
+      endpoint_url: endpoint,
+      bearer_token_env_var: "PROMPT_ENHANCER_AGENT_MCP_TOKEN",
+      codex_toml: codexConfig,
+      claude_json: claudeConfig,
+      codex_add_command: `codex mcp add prompt-enhancer-agent --url ${endpoint} --bearer-token-env-var PROMPT_ENHANCER_AGENT_MCP_TOKEN`,
+      claude_add_command: `claude mcp add --transport http --scope local --header 'Authorization: Bearer \${PROMPT_ENHANCER_AGENT_MCP_TOKEN}' prompt-enhancer-agent ${endpoint}`,
+      credential_included: false,
+      connection_authority_granted: false,
+      native_connection_required: true,
+      starts_process: false,
+      starts_terminal: false,
+      provider_configuration_changed: false,
+    } as const;
+    const rotatedToken = `pemcp2.${connectionId}.2.${"B".repeat(43)}`;
+    const rotated = {
+      ...credential,
+      connection: {
+        ...connection,
+        revision: 2,
+        credential_revision: 2,
+      },
+      bearer_token: rotatedToken,
+      codex_toml: codexConfig,
+      claude_json: claudeConfig,
+    };
+    const revoked = {
+      ...rotated.connection,
+      updated_at: "2026-08-29T12:00:00+00:00",
+      revoked_at: "2026-08-29T12:00:00+00:00",
+      revision: 3,
+      state: "revoked",
+    } as const;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-mcp-management.v1",
+        connections: [connection],
+        active_count: 1,
+        controller_ownerships: {
+          contract_version: "agent-controller-ownership-list.v1",
+          ownerships: [],
+          active_count: 0,
+        },
+      }))
+      .mockResolvedValueOnce(privateJsonResponse(clientSetup))
+      .mockResolvedValueOnce(privateJsonResponse(credential))
+      .mockResolvedValueOnce(privateJsonResponse(rotated))
+      .mockResolvedValueOnce(privateJsonResponse(revoked))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-controller-ownership.v1",
+        project_id: projectId,
+        session_id: sessionId,
+        released_connection_id: connectionId,
+        released_revision: 4,
+        released_at: "2026-08-29T12:01:00+00:00",
+        released_by: "native",
+        session_settled: true,
+        native_approval_inherited: false,
+      }));
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    await expect(transport.listAgentMcpConnections?.()).resolves.toMatchObject({
+      active_count: 1,
+    });
+    await expect(transport.getAgentMcpClientSetup?.()).resolves.toMatchObject({
+      endpoint_url: endpoint,
+      credential_included: false,
+      connection_authority_granted: false,
+    });
+    await expect(transport.createAgentMcpConnection?.({
+      request_id: "1".repeat(32),
+      label: "Synthetic Codex connection",
+      client_kind: "codex",
+      project_id: projectId,
+      allow_model_lifecycle: false,
+      expires_in_days: 90,
+    })).resolves.toMatchObject({ bearer_token: token, starts_process: false });
+    await expect(transport.rotateAgentMcpConnection?.(connectionId, {
+      request_id: "2".repeat(32),
+      expected_revision: 1,
+      expires_in_days: 90,
+    })).resolves.toMatchObject({ bearer_token: rotatedToken });
+    await expect(transport.revokeAgentMcpConnection?.(connectionId, {
+      expected_revision: 2,
+    })).resolves.toMatchObject({ state: "revoked", revision: 3 });
+    await expect(transport.releaseAgentControllerOwnership?.({
+      session_id: sessionId,
+      expected_revision: 4,
+    })).resolves.toMatchObject({
+      session_id: sessionId,
+      released_by: "native",
+      session_settled: true,
+    });
+
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      "/v1/integrations/agent-mcp/connections",
+      "/v1/integrations/agent-mcp/setup",
+      "/v1/integrations/agent-mcp/connections",
+      `/v1/integrations/agent-mcp/connections/${connectionId}/rotate`,
+      `/v1/integrations/agent-mcp/connections/${connectionId}/revoke`,
+      "/v1/integrations/agent-mcp/connections/ownerships/release",
+    ]);
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
+      method: "GET",
+      cache: "no-store",
+    }));
+    expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({
+      method: "GET",
+      cache: "no-store",
+    }));
+    expect(fetchMock.mock.calls[2][1]?.headers).not.toEqual(expect.objectContaining({
+      "X-Prompt-Enhancer-User-Presence": USER_PRESENCE_TOKEN,
+    }));
+    for (const call of fetchMock.mock.calls.slice(3)) {
+      expect(call[1]).toEqual(expect.objectContaining({
+        method: "POST",
+        cache: "no-store",
+        headers: expect.objectContaining({
+          "X-Prompt-Enhancer-User-Presence": USER_PRESENCE_TOKEN,
+        }),
+      }));
+    }
+    expect(approveUserPresence).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses private, versioned project and catalog-session routes with exact bindings", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-catalog.v2",
+        projects: [agentProject()],
+      }))
+      .mockResolvedValueOnce(privateJsonResponse(agentProject()))
+      .mockResolvedValueOnce(privateJsonResponse(agentProject({ name: "Renamed project", revision: 3 })))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-catalog.v2",
+        sessions: [agentCatalogSession()],
+      }))
+      .mockResolvedValueOnce(privateJsonResponse(agentCatalogSession()))
+      .mockResolvedValueOnce(privateJsonResponse(agentCatalogSession({ title: "Renamed chat", revision: 3 })))
+      .mockResolvedValueOnce(new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store, private", Pragma: "no-cache" },
+      }))
+      .mockResolvedValueOnce(new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "no-store, private", Pragma: "no-cache" },
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.listAgentProjects({
+      search: "Example name",
+      includeArchived: true,
+      limit: 25,
+    })).resolves.toMatchObject({ projects: [{ project_id: AGENT_PROJECT_ID }] });
+    await expect(transport.createAgentProject({ name: "Example project" }))
+      .resolves.toMatchObject({ project_id: AGENT_PROJECT_ID });
+    await expect(transport.updateAgentProject(AGENT_PROJECT_ID, {
+      expected_revision: 2,
+      name: "Renamed project",
+    })).resolves.toMatchObject({ name: "Renamed project", revision: 3 });
+    await expect(transport.listAgentCatalogSessions({
+      projectId: AGENT_PROJECT_ID,
+      includeArchived: false,
+      limit: 10,
+    })).resolves.toMatchObject({ sessions: [{ session_id: AGENT_CATALOG_SESSION_ID }] });
+    await expect(transport.getAgentCatalogSession(AGENT_CATALOG_SESSION_ID))
+      .resolves.toMatchObject({ project_id: AGENT_PROJECT_ID });
+    await expect(transport.updateAgentCatalogSession(AGENT_CATALOG_SESSION_ID, {
+      expected_revision: 2,
+      title: "Renamed chat",
+    })).resolves.toMatchObject({ title: "Renamed chat", revision: 3 });
+    await expect(transport.deleteAgentCatalogSession(AGENT_CATALOG_SESSION_ID, {
+      expected_catalog_revision: 3,
+      expected_history_revision: 4,
+    }))
+      .resolves.toBeUndefined();
+    await expect(transport.deleteAgentProject(AGENT_PROJECT_ID, {
+      expected_revision: 3,
+    })).resolves.toBeUndefined();
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/v1/agent/projects?search=Example+name&include_archived=true&limit=25",
+    );
+    expect(fetchMock.mock.calls[4][0]).toBe(
+      `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions?include_archived=false&limit=10`,
+    );
+    expect(fetchMock.mock.calls[7][0]).toBe(
+      `/v1/agent/catalog/sessions/${AGENT_CATALOG_SESSION_ID}?expected_catalog_revision=3&expected_history_revision=4`,
+    );
+    expect(fetchMock.mock.calls[8][0]).toBe(
+      `/v1/agent/projects/${AGENT_PROJECT_ID}?expected_revision=3`,
+    );
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({
+      name: "Example project",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({
+      expected_revision: 2,
+      name: "Renamed project",
+    });
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect(call[1]).toEqual(expect.objectContaining({ cache: "no-store" }));
+    }
+  });
+
+  it("forks retained Agent history through the exact private idempotent endpoint", async () => {
+    const requestId = "6".repeat(32);
+    const childSessionId = "7".repeat(32);
+    const receipt = {
+      contract_version: "agent-session-fork.v1",
+      request_id: requestId,
+      idempotent_replay: false,
+      session: agentCatalogSession({
+        session_id: childSessionId,
+        title: "Example branch",
+        history_state: "durable_local",
+        retention_policy: "local_history",
+        history_revision: 4,
+        last_event_seq: 4,
+        turn_count: 1,
+        conversation_available: true,
+        lineage: {
+          contract_version: "agent-session-lineage.v1",
+          source_project_id: AGENT_PROJECT_ID,
+          source_session_id: AGENT_CATALOG_SESSION_ID,
+          source_catalog_revision: 2,
+          source_history_revision: 4,
+          branch_event_seq: 4,
+          copied_event_count: 4,
+          copied_turn_count: 1,
+          copied_attachment_count: 0,
+          created_at: "2040-01-01T10:00:00Z",
+        },
+      }),
+      source_tail_omitted: false,
+      approvals_copied: false,
+      mutation_authority_copied: false,
+      pending_tool_state_copied: false,
+      staged_attachments_copied: false,
+      artifacts_copied: false,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(receipt));
+    const approveUserPresence = vi.fn();
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+    const command = {
+      request_id: requestId,
+      expected_catalog_revision: 2,
+      expected_history_revision: 4,
+      destination_project_id: null,
+      through_event_seq: 4,
+      title: "Example branch",
+    };
+
+    await expect(transport.forkAgentSession(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      command,
+    )).resolves.toMatchObject({
+      request_id: requestId,
+      session: { session_id: childSessionId },
+      mutation_authority_copied: false,
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions/${AGENT_CATALOG_SESSION_ID}/forks`,
+    );
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
+      cache: "no-store",
+      method: "POST",
+    }));
+    expect(fetchMock.mock.calls[1][1].headers).toEqual(expect.objectContaining({
+      "Content-Type": "application/json",
+      "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+    }));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual(command);
+    expect(approveUserPresence).not.toHaveBeenCalled();
+  });
+
+  it("loads, resumes, exports, and natively revalidates retained Agent history", async () => {
+    const retainedEvent = {
+      seq: 1,
+      at: "2040-01-01T10:00:00Z",
+      kind: "status",
+      text: "Synthetic retained state.",
+    };
+    const retainedPage = {
+      contract_version: "local-agent.v9",
+      session_id: AGENT_CATALOG_SESSION_ID,
+      events: [retainedEvent],
+      running: false,
+      closing: false,
+      stopping: false,
+      cleanup_unconfirmed: false,
+      pending_approval_id: null,
+      last_seq: 1,
+      first_seq: 1,
+    };
+    const recovered = exampleAgentSession({
+      session_id: AGENT_CATALOG_SESSION_ID,
+      last_seq: 1,
+      history_revision: 1,
+      recovered: true,
+      authority_revalidated: false,
+      recovery_state: "recovered",
+      settings: {
+        ...exampleAgentSession().settings,
+        project_id: AGENT_PROJECT_ID,
+        title: "Example chat",
+        retention_policy: "local_history",
+        allow_writes: false,
+        allow_commands: false,
+        allow_web: false,
+      },
+    });
+    const revalidated = {
+      ...recovered,
+      authority_revalidated: true,
+      settings: { ...recovered.settings, allow_writes: true },
+    };
+    const exported = {
+      contract_version: "agent-history.v1",
+      exported_at: "2040-01-01T10:05:00Z",
+      project_id: AGENT_PROJECT_ID,
+      session_id: AGENT_CATALOG_SESSION_ID,
+      title: "Example chat",
+      workspace: "D:\\example\\workspace",
+      model_alias: "example-model",
+      history_revision: 1,
+      turn_count: 0,
+      interrupted: false,
+      events: [retainedEvent],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(retainedPage))
+      .mockResolvedValueOnce(privateJsonResponse(recovered))
+      .mockResolvedValueOnce(privateJsonResponse(exported))
+      .mockResolvedValueOnce(privateJsonResponse(revalidated));
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    await expect(transport.getAgentPersistedEvents(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      0,
+    )).resolves.toMatchObject({ last_seq: 1, events: [{ kind: "status" }] });
+    await expect(transport.resumeAgentSession(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      { expected_catalog_revision: 2, expected_history_revision: 1 },
+    )).resolves.toMatchObject({ recovered: true, authority_revalidated: false });
+    await expect(transport.exportAgentHistory(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      { expected_catalog_revision: 2, expected_history_revision: 1 },
+    ))
+      .resolves.toMatchObject({ history_revision: 1, project_id: AGENT_PROJECT_ID });
+    await expect(transport.revalidateAgentAuthority(AGENT_CATALOG_SESSION_ID, {
+      expected_catalog_revision: 2,
+      allow_writes: true,
+      allow_commands: false,
+      allow_web: false,
+    })).resolves.toMatchObject({ authority_revalidated: true, settings: { allow_writes: true } });
+
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions/${AGENT_CATALOG_SESSION_ID}/events?after=0&limit=8`,
+      `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions/${AGENT_CATALOG_SESSION_ID}/resume`,
+      `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions/${AGENT_CATALOG_SESSION_ID}/export?expected_catalog_revision=2&expected_history_revision=1`,
+      `/v1/agent/sessions/${AGENT_CATALOG_SESSION_ID}/authority`,
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({
+      expected_catalog_revision: 2,
+      expected_history_revision: 1,
+    });
+    const authorityRequest = fetchMock.mock.calls[4][1] as RequestInit;
+    expect(authorityRequest.headers).toEqual(expect.objectContaining({
+      "X-Prompt-Enhancer-User-Presence": USER_PRESENCE_TOKEN,
+      "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+    }));
+    expect(approveUserPresence).toHaveBeenCalledWith(expect.objectContaining({
+      method: "POST",
+      path: `/v1/agent/sessions/${AGENT_CATALOG_SESSION_ID}/authority`,
+    }));
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect(call[1]).toEqual(expect.objectContaining({ cache: "no-store" }));
+    }
+  });
+
+  it.each([
+    { expected_catalog_revision: 0, expected_history_revision: 1 },
+    { expected_catalog_revision: 2, expected_history_revision: -1 },
+    { expected_catalog_revision: 2.5, expected_history_revision: 1 },
+  ])("rejects invalid retained export heads before any network read: %o", async (request) => {
+    const fetchMock = vi.fn();
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.exportAgentHistory(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      request,
+    )).rejects.toMatchObject({ status: 400 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("lists, opens, natively captures, and safely reads Agent artifacts", async () => {
+    const payload = "Synthetic artifact preview.\n";
+    const detail = { ...agentArtifact(), versions: [agentArtifactVersion()] };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-artifact.v3",
+        project_id: AGENT_PROJECT_ID,
+        session_id: AGENT_CATALOG_SESSION_ID,
+        view: "active",
+        counts: { active: 1, archived: 0, removed: 0, total: 1 },
+        artifacts: [agentArtifact({ availability: "unchecked" })],
+      }))
+      .mockResolvedValueOnce(privateJsonResponse(detail))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-artifact-capture-preview.v1",
+        project_id: AGENT_PROJECT_ID,
+        session_id: AGENT_CATALOG_SESSION_ID,
+        path: "docs/example.md",
+        title: "example.md",
+        kind: "markdown",
+        media_type: "text/markdown; charset=utf-8",
+        preview_kind: "text",
+        sha256: "5".repeat(64),
+        byte_size: 27,
+        requires_native_confirmation: true,
+        file_content_included: false,
+      }))
+      .mockResolvedValueOnce(privateJsonResponse(detail, 201))
+      .mockResolvedValueOnce(privateJsonResponse(agentArtifactExport()))
+      .mockResolvedValueOnce(privateArtifactResponse(payload));
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+    const base = `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions/${AGENT_CATALOG_SESSION_ID}/artifacts`;
+
+    await expect(transport.listAgentArtifacts(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+    )).resolves.toMatchObject({ artifacts: [{ artifact_id: AGENT_ARTIFACT_ID }] });
+    await expect(transport.getAgentArtifact(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+    )).resolves.toMatchObject({ availability: "available", versions: [{ version_number: 1 }] });
+    await expect(transport.previewAgentArtifactCapture(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      { path: "docs/example.md" },
+    )).resolves.toMatchObject({
+      path: "docs/example.md",
+      sha256: "5".repeat(64),
+      file_content_included: false,
+    });
+    await expect(transport.captureAgentArtifact(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      {
+        path: "docs/example.md",
+        expected_sha256: "5".repeat(64),
+        expected_byte_size: 27,
+      },
+    )).resolves.toMatchObject({ artifact_id: AGENT_ARTIFACT_ID });
+    await expect(transport.exportAgentArtifact(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      { expected_revision: 1, version_id: AGENT_ARTIFACT_VERSION_ID },
+    )).resolves.toMatchObject({
+      contract_version: "agent-artifact-export.v1",
+      content_included: false,
+      absolute_path_included: false,
+      evidence: { verified: true, sha256: "5".repeat(64) },
+    });
+    const content = await transport.getAgentArtifactContent(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      AGENT_ARTIFACT_VERSION_ID,
+      false,
+    );
+    expect(content.contentType).toBe("text/plain; charset=utf-8");
+    expect(content.filename).toBe(`agent-artifact-${AGENT_ARTIFACT_ID.slice(0, 8)}`);
+    await expect(content.blob.text()).resolves.toBe(payload);
+
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      `${base}?view=active`,
+      `${base}/${AGENT_ARTIFACT_ID}`,
+      `${base}/capture-preview`,
+      base,
+      `${base}/${AGENT_ARTIFACT_ID}/export`,
+      `${base}/${AGENT_ARTIFACT_ID}/versions/${AGENT_ARTIFACT_VERSION_ID}/content`,
+    ]);
+    expect(approveUserPresence).toHaveBeenCalledWith(expect.objectContaining({
+      method: "POST",
+      path: base,
+    }));
+    expect(fetchMock.mock.calls[4][1].headers).toEqual(expect.objectContaining({
+      "X-Prompt-Enhancer-User-Presence": USER_PRESENCE_TOKEN,
+    }));
+    expect(fetchMock.mock.calls[5][1]).toEqual(expect.objectContaining({
+      cache: "no-store",
+      credentials: "include",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    }));
+    expect(fetchMock.mock.calls[6][1]).toEqual(expect.objectContaining({
+      cache: "no-store",
+      credentials: "include",
+      redirect: "error",
+    }));
+  });
+
+  it("updates artifact lifecycle by revision and natively confirms reversible removal", async () => {
+    const archived = agentArtifact({
+      lifecycle_state: "archived",
+      archived_at: "2040-01-01T10:02:00Z",
+      updated_at: "2040-01-01T10:02:00Z",
+      revision: 2,
+    });
+    const removed = agentArtifact({
+      lifecycle_state: "removed",
+      archived_at: "2040-01-01T10:02:00Z",
+      removed_at: "2040-01-01T10:03:00Z",
+      updated_at: "2040-01-01T10:03:00Z",
+      revision: 3,
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(archived))
+      .mockResolvedValueOnce(privateJsonResponse(removed));
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+    const path = `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions/${AGENT_CATALOG_SESSION_ID}/artifacts/${AGENT_ARTIFACT_ID}`;
+
+    await expect(transport.updateAgentArtifact(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      { expected_revision: 1, operation: "archive" },
+    )).resolves.toMatchObject({ lifecycle_state: "archived", revision: 2 });
+    await expect(transport.removeAgentArtifact(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      {
+        expected_revision: 2,
+        confirmation: "move_archived_artifact_record_to_removed",
+      },
+    )).resolves.toMatchObject({ lifecycle_state: "removed", revision: 3 });
+
+    expect(fetchMock.mock.calls[1][0]).toBe(path);
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ expected_revision: 1, operation: "archive" }),
+      cache: "no-store",
+      method: "PATCH",
+    }));
+    expect(fetchMock.mock.calls[1][1].headers).not.toHaveProperty("X-Prompt-Enhancer-User-Presence");
+    expect(fetchMock.mock.calls[2][0]).toBe(`${path}/remove`);
+    expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({
+        expected_revision: 2,
+        confirmation: "move_archived_artifact_record_to_removed",
+      }),
+      cache: "no-store",
+      method: "POST",
+    }));
+    expect(fetchMock.mock.calls[2][1].headers).toEqual(expect.objectContaining({
+      "X-Prompt-Enhancer-User-Presence": USER_PRESENCE_TOKEN,
+    }));
+    expect(approveUserPresence).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      method: "POST",
+      path: `${path}/remove`,
+    }));
+  });
+
+  it("rejects malformed artifact lifecycle commands before network access", async () => {
+    const fetchMock = vi.fn();
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.updateAgentArtifact(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      { expected_revision: 1, operation: "rename", title: "  untrimmed  " },
+    )).rejects.toMatchObject({ status: 400 });
+    await expect(transport.removeAgentArtifact(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      { expected_revision: 0, confirmation: "move_archived_artifact_record_to_removed" },
+    )).rejects.toMatchObject({ status: 400 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects cacheable or executable artifact content responses", async () => {
+    const missingSafety = new Response("Synthetic artifact", {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html",
+        "Content-Length": "18",
+        "Content-Disposition": `inline; filename="agent-artifact-${AGENT_ARTIFACT_ID.slice(0, 8)}"`,
+      },
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(missingSafety);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(transport.getAgentArtifactContent(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      AGENT_ARTIFACT_VERSION_ID,
+      false,
+    )).rejects.toThrow("Agent artifact content response was invalid");
+  });
+
+  it("rejects malformed or contradictory artifact lineage exports", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(agentArtifactExport({
+        content_included: true,
+      })));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.exportAgentArtifact(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      { expected_revision: 1, version_id: AGENT_ARTIFACT_VERSION_ID },
+    )).rejects.toThrow("Agent artifact export response was invalid");
+
+    const noNetwork = vi.fn();
+    const guarded = createHttpTransport({
+      fetch: noNetwork as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(guarded.exportAgentArtifact(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      { expected_revision: 0, version_id: AGENT_ARTIFACT_VERSION_ID },
+    )).rejects.toMatchObject({ status: 400 });
+    expect(noNetwork).not.toHaveBeenCalled();
+  });
+
+  it("loads only an exact no-store document projection bound to the selected artifact version", async () => {
+    const selected = agentArtifactVersion({
+      path: "docs/synthetic-review.docx",
+      media_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      preview_kind: "document",
+      byte_size: 512,
+    }) as AgentArtifactVersion;
+    const projection = {
+      contract_version: "agent-document-preview.v1",
+      project_id: AGENT_PROJECT_ID,
+      session_id: AGENT_CATALOG_SESSION_ID,
+      artifact_id: AGENT_ARTIFACT_ID,
+      version_id: AGENT_ARTIFACT_VERSION_ID,
+      source_sha256: selected.sha256,
+      source_byte_size: selected.byte_size,
+      format: "docx",
+      sections: [{
+        index: 1,
+        kind: "document",
+        title: "Document",
+        paragraphs: ["Synthetic local projection"],
+        rows: [],
+        truncated: false,
+      }],
+      omitted_features: ["media"],
+      truncated: false,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(projection));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getAgentArtifactDocumentPreview(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      selected,
+    )).resolves.toMatchObject({
+      format: "docx",
+      sections: [{ paragraphs: ["Synthetic local projection"] }],
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions/${AGENT_CATALOG_SESSION_ID}/artifacts/${AGENT_ARTIFACT_ID}/versions/${AGENT_ARTIFACT_VERSION_ID}/preview`,
+    );
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
+      cache: "no-store",
+      credentials: "include",
+      redirect: "error",
+    }));
+
+    const mismatchFetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        ...projection,
+        source_sha256: "9".repeat(64),
+      }));
+    const mismatchTransport = createHttpTransport({
+      fetch: mismatchFetch as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(mismatchTransport.getAgentArtifactDocumentPreview(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ARTIFACT_ID,
+      selected,
+    )).rejects.toMatchObject({ status: 200 });
+  });
+
+  it("fails closed on cross-project recovery and forbidden retained export material", async () => {
+    const mismatchedRecovery = exampleAgentSession({
+      session_id: AGENT_CATALOG_SESSION_ID,
+      recovered: true,
+      authority_revalidated: false,
+      recovery_state: "recovered",
+      settings: {
+        ...exampleAgentSession().settings,
+        project_id: "9".repeat(32),
+        retention_policy: "local_history",
+        allow_writes: false,
+        allow_commands: false,
+        allow_web: false,
+      },
+    });
+    const mismatchFetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(mismatchedRecovery));
+    const mismatchTransport = createHttpTransport({
+      fetch: mismatchFetch as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(mismatchTransport.resumeAgentSession(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      { expected_catalog_revision: 2, expected_history_revision: 0 },
+    )).rejects.toMatchObject({ status: 200 });
+
+    const forbiddenExport = {
+      contract_version: "agent-history.v1",
+      exported_at: "2040-01-01T10:05:00Z",
+      project_id: AGENT_PROJECT_ID,
+      session_id: AGENT_CATALOG_SESSION_ID,
+      title: "Example chat",
+      workspace: "D:\\example\\workspace",
+      model_alias: "example-model",
+      history_revision: 1,
+      turn_count: 0,
+      interrupted: false,
+      events: [{
+        seq: 1,
+        at: "2040-01-01T10:00:00Z",
+        kind: "status",
+        text: "Synthetic retained state.",
+        approval_id: "8".repeat(32),
+      }],
+    };
+    const exportFetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(forbiddenExport));
+    const exportTransport = createHttpTransport({
+      fetch: exportFetch as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(exportTransport.exportAgentHistory(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      { expected_catalog_revision: 2, expected_history_revision: 1 },
+    ))
+      .rejects.toMatchObject({ status: 200 });
+  });
+
+  it("fails closed on mismatched or cacheable Agent catalog responses", async () => {
+    const mismatched = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(agentProject({ project_id: "3".repeat(32) })));
+    const mismatchTransport = createHttpTransport({
+      fetch: mismatched as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(mismatchTransport.getAgentProject(AGENT_PROJECT_ID))
+      .rejects.toMatchObject({ status: 200 });
+
+    const cacheable = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({
+        contract_version: "agent-catalog.v2",
+        sessions: [agentCatalogSession()],
+      }));
+    const cacheableTransport = createHttpTransport({
+      fetch: cacheable as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(cacheableTransport.listAgentCatalogSessions())
+      .rejects.toThrow("Private local response was not cache-safe");
+  });
+
+  it("preserves only closed Agent catalog failure codes", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({
+        detail: {
+          code: "agent_catalog_session_revision_conflict",
+          message: "SYNTHETIC-PRIVATE-CANARY",
+        },
+      }, 409));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const error = await transport.updateAgentCatalogSession(
+      AGENT_CATALOG_SESSION_ID,
+      { expected_revision: 1, pinned: true },
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      status: 409,
+      reasonCode: "agent_catalog_session_revision_conflict",
+    });
+    expect(String(error)).not.toContain("SYNTHETIC-PRIVATE-CANARY");
+  });
+
+  it.each([
+    "workspace_root_changed",
+    "workspace_inspection_timeout",
+    "workspace_write_failed",
+    "workspace_cleanup_failed",
+    "workspace_verification_failed",
+    "workspace_parent_unavailable",
+    "workspace_path_not_found",
+    "workspace_directory_unavailable",
+    "workspace_not_a_directory",
+    "workspace_revision_changed",
+    "workspace_link_or_reparse_refused",
+    "path_invalid",
+    "path_outside_workspace",
+    "workspace_directory_create_failed",
+    "workspace_directory_create_unverified",
+    "workspace_directory_move_into_self",
+    "workspace_directory_move_unsupported",
+    "workspace_directory_move_failed",
+    "workspace_directory_move_unverified",
+    "workspace_file_trash_unsupported",
+    "workspace_file_trash_failed",
+    "workspace_file_trash_unverified",
+  ] as const)("preserves only the fixed %s workspace reason", async (code) => {
+    const status = code === "workspace_inspection_timeout"
+      || code === "workspace_write_failed"
+      || code === "workspace_cleanup_failed"
+      || code === "workspace_directory_create_failed"
+      || code === "workspace_directory_move_failed"
+      || code === "workspace_file_trash_failed"
+      ? 503
+      : code === "workspace_parent_unavailable" || code === "path_invalid"
+        || code === "workspace_directory_unavailable"
+        || code === "workspace_not_a_directory"
+        || code === "workspace_directory_move_into_self"
+        || code === "workspace_directory_move_unsupported"
+        || code === "workspace_file_trash_unsupported"
+        ? 422
+        : code === "workspace_path_not_found"
+          ? 404
+        : code === "workspace_link_or_reparse_refused" || code === "path_outside_workspace"
+          ? 403
+          : 409;
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: { code, message: "EXAMPLE_PRIVATE_WORKSPACE_CANARY" } }, status));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const error = await transport.getAgentWorkspaceTree("a".repeat(32), ".").catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status, reasonCode: code });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_WORKSPACE_CANARY");
+  });
+
+  it.each(["get", "list", "send", "stop", "create"])("does not accept missing cleanup authority from %s", async (operation) => {
+    const invalid = { ...exampleAgentSession(), cleanup_unconfirmed: undefined };
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(operation === "list" ? [invalid] : invalid));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const result = operation === "get" ? transport.getAgentSession("a".repeat(32))
+      : operation === "list" ? transport.listAgentSessions()
+      : operation === "send" ? transport.sendAgentMessage("a".repeat(32), "Example message")
+      : operation === "stop" ? transport.stopAgentSession("a".repeat(32))
+      : transport.createAgentSession(exampleAgentSession().settings);
+    await expect(result).rejects.toMatchObject({ status: 200 });
+  });
+
+  it("keeps the command cleanup reason but never its internal exception", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: { code: "command_cleanup_unconfirmed", message: "EXAMPLE_PRIVATE_CANARY" } }, 409));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const error = await transport.sendAgentMessage("a".repeat(32), "Example request").catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 409, reasonCode: "command_cleanup_unconfirmed" });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_CANARY");
+  });
+
   it("preserves the allowlisted model-not-ready reason when session creation is rejected", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
@@ -2332,7 +3840,7 @@ describe("local agent model-readiness transport", () => {
     });
   });
 
-  it.each(["model_not_ready", "no_active_model", "turn_in_progress"] as const)(
+  it.each(["model_not_ready", "no_active_model", "turn_in_progress", "session_closing"] as const)(
     "preserves the %s reason when a message is rejected",
     async (reasonCode) => {
     const sessionId = "a".repeat(32);
@@ -2350,6 +3858,68 @@ describe("local agent model-readiness transport", () => {
     });
     },
   );
+
+  it("preserves the close-timeout recovery code without forwarding server content", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: { code: "session_stop_timeout", message: "Synthetic internal detail" } }, 409));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const error = await transport.deleteAgentSession("a".repeat(32)).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 409, reasonCode: "session_stop_timeout" });
+    expect(String(error)).not.toContain("Synthetic internal detail");
+  });
+
+  it("accepts the documented empty 204 response when an Agent session is closed", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    await expect(transport.deleteAgentSession("a".repeat(32))).resolves.toBeUndefined();
+  });
+
+  it("does not mistake an unexpected 200 JSON response for a confirmed session deletion", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: "Synthetic unexpected response" }));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    await expect(transport.deleteAgentSession("a".repeat(32))).rejects.toMatchObject({ status: 200 });
+  });
+
+  it("preserves the documented inactive-model reason for judge failures", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: { code: "model_not_active" } }, 409));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    await expect(transport.judgeSessionWithModel("a".repeat(64))).rejects.toMatchObject({ status: 409, reasonCode: "model_not_active" });
+  });
+
+  it.each(["review", "save"])("keeps the closed calibration receipt failure for %s", async (operation) => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: { code: "calibration_review_expired", message: "SYNTHETIC_PRIVATE_CANARY" } }, 409));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const result = operation === "review" ? transport.reviewCalibrationCase("a".repeat(64), 15000)
+      : transport.submitCalibrationRatings({ session_id: "a".repeat(64), rater_label: "Example rater", ratings: { "prompt.task_definition_coverage": "high" }, review_id: "b".repeat(32) });
+    const error = await result.catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 409, reasonCode: "calibration_review_expired" });
+    expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+    expect(new Headers(fetchMock.mock.calls[1][1].headers).get("content-type")).toBe("application/json");
+  });
+
+  it("refuses reviewed evidence from a cacheable response", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE)).mockResolvedValueOnce(jsonResponse({}));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    await expect(transport.reviewCalibrationCase("a".repeat(64), 6000)).rejects.toMatchObject({ status: 200 });
+  });
+
+  it.each(["judgeSessionWithModel", "interpretSessionWithModel"] as const)("preserves only the closed invalid-reply reason for %s", async (operation) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ detail: { code: "model_reply_invalid", message: "SYNTHETIC_PRIVATE_CANARY" } }, 502));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const error = await transport[operation]("a".repeat(64)).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 502, reasonCode: "model_reply_invalid" });
+    expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+  });
 });
 
 describe("local agent event streaming transport", () => {
@@ -2357,7 +3927,7 @@ describe("local agent event streaming transport", () => {
     const sessionId = "a".repeat(32);
     const streamId = "b".repeat(32);
     const payload = {
-      contract_version: "local-agent.v2",
+      contract_version: "local-agent.v9", cleanup_unconfirmed: false, closing: false, stopping: false,
       session_id: sessionId,
       events: [{
         seq: 1,
@@ -2417,7 +3987,349 @@ describe("local agent event streaming transport", () => {
   });
 });
 
+describe("local agent reviewed change-set transport", () => {
+  const sessionId = "a".repeat(32);
+  const summary = {
+    path: "src/example.ts",
+    net_effect: "modified",
+    verification: "verified",
+    reason: null,
+    reviewed_writes: 1,
+    agent_writes: 1,
+    manual_writes: 0,
+    current_byte_size: 12,
+    diff_available: true,
+  };
+
+  it("uses private relative GET routes and strict response parsing", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-change-set.v1",
+        session_id: sessionId,
+        scope: "reviewed_paths_only",
+        coverage: "complete",
+        settled: true,
+        reviewed_writes: 1,
+        verified_writes: 1,
+        unverified_writes: 0,
+        agent_writes: 1,
+        manual_writes: 0,
+        reviewed_noops: 0,
+        command_attempts: 0,
+        omitted_write_receipts: 0,
+        tracking_failed: false,
+        files: [summary],
+      }))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-change-set.v1",
+        session_id: sessionId,
+        summary,
+        diff_state: "available",
+        diff: "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new",
+        added_lines: 1,
+        removed_lines: 1,
+      }));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    await expect(transport.getAgentChangeSet(sessionId)).resolves.toMatchObject({ coverage: "complete" });
+    await expect(transport.getAgentChangeDiff(sessionId, "src/example.ts")).resolves.toMatchObject({ diff_state: "available" });
+    expect(fetchMock.mock.calls[1][0]).toBe(`/v1/agent/sessions/${sessionId}/changes`);
+    expect(fetchMock.mock.calls[2][0]).toBe(`/v1/agent/sessions/${sessionId}/changes/diff?path=src%2Fexample.ts`);
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect(call[1]).toMatchObject({ method: "GET", cache: "no-store", credentials: "include", redirect: "error", referrerPolicy: "no-referrer" });
+      expect((call[1] as RequestInit).headers).not.toEqual(expect.objectContaining({
+        "X-Prompt-Enhancer-User-Presence": expect.anything(),
+      }));
+    }
+  });
+
+  it.each(["set", "diff"] as const)("rejects %s content without private no-store response headers", async (operation) => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ content: "EXAMPLE_PRIVATE_CHANGE_CANARY" }));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const request = operation === "set"
+      ? transport.getAgentChangeSet(sessionId)
+      : transport.getAgentChangeDiff(sessionId, "src/example.ts");
+    const error = await request.catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 200 });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_CHANGE_CANARY");
+  });
+
+  it("preserves only the fixed missing-path reason from a rejected diff read", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        detail: {
+          code: "change_path_not_found",
+          message: "EXAMPLE_PRIVATE_CHANGE_CANARY",
+        },
+      }, 404));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const error = await transport.getAgentChangeDiff(sessionId, "src/example.ts").catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 404, reasonCode: "change_path_not_found" });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_CHANGE_CANARY");
+  });
+
+  it("previews and applies an exact revision-bound restore with native confirmation", async () => {
+    const path = "src/example.ts";
+    const previewId = "d".repeat(32);
+    const currentRevision = "b".repeat(64);
+    const baselineRevision = "c".repeat(64);
+    const preview = {
+      contract_version: "agent-change-restore.v1",
+      session_id: sessionId,
+      preview_id: previewId,
+      path,
+      operation: "edit",
+      baseline_state: "present",
+      expected_revision: currentRevision,
+      restored_revision: baselineRevision,
+      restored_byte_size: 9,
+      line_ending: "lf",
+      diff_state: "available",
+      diff: `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-current\n+baseline`,
+      added_lines: 1,
+      removed_lines: 1,
+      recovery: "revision_bound_write",
+      permanent: false,
+      expires_at: "2030-01-02T03:04:05Z",
+      requires_native_confirmation: true,
+    } as const;
+    const result = {
+      contract_version: "agent-change-restore.v1",
+      session_id: sessionId,
+      path,
+      operation: "edit",
+      baseline_state: "present",
+      current_revision: baselineRevision,
+      current_byte_size: 9,
+      recovery: "revision_bound_write",
+      permanent: false,
+      net_effect: "reverted",
+      filesystem_verification: "verified",
+      change_set_verification: "verified",
+      change_set_reason: null,
+      applied: true,
+    } as const;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(preview, 201))
+      .mockResolvedValueOnce(privateJsonResponse(result));
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+    const previewRequest = { path };
+    await expect(transport.previewAgentChangeRestore(sessionId, previewRequest)).resolves.toMatchObject({
+      preview_id: previewId,
+      operation: "edit",
+    });
+    const applyRequest = {
+      path,
+      operation: "edit",
+      expected_revision: currentRevision,
+      restored_revision: baselineRevision,
+      confirmation: "apply_reviewed_change_restore",
+    } as const;
+    await expect(transport.applyAgentChangeRestore(
+      sessionId,
+      previewId,
+      applyRequest,
+    )).resolves.toMatchObject({ applied: true, net_effect: "reverted" });
+
+    const previewCall = fetchMock.mock.calls[1];
+    expect(previewCall[0]).toBe(`/v1/agent/sessions/${sessionId}/changes/restores`);
+    expect(previewCall[1]).toMatchObject({ method: "POST", cache: "no-store" });
+    expect((previewCall[1] as RequestInit).headers).not.toEqual(expect.objectContaining({
+      "X-Prompt-Enhancer-User-Presence": expect.anything(),
+    }));
+    const applyPath = `/v1/agent/sessions/${sessionId}/changes/restores/${previewId}/apply`;
+    const applyCall = fetchMock.mock.calls[2];
+    expect(applyCall[0]).toBe(applyPath);
+    expect((applyCall[1] as RequestInit).headers).toEqual(expect.objectContaining({
+      "Content-Type": "application/json",
+      "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+      "X-Prompt-Enhancer-User-Presence": USER_PRESENCE_TOKEN,
+    }));
+    expect(approveUserPresence).toHaveBeenCalledExactlyOnceWith({
+      method: "POST",
+      path: applyPath,
+      bodySha256: await sha256(JSON.stringify(applyRequest)),
+    });
+  });
+
+  it("rejects restore response authority drift without exposing response content", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-change-restore.v1",
+        session_id: sessionId,
+        preview_id: "d".repeat(32),
+        path: "private/canary.ts",
+        operation: "edit",
+        baseline_state: "present",
+        expected_revision: "b".repeat(64),
+        restored_revision: "c".repeat(64),
+        restored_byte_size: 9,
+        line_ending: "lf",
+        diff_state: "available",
+        diff: "EXAMPLE_PRIVATE_CHANGE_CANARY",
+        added_lines: 1,
+        removed_lines: 1,
+        recovery: "revision_bound_write",
+        permanent: false,
+        expires_at: "2030-01-02T03:04:05Z",
+        requires_native_confirmation: true,
+      }, 201));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const error = await transport.previewAgentChangeRestore(
+      sessionId,
+      { path: "src/example.ts" },
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 200 });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_CHANGE_CANARY");
+  });
+
+  it("preserves only an allowlisted restore refusal code", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        detail: {
+          code: "change_restore_baseline_unavailable",
+          message: "EXAMPLE_PRIVATE_CHANGE_CANARY",
+        },
+      }, 409));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const error = await transport.previewAgentChangeRestore(
+      sessionId,
+      { path: "src/example.ts" },
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      status: 409,
+      reasonCode: "change_restore_baseline_unavailable",
+    });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_CHANGE_CANARY");
+  });
+});
+
 describe("local agent workspace transport", () => {
+  it.each(["discovery", "tree", "search", "file", "preview"] as const)("rejects %s data without private no-store response headers", async (operation) => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ content: "EXAMPLE_PRIVATE_WORKSPACE_CANARY" }));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    const id = "a".repeat(32);
+    const request = operation === "discovery" ? transport.getAgentWorkspaceDiscovery(id)
+      : operation === "tree" ? transport.getAgentWorkspaceTree(id, ".")
+      : operation === "search" ? transport.getAgentWorkspaceSearch(id, { query: "example", glob: "**/*", regex: false })
+      : operation === "file" ? transport.getAgentWorkspaceFile(id, "example.txt")
+      : transport.previewAgentWorkspaceEdit(id, { path: "example.txt", content: "example", expected_revision: "b".repeat(64), line_ending: "lf" });
+    const error = await request.catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 200 });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_WORKSPACE_CANARY");
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ cache: "no-store", credentials: "include", redirect: "error", referrerPolicy: "no-referrer" });
+  });
+
+  it("searches through the exact private route and rejects response path drift", async () => {
+    const sessionId = "a".repeat(32);
+    const valid = {
+      contract_version: "local-agent-workspace-search.v1",
+      session_id: sessionId,
+      scope: "application_readable_utf8_text",
+      coverage: "complete",
+      reasons: [],
+      reason_code: null,
+      scanned_entry_count: 3,
+      inspected_byte_count: 120,
+      skipped_entry_count: 0,
+      match_count: 1,
+      matches: [{ path: "src/app.ts", line_number: 4, preview: "const synthetic = true;" }],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(valid))
+      .mockResolvedValueOnce(privateJsonResponse({
+        ...valid,
+        matches: [{ path: "C:/private.txt", line_number: 4, preview: "private" }],
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const request = { query: "synthetic", glob: "src/**/*.ts", regex: true };
+
+    await expect(transport.getAgentWorkspaceSearch(sessionId, request)).resolves.toMatchObject({
+      coverage: "complete",
+      match_count: 1,
+    });
+    const params = new URLSearchParams({ query: request.query, glob: request.glob, regex: "true" });
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/agent/sessions/${sessionId}/workspace/search?${params.toString()}`,
+    );
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    });
+    await expect(transport.getAgentWorkspaceSearch(sessionId, request)).rejects.toMatchObject({
+      message: "Local agent workspace search response was invalid",
+      status: 200,
+    });
+  });
+
+  it("loads discovery from the exact private session route and rejects path authority drift", async () => {
+    const sessionId = "a".repeat(32);
+    const valid = {
+      contract_version: "local-agent-workspace-discovery.v1",
+      session_id: sessionId,
+      scope: "selected_workspace",
+      inventory_coverage: "complete",
+      inventory_reasons: [],
+      scanned_entry_count: 1,
+      observed_file_count: 1,
+      files: [{ path: "example.txt", byte_size: 7, editable_candidate: true }],
+      git_state: "not_repository",
+      git_coverage: "not_applicable",
+      git_reasons: [],
+      git_change_count: 0,
+      git_changes: [],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(valid))
+      .mockResolvedValueOnce(privateJsonResponse({
+        ...valid,
+        files: [{ path: "C:/private.txt", byte_size: 7, editable_candidate: true }],
+      }));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+
+    await expect(transport.getAgentWorkspaceDiscovery(sessionId)).resolves.toMatchObject({
+      session_id: sessionId,
+      observed_file_count: 1,
+      git_state: "not_repository",
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/discovery`);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      cache: "no-store",
+      credentials: "include",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    });
+    await expect(transport.getAgentWorkspaceDiscovery(sessionId)).rejects.toMatchObject({
+      message: "Local agent workspace discovery response was invalid",
+      status: 200,
+    });
+  });
+
   it("uses relative session-bound routes and strict response parsing", async () => {
     const sessionId = "a".repeat(32);
     const base = "b".repeat(64);
@@ -2425,14 +4337,14 @@ describe("local agent workspace transport", () => {
     const previewId = "d".repeat(32);
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
-      .mockResolvedValueOnce(jsonResponse({
+      .mockResolvedValueOnce(privateJsonResponse({
         contract_version: "local-agent-workspace.v1",
         session_id: sessionId,
         path: ".",
         entries: [{ path: "src", name: "src", kind: "directory", byte_size: null, editable_candidate: false }],
         complete: true,
       }))
-      .mockResolvedValueOnce(jsonResponse({
+      .mockResolvedValueOnce(privateJsonResponse({
         contract_version: "local-agent-workspace.v1",
         session_id: sessionId,
         path: "src/app.py",
@@ -2442,7 +4354,7 @@ describe("local agent workspace transport", () => {
         line_ending: "lf",
         editable: true,
       }))
-      .mockResolvedValueOnce(jsonResponse({
+      .mockResolvedValueOnce(privateJsonResponse({
         contract_version: "local-agent-workspace.v1",
         session_id: sessionId,
         preview_id: previewId,
@@ -2453,7 +4365,7 @@ describe("local agent workspace transport", () => {
         diff: "--- a/src/app.py\n+++ b/src/app.py\n@@ -1,2 +1,2 @@\n one\n-two\n+new",
         expires_at: "2026-08-20T20:00:00Z",
       }))
-      .mockResolvedValueOnce(jsonResponse({
+      .mockResolvedValueOnce(privateJsonResponse({
         contract_version: "local-agent-workspace.v1",
         session_id: sessionId,
         path: "src/app.py",
@@ -2486,6 +4398,7 @@ describe("local agent workspace transport", () => {
     expect(fetchMock.mock.calls[2][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/file?path=src%2Fapp.py`);
     expect(fetchMock.mock.calls[3][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/previews`);
     expect(fetchMock.mock.calls[4][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/previews/${previewId}/apply`);
+    for (const call of fetchMock.mock.calls.slice(1)) expect(call[1]).toMatchObject({ cache: "no-store" });
     const apply = fetchMock.mock.calls[4][1] as RequestInit;
     expect(apply.headers).toEqual(expect.objectContaining({
       "Content-Type": "application/json",
@@ -2500,11 +4413,395 @@ describe("local agent workspace transport", () => {
     });
   });
 
+  it("binds reviewed workspace create, directory create/move, and file move operations to native confirmation", async () => {
+    const sessionId = "a".repeat(32);
+    const createPreviewId = "b".repeat(32);
+    const movePreviewId = "c".repeat(32);
+    const directoryPreviewId = "e".repeat(32);
+    const directoryMovePreviewId = "f".repeat(32);
+    const revision = "d".repeat(64);
+    const createRequest = {
+      path: "notes/example.txt",
+      content: "example\n",
+      line_ending: "lf" as const,
+    };
+    const createPreview = {
+      contract_version: "local-agent-workspace-lifecycle.v1",
+      session_id: sessionId,
+      preview_id: createPreviewId,
+      path: createRequest.path,
+      proposed_revision: revision,
+      line_ending: "lf",
+      byte_size: 8,
+      diff: "--- /dev/null\n+++ b/notes/example.txt\n@@ -0,0 +1 @@\n+example",
+      expires_at: "2026-08-27T12:00:00Z",
+    } as const;
+    const createApplyRequest = {
+      path: createRequest.path,
+      content: createRequest.content,
+      proposed_revision: revision,
+      line_ending: "lf",
+      confirmation: "apply_reviewed_workspace_create",
+    } as const;
+    const moveRequest = {
+      source_path: createRequest.path,
+      target_path: "reviewed-archive/example.txt",
+      expected_revision: revision,
+    };
+    const movePreview = {
+      contract_version: "local-agent-workspace-lifecycle.v1",
+      session_id: sessionId,
+      preview_id: movePreviewId,
+      source_path: moveRequest.source_path,
+      target_path: moveRequest.target_path,
+      expected_revision: revision,
+      byte_size: 8,
+      expires_at: "2026-08-27T12:00:00Z",
+    } as const;
+    const moveApplyRequest = {
+      ...moveRequest,
+      confirmation: "apply_reviewed_workspace_move",
+    } as const;
+    const directoryRequest = { path: "archive" };
+    const directoryPreview = {
+      contract_version: "local-agent-workspace-lifecycle.v1",
+      session_id: sessionId,
+      preview_id: directoryPreviewId,
+      path: directoryRequest.path,
+      expires_at: "2026-08-27T12:00:00Z",
+    } as const;
+    const directoryApplyRequest = {
+      path: directoryRequest.path,
+      confirmation: "apply_reviewed_workspace_directory_create",
+    } as const;
+    const directoryMoveRequest = {
+      source_path: "archive",
+      target_path: "reviewed-archive",
+    };
+    const directoryMovePreview = {
+      contract_version: "local-agent-workspace-lifecycle.v1",
+      session_id: sessionId,
+      preview_id: directoryMovePreviewId,
+      source_path: directoryMoveRequest.source_path,
+      target_path: directoryMoveRequest.target_path,
+      contents_reviewed: false,
+      expires_at: "2026-08-27T12:00:00Z",
+    } as const;
+    const directoryMoveApplyRequest = {
+      ...directoryMoveRequest,
+      confirmation: "apply_reviewed_workspace_directory_move",
+    } as const;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(createPreview))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-agent-workspace-lifecycle.v1",
+        session_id: sessionId,
+        path: createRequest.path,
+        revision,
+        byte_size: 8,
+        operation: "created",
+        applied: true,
+      }))
+      .mockResolvedValueOnce(privateJsonResponse(directoryPreview))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-agent-workspace-lifecycle.v1",
+        session_id: sessionId,
+        path: directoryRequest.path,
+        operation: "directory_created",
+        applied: true,
+      }))
+      .mockResolvedValueOnce(privateJsonResponse(directoryMovePreview))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-agent-workspace-lifecycle.v1",
+        session_id: sessionId,
+        source_path: directoryMoveRequest.source_path,
+        target_path: directoryMoveRequest.target_path,
+        contents_reviewed: false,
+        operation: "directory_moved",
+        applied: true,
+      }))
+      .mockResolvedValueOnce(privateJsonResponse(movePreview))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-agent-workspace-lifecycle.v1",
+        session_id: sessionId,
+        source_path: moveRequest.source_path,
+        target_path: moveRequest.target_path,
+        revision,
+        byte_size: 8,
+        operation: "moved",
+        applied: true,
+      }));
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    const reviewedCreate = await transport.previewAgentWorkspaceCreate(sessionId, createRequest);
+    await expect(transport.applyAgentWorkspaceCreate(
+      sessionId,
+      reviewedCreate,
+      createApplyRequest,
+    )).resolves.toMatchObject({ operation: "created", revision });
+    const reviewedDirectory = await transport.previewAgentWorkspaceDirectoryCreate(sessionId, directoryRequest);
+    await expect(transport.applyAgentWorkspaceDirectoryCreate(
+      sessionId,
+      reviewedDirectory,
+      directoryApplyRequest,
+    )).resolves.toMatchObject({ operation: "directory_created" });
+    const reviewedDirectoryMove = await transport.previewAgentWorkspaceDirectoryMove(sessionId, directoryMoveRequest);
+    await expect(transport.applyAgentWorkspaceDirectoryMove(
+      sessionId,
+      reviewedDirectoryMove,
+      directoryMoveApplyRequest,
+    )).resolves.toMatchObject({ operation: "directory_moved", contents_reviewed: false });
+    const reviewedMove = await transport.previewAgentWorkspaceMove(sessionId, moveRequest);
+    await expect(transport.applyAgentWorkspaceMove(
+      sessionId,
+      reviewedMove,
+      moveApplyRequest,
+    )).resolves.toMatchObject({ operation: "moved", revision });
+
+    expect(fetchMock.mock.calls[1][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/creates`);
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      `/v1/agent/sessions/${sessionId}/workspace/creates/${createPreviewId}/apply`,
+    );
+    expect(fetchMock.mock.calls[3][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/directories`);
+    expect(fetchMock.mock.calls[4][0]).toBe(
+      `/v1/agent/sessions/${sessionId}/workspace/directories/${directoryPreviewId}/apply`,
+    );
+    expect(fetchMock.mock.calls[5][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/directory-moves`);
+    expect(fetchMock.mock.calls[6][0]).toBe(
+      `/v1/agent/sessions/${sessionId}/workspace/directory-moves/${directoryMovePreviewId}/apply`,
+    );
+    expect(fetchMock.mock.calls[7][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/moves`);
+    expect(fetchMock.mock.calls[8][0]).toBe(
+      `/v1/agent/sessions/${sessionId}/workspace/moves/${movePreviewId}/apply`,
+    );
+    expect(approveUserPresence).toHaveBeenCalledTimes(4);
+    expect(approveUserPresence).toHaveBeenNthCalledWith(1, {
+      method: "POST",
+      path: `/v1/agent/sessions/${sessionId}/workspace/creates/${createPreviewId}/apply`,
+      bodySha256: await sha256(JSON.stringify(createApplyRequest)),
+    });
+    expect(approveUserPresence).toHaveBeenNthCalledWith(2, {
+      method: "POST",
+      path: `/v1/agent/sessions/${sessionId}/workspace/directories/${directoryPreviewId}/apply`,
+      bodySha256: await sha256(JSON.stringify(directoryApplyRequest)),
+    });
+    expect(approveUserPresence).toHaveBeenNthCalledWith(3, {
+      method: "POST",
+      path: `/v1/agent/sessions/${sessionId}/workspace/directory-moves/${directoryMovePreviewId}/apply`,
+      bodySha256: await sha256(JSON.stringify(directoryMoveApplyRequest)),
+    });
+    expect(approveUserPresence).toHaveBeenNthCalledWith(4, {
+      method: "POST",
+      path: `/v1/agent/sessions/${sessionId}/workspace/moves/${movePreviewId}/apply`,
+      bodySha256: await sha256(JSON.stringify(moveApplyRequest)),
+    });
+  });
+
+  it("binds reviewed Recycle Bin transport to native confirmation and strict receipts", async () => {
+    const sessionId = "a".repeat(32);
+    const previewId = "b".repeat(32);
+    const revision = "c".repeat(64);
+    const request = { path: "notes/example.txt", expected_revision: revision };
+    const applyRequest = {
+      ...request,
+      confirmation: "apply_reviewed_workspace_file_trash",
+    } as const;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-agent-workspace-lifecycle.v1",
+        session_id: sessionId,
+        preview_id: previewId,
+        path: request.path,
+        expected_revision: revision,
+        byte_size: 8,
+        recovery: "windows_recycle_bin",
+        permanent: false,
+        expires_at: "2026-08-27T12:00:00Z",
+      }))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-agent-workspace-lifecycle.v1",
+        session_id: sessionId,
+        path: request.path,
+        revision,
+        byte_size: 8,
+        recovery: "windows_recycle_bin",
+        permanent: false,
+        operation: "trashed",
+        applied: true,
+      }));
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    const preview = await transport.previewAgentWorkspaceFileTrash(sessionId, request);
+    await expect(transport.applyAgentWorkspaceFileTrash(
+      sessionId,
+      preview,
+      applyRequest,
+    )).resolves.toMatchObject({ operation: "trashed", permanent: false });
+
+    const applyPath = `/v1/agent/sessions/${sessionId}/workspace/file-trash/${previewId}/apply`;
+    expect(fetchMock.mock.calls[1][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/file-trash`);
+    expect(fetchMock.mock.calls[2][0]).toBe(applyPath);
+    expect(approveUserPresence).toHaveBeenCalledWith({
+      method: "POST",
+      path: applyPath,
+      bodySha256: await sha256(JSON.stringify(applyRequest)),
+    });
+  });
+
+  it("rejects forged workspace lifecycle transport responses", async () => {
+    const sessionId = "a".repeat(32);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-agent-workspace-lifecycle.v1",
+        session_id: sessionId,
+        preview_id: "b".repeat(32),
+        path: "other.txt",
+        proposed_revision: "c".repeat(64),
+        line_ending: "lf",
+        byte_size: 8,
+        diff: "--- /dev/null\n+++ b/other.txt\n@@ -0,0 +1 @@\n+example",
+        expires_at: "2026-08-27T12:00:00Z",
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN),
+    });
+
+    await expect(transport.previewAgentWorkspaceCreate(sessionId, {
+      path: "notes/example.txt",
+      content: "example\n",
+      line_ending: "lf",
+    })).rejects.toMatchObject({
+      message: "Local agent workspace create preview was invalid",
+      status: 200,
+    });
+  });
+
+  it("previews and applies a strict multi-file transaction with one native binding", async () => {
+    const sessionId = "a".repeat(32);
+    const planId = "b".repeat(32);
+    const alphaOld = "1".repeat(64);
+    const alphaNew = "2".repeat(64);
+    const betaOld = "3".repeat(64);
+    const betaNew = "4".repeat(64);
+    const previewRequest = {
+      changes: [
+        { operation: "edit" as const, path: "beta.txt", content: "beta new\n", expected_revision: betaOld, line_ending: "lf" as const },
+        { operation: "edit" as const, path: "alpha.txt", content: "alpha new\n", expected_revision: alphaOld, line_ending: "lf" as const },
+      ],
+    };
+    const previewResponse = {
+      contract_version: "local-agent-workspace-transaction.v2",
+      session_id: sessionId,
+      plan_id: planId,
+      file_count: 2,
+      total_byte_size: 19,
+      added_lines: 2,
+      removed_lines: 2,
+      files: [
+        { operation: "edit" as const, path: "alpha.txt", expected_revision: alphaOld, proposed_revision: alphaNew, line_ending: "lf", proposed_byte_size: 10, added_lines: 1, removed_lines: 1, diff: "--- a/alpha.txt\n+++ b/alpha.txt\n@@ -1 +1 @@\n-alpha old\n+alpha new" },
+        { operation: "edit" as const, path: "beta.txt", expected_revision: betaOld, proposed_revision: betaNew, line_ending: "lf", proposed_byte_size: 9, added_lines: 1, removed_lines: 1, diff: "--- a/beta.txt\n+++ b/beta.txt\n@@ -1 +1 @@\n-beta old\n+beta new" },
+      ],
+      expires_at: "2026-08-27T12:00:00Z",
+    };
+    const applyRequest = {
+      changes: previewResponse.files.map((item) => ({
+        operation: item.operation,
+        path: item.path,
+        content: previewRequest.changes.find((change) => change.path === item.path)!.content,
+        expected_revision: item.expected_revision,
+        proposed_revision: item.proposed_revision,
+        line_ending: item.line_ending as "lf",
+      })),
+      confirmation: "apply_reviewed_workspace_transaction" as const,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(previewResponse))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-agent-workspace-transaction.v2",
+        session_id: sessionId,
+        plan_id: planId,
+        state: "committed",
+        reason: null,
+        file_count: 2,
+        files: [
+          { path: "alpha.txt", state: "committed", revision: alphaNew, byte_size: 10 },
+          { path: "beta.txt", state: "committed", revision: betaNew, byte_size: 9 },
+        ],
+      }));
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    const preview = await transport.previewAgentWorkspaceTransaction(sessionId, previewRequest);
+    await expect(transport.applyAgentWorkspaceTransaction(sessionId, preview, applyRequest)).resolves.toMatchObject({
+      state: "committed",
+      file_count: 2,
+    });
+
+    const previewPath = `/v1/agent/sessions/${sessionId}/workspace/transactions`;
+    const applyPath = `/v1/agent/sessions/${sessionId}/workspace/transactions/${planId}/apply`;
+    expect(fetchMock.mock.calls[1][0]).toBe(previewPath);
+    expect(fetchMock.mock.calls[2][0]).toBe(applyPath);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ cache: "no-store" });
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ cache: "no-store" });
+    expect(approveUserPresence).toHaveBeenCalledOnce();
+    expect(approveUserPresence).toHaveBeenCalledWith({
+      method: "POST",
+      path: applyPath,
+      bodySha256: await sha256(JSON.stringify(applyRequest)),
+    });
+  });
+
+  it("preserves only an allowlisted transaction expiry reason", async () => {
+    const sessionId = "a".repeat(32);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        detail: {
+          code: "workspace_transaction_expired",
+          message: "EXAMPLE_PRIVATE_TRANSACTION_CANARY",
+        },
+      }, 409));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const error = await transport.previewAgentWorkspaceTransaction(sessionId, {
+      changes: [
+        { operation: "edit", path: "alpha.txt", content: "alpha new\n", expected_revision: "1".repeat(64), line_ending: "lf" },
+        { operation: "edit", path: "beta.txt", content: "beta new\n", expected_revision: "2".repeat(64), line_ending: "lf" },
+      ],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ status: 409, reasonCode: "workspace_transaction_expired" });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_TRANSACTION_CANARY");
+  });
+
   it("rejects a workspace tree that returns an absolute local path", async () => {
     const sessionId = "a".repeat(32);
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
-      .mockResolvedValueOnce(jsonResponse({
+      .mockResolvedValueOnce(privateJsonResponse({
         contract_version: "local-agent-workspace.v1",
         session_id: sessionId,
         path: ".",
@@ -2639,6 +4936,79 @@ describe("native user-presence transport binding", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/auth/session");
   });
 
+  it("preserves only the one-shot approval conflict reason", async () => {
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        detail: {
+          code: "approval_already_settled",
+          message: "EXAMPLE_PRIVATE_APPROVAL_CANARY",
+        },
+      }, 409));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    const error = await transport.decideAgentApproval(
+      "a".repeat(32),
+      "b".repeat(32),
+      true,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      status: 409,
+      reasonCode: "approval_already_settled",
+    });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_APPROVAL_CANARY");
+    expect(approveUserPresence).toHaveBeenCalledOnce();
+  });
+
+  it("binds the non-spawning Agent acceptance gate to native presence and its exact body", async () => {
+    const request = {
+      confirmation: "begin_guarded_agent_native_acceptance",
+    } as const;
+    const receipt = {
+      contract_version: "agent-native-acceptance-start.v1",
+      owner_presence_confirmed: true,
+      model_execution_started: false,
+      process_spawn_requested: false,
+      workspace_access_requested: false,
+      content_persisted: false,
+      expires_on_reload: true,
+    } as const;
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(receipt));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    await expect(transport.beginAgentNativeAcceptance!(request)).resolves.toEqual(receipt);
+
+    const path = "/v1/diagnostics/agent-native-acceptance/start";
+    expect(approveUserPresence).toHaveBeenCalledWith({
+      method: "POST",
+      path,
+      bodySha256: await sha256(JSON.stringify(request)),
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe(path);
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify(request),
+      cache: "no-store",
+      headers: expect.objectContaining({
+        "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+        "X-Prompt-Enhancer-User-Presence": USER_PRESENCE_TOKEN,
+      }),
+    }));
+  });
+
   it("binds agent-tool and lifecycle decisions to their exact POST path and body", async () => {
     const agentSessionId = "a".repeat(32);
     const approvalId = "b".repeat(32);
@@ -2653,7 +5023,7 @@ describe("native user-presence transport binding", () => {
     const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
-      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(jsonResponse(exampleAgentSession()))
       .mockResolvedValueOnce(privateJsonResponse({}));
     const transport = createHttpTransport({
       fetch: fetchMock as unknown as typeof fetch,
@@ -2661,7 +5031,7 @@ describe("native user-presence transport binding", () => {
       userPresenceApproval: approveUserPresence,
     });
 
-    await expect(transport.decideAgentApproval(agentSessionId, approvalId, true)).resolves.toEqual({});
+    await expect(transport.decideAgentApproval(agentSessionId, approvalId, true)).resolves.toEqual(exampleAgentSession());
     await expect(transport.decideMetricLifecycleProposal!(
       metricSessionId,
       proposalId,
@@ -2697,7 +5067,7 @@ describe("native user-presence transport binding", () => {
     const approveUserPresence = vi.fn().mockRejectedValue(new Error("must not be called"));
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
-      .mockResolvedValueOnce(jsonResponse({
+      .mockResolvedValueOnce(privateJsonResponse({
         contract_version: "local-agent-workspace.v1",
         session_id: sessionId,
         preview_id: previewId,
@@ -2724,5 +5094,180 @@ describe("native user-presence transport binding", () => {
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).not.toEqual(expect.objectContaining({
       "X-Prompt-Enhancer-User-Presence": expect.anything(),
     }));
+  });
+
+  it("stages attachment bytes with an exact media contract and never serializes them into JSON", async () => {
+    const body = new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(agentAttachment()));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.stageAgentAttachment(AGENT_CATALOG_SESSION_ID, {
+      blob: body,
+      displayName: "example.png",
+      source: "file",
+    })).resolves.toMatchObject({ attachment_id: AGENT_ATTACHMENT_ID, state: "staged" });
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/agent/sessions/${AGENT_CATALOG_SESSION_ID}/attachments?name=example.png&source=file`,
+    );
+    const request = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(request.body).toBe(body);
+    expect(new Headers(request.headers).get("content-type")).toBe("image/png");
+  });
+
+  it("stages canonical document bytes and accepts only the private projected preview contract", async () => {
+    const body = new Blob(["# Synthetic local notes"], { type: "text/markdown" });
+    const document = agentAttachment({
+      display_name: "example-notes.md",
+      kind: "document",
+      media_type: "text/markdown",
+      byte_size: body.size,
+      width: null,
+      height: null,
+      routing: "local_text_projection",
+      document_format: "markdown",
+      projected_characters: 23,
+      projection_truncated: false,
+      omitted_features: [],
+    });
+    const preview = {
+      contract_version: "agent-attachment-document-preview.v1",
+      session_id: AGENT_CATALOG_SESSION_ID,
+      attachment_id: AGENT_ATTACHMENT_ID,
+      sha256: "6".repeat(64),
+      media_type: "text/markdown",
+      document_format: "markdown",
+      text: "# Synthetic local notes",
+      projected_characters: 23,
+      projection_truncated: false,
+      preview_truncated: false,
+      omitted_features: [],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(document))
+      .mockResolvedValueOnce(privateJsonResponse(preview));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.stageAgentAttachment(AGENT_CATALOG_SESSION_ID, {
+      blob: body,
+      displayName: "example-notes.md",
+      source: "file",
+    })).resolves.toMatchObject({ kind: "document", routing: "local_text_projection" });
+    expect(new Headers((fetchMock.mock.calls[1][1] as RequestInit).headers).get("content-type"))
+      .toBe("text/markdown");
+    await expect(transport.getAgentAttachmentDocumentPreview(
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ATTACHMENT_ID,
+    )).resolves.toMatchObject({
+      text: "# Synthetic local notes",
+      preview_truncated: false,
+    });
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      `/v1/agent/sessions/${AGENT_CATALOG_SESSION_ID}/attachments/${AGENT_ATTACHMENT_ID}/document-preview`,
+    );
+  });
+
+  it("refuses unsupported PDF attachment uploads before any request", async () => {
+    const fetchMock = vi.fn();
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(transport.stageAgentAttachment(AGENT_CATALOG_SESSION_ID, {
+      blob: new Blob(["%PDF-1.7 synthetic"], { type: "application/pdf" }),
+      displayName: "synthetic.pdf",
+      source: "file",
+    })).rejects.toThrow("attachment upload was invalid");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends only staged attachment identities beside text", async () => {
+    const sessionId = "a".repeat(32);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(exampleAgentSession({ session_id: sessionId })));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await transport.sendAgentMessage(sessionId, "Inspect this image", [AGENT_ATTACHMENT_ID]);
+    const request = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual({
+      text: "Inspect this image",
+      attachment_ids: [AGENT_ATTACHMENT_ID],
+    });
+  });
+
+  it("accepts only private, non-sniffable same-origin attachment previews", async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const content = new Response(bytes, {
+      status: 200,
+      headers: {
+        "Content-Type": "image/png",
+        "Content-Length": "3",
+        "Content-Disposition": `inline; filename="agent-attachment-${AGENT_ATTACHMENT_ID.slice(0, 8)}.png"`,
+        "Cache-Control": "no-store, private",
+        Pragma: "no-cache",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(content);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getAgentAttachmentContent(
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ATTACHMENT_ID,
+    )).resolves.toMatchObject({
+      contentType: "image/png",
+      byteSize: 3,
+      filename: `agent-attachment-${AGENT_ATTACHMENT_ID.slice(0, 8)}.png`,
+    });
+    expect((fetchMock.mock.calls[1][1] as RequestInit).referrerPolicy).toBe("no-referrer");
+  });
+
+  it("rejects an otherwise valid attachment preview when privacy headers are incomplete", async () => {
+    const content = new Response(new Uint8Array([1]), {
+      status: 200,
+      headers: {
+        "Content-Type": "image/png",
+        "Content-Length": "1",
+        "Content-Disposition": `inline; filename="agent-attachment-${AGENT_ATTACHMENT_ID.slice(0, 8)}.png"`,
+        "Cache-Control": "no-store, private",
+        Pragma: "no-cache",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(content);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getAgentAttachmentContent(
+      AGENT_CATALOG_SESSION_ID,
+      AGENT_ATTACHMENT_ID,
+    )).rejects.toThrow("Agent attachment content response was invalid");
   });
 });

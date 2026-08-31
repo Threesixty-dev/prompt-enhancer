@@ -21,6 +21,19 @@
 .calibration__list li button[data-state="done"] .calibration__item-state { color: var(--teal-700, var(--accent-primary)); }
 .calibration__list li button[data-state="done"] .calibration__item-state svg { width: 16px; height: 16px; }
 .calibration__main { display: grid; gap: 16px; min-width: 0; }
+.calibration__case { display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg, 14px); background: var(--surface); }
+.calibration__case-head { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.calibration__case-head h3 { margin: 0 auto 0 0; }
+.calibration__case-head label { display: grid; gap: 4px; min-width: 0; font-size: 0.8rem; }
+.calibration__case-head select { max-width: 100%; padding: 8px; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.calibration__case-records { max-height: 420px; overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.calibration__case-records article + article { border-top: 1px solid var(--line); }
+.calibration__case-records h4 { font-size: 0.8rem; margin: 8px 0; }
+.calibration__case-records pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.55; font-size: 0.86rem; }
+.calibration__review-ack { display: flex; align-items: start; gap: 8px; font-size: 0.85rem; line-height: 1.45; }
+.calibration__review-ack input { flex: 0 0 auto; margin-top: 3px; }
+.calibration__agreement-scroll { max-width: 100%; overflow-x: auto; }
+.calibration__pair-note { display: block; min-width: 12ch; color: var(--ink-650); }
 .calibration__session-title { margin: 0; font-size: 1.1rem; }
 .calibration__form { display: grid; gap: 14px; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius-lg, 14px); background: var(--surface); }
 .calibration__metric { margin: 0; padding: 0; border: 0; display: grid; gap: 8px; }

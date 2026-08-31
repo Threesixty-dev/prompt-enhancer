@@ -93,12 +93,17 @@ describe("DiscoveryInbox", () => {
     expect(await screen.findByRole("button", { name: /Candidate aaaaaa/ })).toBeVisible();
     expect(onUndecidedCountChange).toHaveBeenLastCalledWith(2);
 
+    const mergeBeforeSelection = screen.getByRole("button", { name: "Merge selected" });
+    expect(mergeBeforeSelection).toBeDisabled();
+    expect(mergeBeforeSelection).toHaveAccessibleDescription(/select at least two candidates/i);
+
     const checkboxes = screen.getAllByRole("checkbox");
     fireEvent.click(checkboxes[0]);
     fireEvent.click(checkboxes[1]);
 
     const merge = screen.getByRole("button", { name: "Merge selected" });
     expect(merge).toBeEnabled();
+    expect(merge).toHaveAccessibleDescription(/ready to review as one merge/i);
     fireEvent.click(merge);
 
     await waitFor(() =>

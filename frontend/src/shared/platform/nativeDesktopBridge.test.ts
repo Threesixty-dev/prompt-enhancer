@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   chooseNativeWorkspaceFolder,
+  hasNativeAgentWindowBridge,
   hasNativeUserPresenceBridge,
   hasNativeWorkspaceFolderPicker,
+  openNativeAgentChatWindow,
 } from "./nativeDesktopBridge";
+
+const WINDOW_KEY = "a".repeat(32);
 
 const originalPywebview = Object.getOwnPropertyDescriptor(globalThis, "pywebview");
 
@@ -26,7 +30,9 @@ describe("native desktop bridge", () => {
 
     expect(hasNativeWorkspaceFolderPicker()).toBe(false);
     expect(hasNativeUserPresenceBridge()).toBe(false);
+    expect(hasNativeAgentWindowBridge()).toBe(false);
     await expect(chooseNativeWorkspaceFolder()).resolves.toEqual({ status: "unavailable" });
+    await expect(openNativeAgentChatWindow(WINDOW_KEY)).resolves.toEqual({ status: "unavailable", windowKey: null });
   });
 
   it("accepts only an exact selected absolute-path tuple", async () => {
@@ -77,6 +83,49 @@ describe("native desktop bridge", () => {
 
     await expect(chooseNativeWorkspaceFolder()).rejects.toMatchObject({
       name: "NativeFolderPickerError",
+      code: "bridge_failed",
+    });
+  });
+
+  it.each(["opened", "focused", "focus_unconfirmed"] as const)("accepts the exact non-spawning %s window receipt", async (status) => {
+    const open = vi.fn().mockResolvedValue({
+      version: "native-agent-window-v1",
+      status,
+      window_key: WINDOW_KEY,
+      listener_started: false,
+      worker_started: false,
+      process_spawned: false,
+      runtime_owner_created: false,
+    });
+    installBridge({ open_agent_chat_window: open });
+
+    expect(hasNativeAgentWindowBridge()).toBe(true);
+    await expect(openNativeAgentChatWindow(WINDOW_KEY)).resolves.toEqual({ status, windowKey: WINDOW_KEY });
+    expect(open).toHaveBeenCalledWith({
+      version: "native-agent-window-v1",
+      window_key: WINDOW_KEY,
+    });
+  });
+
+  it.each([
+    { version: "native-agent-window-v1", status: "opened", window_key: WINDOW_KEY, listener_started: true, worker_started: false, process_spawned: false, runtime_owner_created: false },
+    { version: "native-agent-window-v1", status: "opened", window_key: WINDOW_KEY, listener_started: false, worker_started: false, process_spawned: false, runtime_owner_created: false, extra: true },
+    { version: "native-agent-window-v1", status: "unavailable", window_key: WINDOW_KEY, listener_started: false, worker_started: false, process_spawned: false, runtime_owner_created: false },
+    { version: "native-agent-window-v1", status: "focused", window_key: null, listener_started: false, worker_started: false, process_spawned: false, runtime_owner_created: false },
+  ])("rejects a malformed or ownership-expanding native window receipt", async (value) => {
+    installBridge({ open_agent_chat_window: vi.fn().mockResolvedValue(value) });
+
+    await expect(openNativeAgentChatWindow(WINDOW_KEY)).rejects.toMatchObject({
+      name: "NativeAgentWindowError",
+      code: "invalid_response",
+    });
+  });
+
+  it("collapses a native child-window exception without exposing its detail", async () => {
+    installBridge({ open_agent_chat_window: vi.fn().mockRejectedValue(new Error("private native detail")) });
+
+    await expect(openNativeAgentChatWindow(WINDOW_KEY)).rejects.toMatchObject({
+      name: "NativeAgentWindowError",
       code: "bridge_failed",
     });
   });

@@ -405,32 +405,179 @@ class LocalApplication:
             session_context=session_context,
         )
 
-    def create_local_agent_service(self, local_model_service=None):
+    def create_agent_catalog_service(self):
+        """Private authored-Agent project/session navigation catalog."""
+
+        from .application.agent_catalog import AgentCatalogService
+        from .infrastructure.sqlite.agent_catalog import (
+            AgentCatalogSqliteDatabase,
+            SqliteAgentCatalogRepository,
+        )
+
+        database = AgentCatalogSqliteDatabase(self.settings.agent_catalog_path)
+        return AgentCatalogService(SqliteAgentCatalogRepository(database))
+
+    def create_agent_hardening_service(self, local_agent_service):
+        """On-demand content-free integrity and restart-readiness status."""
+
+        from .application.agent_hardening import AgentHardeningService
+        from .infrastructure.sqlite.agent_catalog import AgentCatalogSqliteDatabase
+        from .infrastructure.sqlite.agent_hardening import SqliteAgentHardeningProbe
+
+        database = AgentCatalogSqliteDatabase(self.settings.agent_catalog_path)
+        return AgentHardeningService(
+            SqliteAgentHardeningProbe(database),
+            local_agent_service,
+        )
+
+    def create_agent_mcp_connection_service(self, api_token: str):
+        """Durable authority for direct, process-free Agent MCP clients."""
+
+        from .application.agent_mcp_connections import AgentMcpConnectionService
+        from .infrastructure.sqlite.agent_catalog import (
+            AgentCatalogSqliteDatabase,
+            SqliteAgentMcpConnectionRepository,
+        )
+
+        database = AgentCatalogSqliteDatabase(self.settings.agent_catalog_path)
+        return AgentMcpConnectionService(
+            SqliteAgentMcpConnectionRepository(database),
+            token_pepper=api_token,
+        )
+
+    def create_mcp_registry_catalog_service(self):
+        """Read-only official MCP Registry catalog with public local fallback."""
+
+        from .application.mcp_registry_catalog import McpRegistryCatalogService
+        from .infrastructure.mcp_registry import (
+            JsonMcpRegistryCache,
+            OfficialMcpRegistryHttpClient,
+        )
+
+        return McpRegistryCatalogService(
+            OfficialMcpRegistryHttpClient(),
+            JsonMcpRegistryCache(self.settings.mcp_registry_cache_path),
+        )
+
+    def create_mcp_server_management_service(
+        self,
+        catalog_service=None,
+        *,
+        connection_factory=None,
+    ):
+        """Reviewed plans plus bounded, non-tool compatibility probes."""
+
+        from .application.mcp_guarded_host import McpGuardedHost
+        from .application.mcp_server_management import McpManagedServerService
+        from .infrastructure.mcp_guarded_host import (
+            OfficialSdkMcpConnectionFactory,
+            OfficialSdkMcpProbeClient,
+        )
+        from .infrastructure.mcp_package_installer import (
+            McpbPackageInstaller,
+            PinnedHttpsMcpArtifactDownloader,
+        )
+        from .infrastructure.mcp_secret_vault import platform_mcp_secret_vault
+        from .infrastructure.sqlite.agent_catalog import AgentCatalogSqliteDatabase
+        from .infrastructure.sqlite.mcp_server_management import (
+            SqliteMcpManagedServerRepository,
+        )
+
+        database = AgentCatalogSqliteDatabase(self.settings.agent_catalog_path)
+        connections = connection_factory or OfficialSdkMcpConnectionFactory()
+        host = McpGuardedHost(
+            OfficialSdkMcpProbeClient(connection_factory=connections)
+        )
+        return McpManagedServerService(
+            SqliteMcpManagedServerRepository(database),
+            catalog_service or self.create_mcp_registry_catalog_service(),
+            platform_mcp_secret_vault(),
+            host,
+            McpbPackageInstaller(
+                self.settings.mcp_packages_dir,
+                PinnedHttpsMcpArtifactDownloader(),
+                host,
+            ),
+        )
+
+    def create_mcp_managed_runtime_service(
+        self,
+        management_service,
+        *,
+        connection_factory=None,
+    ):
+        """Inert-until-start MCP host ownership and content-free call receipts."""
+
+        from .application.mcp_managed_runtime import McpManagedRuntimeService
+        from .infrastructure.mcp_guarded_host import OfficialSdkMcpConnectionFactory
+        from .infrastructure.mcp_managed_host_supervisor import (
+            McpManagedHostSupervisor,
+        )
+        from .infrastructure.sqlite.agent_catalog import AgentCatalogSqliteDatabase
+        from .infrastructure.sqlite.mcp_managed_runtime import (
+            SqliteMcpManagedRuntimeReceiptRepository,
+        )
+
+        connections = connection_factory or OfficialSdkMcpConnectionFactory()
+        database = AgentCatalogSqliteDatabase(self.settings.agent_catalog_path)
+        return McpManagedRuntimeService(
+            management_service,
+            McpManagedHostSupervisor(connections),
+            SqliteMcpManagedRuntimeReceiptRepository(database),
+        )
+
+    def create_local_agent_service(
+        self,
+        local_model_service=None,
+        *,
+        mcp_managed_runtime_service=None,
+    ):
         """Local agent workspace (ADR 0016): one folder, tools with approval, the active local model."""
 
         import os
         from pathlib import Path
 
+        from .application.agent_artifacts import AgentArtifactService
+        from .application.agent_attachments import AgentAttachmentService
         from .application.local_agent import LocalAgentService
-        from .application.local_models import RuntimeState
-
+        from .application.local_models import RuntimeCapabilities
+        from .infrastructure.sqlite.agent_attachments import (
+            SqliteAgentAttachmentRepository,
+        )
+        from .infrastructure.sqlite.agent_artifacts import (
+            SqliteAgentArtifactRepository,
+        )
+        from .infrastructure.sqlite.agent_catalog import AgentCatalogSqliteDatabase
         models = local_model_service or self.create_local_model_service()
 
         def active_model() -> str | None:
             try:
-                overview = models.overview()
+                aliases = models.running_aliases()
             except Exception:
                 return None
-            for item in overview.models:
-                if item.runtime.state is RuntimeState.RUNNING:
-                    return item.record.alias
-            return None
+            return aliases[0] if aliases else None
 
         def model_ready(alias: str) -> bool:
             try:
-                return models.status(alias).runtime.state is RuntimeState.RUNNING
+                return models.running_aliases() == (alias,)
             except Exception:
                 return False
+
+        def runtime_capabilities(alias: str) -> RuntimeCapabilities:
+            try:
+                status = models.coordinator_status()
+            except Exception:
+                return RuntimeCapabilities()
+            if status.served is None or status.served.alias != alias:
+                return RuntimeCapabilities()
+            return status.capabilities
+
+        def context_preflight(alias: str, body: bytes, compacted_messages: int):
+            return models.preflight_chat(
+                alias,
+                body,
+                compacted_messages=compacted_messages,
+            )
 
         user_home = Path.home()
         codex_home = Path(os.environ.get("CODEX_HOME", user_home / ".codex")).expanduser()
@@ -451,12 +598,31 @@ class LocalApplication:
             user_home / ".git-credentials",
             user_home / ".netrc",
         )
+        catalog = self.create_agent_catalog_service()
+        artifacts = AgentArtifactService(
+            SqliteAgentArtifactRepository(
+                AgentCatalogSqliteDatabase(self.settings.agent_catalog_path)
+            ),
+            catalog,
+        )
+        attachments = AgentAttachmentService(
+            SqliteAgentAttachmentRepository(
+                AgentCatalogSqliteDatabase(self.settings.agent_catalog_path)
+            ),
+            catalog,
+        )
         return LocalAgentService(
             chat=models.chat,
             open_chat=models.open_chat,
             active_model=active_model,
             model_ready=model_ready,
             forbidden_roots=protected_roots,
+            catalog=catalog,
+            artifacts=artifacts,
+            attachments=attachments,
+            runtime_capabilities=runtime_capabilities,
+            context_preflight=context_preflight,
+            mcp_managed_runtime=mcp_managed_runtime_service,
         )
 
     def create_shared_folder_services(self):
@@ -578,11 +744,35 @@ class LocalApplication:
         """Blind ratings of the owner's own sessions over a frozen sample."""
 
         from .application.analysis.calibration_ratings import CalibrationRatingService
+        from .application.analysis.calibration_cases import CalibrationReviewService, prepare_calibration_case
+        from .application.analysis.model_judge import read_judge_window, render_window
+        from .domain import DataTier, Provider
+
+        def provider_for(session_id):
+            session = self.database.get_session(session_id)
+            return Provider(session.provider) if session is not None else None
+
+        def read_case(session_id, window_characters):
+            provider = provider_for(session_id)
+            context = read_judge_window(
+                access=self.database, source_factory=self.create_text_analysis_source,
+                provider=provider, session_id=session_id,
+            )
+            return prepare_calibration_case(
+                session_id=session_id, provider=provider,
+                window_fingerprint=context.analysis_window_fingerprint,
+                rendered_window=render_window(context, max_characters=window_characters),
+            )
 
         return CalibrationRatingService(
             self.database,
             self.database.calibration_rating_repository(),
             self.pseudonymizer,
+            reviews=CalibrationReviewService(
+                read_case=read_case, provider_for=provider_for,
+                has_consent=lambda provider: self.database.has_active_consent(provider, DataTier.REDACTED_CONTENT),
+                enabled=self.settings.session_reader_enabled,
+            ),
         )
 
     def create_session_reader_service(self):
@@ -1411,7 +1601,33 @@ class LocalApplication:
         calibration_rating_service = self.create_calibration_rating_service()
         model_judge_service, _ = self.create_model_judge_service(local_model_service, calibration_rating_service)
         prompt_check_service = self.create_prompt_check_service(local_model_service)
-        local_agent_service = self.create_local_agent_service(local_model_service)
+        agent_mcp_connection_service = (
+            self.create_agent_mcp_connection_service(token)
+        )
+        mcp_registry_catalog_service = self.create_mcp_registry_catalog_service()
+        from .infrastructure.mcp_guarded_host import OfficialSdkMcpConnectionFactory
+
+        mcp_connection_factory = OfficialSdkMcpConnectionFactory()
+        mcp_server_management_service = (
+            self.create_mcp_server_management_service(
+                mcp_registry_catalog_service,
+                connection_factory=mcp_connection_factory,
+            )
+        )
+        mcp_managed_runtime_service = self.create_mcp_managed_runtime_service(
+            mcp_server_management_service,
+            connection_factory=mcp_connection_factory,
+        )
+        # Inject the boot-owned runtime during construction.  This guarantees
+        # that no already-live session can acquire new MCP authority as a side
+        # effect of rebuilding an HTTP adapter.
+        local_agent_service = self.create_local_agent_service(
+            local_model_service,
+            mcp_managed_runtime_service=mcp_managed_runtime_service,
+        )
+        agent_hardening_service = self.create_agent_hardening_service(
+            local_agent_service
+        )
         annotation_service, central_annotation_server, remote_annotation_client = self.create_annotation_services(local_model_service, model_judge_service)
         shared_folder_service, peer_folder_client = self.create_shared_folder_services()
 
@@ -1491,6 +1707,11 @@ class LocalApplication:
             model_judge_service=model_judge_service,
             prompt_check_service=prompt_check_service,
             local_agent_service=local_agent_service,
+            agent_hardening_service=agent_hardening_service,
+            agent_mcp_connection_service=agent_mcp_connection_service,
+            mcp_registry_catalog_service=mcp_registry_catalog_service,
+            mcp_server_management_service=mcp_server_management_service,
+            mcp_managed_runtime_service=mcp_managed_runtime_service,
             annotation_service=annotation_service,
             central_annotation_server=central_annotation_server,
             remote_annotation_client=remote_annotation_client,

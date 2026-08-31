@@ -9,6 +9,11 @@ from typing import Callable, Literal, Protocol
 from pydantic import Field, model_validator
 
 from ...domain import DataTier, Provider, StrictModel
+from ..runtime_cancellation import (
+    RuntimeCooperativeStop,
+    raise_if_runtime_cancelled,
+    runtime_request_scope,
+)
 from ..jobs import PowerSourceReader, PowerSourceState
 from ..analysis.coaching_baselines import COACHING_METRIC_DEFINITIONS
 from .contracts import (
@@ -271,12 +276,14 @@ class AutomationGrantService:
     def poll_due(self, *, limit: int = AUTOMATION_POLL_LIMIT) -> AutomationPollResult:
         if limit < 1 or limit > AUTOMATION_POLL_LIMIT:
             raise ValueError("automation poll limit is out of bounds")
+        raise_if_runtime_cancelled("automation_poll_cancelled")
         now = self._clock()
         self._repository.expire_due(now=now)
         checked = revoked = power_paused = policy_unsupported = 0
         power_external = power_battery = power_unknown = 0
         seen = created = reused = superseded = failures = 0
         for due_grant in self._repository.list_due(now=now, limit=limit):
+            raise_if_runtime_cancelled("automation_poll_cancelled")
             grant_now = self._clock()
             grant = self._repository.get(due_grant.grant_id)
             if grant is None or not grant.is_due(grant_now):
@@ -347,6 +354,11 @@ class AutomationGrantService:
                     next_check_at=next_check_at,
                     error_code=None,
                 )
+            except RuntimeCooperativeStop:
+                # Shutdown is control flow, not a provider failure.  Swallowing
+                # it here makes the worker continue through every due grant and
+                # can outlive the native owner's bounded cleanup deadline.
+                raise
             except AutomationSelectionError:
                 failures += 1
                 self._repository.record_check(
@@ -483,13 +495,21 @@ class AutomationGrantWorker:
         return self._service.poll_due()
 
     def _run(self) -> None:
-        while not self._stop_event.is_set():
+        # Do not launch a provider refresh in the startup critical path.  A
+        # desktop window can be opened, checked, and closed before the first
+        # scheduled interval without creating a Codex helper or transcript
+        # scan that immediately has to be cancelled again.
+        while not self._stop_event.wait(self._poll_seconds):
             try:
-                self.run_once()
+                # Provider indexing can be longer than the worker's shutdown
+                # deadline.  Propagate this worker's stop event through the
+                # existing content-free cancellation context so ingestion and
+                # local provider transports can leave at safe boundaries.
+                with runtime_request_scope(self._stop_event):
+                    self.run_once()
             except Exception:
                 # Scheduler failures are retried; exception text is never logged.
                 pass
-            self._stop_event.wait(self._poll_seconds)
 
 
 __all__ = [

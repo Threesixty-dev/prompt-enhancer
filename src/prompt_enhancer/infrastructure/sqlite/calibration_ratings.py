@@ -9,11 +9,13 @@ import sqlite3
 
 from ...application.analysis.calibration_ratings import (
     CALIBRATION_RATING_VERSION,
+    LEGACY_CALIBRATION_RATING_VERSION,
     CalibrationRating,
     CalibrationSample,
     CalibrationSampleMember,
     RatingLabel,
 )
+from ...application.analysis.calibration_cases import CalibrationCaseIdentity
 from ...domain import Provider
 from ._common import from_iso, require_utc, to_iso
 
@@ -125,40 +127,62 @@ class SqliteCalibrationRatingRepository:
         label: RatingLabel,
         rated_at: datetime,
     ) -> CalibrationRating:
+        return self.upsert_ratings(
+            rater_id=rater_id, session_id=session_id, labels={metric_key: label}, rated_at=rated_at,
+        )[0]
+
+    def upsert_ratings(
+        self, *, rater_id: str, session_id: str, labels: dict[str, RatingLabel],
+        rated_at: datetime, case: CalibrationCaseIdentity | None = None,
+    ) -> tuple[CalibrationRating, ...]:
+        if not labels or (case is not None and case.session_id != session_id):
+            raise ValueError("calibration_rating_case_mismatch")
         self._ensure_initialized()
         stamp = to_iso(require_utc(rated_at))
+        provenance = {
+            "rating_version": CALIBRATION_RATING_VERSION if case else LEGACY_CALIBRATION_RATING_VERSION,
+            "case_fingerprint": case.case_fingerprint if case else None,
+            "case_version": case.case_version if case else None,
+            "window_fingerprint": case.window_fingerprint if case else None,
+        }
+        saved: list[CalibrationRating] = []
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
-                existing = connection.execute(
-                    "SELECT revision FROM calibration_ratings WHERE rater_id = ? AND session_id = ? AND metric_key = ?",
-                    (rater_id, session_id, metric_key),
-                ).fetchone()
-                revision = 1 if existing is None else int(existing["revision"]) + 1
-                connection.execute(
-                    """
-                    INSERT INTO calibration_ratings(rater_id, session_id, metric_key, label, rating_version, rated_at, revision)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(rater_id, session_id, metric_key) DO UPDATE SET
-                        label = excluded.label,
-                        rating_version = excluded.rating_version,
-                        rated_at = excluded.rated_at,
-                        revision = excluded.revision
-                    """,
-                    (rater_id, session_id, metric_key, label.value, CALIBRATION_RATING_VERSION, stamp, revision),
-                )
+                for metric_key, label in labels.items():
+                    existing = connection.execute(
+                        "SELECT revision FROM calibration_ratings WHERE rater_id = ? AND session_id = ? AND metric_key = ?",
+                        (rater_id, session_id, metric_key),
+                    ).fetchone()
+                    revision = 1 if existing is None else int(existing["revision"]) + 1
+                    rating = CalibrationRating(
+                        rater_id=rater_id, session_id=session_id, metric_key=metric_key,
+                        label=label, rated_at=require_utc(rated_at), revision=revision, **provenance,
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO calibration_ratings(
+                            rater_id, session_id, metric_key, label, rating_version, rated_at, revision,
+                            case_fingerprint, case_version, window_fingerprint
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(rater_id, session_id, metric_key) DO UPDATE SET
+                            label = excluded.label,
+                            rating_version = excluded.rating_version,
+                            rated_at = excluded.rated_at,
+                            revision = excluded.revision,
+                            case_fingerprint = excluded.case_fingerprint,
+                            case_version = excluded.case_version,
+                            window_fingerprint = excluded.window_fingerprint
+                        """,
+                        (rater_id, session_id, metric_key, rating.label.value, rating.rating_version, stamp, revision,
+                         rating.case_fingerprint, rating.case_version, rating.window_fingerprint),
+                    )
+                    saved.append(rating)
                 connection.commit()
             except Exception:
                 connection.rollback()
                 raise
-        return CalibrationRating(
-            rater_id=rater_id,
-            session_id=session_id,
-            metric_key=metric_key,
-            label=label,
-            rated_at=require_utc(rated_at),
-            revision=revision,
-        )
+        return tuple(saved)
 
     def list_ratings(
         self, *, rater_id: str | None = None, session_id: str | None = None
@@ -175,7 +199,7 @@ class SqliteCalibrationRatingRepository:
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
         with self._connection_scope(readonly=True) as connection:
             rows = connection.execute(
-                f"SELECT rater_id, session_id, metric_key, label, rated_at, revision FROM calibration_ratings {where} ORDER BY rated_at, session_id, metric_key",
+                f"SELECT rater_id, session_id, metric_key, label, rated_at, revision, rating_version, case_fingerprint, case_version, window_fingerprint FROM calibration_ratings {where} ORDER BY rated_at, session_id, metric_key",
                 tuple(parameters),
             ).fetchall()
         return tuple(
@@ -186,6 +210,10 @@ class SqliteCalibrationRatingRepository:
                 label=RatingLabel(row["label"]),
                 rated_at=require_utc(from_iso(row["rated_at"])),
                 revision=int(row["revision"]),
+                rating_version=row["rating_version"],
+                case_fingerprint=row["case_fingerprint"],
+                case_version=row["case_version"],
+                window_fingerprint=row["window_fingerprint"],
             )
             for row in rows
         )

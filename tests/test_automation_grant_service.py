@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from threading import Event
 
 import pytest
 
@@ -18,6 +19,10 @@ from prompt_enhancer.application.automation import (
     AutomationSessionCandidate,
 )
 from prompt_enhancer.application.jobs import PowerSourceState
+from prompt_enhancer.application.runtime_cancellation import (
+    RuntimeCooperativeStop,
+    runtime_request_scope,
+)
 from prompt_enhancer.domain import DataTier, Provider
 
 
@@ -234,6 +239,33 @@ def test_poll_schedules_changed_candidates_and_advances_interval() -> None:
     )
     assert repository.record is not None
     assert repository.record.next_check_at == NOW + timedelta(minutes=15)
+
+
+def test_poll_propagates_runtime_shutdown_without_recording_provider_failure() -> None:
+    repository = Repository(record=_record())
+
+    class CancelledRefresher:
+        def refresh(self, provider: Provider, *, max_sessions: int) -> None:
+            del provider, max_sessions
+            raise RuntimeCooperativeStop("synthetic_automation_shutdown")
+
+    service = _service(
+        repository,
+        Access(),
+        Candidates(),
+        Jobs(),
+        refresher=CancelledRefresher(),
+    )
+    cancellation = Event()
+
+    with runtime_request_scope(cancellation):
+        with pytest.raises(
+            RuntimeCooperativeStop,
+            match="^synthetic_automation_shutdown$",
+        ):
+            service.poll_due()
+
+    assert repository.record == _record()
 
 
 def test_consent_revocation_cancels_jobs_without_reading_candidates() -> None:

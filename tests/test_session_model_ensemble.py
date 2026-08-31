@@ -47,6 +47,7 @@ from prompt_enhancer.application.analysis.session_model_ensemble import (
     ModelEnsembleConfirmationError,
     ModelEnsembleConsentError,
     ModelEnsembleExecutionError,
+    ModelEnsembleRuntimeCleanupError,
     ModelEnsemblePersistenceError,
     REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT,
     REQUIREMENT_ACTION_BINDING_INVALID_SCHEMA_VERSION,
@@ -1503,14 +1504,20 @@ def test_watch_api_does_not_substitute_an_unbound_historical_run(tmp_path) -> No
 
 @dataclass
 class _FailingService:
+    error_type: type[ModelEnsembleExecutionError] = ModelEnsembleExecutionError
+
     def run(self, **values):
-        raise ModelEnsembleExecutionError("SYNTHETIC_PRIVATE_CANARY")
+        raise self.error_type("SYNTHETIC_PRIVATE_CANARY")
 
     def latest(self, session_id: str):
         return None
 
 
-def test_api_discards_model_exception_details(tmp_path) -> None:
+@pytest.mark.parametrize("error_type,code,message", [
+    (ModelEnsembleExecutionError, "local_model_ensemble_execution_failed", "local model ensemble execution failed"),
+    (ModelEnsembleRuntimeCleanupError, "model_ensemble_cleanup_unconfirmed", "local model cleanup was not confirmed; new model runs are paused"),
+], ids=["ordinary-failure", "cleanup-unconfirmed"])
+def test_api_discards_model_exception_details(tmp_path, error_type, code, message) -> None:
     database = Database(tmp_path / "metrics.sqlite3")
     database.initialize()
     _persist_api_session(database)
@@ -1518,7 +1525,7 @@ def test_api_discards_model_exception_details(tmp_path) -> None:
         settings=AppSettings(home=tmp_path),
         database=database,
         api_token=TOKEN,
-        session_model_ensemble_service=_FailingService(),  # type: ignore[arg-type]
+        session_model_ensemble_service=_FailingService(error_type),  # type: ignore[arg-type]
     )
     with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.post(
@@ -1533,8 +1540,8 @@ def test_api_discards_model_exception_details(tmp_path) -> None:
     assert response.status_code == 503
     assert response.json() == {
         "detail": {
-            "code": "local_model_ensemble_execution_failed",
-            "message": "local model ensemble execution failed",
+            "code": code,
+            "message": message,
         }
     }
     assert "SYNTHETIC_PRIVATE_CANARY" not in response.text

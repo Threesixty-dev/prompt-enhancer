@@ -106,7 +106,15 @@ The **Models** page ([ADR 0013](docs/adr/0013-local-model-runtimes.md)) manages 
 
 The dashboard opens dark by default - a deep blue-graphite surface set with a luminous teal accent, glass cards and glowing chart strokes - with a light theme one click away in the top bar (the choice is remembered; every colour is a token, so both themes cover every page). The **Overview** page shows what the app did on its own: sessions indexed per provider with a 30-day sparkline, calibration progress and judge coverage, the active local model and hardware, prompt checks, and what is worth doing next.
 
-The **Agent** page ([ADR 0016](docs/adr/0016-local-agent-workspace.md)) lets the active local model work inside a folder you choose - it lists, reads and searches on its own, and every file write (shown as a diff), shell command and web fetch waits for your approval; open it in its own window to keep it beside your editor. Nothing is stored beyond the server's memory.
+The **Agent** page ([ADR 0016](docs/adr/0016-local-agent-workspace.md)) lets the active local model work inside a folder you choose - it lists, reads and searches on its own, and every file write (shown as a diff), directory creation, no-overwrite file or directory move, shell command and web fetch waits for your approval; open it in its own window to keep it beside your editor. The manual workbench can create one reviewed UTF-8 file, create exactly one folder under an existing parent, rename or move one reviewed file, and move one ordinary folder to an absent destination under an existing parent. Folder-move review binds path topology only and explicitly does not enumerate or claim review of the subtree. It can also stage two to eight changed existing UTF-8 files, show every diff in one revision-bound review and publish them with one native confirmation. All transaction members are preflighted before the first publication; if a later member fails, earlier publications are restored, while any outcome that cannot be verified locks further writes instead of claiming success or rollback. This is failure-atomic while the selected workspace stays stable, not power-loss atomic. The live reviewed change set compares each Agent or manual reviewed file write with that path's retained first baseline, labels current/reverted/unverified effects, and opens an exact bounded net diff on demand. A separate read-only discovery map recursively lists application-readable relative file metadata and, for a supported repository rooted exactly at the selected folder, shows sanitized local Git changes. Bounds, exclusions and unavailable states remain explicit; the map returns no file content, branch, commit, remote, absolute path or command output, and it never turns an external or command-created effect into a reviewed write. Durable project/chat metadata always stays local; conversation content is retained only when a chat explicitly uses bounded local history, while approvals and reusable mutation authority never survive recovery. Codex, Claude Code, or another loopback controller can discover the complete provider-neutral project/chat/event/file/artifact and runtime surface at `GET /v1/agent/orchestration`; external controllers may prepare reviewed changes and inspect generated-output candidates as content-free path/type/size/digest metadata, but cannot apply changes, capture artifacts, or approve protected effects. The Agent window now creates scoped, revocable direct HTTP MCP connections and provides one-time private Codex/Claude setup copies. This recommended path calls the already-running app at `/mcp/agent` and starts no bridge process or terminal. The connection card exposes the exact endpoint, a provider-neutral delegation starter, and truthful never-used/last-authenticated-request evidence without rendering or storing the bearer. The bundled `prompt-enhancer agent-mcp-config` prints a token-free environment-variable template; `--transport stdio` remains an advanced subprocess fallback. The lower-level `prompt-enhancer agent-controller` single-request bridge exposes the same validated operations. See [the controller protocol](docs/agent-controller-api.md).
+
+The remaining Agent, model-runtime, workspace, orchestration, MCP, UI/UX, privacy, and release work is governed by the [Prompt Enhancer finish goal](docs/prompt-enhancer-finish-goal-2026-08-29.md). It is deliberately checkpointed so every advertised control receives automated evidence and a reload-ready owner review before the next capability is treated as complete.
+
+Agent settings also contains an [MCP Store](docs/checkpoint-mcp-store-06c-handoff.md) that searches and filters Official MCP Registry metadata, opens an exact version-bound safety/setup-plan review, and saves native-confirmed durable plans with exact per-project tool admission. Secret values can be placed in Windows Credential Manager without entering SQLite, API responses, or model context. A ready fixed HTTPS remote plan can run one native-confirmed, deadline-bounded compatibility check: the app revalidates the exact Registry plan, pins public DNS answers, negotiates MCP, inspects bounded tool schemas without calling a tool, closes the connection, and retains only protocol, count, digest, duration, and cleanup truth. An exact checksum-pinned MCPB release can be downloaded, safely extracted, checked with one hidden owned stdio process, verified stopped, and atomically installed. An installed, admitted server can then be started explicitly for one project and the current app run; it never auto-starts or auto-restarts, every tool call requires a fresh native confirmation, results are bounded, and Stop/app shutdown closes its connection or owned hidden process tree. Tool-call receipts retain only digests, byte counts, outcome, timing and cleanup truth—not arguments, results, prompts, paths, credentials or reusable approval authority.
+
+Direct Agent MCP connection cards also expose a content-free last-tool name,
+protocol outcome, and time after explicit refresh. No tool argument, result,
+prompt, path, identity, token, or exception is stored in that receipt.
 
 The **Prompt check** page ([ADR 0015](docs/adr/0015-prompt-check.md)) is the product's namesake: paste the prompt you are about to give Claude Code, Codex or any model (with the earlier turns if useful) and get the same deterministic prompt cues the dashboard measures for sessions, what the local model would change, and a reformulated prompt - with radar and trend plots over your checks. Agents can run the same check themselves: `POST /v1/prompt-checks`, the MCP tool `check_prompt`, or the opt-in Claude Code `UserPromptSubmit` hook (`prompt-enhancer claude-prompt-check-config`), which hands the advice to the model as additional context. The prompt travels only to 127.0.0.1 and only metrics are stored.
 
@@ -217,20 +225,66 @@ prompt-enhancer agent-desktop
 ```
 
 This launcher opens the full `/agent` surface and must start and own the
-loopback service for the window lifetime. It deliberately refuses to attach
-when the configured port is already occupied, including by an authenticated
-`prompt-enhancer serve` process, because the native window and HTTP approval
-dependency must share one in-process, one-shot user-presence manager. Stop the
-existing service before launching the protected Agent. The ordinary browser
-surface remains read-only for protected actions.
+loopback service for the window lifetime. It never attaches its approval bridge
+to an existing process. Both entry paths share one Windows-session instance
+lease. Launching Agent again focuses the existing exact-title window and exits;
+it cannot create another listener, worker set, lifecycle marker or WebView. The
+listener is bound atomically before application
+startup; if the configured port is occupied, including by an authenticated
+`prompt-enhancer serve` process, Agent reserves an OS-assigned loopback port and
+opens the owned window there. The existing service is left untouched. The
+ordinary browser surface remains read-only for protected actions.
+
+Both native launchers keep a bounded, content-free latest lifecycle record below
+the private application `diagnostics` directory. It contains only a contract,
+window kind, fixed phase/failure codes, fixed component codes and the previous
+fixed outcome. It contains no timestamp, process id, port, path, prompt, session
+or model identifier. A clean close ends at `stopped` only after the native
+window's close event and owned-service cleanup both confirm. A returned GUI loop
+without that event is a fixed failure, not a successful exit. A non-terminal
+phase left by a hard exit is carried into the next record as `interrupted`, so a
+silent GUI exit is no longer indistinguishable from a confirmed shutdown.
 
 Inside the owned Agent window, **Browse** uses a narrow native folder dialog.
-The bridge is available only while that window remains on the exact `/agent`
-route at the expected loopback origin, returns only the folder explicitly
-selected by the person, and does not log or retain the path. Cancel and
-unavailable results are content-free. The local-agent service still performs
+The bridge is available only while that window remains on exact `/agent` or its
+exact opaque child-window route at the expected loopback origin, returns only
+the folder explicitly selected by the person, and does not log or retain the
+path. Cancel and unavailable results are content-free. The local-agent service still performs
 the authoritative absolute-path, protected-root, drive-root, reparse-point,
 and workspace checks.
+
+**Open separate window** creates at most one same-process Agent chat child in
+the existing native GUI loop. Repeated requests focus that child; they do not
+start another listener, server, worker, command owner, model runtime, terminal,
+or cleanup path. The child URL carries only a fresh opaque window key. Chat
+selection stays in a strict same-origin, memory-only channel, and the child
+includes the project/chat rail, model/context control, conversation, and
+on-demand file review. Closing the child does not stop the owner application;
+closing the primary owner destroys the child before the one bounded shutdown.
+
+The manual workbench and first-class model `trash_file` tool can move one exact
+reviewed ordinary UTF-8 file to Windows Recycle Bin after a distinct native
+confirmation. They never grant permanent deletion or directory removal. The
+app verifies the reviewed bytes through an open descriptor after publication;
+its safe rollback staging means Windows may display an app-generated recovery
+name rather than the original filename. See the [checkpoint 40 handoff](docs/checkpoint-40-handoff.md)
+for the recovery boundary and owner checklist.
+
+The chat-first Projects/Sessions/Agent composition is implemented through
+Agent-08g: opt-in durable authored chats, branching, the single-runtime model
+switcher, controller access, safe artifact viewers, capability-gated PNG/JPEG
+plus PCM-WAV input and local microphone recording, and the one-owner separate
+chat window. Artifact viewers select an exact immutable version, show its
+provenance/digest identity, and fail closed when the current workspace bytes no
+longer match that historical revision. Retained chats can also review an
+existing workspace file's content-free type, size, and digest metadata, then
+capture only that exact revision as an artifact after native confirmation.
+Media controls fail closed unless the exact served runtime passes
+its live capability probe. Guarded native/model owner acceptance and legacy
+retirement are checkpointed separately in the [Agent chat experience
+plan](docs/agent-chat-experience-plan-2026-08-27.md). This is
+not a claim of universal Hugging Face, architecture, tokenizer, or media-format
+compatibility; unsupported and unverified capabilities remain unavailable.
 
 See [the live metric radar pipeline](docs/live-metric-radar-pipeline.md) for all
 twenty contracts, zero-versus-missing semantics, model routing, distribution and
@@ -259,7 +313,7 @@ Objective evidence such as tests, builds, CI, artifacts, and explicit user accep
   Claude display labels arrive with the hook as a bounded basename; persisting them through the migration-5 label tables still requires a provider-neutral migration.
 - Storage: SQLite as the initial source of truth, with a separate optional encrypted content vault. DuckDB/Parquet can be added later for larger analytical workloads.
 - Analysis: deterministic metrics first, then small local Hugging Face models that pass an in-domain benchmark. The local Model Lab screens seven revision-pinned candidates in isolated one-at-a-time subprocesses with CUDA, Apple MPS, or CPU fallback. Current neural candidates remain evaluation-only; none is activated in product metrics. Remote LLM analysis is optional, redacted, previewed, and explicitly approved.
-- Agent access ([ADR 0014](docs/adr/0014-read-only-agent-surface.md)): `prompt-enhancer mcp --acknowledge-context-egress` serves a read-only, allowlisted MCP server over stdio (`list_metric_definitions`, `list_sessions`, `get_session_metrics`, `summarize_period`, `explain_metric`, `get_calibration_status`) so an already-running Codex or Claude Code session can ask about your own metrics; `prompt-enhancer mcp-config` prints the snippets for both. No transcript text, paths, or tokens are ever returned, and whatever a tool returns enters that model's context and may leave the device - which is why the acknowledgement is required.
+- Agent access has two deliberately separate MCP surfaces. The ADR 0014 analytics server (`prompt-enhancer mcp-config`) is read-only and never returns transcript text, paths, or tokens. The authored-workspace controller uses a scoped direct HTTP connection by default, exposes explicitly authorized project/chat/turn tools, and keeps native approvals unavailable. Model lifecycle is granted per connection; the advanced stdio fallback requires `--transport stdio --with-model-lifecycle`. Whatever either server returns enters the connected model's context, so task-specific context-egress receipts remain mandatory.
 
 Decisions that only the owner can take (identity, teams, shared context, the content vault) are listed with recommendations in [docs/pending-owner-decisions.md](docs/pending-owner-decisions.md). The detailed proposal is in [docs/architecture.md](docs/architecture.md), the metric definitions are in [docs/metrics-catalog.md](docs/metrics-catalog.md), and the 131-publication research journal begins at [docs/research/research-journal.md](docs/research/research-journal.md). The dashboard-facing method stack and activation gates are summarized in [docs/research/prompt-agent-analytics-methods.md](docs/research/prompt-agent-analytics-methods.md).
 

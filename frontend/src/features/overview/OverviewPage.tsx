@@ -8,6 +8,7 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import type { AppRoute } from "../../shared/platform/platform";
+import type { RuntimeDataMode } from "../../shared/platform/runtimeMode";
 import { Icon } from "../../shared/ui/Icon";
 import {
   safeOnboardingStatus,
@@ -20,6 +21,7 @@ const SESSION_PAGE = 100;
 const MAX_SESSION_PAGES = 5;
 
 type Loaded<T> = { state: "loading" } | { state: "ready"; value: T } | { state: "unavailable" };
+type SessionHistory = { rows: CodexSession[]; complete: boolean };
 
 type OverviewTransport = Omit<
   Pick<
@@ -57,7 +59,7 @@ function localModelHardwareFooter(models: Loaded<LocalModelsOverview>): string {
 function promptCommentaryFooter(checks: Loaded<PromptCheckHistory>): string {
   if (checks.state === "loading") return "counting model commentary…";
   if (checks.state === "unavailable") return "commentary history unavailable";
-  return `${checks.value.checks.filter((row) => row.commentary_state === "ok").length} with model commentary`;
+  return `${checks.value.checks.filter((row) => row.commentary_state === "ok").length} with model commentary${checks.value.checks.length >= 60 ? " · latest 60 checks only" : ""}`;
 }
 
 function promptCheckCoverageSummary(checks: Loaded<PromptCheckHistory>, coverage: readonly number[]): string {
@@ -109,31 +111,36 @@ export function OverviewPage({
   navigate,
   transport,
   now = () => new Date(),
+  runtimeMode = "synthetic_demo",
 }: {
   navigate: (route: AppRoute) => void;
   transport: OverviewTransport;
   now?: () => Date;
+  runtimeMode?: RuntimeDataMode;
 }) {
   const onboarding = useLoaded<TruthfulOnboardingStatus>(async (signal) => {
     const value = await transport.getOnboardingStatus(signal);
     if (!safeOnboardingStatus(value)) throw new Error("invalid onboarding response");
     return value;
   }, [transport]);
-  const sessions = useLoaded<CodexSession[]>(async (signal) => {
+  const sessions = useLoaded<SessionHistory>(async (signal) => {
     const all: CodexSession[] = [];
+    let complete = false;
     for (let page = 0; page < MAX_SESSION_PAGES; page += 1) {
       const response = await transport.listCodexSessions(SESSION_PAGE, page * SESSION_PAGE, signal);
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      if (!Array.isArray(response.sessions) || response.sessions.length > SESSION_PAGE) throw new Error("invalid session page");
       all.push(...response.sessions);
-      if (response.sessions.length < SESSION_PAGE) break;
+      if (response.sessions.length < SESSION_PAGE) { complete = true; break; }
     }
-    return all;
+    return { rows: all, complete };
   }, [transport]);
   const calibration = useLoaded<CalibrationSample>((signal) => transport.getCalibrationSample(null, signal), [transport]);
   const judge = useLoaded<JudgeAgreementReport>((signal) => transport.getModelJudgeAgreement(signal), [transport]);
   const models = useLoaded<LocalModelsOverview>((signal) => transport.getLocalModels(signal), [transport]);
   const checks = useLoaded<PromptCheckHistory>((signal) => transport.getPromptCheckHistory(60, 0, signal), [transport]);
 
-  const perDay = useMemo(() => (sessions.state === "ready" ? sessionsPerDay(sessions.value, DAYS, now()) : []), [sessions, now]);
+  const perDay = useMemo(() => (sessions.state === "ready" ? sessionsPerDay(sessions.value.rows, DAYS, now()) : []), [sessions, now]);
   const recentCount = perDay.reduce((a, b) => a + b, 0);
   const providers = onboarding.state === "ready" ? onboarding.value.providers : [];
   const indexedCounts = providers.map((provider) => provider.indexed_sessions);
@@ -164,17 +171,17 @@ export function OverviewPage({
   const checkRows = checks.state === "ready" ? checks.value.checks : [];
   const checkCoverage = checkRows
     .map((row) => row.metrics.find((m) => m.key === "prompt.task_definition_coverage"))
-    .map((m) => (m && m.state === "known" && typeof m.value === "number" ? m.value : null))
+    .map((m) => (m && m.state === "known" && typeof m.value === "number" && Number.isFinite(m.value) && m.value >= 0 && m.value <= 1 ? m.value : null))
     .filter((v): v is number => v !== null);
   const checkSpark = [...checkRows].reverse().flatMap((row) => {
     const m = row.metrics.find((x) => x.key === "prompt.task_definition_coverage");
-    return m && m.state === "known" && typeof m.value === "number" ? [m.value] : [];
+    return m && m.state === "known" && typeof m.value === "number" && Number.isFinite(m.value) && m.value >= 0 && m.value <= 1 ? [m.value] : [];
   });
   const settled = [onboarding, models, calibration, checks].every((item) => item.state !== "loading");
 
   const nextSteps: { text: string; route: AppRoute }[] = [];
-  if (onboarding.state === "ready" && onboarding.value.providers.some((p) => p.installed && !p.consent_active)) {
-    nextSteps.push({ text: "A detected tool is not loaded yet - one click loads its whole history.", route: { name: "local_sources" } });
+  if (runtimeMode === "local_real" && onboarding.state === "ready" && onboarding.value.providers.some((p) => p.installed && !p.consent_active)) {
+    nextSteps.push({ text: "A detected tool is not loaded yet - review local-source access before indexing its history.", route: { name: "local_sources" } });
   }
   if (!activeModel && models.state === "ready") {
     nextSteps.push({ text: "No local model is active: activate one so the judge and prompt commentary run.", route: { name: "models" } });
@@ -193,8 +200,8 @@ export function OverviewPage({
           <p className="eyebrow">Overview · this machine, today</p>
           <h1 id="overview-title">Everything the app did on its own</h1>
           <p className="overview__lede">
-            Sessions are indexed, analysed and judged automatically after each refresh; nothing here is a score of a person,
-            and unknown stays unknown. Each tile opens the page that owns it.
+            A snapshot of indexed sessions, local models, calibration and prompt checks. Automatic work depends on your enabled sources and settings;
+            nothing here is a score of a person, and unknown stays unknown. Each tile opens the page that owns it.
           </p>
         </div>
         {onboarding.state === "ready" && onboarding.value.last_refresh_at && (
@@ -211,8 +218,8 @@ export function OverviewPage({
           <span className="overview-tile__sub">
             {indexedDetail}
           </span>
-          {sessions.state === "ready" && <Sparkline label={`Sessions per day, last ${DAYS} days (${recentCount})`} values={perDay} />}
-          <span className="overview-tile__foot">{sessions.state === "ready" ? `${recentCount} in the last ${DAYS} days` : sessions.state === "loading" ? "counting…" : "history unavailable"}</span>
+          {sessions.state === "ready" && <Sparkline label={`Sessions per day, last ${DAYS} days (${recentCount}${sessions.value.complete ? "" : "; partial history"})`} values={perDay} />}
+          <span className="overview-tile__foot">{sessions.state === "ready" ? `${sessions.value.complete ? "" : "At least "}${recentCount} in the last ${DAYS} days${sessions.value.complete ? "" : ` · first ${sessions.value.rows.length} sessions only`}` : sessions.state === "loading" ? "counting…" : "history unavailable"}</span>
         </button>
 
         <button className="overview-tile" onClick={() => navigate({ name: "calibration" })} type="button">
@@ -256,7 +263,11 @@ export function OverviewPage({
         {!settled ? (
           <p className="overview__note">Checking what is left to do…</p>
         ) : nextSteps.length === 0 ? (
-          <p className="overview__note">Nothing is waiting on you right now. The refresh keeps indexing, analysing and judging on its own.</p>
+          <p className="overview__note">{[onboarding, models, calibration, checks].some((item) => item.state === "unavailable")
+            ? "Some checks are unavailable, so the app cannot confirm that everything is up to date. Open a tile to inspect its status."
+            : runtimeMode === "synthetic_demo"
+              ? "No suggested actions in this fixture. This preview does not index or judge real sessions."
+              : "No suggested actions from the available checks. Automatic work follows your configured sources and settings."}</p>
         ) : (
           <ul>
             {nextSteps.map((step) => (

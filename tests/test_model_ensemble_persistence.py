@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import hashlib
 import sqlite3
+from threading import Event
 
 import pytest
 
@@ -512,13 +513,13 @@ def test_model_ensemble_graph_is_immutable_sealed_and_privacy_deletable(tmp_path
 def test_model_ensemble_migrations_have_zero_backfill(tmp_path) -> None:
     database, _ = _database_and_session(tmp_path)
     with sqlite3.connect(database.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 60
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 61
         assert tuple(
             row[0]
             for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-        ) == tuple(range(1, 61))
+        ) == tuple(range(1, 62))
         assert connection.execute(
             "SELECT COUNT(*) FROM session_model_ensemble_runs"
         ).fetchone()[0] == 0
@@ -602,7 +603,7 @@ def test_v28_watch_upgrade_preserves_the_original_message_window(tmp_path) -> No
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 60
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 61
         assert tuple(row[1] for row in rows[:28]) == checksums
         assert rows[28][1] == hashlib.sha256(
             migrations.MIGRATION_29.encode("utf-8")
@@ -721,8 +722,8 @@ def test_v25_to_v26_preserves_prior_checksums_and_rows(tmp_path, populated: bool
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 60
-        assert tuple(row[0] for row in rows) == tuple(range(1, 61))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 61
+        assert tuple(row[0] for row in rows) == tuple(range(1, 62))
         assert tuple(row[1] for row in rows[:25]) == checksums
         assert rows[25][1] == hashlib.sha256(
             migrations.MIGRATION_26.encode("utf-8")
@@ -1287,7 +1288,8 @@ def test_legacy_watch_head_without_a_publication_is_exposed_as_unpublished(
     assert canonical.stages == ()
 
 
-def test_watch_cancellation_retains_prior_head_and_seals_the_attempt(tmp_path) -> None:
+@pytest.mark.parametrize("shutdown", (False, True))
+def test_watch_cancellation_retains_prior_head_and_seals_the_attempt(tmp_path, shutdown) -> None:
     database, session_id = _database_and_session(tmp_path)
     runs = database.model_ensemble_repository()
     run = _with_typed_projection(_run(session_id))
@@ -1322,10 +1324,20 @@ def test_watch_cancellation_retains_prior_head_and_seals_the_attempt(tmp_path) -
         lease_duration=timedelta(minutes=30),
     )
     assert second is not None
+    cancel_options = {}
+    if shutdown:
+        cancel_options = {"lease": second[1], "reason_code": "application_shutdown"}
+        with pytest.raises(ValueError):
+            watches.cancel_attempt(
+                watch_id, now=NOW + timedelta(seconds=7), next_check_at=NOW + timedelta(minutes=1),
+                lease=second[1].model_copy(update={"token": "8" * 64}), reason_code="application_shutdown",
+            )
+        assert watches.get(watch_id).state.value == "running"
     cancelled = watches.cancel_attempt(
         watch_id,
         now=NOW + timedelta(seconds=7),
         next_check_at=NOW + timedelta(minutes=1),
+        **cancel_options,
     )
     assert cancelled.state.value == "idle"
     assert cancelled.latest_run_id == run.run_id
@@ -1337,6 +1349,79 @@ def test_watch_cancellation_retains_prior_head_and_seals_the_attempt(tmp_path) -
     assert head.latest_attempt.prior_head_run_id == run.run_id
     assert head.latest_attempt.published_run_id is None
     assert head.stages[0].state.value == "cancelled"
+    assert head.stages[0].error_code == ("application_shutdown" if shutdown else "analysis_cancelled")
+    paused = watches.quarantine_stopped_attempt(
+        second[1], generation=second[0].generation, now=NOW + timedelta(seconds=8),
+        reason_code="model_ensemble_cleanup_unconfirmed",
+    )
+    assert paused.quarantined and paused.failure_streak == 0
+    retained = watches.canonical_head(watch_id)
+    assert retained.head_run_id == head.head_run_id
+    assert retained.head_generation == head.head_generation
+    assert retained.latest_attempt == head.latest_attempt
+    assert retained.stages == head.stages
+
+
+@pytest.mark.parametrize("replacement", ["bad-token", "queued", "running", "stopped"])
+def test_late_cleanup_quarantine_cannot_mutate_another_claim(tmp_path, replacement) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    watches = database.model_ensemble_watch_repository()
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0]["project_id"]
+    watch_id = "5" * 64
+    watches.enable(watch_id=watch_id, provider=Provider.CODEX, project_id=project_id,
+        session_id=session_id, now=NOW)
+    first, lease = watches.claim_due(owner="6" * 64, now=NOW, lease_duration=timedelta(minutes=5))
+    watches.cancel_attempt(watch_id, now=NOW, next_check_at=NOW)
+    if replacement == "bad-token":
+        lease = lease.model_copy(update={"token": "7" * 64})
+    elif replacement == "queued":
+        watches.request_refresh(watch_id, now=NOW)
+    else:
+        watches.claim_due(owner="8" * 64, now=NOW, lease_duration=timedelta(minutes=5))
+        if replacement == "stopped":
+            watches.cancel_attempt(watch_id, now=NOW, next_check_at=NOW)
+    before = watches.canonical_head(watch_id)
+    with pytest.raises(ValueError):
+        watches.quarantine_stopped_attempt(lease, generation=first.generation, now=NOW,
+            reason_code="model_ensemble_cleanup_unconfirmed")
+    assert watches.canonical_head(watch_id) == before
+
+
+def test_worker_shutdown_interrupts_only_its_owned_watch_attempt(tmp_path) -> None:
+    from prompt_enhancer.application.analysis.model_ensemble_watch import (
+        MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL, ModelEnsembleWatchService, ModelEnsembleWatchWorker,
+    )
+
+    database, session_id = _database_and_session(tmp_path)
+    watches = database.model_ensemble_watch_repository()
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0]["project_id"]
+    watch_id = "5" * 64
+    watches.enable(watch_id=watch_id, provider=Provider.CODEX, project_id=project_id, session_id=session_id, now=NOW)
+    entered, release = Event(), Event()
+
+    class CooperativeEnsemble:
+        def run(self, *, progress_callback, **_kwargs):
+            entered.set()
+            while not release.wait(0.01):
+                progress_callback(0, MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL)
+            raise RuntimeError("example_test_teardown")
+
+    service = ModelEnsembleWatchService(watches, CooperativeEnsemble(), clock=lambda: NOW)
+    worker = ModelEnsembleWatchWorker(service, wake_seconds=1)
+    try:
+        worker.start()
+        assert entered.wait(2)
+        worker.stop(timeout=2)
+        head = watches.canonical_head(watch_id)
+        assert head.watch.state.value == "idle"
+        assert head.watch.failure_streak == 0
+        assert head.latest_attempt.state.value == "cancelled"
+        assert head.latest_attempt.error_code == "application_shutdown"
+        assert head.head_run_id is None
+        assert worker.run_once() is None
+    finally:
+        release.set()
+        worker.stop(timeout=2)
 
 
 def test_terminal_attempt_graph_rejects_raw_mutation_and_unbound_publication(

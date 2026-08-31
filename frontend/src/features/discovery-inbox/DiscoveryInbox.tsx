@@ -200,8 +200,13 @@ export function DiscoveryInbox({
           ))}
         </div>
         <div className="inbox-toolbar__actions">
-          <span aria-live="polite">{selectedIds.size} selected</span>
+          <span aria-live="polite" id="discovery-selection-status">
+            {selectedIds.size < 2
+              ? `${selectedIds.size} selected · select at least two candidates to merge`
+              : `${selectedIds.size} selected · ready to review as one merge`}
+          </span>
           <button
+            aria-describedby="discovery-selection-status"
             className="button button--secondary"
             disabled={selectedIds.size < 2 || merging}
             onClick={() => void mergeSelected()}

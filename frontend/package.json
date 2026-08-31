@@ -20,8 +20,11 @@
     "check:api": "openapi-typescript ../docs/openapi.json -o src/shared/api/generated/openapi.ts --check"
   },
   "dependencies": {
+    "pdfjs-dist": "6.2.108",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",

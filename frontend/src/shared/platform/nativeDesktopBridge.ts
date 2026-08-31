@@ -1,8 +1,10 @@
 export const NATIVE_FOLDER_PICKER_VERSION = "native-folder-picker-v1" as const;
+export const NATIVE_AGENT_WINDOW_VERSION = "native-agent-window-v1" as const;
 
 type NativeDesktopApi = {
   choose_workspace_folder?: () => Promise<unknown>;
   confirm_user_presence?: (request: unknown) => Promise<unknown>;
+  open_agent_chat_window?: (request: unknown) => Promise<unknown>;
 };
 
 type NativeDesktopHost = typeof globalThis & {
@@ -16,6 +18,11 @@ export type NativeWorkspaceFolderPick =
   | { status: "cancelled" }
   | { status: "unavailable" };
 
+export type NativeAgentWindowReceipt = {
+  status: "opened" | "focused" | "focus_unconfirmed" | "unavailable" | "invalid_request";
+  windowKey: string | null;
+};
+
 export class NativeFolderPickerError extends Error {
   readonly code: "bridge_failed" | "invalid_response";
 
@@ -24,6 +31,18 @@ export class NativeFolderPickerError extends Error {
       ? "Native folder picker failed"
       : "Native folder picker response was invalid");
     this.name = "NativeFolderPickerError";
+    this.code = code;
+  }
+}
+
+export class NativeAgentWindowError extends Error {
+  readonly code: "bridge_failed" | "invalid_response";
+
+  constructor(code: "bridge_failed" | "invalid_response") {
+    super(code === "bridge_failed"
+      ? "Native Agent window bridge failed"
+      : "Native Agent window bridge response was invalid");
+    this.name = "NativeAgentWindowError";
     this.code = code;
   }
 }
@@ -51,6 +70,58 @@ export function hasNativeWorkspaceFolderPicker(): boolean {
 
 export function hasNativeUserPresenceBridge(): boolean {
   return typeof nativeDesktopApi()?.confirm_user_presence === "function";
+}
+
+export function hasNativeAgentWindowBridge(): boolean {
+  return typeof nativeDesktopApi()?.open_agent_chat_window === "function";
+}
+
+function isAgentWindowKey(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{32}$/u.test(value);
+}
+
+export async function openNativeAgentChatWindow(windowKey: string): Promise<NativeAgentWindowReceipt> {
+  if (!isAgentWindowKey(windowKey)) throw new NativeAgentWindowError("invalid_response");
+  const api = nativeDesktopApi();
+  const open = api?.open_agent_chat_window;
+  if (typeof open !== "function") return { status: "unavailable", windowKey: null };
+
+  let value: unknown;
+  try {
+    value = await open.call(api, {
+      version: NATIVE_AGENT_WINDOW_VERSION,
+      window_key: windowKey,
+    });
+  } catch {
+    throw new NativeAgentWindowError("bridge_failed");
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new NativeAgentWindowError("invalid_response");
+  }
+  const record = value as Record<string, unknown>;
+  if (!hasExactKeys(record, [
+    "listener_started",
+    "process_spawned",
+    "runtime_owner_created",
+    "status",
+    "version",
+    "window_key",
+    "worker_started",
+  ])
+    || record.version !== NATIVE_AGENT_WINDOW_VERSION
+    || record.listener_started !== false
+    || record.worker_started !== false
+    || record.process_spawned !== false
+    || record.runtime_owner_created !== false
+    || !["opened", "focused", "focus_unconfirmed", "unavailable", "invalid_request"].includes(String(record.status))) {
+    throw new NativeAgentWindowError("invalid_response");
+  }
+  const status = record.status as NativeAgentWindowReceipt["status"];
+  const needsKey = status === "opened" || status === "focused" || status === "focus_unconfirmed";
+  if ((needsKey && !isAgentWindowKey(record.window_key)) || (!needsKey && record.window_key !== null)) {
+    throw new NativeAgentWindowError("invalid_response");
+  }
+  return { status, windowKey: needsKey ? record.window_key as string : null };
 }
 
 /**

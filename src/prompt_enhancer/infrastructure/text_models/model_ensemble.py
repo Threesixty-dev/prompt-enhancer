@@ -19,6 +19,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+from threading import Event, Thread
 from time import monotonic
 from typing import Callable, Mapping, Sequence
 
@@ -42,7 +43,15 @@ from ...application.analysis.model_ensemble import (
     ensemble_plan_fingerprint,
 )
 from ...application.persistence import MetricValueState
+from ...application.model_reply import model_json_object
 from .loader import model_eval_cache_root, repository_root
+from .run_control import (
+    MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
+    ModelEnsembleCleanupUnconfirmedError,
+    ModelEnsembleError,
+    ModelRunControl,
+    controlled_model_run,
+)
 from .manifests import (
     BGE_M3,
     BGE_RERANKER_V2_M3,
@@ -66,19 +75,16 @@ MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_SECONDS = 1_200.0
 MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE = (
     "model_ensemble_subprocess_timeout"
 )
-MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE = (
-    "model_ensemble_subprocess_cleanup_unconfirmed"
-)
 MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS = 0.5
+# Cancellation shares the lease heartbeat callback, so keep this frequent
+# enough that Windows process-tree cleanup still fits inside the bounded Stop
+# contract under load. Model inference remains in the child process.
+MODEL_ENSEMBLE_SUBPROCESS_CONTROL_INTERVAL_SECONDS = 0.25
 MAX_SELECTED_RETRIEVAL_FRAGMENTS = 8
 MAX_SELECTED_RERANKED_FRAGMENTS = 2
 CONTRIBUTING_NLI_MODEL_KEYS = frozenset(
     {MINILMV2_L6_NLI.key, MINILMV2_L12_NLI.key}
 )
-
-
-class ModelEnsembleError(RuntimeError):
-    """Fixed local failure; never includes model output or private input."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +288,7 @@ def _terminate_ensemble_process_tree(
     process: subprocess.Popen[bytes],
     *,
     environment: Mapping[str, str],
+    close_pipes: bool = True,
 ) -> bool:
     """Force one isolated model tree down and report positive confirmation."""
 
@@ -330,7 +337,7 @@ def _terminate_ensemble_process_tree(
         root_exited = process.poll() is not None
     except (OSError, subprocess.TimeoutExpired):
         pass
-    for pipe in (process.stdin, process.stdout):
+    for pipe in (process.stdin, process.stdout) if close_pipes else ():
         if pipe is None:
             continue
         try:
@@ -394,7 +401,63 @@ def run_ensemble_expert_subprocess(
         )
     else:
         start_new_session = True
+    process = None
+    threads: list[Thread] = []
+    captured = bytearray()
+    input_finished, output_finished, io_failed = Event(), Event(), Event()
+    poll_wait = Event()
+
+    def write_input() -> None:
+        try:
+            remaining = memoryview(body)
+            while remaining:
+                written = process.stdin.write(remaining[:64 * 1024])
+                if not written:
+                    raise OSError("model input pipe stopped accepting bytes")
+                remaining = remaining[written:]
+            process.stdin.close()  # EOF is part of the child input protocol.
+        except Exception:
+            io_failed.set()
+        finally:
+            input_finished.set()
+
+    def read_output() -> None:
+        try:
+            while len(captured) <= MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES:
+                chunk = process.stdout.read(min(64 * 1024, MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES + 1 - len(captured)))
+                if not chunk:
+                    break
+                captured.extend(chunk)
+        except Exception:
+            io_failed.set()
+        finally:
+            output_finished.set()
+
+    def finish_io() -> bool:
+        joined = True
+        for thread in threads:
+            if thread.ident is not None:
+                try:
+                    thread.join(timeout=MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS)
+                    joined = not thread.is_alive() and joined
+                except Exception:
+                    joined = False
+        # Never close a buffered/active pipe from underneath another thread.
+        # An unjoined I/O worker is a fatal cleanup uncertainty, not success.
+        if joined and process is not None:
+            for pipe in (process.stdin, process.stdout):
+                if pipe is not None:
+                    try:
+                        pipe.close()
+                    except (OSError, ValueError):
+                        pass
+        return joined
+
     try:
+        # An already cancelled job must not allocate another model process.
+        if heartbeat is not None:
+            heartbeat()
+        started = monotonic()
         process = subprocess.Popen(
             command,
             cwd=root,
@@ -402,68 +465,68 @@ def run_ensemble_expert_subprocess(
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            bufsize=0,
+            shell=False,
             creationflags=creation_flags,
             start_new_session=start_new_session,
         )
-        started = monotonic()
-        first = True
+        for target, name in ((read_output, "model-stage-output"), (write_input, "model-stage-input")):
+            thread = Thread(target=target, name=name, daemon=True)
+            threads.append(thread)
+            try:
+                thread.start()
+            except (OSError, RuntimeError):
+                raise ModelEnsembleError("model_ensemble_subprocess_failed") from None
+        next_heartbeat = started + MODEL_ENSEMBLE_SUBPROCESS_CONTROL_INTERVAL_SECONDS
         while True:
-            remaining = bounded_timeout - (monotonic() - started)
+            observed = monotonic()
+            remaining = bounded_timeout - (observed - started)
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(command, bounded_timeout)
-            try:
-                stdout, _stderr = process.communicate(
-                    input=body if first else None,
-                    timeout=min(10.0, remaining),
-                )
-                break
-            except subprocess.TimeoutExpired:
-                first = False
+            if len(captured) > MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES:
+                raise ModelEnsembleError("model_ensemble_output_invalid")
+            if io_failed.is_set():
+                raise ModelEnsembleError("model_ensemble_subprocess_failed")
+            if observed >= next_heartbeat:
                 if heartbeat is not None:
                     heartbeat()
-    except subprocess.TimeoutExpired:
-        local_process = locals().get("process")
-        cleanup_confirmed = local_process is not None and (
+                next_heartbeat = (
+                    observed + MODEL_ENSEMBLE_SUBPROCESS_CONTROL_INTERVAL_SECONDS
+                )
+            if input_finished.is_set() and output_finished.is_set() and process.poll() is not None:
+                break
+            poll_wait.wait(min(0.05, remaining))
+        # Cancellation arriving with the final bytes still owns the outcome.
+        if heartbeat is not None:
+            heartbeat()
+    except BaseException as error:
+        cleanup_confirmed = process is None or process.poll() is not None or (
             _terminate_ensemble_process_tree(
-                local_process,
+                process,
                 environment=_process_control_environment(),
+                close_pipes=False,
             )
         )
-        if not cleanup_confirmed:
-            raise ModelEnsembleError(
-                MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE
-            ) from None
-        raise ModelEnsembleError(
-            MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE
-        ) from None
-    except OSError:
-        local_process = locals().get("process")
-        if local_process is not None and not _terminate_ensemble_process_tree(
-            local_process,
-            environment=_process_control_environment(),
-        ):
-            raise ModelEnsembleError(
-                MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE
-            ) from None
-        raise ModelEnsembleError("model_ensemble_subprocess_failed") from None
-    except Exception:
-        local_process = locals().get("process")
-        if local_process is not None and not _terminate_ensemble_process_tree(
-            local_process,
-            environment=_process_control_environment(),
-        ):
-            raise ModelEnsembleError(
-                MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE
-            ) from None
+        if not finish_io() or not cleanup_confirmed:
+            raise ModelEnsembleCleanupUnconfirmedError() from None
+        if isinstance(error, subprocess.TimeoutExpired):
+            raise ModelEnsembleError(MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE) from None
+        if isinstance(error, OSError):
+            raise ModelEnsembleError("model_ensemble_subprocess_failed") from None
         raise
+    if not finish_io():
+        raise ModelEnsembleCleanupUnconfirmedError()
+    stdout = bytes(captured)
     if not stdout or len(stdout) > MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES:
         raise ModelEnsembleError("model_ensemble_output_invalid")
     try:
-        result = json.loads(stdout.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        result = model_json_object(stdout.decode("utf-8"), max_characters=MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES)
+    except UnicodeDecodeError:
         raise ModelEnsembleError("model_ensemble_output_invalid") from None
     if not isinstance(result, dict):
         raise ModelEnsembleError("model_ensemble_output_invalid")
+    if not ((process.returncode == 0 and result.get("status") == "completed") or (process.returncode == 2 and result.get("status") == "failed")):
+        raise ModelEnsembleError("model_ensemble_subprocess_failed")
     return result
 
 
@@ -578,7 +641,15 @@ class SerialModelEnsembleRunner:
         self._python_executable = python_executable
         self._clock = clock
         self._executor = executor or self._execute
-        self._heartbeat_callback: Callable[[], None] | None = None
+        self._run_control = ModelRunControl()
+
+    @property
+    def _heartbeat_callback(self) -> Callable[[], None] | None:
+        return self._run_control.heartbeat
+
+    @_heartbeat_callback.setter
+    def _heartbeat_callback(self, callback: Callable[[], None] | None) -> None:
+        self._run_control.heartbeat = callback
 
     def plan_fingerprint(
         self,
@@ -605,6 +676,7 @@ class SerialModelEnsembleRunner:
             heartbeat=self._heartbeat_callback,
         )
 
+    @controlled_model_run
     def run(
         self,
         chunk_plan: EnsembleChunkPlan,
@@ -1010,15 +1082,12 @@ class SerialModelEnsembleRunner:
         stage: str,
         payload: Mapping[str, object],
     ) -> Mapping[str, object] | None:
+        self._run_control.check()
         try:
             result = self._executor(spec, stage, payload, self._device)
-        except ModelEnsembleError as error:
-            if error.args == (
-                MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
-            ):
-                raise
-            return None
-        except Exception:
+            self._run_control.check()
+        except Exception as error:
+            self._run_control.check(error)
             return None
         if (
             result.get("status") != "completed"
@@ -1029,13 +1098,9 @@ class SerialModelEnsembleRunner:
             # context and weights cannot overlap the CPU retry.
             try:
                 result = self._executor(spec, stage, payload, "cpu")
-            except ModelEnsembleError as error:
-                if error.args == (
-                    MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
-                ):
-                    raise
-                return None
-            except Exception:
+                self._run_control.check()
+            except Exception as error:
+                self._run_control.check(error)
                 return None
         if (
             set(result)

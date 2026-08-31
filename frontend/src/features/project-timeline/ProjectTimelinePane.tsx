@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectTimeline, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { packRows } from "../session-timeline/SessionTimelinePane";
@@ -35,34 +35,65 @@ function shortDate(iso: string): string {
  */
 export function ProjectTimelinePane({
   projectId,
+  refreshToken,
   transport,
   onOpenSession,
 }: {
   projectId: string;
+  refreshToken?: number;
   transport: Pick<PromptEnhancerTransport, "getProjectTimeline">;
   onOpenSession?: (sessionId: string) => void;
 }) {
   const [state, setState] = useState<"loading" | "ready" | "missing" | "error">("loading");
   const [timeline, setTimeline] = useState<ProjectTimeline | null>(null);
   const [range, setRange] = useState<"all" | "90d" | "30d">("all");
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const timelineRef = useRef<ProjectTimeline | null>(null);
+
+  // A new owner (project or transport) must never see the previous owner's
+  // data or range, even for one render: reset synchronously.
+  const [scope, setScope] = useState<{ projectId: string; transport: unknown }>({ projectId, transport });
+  if (scope.projectId !== projectId || scope.transport !== transport) {
+    setScope({ projectId, transport });
+    timelineRef.current = null;
+    setState("loading");
+    setTimeline(null);
+    setRange("all");
+    setRefreshFailed(false);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
-    setState("loading");
-    setTimeline(null);
+    const isRefresh = timelineRef.current !== null;
+    if (!isRefresh) setState("loading");
     transport.getProjectTimeline(projectId, controller.signal)
       .then((value) => {
         if (controller.signal.aborted) return;
-        if (!safeProjectTimeline(value)) { setState("error"); return; }
+        if (!safeProjectTimeline(value) || value.project_id !== projectId) {
+          // Reject stale or unverifiable completions; a refresh keeps the last good view.
+          if (isRefresh) setRefreshFailed(true); else setState("error");
+          return;
+        }
+        timelineRef.current = value;
         setTimeline(value);
+        setRefreshFailed(false);
         setState("ready");
       })
       .catch((caught: unknown) => {
         if (controller.signal.aborted) return;
+        if (caught instanceof TransportError && [403, 404, 410].includes(caught.status)) {
+          timelineRef.current = null;
+          setTimeline(null);
+          setRefreshFailed(false);
+          setState(caught.status === 403 ? "error" : "missing");
+          return;
+        }
+        if (isRefresh) { setRefreshFailed(true); return; } // keep the last good view
         setState(caught instanceof TransportError && caught.status === 404 ? "missing" : "error");
       });
     return () => controller.abort();
-  }, [projectId, transport]);
+  }, [projectId, refreshToken, retryNonce, transport]);
 
   const model = useMemo(() => {
     if (!timeline || timeline.sessions.length === 0) return "empty" as const;
@@ -93,8 +124,14 @@ export function ProjectTimelinePane({
   if (state === "loading") return <section className="project-timeline" aria-busy="true"><p className="project-timeline__note">Drawing the project timeline…</p></section>;
   if (state === "missing") return null;
   if (state === "error" || !timeline || model === null) {
-    return <section className="project-timeline"><p className="project-timeline__note" role="alert">The project timeline could not be verified.</p></section>;
+    return <section className="project-timeline"><p className="project-timeline__note" role="alert">The project timeline could not be verified.</p><button onClick={() => setRetryNonce((value) => value + 1)} type="button">Retry timeline</button></section>;
   }
+  const refreshNote = refreshFailed ? (
+    <p className="project-timeline__note" role="alert">
+      The last refresh failed; showing the last verified timeline.{" "}
+      <button onClick={() => setRetryNonce((value) => value + 1)} type="button">Retry</button>
+    </p>
+  ) : null;
   if (model === "empty") {
     return (
       <section className="project-timeline">
@@ -104,6 +141,7 @@ export function ProjectTimelinePane({
             <h2>Sessions and reviewed tasks over time</h2>
           </div>
         </header>
+        {refreshNote}
         <p className="project-timeline__note">No indexed sessions in this project yet; the timeline appears with the first one.</p>
       </section>
     );
@@ -156,6 +194,7 @@ export function ProjectTimelinePane({
           </div>
         </div>
       </header>
+      {refreshNote}
       <dl className="project-timeline__stats">
         <div><dt>Span</dt><dd>{formatSpan(span)}</dd></div>
         <div><dt>Tasks</dt><dd>{visibleTasks.length}{timeline.tasks.length !== visibleTasks.length ? ` of ${timeline.tasks.length}` : ""}</dd></div>

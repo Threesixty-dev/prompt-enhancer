@@ -59,6 +59,7 @@
 .ui-dialog__description { margin: 8px 18px 0; color: var(--ink-650); font-size: 0.82rem; line-height: 1.5; }
 .ui-dialog__body { min-height: 0; padding: 14px 18px 18px; overflow: auto; overscroll-behavior: contain; font-size: 0.82rem; }
 .ui-dialog__footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+.ui-dialog__footer .button { min-height: 44px; }
 
 /* Disclosure ----------------------------------------------------------- */
 .ui-disclosure { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }

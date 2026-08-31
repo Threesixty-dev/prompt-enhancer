@@ -974,19 +974,19 @@ describe("RequirementPlanEvidencePanel", () => {
     const open = await screen.findByRole("button", { name: "Open exact local clause review" });
     fireEvent.click(open);
     const reviewRegion = await screen.findByRole("region", { name: new RegExp(`Exact clause review for proposal ${PROPOSAL_ID}`) });
-    expect(reviewRegion).toHaveFocus();
+    await waitFor(() => expect(reviewRegion).toHaveFocus());
     fireEvent.keyDown(reviewRegion, { key: "Escape" });
     expect(screen.queryByRole("region", { name: /Exact clause review for proposal/i })).not.toBeInTheDocument();
-    expect(open).toHaveFocus();
+    await waitFor(() => expect(open).toHaveFocus());
 
     const reject = screen.getByRole("button", { name: "Reject" });
     fireEvent.click(reject);
     const apply = screen.getByRole("button", { name: "Apply native rejection" });
-    expect(apply).toHaveFocus();
+    await waitFor(() => expect(apply).toHaveFocus());
     const decisionGroup = screen.getByRole("group", { name: "Reject requirement-plan proposal" });
     fireEvent.keyDown(decisionGroup, { key: "Escape" });
     expect(screen.queryByRole("group", { name: "Reject requirement-plan proposal" })).not.toBeInTheDocument();
-    expect(reject).toHaveFocus();
+    await waitFor(() => expect(reject).toHaveFocus());
   });
 
   it("fails closed on incomplete review and on load errors without exposing caught details", async () => {

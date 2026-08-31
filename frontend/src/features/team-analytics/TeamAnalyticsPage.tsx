@@ -137,14 +137,12 @@ export function TeamAnalyticsPage({
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
-        if (isTeamControlPlaneError(reason)) {
+        if (isTeamControlPlaneError(reason) && reason.code === "scope_not_served_by_this_runtime") {
           setAggregate({
             kind: "not_served",
             scope,
             port,
-            message: reason.code === "scope_not_served_by_this_runtime"
-              ? "No team control plane serves this scope in the current runtime. Personal metrics stay in the project workspace; nothing is synced or estimated here."
-              : scopeAccessCopy(access),
+            message: "No team control plane serves this scope in the current runtime. Personal metrics stay in the project workspace; nothing is synced or estimated here.",
           });
           return;
         }

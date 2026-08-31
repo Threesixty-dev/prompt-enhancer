@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from threading import Event
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from prompt_enhancer.adapters.synthetic import SyntheticAdapter
@@ -94,6 +96,42 @@ def _lease(job) -> AnalysisJobLease:  # type: ignore[no-untyped-def]
     )
 
 
+@pytest.mark.parametrize("boundary", ("heartbeat", "publication_checkpoint"))
+def test_worker_shutdown_requeues_cooperative_work_before_publication(tmp_path, boundary) -> None:
+    database, session = _database(tmp_path)
+    repository = database.analysis_job_repository()
+    clock = MutableClock()
+    queued = AnalysisJobService(repository, clock=clock).enqueue(_identity(session)).job
+    entered, release = Event(), Event()
+
+    def handler(_job, context):
+        entered.set()
+        while not release.wait(0.01):
+            getattr(context, boundary)()
+        return AnalysisJobExecutionResult(state=AnalysisJobState.COMPLETED, reason_code="example_completed", progress_completed=1, progress_total=1)
+
+    worker = AnalysisJobWorker(
+        repository, {(AnalysisJobKind.SESSION_QUALITY, Provider.SYNTHETIC): handler},
+        authorization_check=lambda _job: True,
+        fingerprint_resolver=lambda job: (job.identity.input_fingerprint, job.identity.provenance_fingerprint),
+        clock=clock, poll_seconds=0.05,
+    )
+    try:
+        worker.start()
+        assert entered.wait(2)
+        worker.stop(timeout=2)
+        stopped = repository.get(queued.job_id)
+        assert stopped.state is AnalysisJobState.QUEUED
+        assert stopped.last_error_code == "application_shutdown"
+        assert stopped.terminal_at is None
+        assert stopped.lease_owner is None
+        assert stopped.progress_completed == 0
+        assert worker.run_once() is False
+    finally:
+        release.set()
+        worker.stop(timeout=2)
+
+
 def test_schema_and_enqueue_are_durable_content_free_and_idempotent(tmp_path) -> None:
     database, session = _database(tmp_path)
     clock = MutableClock()
@@ -108,7 +146,7 @@ def test_schema_and_enqueue_are_durable_content_free_and_idempotent(tmp_path) ->
         max_attempts=3,
     )
 
-    assert SCHEMA_VERSION == 60
+    assert SCHEMA_VERSION == 61
     assert first.created is True
     assert duplicate.created is False
     assert duplicate.job == first.job

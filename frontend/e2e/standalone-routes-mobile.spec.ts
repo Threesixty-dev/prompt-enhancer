@@ -34,6 +34,20 @@ const ROUTES: readonly StandaloneRoute[] = [
     routeTitle: "Models",
     stateText: "Local models are not available in this runtime.",
   },
+  {
+    heading: "Agent workspace",
+    navName: "Agent",
+    path: "/agent",
+    routeTitle: "Agent",
+    stateText: "The local agent is not available in this runtime.",
+  },
+  {
+    heading: "Check a prompt",
+    navName: "Prompt check",
+    path: "/prompt-checks",
+    routeTitle: "Prompt check",
+    stateText: "Prompt checks are not available in this runtime.",
+  },
 ];
 
 // Local Sources is intentionally excluded: the synthetic runtime hides that

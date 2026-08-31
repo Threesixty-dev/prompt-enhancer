@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   isLocalProvider,
   providerLabel,
@@ -9,6 +9,7 @@ import {
 import { TransportError } from "../../shared/api/httpTransport";
 import type { AppRoute } from "../../shared/platform/platform";
 import { isPseudonym } from "../../shared/platform/platform";
+import type { RuntimeDataMode } from "../../shared/platform/runtimeMode";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
 import { Icon } from "../../shared/ui/Icon";
 import { openLiveWindow } from "../live-window/LiveMiniWindow";
@@ -55,7 +56,8 @@ export function durationLabel(started: string, ended: string | null): string {
   const b = ms(ended);
   if (a === null) return "Start unknown";
   if (b === null) return "End not recorded";
-  const seconds = Math.max(0, Math.round((b - a) / 1000));
+  if (b < a) return "Duration unavailable";
+  const seconds = Math.round((b - a) / 1000);
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes} min`;
@@ -81,9 +83,11 @@ function visible(value: string | null, fallback: string): string {
 export function SessionsPage({
   transport,
   navigate,
+  runtimeMode = "synthetic_demo",
 }: {
   transport: Pick<PromptEnhancerTransport, "listCodexSessions">;
   navigate: (route: AppRoute) => void;
+  runtimeMode?: RuntimeDataMode;
 }) {
   const [rows, setRows] = useState<CodexSession[] | null>(null);
   const [complete, setComplete] = useState(false);
@@ -91,18 +95,25 @@ export function SessionsPage({
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [retry, setRetry] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState("");
+  const moreRequest = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     setRows(null);
     setError("");
+    setComplete(false);
+    setLoadingMore(false);
+    setMoreError("");
     (async () => {
       const collected: CodexSession[] = [];
       try {
         for (let page = 0; page < MAX_PAGES; page += 1) {
           const response = await transport.listCodexSessions(PAGE, page * PAGE, controller.signal);
           if (controller.signal.aborted) return;
-          if (!isRecord(response) || !Array.isArray(response.sessions) || !response.sessions.every(safeSessionRow)) {
+          if (!isRecord(response) || !Array.isArray(response.sessions) || response.sessions.length > PAGE || !response.sessions.every(safeSessionRow)
+            || new Set([...collected, ...response.sessions].map((row) => row.session_id)).size !== collected.length + response.sessions.length) {
             setError("The stored session catalog response was invalid and was not shown.");
             return;
           }
@@ -121,8 +132,32 @@ export function SessionsPage({
           : "The stored session catalog could not be loaded.");
       }
     })();
-    return () => controller.abort();
+    return () => { controller.abort(); moreRequest.current?.abort(); moreRequest.current = null; };
   }, [transport, retry]);
+
+  async function loadMore() {
+    if (rows === null || complete || moreRequest.current) return;
+    const controller = new AbortController();
+    moreRequest.current = controller;
+    const owns = () => moreRequest.current === controller && !controller.signal.aborted;
+    setLoadingMore(true);
+    setMoreError("");
+    try {
+      const response = await transport.listCodexSessions(PAGE, rows.length, controller.signal);
+      if (!owns()) return;
+      if (!isRecord(response) || !Array.isArray(response.sessions) || response.sessions.length > PAGE || !response.sessions.every(safeSessionRow)
+        || new Set([...rows, ...response.sessions].map((row) => row.session_id)).size !== rows.length + response.sessions.length) {
+        setMoreError("The catalog changed or the next page could not be verified. Reload the catalog before continuing.");
+        return;
+      }
+      setRows([...rows, ...response.sessions]);
+      setComplete(response.sessions.length < PAGE);
+    } catch {
+      if (owns()) setMoreError("More sessions could not be loaded. The loaded sessions are unchanged; try again or reload the catalog.");
+    } finally {
+      if (owns()) { moreRequest.current = null; setLoadingMore(false); }
+    }
+  }
 
   const providers = useMemo(() => {
     const seen = new Set<string>();
@@ -151,7 +186,7 @@ export function SessionsPage({
         <div>
           <p className="eyebrow">Personal workspace</p>
           <h1 id="sessions-title">Sessions</h1>
-          <p>Every captured session from every source, newest first. Find one by project or title.</p>
+          <p>Captured sessions across your sources, newest first. Search the loaded catalog by project or title.</p>
         </div>
         <div className="page-header__meta">
           <span className="privacy-chip"><Icon name="lock" /> Local only</span>
@@ -192,6 +227,13 @@ export function SessionsPage({
         </div>
       </div>
 
+      {rows !== null && !error && (
+        <p className="sessions-count" aria-live="polite">
+          {filtered.length} of {rows.length} session{rows.length === 1 ? "" : "s"}
+          {unnamed > 0 ? ` · ${unnamed} without a title` : ""}
+          {!complete && <> · Partial catalog: search covers only the {rows.length} loaded sessions. Load more to search beyond this batch.</>}
+        </p>
+      )}
       {error !== "" ? (
         <ErrorState message={error} onRetry={() => setRetry((value) => value + 1)} />
       ) : rows === null ? (
@@ -201,17 +243,15 @@ export function SessionsPage({
           <strong>{rows.length === 0 ? "No sessions captured yet" : "No sessions match"}</strong>
           <p>
             {rows.length === 0
-              ? "Grant a source on the Data source page and index it; sessions appear here with their project and title."
-              : "Try a different search or source filter."}
+              ? runtimeMode === "local_real"
+                ? "Grant a source on the Data source page and index it; sessions appear here with their project and title."
+                : "This synthetic preview has no session fixtures to show. Local-source access is available only in the local application."
+              : complete ? "Try a different search or source filter." : "No matches in the loaded batch. Load more sessions or change the search or source filter."}
           </p>
+          {rows.length === 0 && runtimeMode === "local_real" && <button className="button button--ghost" onClick={() => navigate({ name: "local_sources" })} type="button">Open Data source</button>}
         </div>
       ) : (
         <>
-          <p className="sessions-count" aria-live="polite">
-            {filtered.length} of {rows.length} session{rows.length === 1 ? "" : "s"}
-            {complete ? "" : ` · showing the first ${MAX_PAGES * PAGE}`}
-            {unnamed > 0 ? ` · ${unnamed} without a title` : ""}
-          </p>
           <ul className="sessions-list">
             {filtered.map((row) => (
               <li key={row.session_id}>
@@ -250,6 +290,12 @@ export function SessionsPage({
             ))}
           </ul>
         </>
+      )}
+      {rows !== null && !error && !complete && (
+        <div className="sessions-pagination">
+          <button className="button button--secondary" disabled={loadingMore} onClick={() => void loadMore()} type="button">{loadingMore ? "Loading more…" : `Load next ${PAGE} sessions`}</button>
+          {moreError && <ErrorState message={moreError} actionLabel="Reload catalog" onRetry={() => setRetry((value) => value + 1)} />}
+        </div>
       )}
     </section>
   );

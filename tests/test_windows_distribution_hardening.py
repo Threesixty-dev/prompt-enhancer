@@ -848,20 +848,26 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
                     "prompt_enhancer."
                     + source_path.relative_to(_SOURCE_ROOT).with_suffix("").as_posix().replace("/", ".")
                 )
-    # Exactly four modules may touch network primitives directly. Three are
+    # Exactly seven modules may touch network primitives directly. Four are
     # owned-loopback services: the desktop overlay (probe + open), the local
     # model runtime manager (free-port bind, health, chat proxy to its child),
-    # and the Claude Code prompt-check hook (posts to this app's loopback API).
-    # One is an explicit-approval peer request: the shared-folder client
-    # (ADR 0018) dials exactly the URL the person typed when joining a
-    # teammate's folder.
+    # the Claude Code prompt-check hook (posts to this app's loopback API), and
+    # the no-proxy/no-redirect local Agent controller bridge.
+    # Three are explicit external requests: the shared-folder client (ADR 0018)
+    # dials exactly the URL the person typed when joining a teammate's folder;
+    # MCP Store discovery uses the documented Official Registry; and a guarded
+    # compatibility check dials only the exact reviewed HTTPS origin after
+    # native confirmation.
     allowed_loopback = {
         "prompt_enhancer.desktop_overlay",
         "prompt_enhancer.application.local_models",
         "prompt_enhancer.interfaces.hooks.prompt_check_hook",
+        "prompt_enhancer.infrastructure.agent_controller_http",
     }
     allowed_approved = {
         "prompt_enhancer.application.shared_folders",
+        "prompt_enhancer.infrastructure.mcp_registry",
+        "prompt_enhancer.infrastructure.mcp_guarded_host",
     }
     registered_loopback = {
         entry.module

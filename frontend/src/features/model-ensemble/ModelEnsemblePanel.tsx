@@ -35,6 +35,7 @@ import {
   watchSnapshotPollDelay,
 } from "./canonicalPolling";
 import { ErrorState } from "../../shared/ui/AsyncState";
+import { MODEL_CLEANUP_RECOVERY, MODEL_CLEANUP_UNCONFIRMED, useModelCleanupWarning, watchPauseCopy } from "./modelEnsembleFailureCopy";
 
 type ReceiptAuthority = "checking" | "verified" | "unknown";
 type PendingMutation = "start" | "cancel" | "watch";
@@ -54,6 +55,7 @@ function reasonOf(error: unknown): string | null {
 
 function runErrorCopy(error: unknown): string {
   const reason = reasonOf(error);
+  if (reason === MODEL_CLEANUP_UNCONFIRMED) return MODEL_CLEANUP_RECOVERY;
   if (reason === "redacted_content_consent_required") {
     return "Grant redacted-text access in Local sources before running the ensemble.";
   }
@@ -111,6 +113,7 @@ function terminalAttemptStatus(
   run: ModelEnsembleRun | null,
 ): string | null {
   if (attempt === null || attempt === undefined || attempt.state === "running") return null;
+  if (attempt.error_code === MODEL_CLEANUP_UNCONFIRMED) return MODEL_CLEANUP_RECOVERY;
   const retained = run === null
     ? "No new sealed snapshot is available."
     : "The last sealed snapshot remains visible.";
@@ -156,6 +159,7 @@ export function ModelEnsemblePanel({
   const [canonicalHead, setCanonicalHead] = useState<ModelEnsembleCanonicalHead | null>(null);
   const [trajectory, setTrajectory] = useState<ModelEnsembleTrajectoryPage | null>(null);
   const [trajectoryError, setTrajectoryError] = useState(false);
+  const [trajectoryReadRevision, setTrajectoryReadRevision] = useState(0);
   /**
    * The history page (not the live head) was published under other definitions.
    * Scoped to the history so a compatible live receipt is neither hidden nor
@@ -181,6 +185,7 @@ export function ModelEnsemblePanel({
     && transport.getModelEnsembleSnapshot !== undefined;
   const titleId = useId();
   const statusId = useId();
+  const cleanupWarning = useModelCleanupWarning(watch?.watch, error === MODEL_CLEANUP_RECOVERY);
 
   useEffect(() => {
     contextEpochRef.current += 1;
@@ -272,11 +277,12 @@ export function ModelEnsemblePanel({
       attempts += 1;
       fetchTrajectory(trajectoryWatchId, 24, undefined, controller.signal)
         .then((page) => {
-          if (controller.signal.aborted || page.watch_id !== trajectoryWatchId) return;
+          if (controller.signal.aborted) return;
+          if (page.watch_id !== trajectoryWatchId) throw new Error("trajectory-owner-mismatch");
           if (page.head_run_id !== trajectoryHeadRunId) {
             // Publication race between the exact head and the trajectory index:
             // keep the previously loaded history and retry a bounded number of times.
-            setTrajectoryError(page.head_run_id !== null);
+            setTrajectoryError(true);
             if (attempts < TRAJECTORY_RETRY_LIMIT) {
               retryTimer = window.setTimeout(() => {
                 retryTimer = undefined;
@@ -305,8 +311,19 @@ export function ModelEnsemblePanel({
             setTrajectory(null);
             setSelectedRunId(trajectoryHeadRunId);
             followingLive.current = true;
+            setTrajectoryError(true);
+            return;
           }
           setTrajectoryError(true);
+          // Transient read failure: reuse the same bounded retry budget as the
+          // head-mismatch publication race; once exhausted the drawer offers a
+          // manual read-only retry instead of retrying forever.
+          if (attempts < TRAJECTORY_RETRY_LIMIT) {
+            retryTimer = window.setTimeout(() => {
+              retryTimer = undefined;
+              if (!controller.signal.aborted) load();
+            }, TRAJECTORY_RETRY_MS);
+          }
         });
     };
     load();
@@ -314,7 +331,7 @@ export function ModelEnsemblePanel({
       controller.abort();
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [trajectoryHeadRunId, trajectoryWatchId, transport]);
+  }, [trajectoryHeadRunId, trajectoryReadRevision, trajectoryWatchId, transport]);
 
   useEffect(() => { runRef.current = run; }, [run]);
   useEffect(() => { watchRef.current = watch; }, [watch]);
@@ -353,7 +370,9 @@ export function ModelEnsemblePanel({
       setReceiptAuthority(authority);
       setDisconnected(false);
       setLoadError("");
-      setError("");
+      // Poll recovery clears only polling notices. Errors from explicit
+      // start/cancel/watch commands stay visible until the next explicit
+      // command clears its own error.
       setNotice("");
     };
     const degraded = (delay: number) => {
@@ -745,6 +764,9 @@ export function ModelEnsemblePanel({
     ? "Update this client before starting a new analysis or continuous watch. Existing local work can still be stopped."
     : blocked;
   const terminalStatus = terminalAttemptStatus(currentAttempt, run);
+  const pauseStatus = cleanupWarning ? MODEL_CLEANUP_RECOVERY
+    : watch?.watch.session_id === sessionId ? watchPauseCopy(watch.watch) : null;
+  const runPaused = pauseStatus !== null || error === MODEL_CLEANUP_RECOVERY || currentAttempt?.error_code === MODEL_CLEANUP_UNCONFIRMED;
   const statusCopy = definitionsOutOfDate !== null
     ? pendingMutation === "cancel"
       ? "Cancelling local analysis. Metric values remain withheld until this client is updated."
@@ -779,13 +801,18 @@ export function ModelEnsemblePanel({
                         ? "Analysis is queued for the serial local model lane. The last sealed snapshot remains visible."
                         : legacyWatchBusy
                           ? `The local watch is ${watch!.watch.state}. The last sealed snapshot remains visible while canonical stage status loads.`
-                          : terminalStatus ?? (run
+                          : pauseStatus ?? terminalStatus ?? (run
                             ? `Stored local analysis completed ${formatTimestamp(run.completed_at)}.`
                             : "No measured + predictive analysis is stored for this session yet.");
 
   function selectTrajectoryRun(runId: string) {
     followingLive.current = runId === trajectoryHeadRunId;
     setSelectedRunId(runId);
+  }
+
+  /** Manual read-only history retry once bounded automatic retries are spent. */
+  function retryTrajectoryRead() {
+    setTrajectoryReadRevision((revision) => revision + 1);
   }
 
   return (
@@ -829,7 +856,7 @@ export function ModelEnsemblePanel({
             onClick={() => void start()}
             type="button"
           >
-            {currentAttempt?.state === "failed" ? "Retry analysis" : "Analyze metric ranges"}
+            {currentAttempt?.state === "failed" || (watch?.watch.session_id === sessionId && watch.watch.state === "failed") ? "Retry analysis" : "Analyze metric ranges"}
           </button>
         )}
       </header>
@@ -857,7 +884,9 @@ export function ModelEnsemblePanel({
           <strong>Continuous local updates</strong>
           <span>
             {watch?.watch.session_id === sessionId
-              ? watch.watch.state === "queued"
+              ? pauseStatus !== null
+                ? "paused · automatic retries disabled"
+                : watch.watch.state === "queued"
                 ? "queued · waiting for the local model lane"
                 : canonicalHead?.latest_attempt === null || canonicalHead?.latest_attempt === undefined
                 ? `${watch.watch.state} · local pipeline ${watch.watch.progress_completed}/${watch.watch.progress_total}`
@@ -923,13 +952,23 @@ export function ModelEnsemblePanel({
           <MetricWorkspace
             comparisonLabel="previous comparable publication"
             comparisonRun={comparisonRadarRun}
-            history={visibleTrajectory === null ? undefined : {
+            history={visibleTrajectory !== null ? {
               points: trajectoryPoints,
               headRunId: trajectoryHeadRunId ?? visibleTrajectory.head_run_id,
               selectedRunId: selectedPoint?.run_id ?? run?.run_id ?? null,
               onSelectRun: selectTrajectoryRun,
               error: trajectoryError,
-            }}
+              onRetry: trajectoryError ? retryTrajectoryRead : undefined,
+            } : trajectoryError && trajectoryDefinitionsMismatch === null ? {
+              // A failed read with no loaded page still renders as explicit
+              // delayed history, never as "not exposed".
+              points: [],
+              headRunId: trajectoryHeadRunId,
+              selectedRunId: run?.run_id ?? null,
+              onSelectRun: selectTrajectoryRun,
+              error: true,
+              onRetry: retryTrajectoryRead,
+            } : undefined}
             lensId={lensId}
             mode="full"
             onLensChange={setLensId}
@@ -959,7 +998,9 @@ export function ModelEnsemblePanel({
         </>
       ) : receiptAuthority === "verified" ? (
         <p className="model-ensemble__empty">
-          Start one explicit run to create typed metric receipts plus content-free experimental ranges.
+          {runPaused
+            ? "No completed snapshot is available here. Resolve the pause reason above before retrying."
+            : "Start one explicit run to create typed metric receipts plus content-free experimental ranges."}
         </p>
       ) : (
         <p className="model-ensemble__empty">

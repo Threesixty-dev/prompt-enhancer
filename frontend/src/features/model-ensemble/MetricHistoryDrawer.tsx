@@ -21,6 +21,8 @@ export interface MetricWorkspaceHistory {
   selectedRunId: string | null;
   onSelectRun: (runId: string) => void;
   error?: boolean;
+  /** Manual read-only refetch once bounded automatic retries are exhausted. */
+  onRetry?: () => void;
 }
 
 function percent(value: number): string {
@@ -68,7 +70,7 @@ export function MetricHistoryDrawer({ history, metricKey, direction }: {
   const snapshotCount = points.length;
   const summary = history === undefined
     ? "Not exposed for this receipt"
-    : `${snapshotCount} sealed snapshots`;
+    : history.error && snapshotCount === 0 ? "History unavailable" : `${snapshotCount} sealed snapshots`;
 
   return (
     <details className="metric-workspace__drawer metric-history">
@@ -83,13 +85,25 @@ export function MetricHistoryDrawer({ history, metricKey, direction }: {
                 {snapshotCount === 0
                   ? "History refresh is delayed and no previously loaded trajectory is available."
                   : `History refresh is delayed; showing ${snapshotCount} previously loaded sealed snapshot${snapshotCount === 1 ? "" : "s"}.`}
+                {history.onRetry !== undefined && (
+                  <>
+                    {" "}
+                    <button
+                      className="metric-history__retry"
+                      onClick={history.onRetry}
+                      type="button"
+                    >
+                      Retry history
+                    </button>
+                  </>
+                )}
               </p>
             )}
             {!requestedSelectionIsLoaded && history.selectedRunId !== null && headIsLoaded && (
               <p className="metric-history__notice" role="status">The requested snapshot is no longer in the loaded trajectory. The current snapshot is selected.</p>
             )}
             {snapshotCount === 0 ? (
-              <p className="metric-history__empty">No sealed snapshots are available in the loaded trajectory. Missing history is not a zero metric value.</p>
+              <p className="metric-history__empty">{history.error ? "The stored snapshot count remains unknown until a verified history read." : "No sealed snapshots are available in the loaded trajectory."} Missing history is not a zero metric value.</p>
             ) : (
               <>
                 <p className="metric-history__chart-note" id={descriptionId}>

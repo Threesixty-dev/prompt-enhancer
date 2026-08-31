@@ -6,6 +6,7 @@ import {
   SYNTHETIC_QUALITY_SESSION_ID,
 } from "../shared/api/syntheticFixtures";
 import type { AppRoute, PlatformAdapter } from "../shared/platform/platform";
+import { createBrowserPlatform } from "../shared/platform/browserPlatform";
 import {
   createRuntimeComposition,
   type LocalRuntimeTransport,
@@ -14,6 +15,8 @@ import {
   type SyntheticRuntimeTransport,
 } from "../shared/platform/runtimeMode";
 import { App, RouteErrorBoundary } from "./App";
+import { Suspense, useState } from "react";
+import { retryableLazy } from "../shared/ui/retryableLazy";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -64,6 +67,55 @@ function localFixtureTransport(
 }
 
 describe("App discovery navigation", () => {
+  it("renders a truthful content-free recovery screen for an unknown route", async () => {
+    const platform = createMemoryPlatform({ name: "not_found" });
+    render(
+      <App
+        runtime={syntheticRuntime()}
+        platform={platform}
+      />,
+    );
+
+    const recovery = screen.getByRole("region", { name: "Page not found" });
+    expect(within(recovery).getByText("Page not found", { selector: "strong" })).toBeVisible();
+    expect(within(recovery).getByText(/invalid path is not retained or displayed/i)).toBeVisible();
+    expect(document.title).toBe("Page not found · Prompt Enhancer");
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Overview" }));
+
+    await waitFor(() => expect(platform.currentRoute()).toEqual({ name: "overview" }));
+    await waitFor(() => expect(document.title).toBe("Overview · Prompt Enhancer"));
+    await waitFor(() => expect(document.getElementById("main-content")).toHaveFocus());
+  });
+
+  it("keeps the rendered screen, title and active navigation synchronized with browser history", async () => {
+    window.history.replaceState(null, "", "/overview");
+    const platform = createBrowserPlatform(window);
+    const view = render(<App runtime={syntheticRuntime()} platform={platform} />);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Everything the app did on its own" })).toBeVisible();
+    expect(document.title).toBe("Overview · Prompt Enhancer");
+    expect(screen.getByRole("button", { name: "Overview", current: "page" })).toBeVisible();
+
+    window.history.pushState(null, "", "/sessions");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+    expect(document.title).toBe("Sessions · Prompt Enhancer");
+    expect(screen.getByRole("button", { name: "Sessions", current: "page" })).toBeVisible();
+    expect(document.getElementById("main-content")).toHaveFocus();
+
+    window.history.pushState(null, "", "/unrecognized-sensitive-shaped-route");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(await screen.findByRole("region", { name: "Page not found" })).toBeVisible();
+    expect(document.title).toBe("Page not found · Prompt Enhancer");
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+    expect(document.body).not.toHaveTextContent("unrecognized-sensitive-shaped-route");
+
+    view.unmount();
+    window.history.replaceState(null, "", "/");
+  });
+
   it("exposes a responsive shell with a keyboard skip target", () => {
     const { container } = render(
       <App
@@ -94,6 +146,44 @@ describe("App discovery navigation", () => {
     expect(
       screen.getByLabelText(/Private by default\. Mobile runtime status: Synthetic demo fixture ready/),
     ).toBeInTheDocument();
+  });
+
+  it("gives the Agent workbench a focused shell at medium desktop widths", () => {
+    const previousMatchMedia = window.matchMedia;
+    const removeEventListener = vi.fn();
+    const matchMedia = vi.fn((query: string): MediaQueryList => ({
+      matches: query === "(max-width: 1180px)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true),
+    }));
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: matchMedia,
+    });
+
+    try {
+      const { container, unmount } = render(
+        <App
+          runtime={syntheticRuntime()}
+          platform={createMemoryPlatform({ name: "agent" })}
+        />,
+      );
+
+      expect(container.querySelector(".app-shell")).toHaveClass("app-shell--agent-focus");
+      expect(matchMedia).toHaveBeenCalledWith("(max-width: 1180px)");
+      unmount();
+      expect(removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        value: previousMatchMedia,
+      });
+    }
   });
 
   it("opens a grouped mobile navigation dialog and initially focuses the current destination", async () => {
@@ -354,7 +444,7 @@ describe("App discovery navigation", () => {
   });
 
   it("reports local service unavailable when the health check fails", async () => {
-    const getRuntimeHealth = vi.fn().mockRejectedValue(new Error("offline"));
+    const getRuntimeHealth = vi.fn().mockRejectedValue(new Error("SYNTHETIC_PRIVATE_HEALTH_FAILURE"));
     const local = localFixtureTransport(getRuntimeHealth);
 
     render(
@@ -368,7 +458,41 @@ describe("App discovery navigation", () => {
       await screen.findByLabelText("Local loopback service unavailable"),
     ).toBeVisible();
     expect(screen.getByText("Local real · Service unavailable")).toBeVisible();
+    expect(document.body).not.toHaveTextContent("SYNTHETIC_PRIVATE_HEALTH_FAILURE");
     expect(getRuntimeHealth).toHaveBeenCalledTimes(1);
+    getRuntimeHealth.mockResolvedValueOnce(HEALTHY_LOCAL_RUNTIME);
+    fireEvent.click(screen.getByRole("button", { name: "Recheck local service" }));
+    expect(await screen.findByLabelText("Local loopback service available")).toBeVisible();
+    expect(getRuntimeHealth).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("button", { name: "Recheck local service" })).toBeNull();
+  });
+
+  it("ignores a stale health failure after the runtime transport changes", async () => {
+    const older = deferred<RuntimeHealth>();
+    const current = deferred<RuntimeHealth>();
+    const olderRuntime = createRuntimeComposition(
+      "local_real",
+      localFixtureTransport(vi.fn(() => older.promise)),
+    );
+    const currentRuntime = createRuntimeComposition(
+      "local_real",
+      localFixtureTransport(vi.fn(() => current.promise)),
+    );
+    const platform = createMemoryPlatform({ name: "overview" });
+    const view = render(<App platform={platform} runtime={olderRuntime} />);
+
+    expect(screen.getByLabelText("Local loopback service is being checked")).toBeVisible();
+    view.rerender(<App platform={platform} runtime={currentRuntime} />);
+    await act(async () => current.resolve(HEALTHY_LOCAL_RUNTIME));
+    expect(await screen.findByLabelText("Local loopback service available")).toBeVisible();
+
+    await act(async () => {
+      older.reject(new Error("SYNTHETIC_STALE_PRIVATE_HEALTH_FAILURE"));
+      await older.promise.catch(() => undefined);
+    });
+    expect(screen.getByLabelText("Local loopback service available")).toBeVisible();
+    expect(screen.queryByLabelText("Local loopback service unavailable")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("SYNTHETIC_STALE_PRIVATE_HEALTH_FAILURE");
   });
 
   it("does not contact local-source APIs for a synthetic direct route", () => {
@@ -489,6 +613,36 @@ describe("App discovery navigation", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(document.getElementById("main-content")).toHaveFocus();
     consoleError.mockRestore();
+  });
+
+  it("retries a rejected lazy import only after an explicit screen retry", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const loader = vi.fn()
+      .mockRejectedValueOnce(new Error("SYNTHETIC_IMPORT_FAILURE"))
+      .mockResolvedValue({ default: () => <p>Recovered imported screen</p> });
+    const Screen = retryableLazy(loader);
+    render(<RouteErrorBoundary resetKey="/synthetic"><Suspense fallback={<p>Loading route</p>}><Screen /></Suspense></RouteErrorBoundary>);
+    await screen.findByRole("button", { name: "Retry screen" });
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Reload app" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Retry screen" }));
+    expect(await screen.findByText("Recovered imported screen")).toBeVisible();
+    expect(loader).toHaveBeenCalledTimes(2);
+    consoleError.mockRestore();
+  });
+
+  it("keeps a healthy lazy workspace mounted when only its route key changes", async () => {
+    const loader = vi.fn(async () => ({ default: function ExampleWorkspace() {
+      const [count, setCount] = useState(0);
+      return <button onClick={() => setCount((value) => value + 1)} type="button">Example state {count}</button>;
+    } }));
+    const Screen = retryableLazy(loader);
+    const child = <Suspense fallback="Loading"><Screen /></Suspense>;
+    const { rerender } = render(<RouteErrorBoundary resetKey="/example/a">{child}</RouteErrorBoundary>);
+    fireEvent.click(await screen.findByRole("button", { name: "Example state 0" }));
+    rerender(<RouteErrorBoundary resetKey="/example/b">{child}</RouteErrorBoundary>);
+    expect(screen.getByRole("button", { name: "Example state 1" })).toBeVisible();
+    expect(loader).toHaveBeenCalledOnce();
   });
 
   it("omits a circular exit action when retry is the only truthful route recovery", () => {

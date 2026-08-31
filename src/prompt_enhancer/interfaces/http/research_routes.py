@@ -28,6 +28,7 @@ from ...infrastructure.text_models.jobs import (
     CandidateEvaluationSummary,
     LocalTextModelEvaluationService,
     ModelEvaluationBusyError,
+    ModelEvaluationUnavailableError,
     ModelEvaluationJob,
     ModelEvaluationNotFoundError,
     ModelEvaluationRequest,
@@ -348,14 +349,15 @@ class CandidateEvaluationSummaryDto(HttpDto):
 
 class ModelEvaluationJobDto(HttpDto):
     job_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    status: Literal["queued", "running", "completed", "failed"]
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
     candidate: ModelEvaluationRequestDto
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
     resolved_device: Literal["cpu", "cuda", "mps"] | None
     error_code: Literal[
-        "candidate_evaluation_incomplete", "model_evaluation_failed"
+        "candidate_evaluation_incomplete", "model_evaluation_failed",
+        "application_shutdown", "model_evaluation_cleanup_unconfirmed"
     ] | None
     outcomes: tuple[CandidateEvaluationSummaryDto, ...] = Field(max_length=8)
 
@@ -645,6 +647,11 @@ def create_research_router(
                 raise HTTPException(
                     status_code=409,
                     detail="a local model evaluation is already running",
+                ) from None
+            except ModelEvaluationUnavailableError:
+                raise HTTPException(
+                    status_code=503,
+                    detail={"code": "model_evaluation_unavailable"},
                 ) from None
             return _job_dto(job)
 

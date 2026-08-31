@@ -65,9 +65,14 @@ describe("SocialHubPage", () => {
     expect(within(conversation).getByText(/Your role · Owner/)).toBeInTheDocument();
 
     const composer = within(conversation).getByLabelText("Message (local demo, not delivered)");
+    const addLocally = within(conversation).getByRole("button", { name: /Add locally/ });
+    expect(addLocally).toBeDisabled();
+    expect(addLocally).toHaveAccessibleDescription(/Type a message to enable Add locally/i);
     const { fireEvent } = await import("@testing-library/react");
     fireEvent.change(composer, { target: { value: "Fixture local note" } });
-    within(conversation).getByRole("button", { name: /Add locally/ }).click();
+    expect(addLocally).toBeEnabled();
+    expect(addLocally).toHaveAccessibleDescription(/Ready to add this message locally/i);
+    addLocally.click();
     expect(await within(conversation).findByText("Fixture local note")).toBeInTheDocument();
     expect(screen.getByRole("status", { name: "" })).toHaveTextContent(/Nothing was delivered/);
 
@@ -194,6 +199,9 @@ describe("SocialHubPage", () => {
 
     const form = within(files).getByRole("form", { name: "Offer a file (metadata only)" });
     expect(form).toHaveTextContent(/No file picker, path, or bytes are involved/);
+    const offer = within(form).getByRole("button", { name: /Offer to 4 recipients/ });
+    expect(offer).toBeDisabled();
+    expect(offer).toHaveAccessibleDescription(/Enter a display name to enable/i);
     const { fireEvent } = await import("@testing-library/react");
     fireEvent.change(within(form).getByLabelText("Display name"), { target: { value: "synthetic-plan.md" } });
     within(form).getByRole("checkbox", { name: /Casey Example/ }).click();

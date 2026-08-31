@@ -6,12 +6,42 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
+import sqlite3
+
+import pytest
 
 from fastapi.testclient import TestClient
 
 from prompt_enhancer.api import API_TOKEN_HEADER
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
+
+
+def test_share_store_closes_connections_on_success_and_error(tmp_path: Path, monkeypatch) -> None:
+    from prompt_enhancer.application import shared_folders
+
+    opened: list[sqlite3.Connection] = []
+    connect = sqlite3.connect
+
+    def capture(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        opened.append(connection)  # Retain it so garbage collection cannot hide a leak.
+        return connection
+
+    monkeypatch.setattr(shared_folders.sqlite3, "connect", capture)
+    store = shared_folders.SharedFolderStore(tmp_path / "example-shares.sqlite3")
+    assert store.list_shares() == []
+    assert store.list_links() == []
+    with pytest.raises(ValueError, match="example_transaction_aborted"):
+        with store._connect() as connection:
+            connection.execute("CREATE TABLE example_rollback (value TEXT)")
+            connection.execute("INSERT INTO example_rollback VALUES ('example')")
+            raise ValueError("example_transaction_aborted")
+    for connection in opened:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+            connection.execute("SELECT 1")
+    with store._connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM example_rollback").fetchone()[0] == 0
 
 
 def _apps(tmp_path: Path, monkeypatch):

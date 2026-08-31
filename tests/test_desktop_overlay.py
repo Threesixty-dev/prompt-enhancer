@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,12 +18,26 @@ from prompt_enhancer.interfaces.http.desktop_identity import (
 TOKEN = "example_desktop_overlay_token_123456789"
 
 
+class FakeEvent:
+    def __init__(self) -> None:
+        self.handlers: list[object] = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def emit(self) -> None:
+        for handler in tuple(self.handlers):
+            handler()
+
+
 class FakeWindow:
     def __init__(self) -> None:
         self.calls: list[str] = []
         self.current_url = "about:blank"
         self.folder_dialog_calls: list[tuple[object, bool]] = []
         self.folder_dialog_result: object = None
+        self.events = SimpleNamespace(closed=FakeEvent())
 
     def get_current_url(self) -> str:
         return self.current_url
@@ -53,11 +68,17 @@ class FakeWebview:
     FileDialog = SimpleNamespace(FOLDER="synthetic-folder-dialog")
     FOLDER_DIALOG = "legacy-synthetic-folder-dialog"
 
-    def __init__(self, *, fail_start: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_start: bool = False,
+        confirm_close_event: bool = True,
+    ) -> None:
         self.created: list[tuple[tuple[object, ...], dict[str, object]]] = []
         self.started: list[dict[str, object]] = []
         self.window = FakeWindow()
         self.fail_start = fail_start
+        self.confirm_close_event = confirm_close_event
 
     def create_window(self, *args: object, **kwargs: object) -> object:
         self.created.append((args, kwargs))
@@ -68,6 +89,8 @@ class FakeWebview:
         self.started.append(kwargs)
         if self.fail_start:
             raise RuntimeError("synthetic GUI failure")
+        if self.confirm_close_event:
+            self.window.events.closed.emit()
 
 
 class FakeOwnedServer:
@@ -75,6 +98,7 @@ class FakeOwnedServer:
         self.stops = 0
         self.thread = SimpleNamespace(is_alive=lambda: True)
         self.user_presence = desktop_overlay.UserPresenceApprovalManager()
+        self.endpoints = (("127.0.0.1", "http://127.0.0.1:18765"),)
         self.readiness_path = (
             f"{DESKTOP_OWNED_INSTANCE_PATH_PREFIX}{'s' * 43}"
         )
@@ -222,11 +246,10 @@ def test_refuses_an_occupied_port_that_fails_authentication(
         lambda: pytest.fail("an untrusted listener must never be rendered"),
     )
 
-    with pytest.raises(
-        desktop_overlay.DesktopOverlayServiceError,
-        match="untrusted service",
-    ):
+    with pytest.raises(desktop_overlay.DesktopOverlayServiceError) as caught:
         desktop_overlay.run_desktop_overlay(settings(tmp_path))
+    assert caught.value.reason_code == "service_untrusted"
+    assert str(caught.value) == desktop_overlay._FAILURE_MESSAGES["service_untrusted"]
 
 
 def test_starts_and_stops_only_an_owned_server(
@@ -255,27 +278,43 @@ def test_starts_and_stops_only_an_owned_server(
     assert webview.created[0][1]["js_api"]._user_presence is owned.user_presence
 
 
-def test_protected_agent_refuses_to_attach_to_an_existing_service(
+def test_protected_agent_owns_a_fallback_listener_instead_of_attaching_to_an_existing_service(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     prepare_common(monkeypatch, service_open=True, trusted=True)
     monkeypatch.setattr(
         desktop_overlay,
-        "_start_owned_server",
-        lambda _settings: pytest.fail("protected Agent must not attach or start"),
+        "_verify_service_identity",
+        lambda *_args: pytest.fail("protected Agent must never probe an attached identity"),
     )
+    owned = FakeOwnedServer()
+    owned.endpoints = (("127.0.0.1", "http://127.0.0.1:19876"),)
+    webview = FakeWebview()
+    starts: list[dict[str, object]] = []
+
+    def start(_settings, **options):
+        starts.append(options)
+        return owned
+
+    monkeypatch.setattr(desktop_overlay, "_start_owned_server", start)
     monkeypatch.setattr(
         desktop_overlay,
-        "_load_webview",
-        lambda: pytest.fail("protected Agent must not render an attached service"),
+        "_wait_for_owned_service",
+        lambda endpoints, supplied, candidate: (
+            endpoints[0][1]
+            if supplied == TOKEN and candidate is owned
+            else pytest.fail("fallback ownership binding changed")
+        ),
     )
+    monkeypatch.setattr(desktop_overlay, "_load_webview", lambda: webview)
 
-    with pytest.raises(
-        desktop_overlay.DesktopOverlayServiceError,
-        match="requires an unoccupied configured loopback port",
-    ):
-        desktop_overlay.run_desktop_agent(settings(tmp_path))
+    desktop_overlay.run_desktop_agent(settings(tmp_path))
+
+    assert starts == [{"allow_ephemeral": True}]
+    assert owned.stops == 1
+    assert webview.created[0][1]["url"] == "http://127.0.0.1:19876/agent"
+    assert webview.created[0][1]["js_api"]._user_presence is owned.user_presence
 
 
 def test_protected_agent_refuses_trusted_listener_that_wins_startup_race(
@@ -285,7 +324,7 @@ def test_protected_agent_refuses_trusted_listener_that_wins_startup_race(
     prepare_common(monkeypatch, service_open=False, trusted=True)
     owned = FakeOwnedServer()
     owned.thread = SimpleNamespace(is_alive=lambda: False)
-    monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings: owned)
+    monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings, **_options: owned)
     monkeypatch.setattr(
         desktop_overlay,
         "_verify_owned_service_instance",
@@ -299,10 +338,10 @@ def test_protected_agent_refuses_trusted_listener_that_wins_startup_race(
 
     with pytest.raises(
         desktop_overlay.DesktopOverlayServiceError,
-        match="did not become ready",
-    ):
+    ) as caught:
         desktop_overlay.run_desktop_agent(settings(tmp_path))
 
+    assert caught.value.reason_code == "service_exited"
     assert owned.stops == 1
 
 
@@ -313,7 +352,7 @@ def test_protected_agent_owns_server_manager_and_opens_full_agent_route(
     prepare_common(monkeypatch, service_open=False, trusted=False)
     owned = FakeOwnedServer()
     webview = FakeWebview()
-    monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings: owned)
+    monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings, **_options: owned)
     monkeypatch.setattr(
         desktop_overlay,
         "_wait_for_owned_service",
@@ -342,6 +381,15 @@ def test_protected_agent_owns_server_manager_and_opens_full_agent_route(
     assert window_api._user_presence is owned.user_presence
     assert window_api._folder_dialog_type == FakeWebview.FileDialog.FOLDER
     assert webview.started == [{"gui": "edgechromium", "debug": False}]
+    lifecycle = json.loads(
+        (tmp_path / "diagnostics" / "native-agent-lifecycle.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert lifecycle["contract"] == "native-lifecycle.v1"
+    assert lifecycle["window"] == "agent"
+    assert lifecycle["phase"] == "stopped"
+    assert lifecycle["terminal"] is True
 
 
 def test_protected_agent_stops_owned_server_when_native_loop_fails(
@@ -350,7 +398,7 @@ def test_protected_agent_stops_owned_server_when_native_loop_fails(
 ) -> None:
     prepare_common(monkeypatch, service_open=False, trusted=False)
     owned = FakeOwnedServer()
-    monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings: owned)
+    monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings, **_options: owned)
     monkeypatch.setattr(
         desktop_overlay,
         "_wait_for_owned_service",
@@ -362,9 +410,56 @@ def test_protected_agent_stops_owned_server_when_native_loop_fails(
         lambda: FakeWebview(fail_start=True),
     )
 
-    with pytest.raises(RuntimeError, match="synthetic GUI failure"):
+    with pytest.raises(desktop_overlay.DesktopOverlayError) as caught:
         desktop_overlay.run_desktop_agent(settings(tmp_path))
+    assert caught.value.reason_code == "window_start_failed"
+    assert "synthetic GUI failure" not in str(caught.value)
+    assert caught.value.__context__ is None
     assert owned.stops == 1
+    lifecycle = json.loads(
+        (tmp_path / "diagnostics" / "native-agent-lifecycle.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert lifecycle["phase"] == "failed"
+    assert lifecycle["reason_code"] == "window_start_failed"
+    assert lifecycle["cleanup_reason_code"] is None
+
+
+def test_returned_native_loop_requires_a_confirmed_close_event(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prepare_common(monkeypatch, service_open=False, trusted=False)
+    owned = FakeOwnedServer()
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_start_owned_server",
+        lambda _settings, **_options: owned,
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_wait_for_owned_service",
+        lambda endpoints, *_args: endpoints[0][1],
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_load_webview",
+        lambda: FakeWebview(confirm_close_event=False),
+    )
+
+    with pytest.raises(desktop_overlay.DesktopOverlayError) as caught:
+        desktop_overlay.run_desktop_agent(settings(tmp_path))
+
+    assert caught.value.reason_code == "window_close_unconfirmed"
+    assert owned.stops == 1
+    lifecycle = json.loads(
+        (tmp_path / "diagnostics" / "native-agent-lifecycle.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert lifecycle["phase"] == "failed"
+    assert lifecycle["reason_code"] == "window_close_unconfirmed"
 
 
 def test_owned_server_stops_when_native_loop_fails(
@@ -385,8 +480,11 @@ def test_owned_server_stops_when_native_loop_fails(
         lambda: FakeWebview(fail_start=True),
     )
 
-    with pytest.raises(RuntimeError, match="synthetic GUI failure"):
+    with pytest.raises(desktop_overlay.DesktopOverlayError) as caught:
         desktop_overlay.run_desktop_overlay(settings(tmp_path))
+    assert caught.value.reason_code == "window_start_failed"
+    assert "synthetic GUI failure" not in str(caught.value)
+    assert caught.value.__context__ is None
     assert owned.stops == 1
 
 
@@ -695,12 +793,15 @@ def test_failed_owned_startup_is_stopped_before_error_propagates(
         desktop_overlay,
         "_wait_for_owned_service",
         lambda *_args: (_ for _ in ()).throw(
-            desktop_overlay.DesktopOverlayServiceError("not ready")
+            desktop_overlay.DesktopOverlayServiceError(
+                "not ready", reason_code="service_not_ready"
+            )
         ),
     )
 
-    with pytest.raises(desktop_overlay.DesktopOverlayServiceError, match="not ready"):
+    with pytest.raises(desktop_overlay.DesktopOverlayServiceError) as caught:
         desktop_overlay.run_desktop_overlay(settings(tmp_path))
+    assert caught.value.reason_code == "service_not_ready"
     assert owned.stops == 1
 
 
@@ -752,7 +853,7 @@ def test_cli_agent_desktop_has_no_path_or_identifier_arguments(
     seen: list[AppSettings] = []
     monkeypatch.setattr(
         desktop_overlay,
-        "run_desktop_agent",
+        "launch_desktop_agent",
         lambda value: seen.append(value),
     )
 
@@ -786,7 +887,7 @@ def test_run_agent_desktop_delegates_without_rendering_settings(
     calls: list[AppSettings] = []
     monkeypatch.setattr(
         desktop_overlay,
-        "run_desktop_agent",
+        "launch_desktop_agent",
         lambda value: calls.append(value),
     )
 
@@ -826,7 +927,7 @@ def test_console_free_entry_reports_only_a_safe_native_error(
         lambda _settings: (_ for _ in ()).throw(RuntimeError("example private detail")),
     )
     monkeypatch.setattr(AppSettings, "from_env", lambda: object())
-    monkeypatch.setattr(desktop_overlay, "_show_safe_desktop_error", lambda: notices.append(True))
+    monkeypatch.setattr(desktop_overlay, "_show_safe_desktop_error", lambda *_args: notices.append(True))
 
     assert desktop_overlay.desktop_main() == 1
     assert notices == [True]
@@ -839,7 +940,7 @@ def test_console_free_agent_entry_loads_settings_and_opens_owned_agent(
     selected = settings(tmp_path)
     calls: list[AppSettings] = []
     monkeypatch.setattr(AppSettings, "from_env", lambda: selected)
-    monkeypatch.setattr(desktop_overlay, "run_desktop_agent", calls.append)
+    monkeypatch.setattr(desktop_overlay, "launch_desktop_agent", calls.append)
 
     assert desktop_overlay.agent_desktop_main() == 0
     assert calls == [selected]
@@ -851,11 +952,142 @@ def test_console_free_agent_entry_reports_only_a_safe_native_error(
     notices: list[bool] = []
     monkeypatch.setattr(
         desktop_overlay,
-        "run_desktop_agent",
+        "launch_desktop_agent",
         lambda _settings: (_ for _ in ()).throw(RuntimeError("example private detail")),
     )
     monkeypatch.setattr(AppSettings, "from_env", lambda: object())
-    monkeypatch.setattr(desktop_overlay, "_show_safe_agent_error", lambda: notices.append(True))
+    monkeypatch.setattr(desktop_overlay, "_show_safe_agent_error", lambda *_args: notices.append(True))
 
     assert desktop_overlay.agent_desktop_main() == 1
     assert notices == [True]
+
+
+class _InstanceLease:
+    def __init__(self, *, close_fails: bool = False) -> None:
+        self.close_fails = close_fails
+        self.closes = 0
+
+    def close(self) -> None:
+        self.closes += 1
+        if self.close_fails:
+            raise desktop_overlay.WindowsSingleInstanceError(
+                "single_instance_release_failed"
+            )
+
+
+def test_agent_launch_primary_owns_exactly_one_runtime_and_releases_lease(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected = settings(tmp_path)
+    lease = _InstanceLease()
+    calls: list[AppSettings] = []
+    monkeypatch.setattr(desktop_overlay, "sys_platform_is_windows", lambda: True)
+    monkeypatch.setattr(
+        desktop_overlay, "acquire_windows_instance", lambda _name: lease
+    )
+    monkeypatch.setattr(desktop_overlay, "run_desktop_agent", calls.append)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "focus_existing_window",
+        lambda _title: pytest.fail("a primary launch must not focus another window"),
+    )
+
+    desktop_overlay.launch_desktop_agent(selected)
+
+    assert calls == [selected]
+    assert lease.closes == 1
+
+
+@pytest.mark.parametrize("focused", [True, False])
+def test_agent_duplicate_focuses_best_effort_without_starting_any_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    focused: bool,
+) -> None:
+    focus_calls: list[str] = []
+    monkeypatch.setattr(desktop_overlay, "sys_platform_is_windows", lambda: True)
+    monkeypatch.setattr(
+        desktop_overlay, "acquire_windows_instance", lambda _name: None
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
+        "focus_existing_window",
+        lambda title: focus_calls.append(title) or focused,
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
+        "run_desktop_agent",
+        lambda _settings: pytest.fail("a duplicate must not start a runtime"),
+    )
+
+    desktop_overlay.launch_desktop_agent(settings(tmp_path))
+
+    assert focus_calls == [desktop_overlay._AGENT_WINDOW_TITLE]
+
+
+def test_agent_instance_acquire_failure_is_content_free(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(desktop_overlay, "sys_platform_is_windows", lambda: True)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "acquire_windows_instance",
+        lambda _name: (_ for _ in ()).throw(
+            desktop_overlay.WindowsSingleInstanceError("SYNTHETIC_PRIVATE_CANARY")
+        ),
+    )
+
+    with pytest.raises(desktop_overlay.DesktopOverlayError) as caught:
+        desktop_overlay.launch_desktop_agent(settings(tmp_path))
+
+    assert caught.value.reason_code == "local_state_unavailable"
+    assert "SYNTHETIC_PRIVATE_CANARY" not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+
+
+def test_agent_primary_failure_still_releases_lease_and_preserves_safe_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    lease = _InstanceLease()
+    monkeypatch.setattr(desktop_overlay, "sys_platform_is_windows", lambda: True)
+    monkeypatch.setattr(
+        desktop_overlay, "acquire_windows_instance", lambda _name: lease
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
+        "run_desktop_agent",
+        lambda _settings: (_ for _ in ()).throw(
+            desktop_overlay.DesktopOverlayServiceError(
+                "SYNTHETIC_PRIVATE_CANARY", reason_code="service_stop_timeout"
+            )
+        ),
+    )
+
+    with pytest.raises(desktop_overlay.DesktopOverlayError) as caught:
+        desktop_overlay.launch_desktop_agent(settings(tmp_path))
+
+    assert lease.closes == 1
+    assert caught.value.reason_code == "service_stop_timeout"
+    assert "SYNTHETIC_PRIVATE_CANARY" not in str(caught.value)
+
+
+def test_agent_lease_release_failure_is_not_reported_as_a_clean_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    lease = _InstanceLease(close_fails=True)
+    monkeypatch.setattr(desktop_overlay, "sys_platform_is_windows", lambda: True)
+    monkeypatch.setattr(
+        desktop_overlay, "acquire_windows_instance", lambda _name: lease
+    )
+    monkeypatch.setattr(desktop_overlay, "run_desktop_agent", lambda _settings: None)
+
+    with pytest.raises(desktop_overlay.DesktopOverlayError) as caught:
+        desktop_overlay.launch_desktop_agent(settings(tmp_path))
+
+    assert lease.closes == 1
+    assert caught.value.reason_code == "local_state_unavailable"

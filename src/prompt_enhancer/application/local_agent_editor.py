@@ -16,20 +16,28 @@ from enum import StrEnum
 import hashlib
 import hmac
 import re
+import unicodedata
 import threading
 import time
 from typing import Literal
 import uuid
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from ..domain import StrictModel
-from .local_agent_limits import MAX_DIFF_CHARS, MAX_FILE_WRITE_BYTES
-from .local_agent_workspace import PreparedWrite, WorkspaceTools
+from .local_agent_limits import (
+    MAX_DIFF_CHARS,
+    MAX_FILE_WRITE_BYTES,
+    MAX_SEARCH_RESULTS,
+    MAX_SEARCH_TOTAL_BYTES,
+    MAX_TREE_SCAN_ENTRIES,
+)
+from .local_agent_workspace import PreparedWrite, WorkspaceTextSearchSnapshot, WorkspaceTools
 from .local_agent_limits import LocalAgentError
 
 
 WORKSPACE_CONTRACT_VERSION = "local-agent-workspace.v1"
+WORKSPACE_SEARCH_CONTRACT_VERSION = "local-agent-workspace-search.v1"
 WORKSPACE_APPLY_CONFIRMATION = "apply_reviewed_workspace_edit"
 WORKSPACE_PREVIEW_TTL_SECONDS = 120
 MAX_ACTIVE_PREVIEWS_PER_SESSION = 8
@@ -74,6 +82,89 @@ class WorkspaceFile(StrictModel):
     byte_size: int = Field(ge=0, le=MAX_FILE_WRITE_BYTES)
     line_ending: WorkspaceLineEnding
     editable: Literal[True] = True
+
+
+class WorkspaceSearchMatch(StrictModel):
+    path: str = Field(min_length=1, max_length=1024)
+    line_number: int = Field(ge=1, le=2_147_483_647, strict=True)
+    preview: str = Field(max_length=240)
+
+    @field_validator("path")
+    @classmethod
+    def relative_path_only(cls, value: str) -> str:
+        if (
+            value == "."
+            or value.startswith("/")
+            or "\\" in value
+            or "\x00" in value
+            or re.match(r"^[A-Za-z]:", value) is not None
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+        ):
+            raise ValueError("workspace search paths must stay relative")
+        return value
+
+    @field_validator("preview")
+    @classmethod
+    def single_line_preview(cls, value: str) -> str:
+        if any(
+            unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+            for character in value
+        ):
+            raise ValueError("workspace search previews must be one safe line")
+        return value
+
+
+class WorkspaceSearchResult(StrictModel):
+    contract_version: Literal[WORKSPACE_SEARCH_CONTRACT_VERSION] = (
+        WORKSPACE_SEARCH_CONTRACT_VERSION
+    )
+    session_id: str = Field(pattern=_ID_PATTERN)
+    scope: Literal["application_readable_utf8_text"] = (
+        "application_readable_utf8_text"
+    )
+    coverage: Literal["complete", "partial"]
+    reasons: tuple[str, ...] = Field(max_length=16)
+    reason_code: str | None = Field(
+        default=None,
+        max_length=80,
+        pattern=r"^[a-z][a-z0-9_]*$",
+    )
+    scanned_entry_count: int = Field(ge=0, le=MAX_TREE_SCAN_ENTRIES, strict=True)
+    inspected_byte_count: int = Field(ge=0, le=MAX_SEARCH_TOTAL_BYTES, strict=True)
+    skipped_entry_count: int = Field(ge=0, le=MAX_TREE_SCAN_ENTRIES, strict=True)
+    match_count: int = Field(ge=0, le=MAX_SEARCH_RESULTS, strict=True)
+    matches: tuple[WorkspaceSearchMatch, ...] = Field(max_length=MAX_SEARCH_RESULTS)
+
+    @field_validator("reasons")
+    @classmethod
+    def bounded_reasons(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if (
+            any(not reason or len(reason) > 200 or reason.strip() != reason for reason in value)
+            or tuple(sorted(set(value))) != value
+        ):
+            raise ValueError("workspace search reasons must be bounded and canonical")
+        return value
+
+    @model_validator(mode="after")
+    def coherent_search_evidence(self) -> "WorkspaceSearchResult":
+        if self.match_count != len(self.matches):
+            raise ValueError("workspace search match count is incoherent")
+        if self.skipped_entry_count > self.scanned_entry_count:
+            raise ValueError("workspace search skipped count is incoherent")
+        identities = [(item.path, item.line_number) for item in self.matches]
+        if len(identities) != len(set(identities)):
+            raise ValueError("workspace search matches must be unique")
+        if list(self.matches) != sorted(
+            self.matches,
+            key=lambda item: (item.path.encode("utf-8"), item.line_number),
+        ):
+            raise ValueError("workspace search matches must be canonically ordered")
+        if self.coverage == "complete":
+            if self.reasons or self.reason_code is not None:
+                raise ValueError("complete workspace search cannot carry partial evidence")
+        elif not self.reasons or self.reason_code is None:
+            raise ValueError("partial workspace search must explain its coverage")
+        return self
 
 
 class WorkspacePreviewCommand(StrictModel):
@@ -228,16 +319,51 @@ class LocalAgentWorkspaceEditor:
             line_ending=WorkspaceLineEnding(snapshot.line_ending),
         )
 
+    def search(
+        self,
+        session_id: str,
+        tools: WorkspaceTools,
+        query: str,
+        glob: str,
+        regex: bool,
+    ) -> WorkspaceSearchResult:
+        snapshot: WorkspaceTextSearchSnapshot = tools.search_text_snapshot(
+            query,
+            glob,
+            regex,
+        )
+        return WorkspaceSearchResult(
+            session_id=session_id,
+            coverage=snapshot.coverage,
+            reasons=snapshot.reasons,
+            reason_code=snapshot.reason_code,
+            scanned_entry_count=snapshot.scanned_entry_count,
+            inspected_byte_count=snapshot.inspected_byte_count,
+            skipped_entry_count=snapshot.skipped_entry_count,
+            match_count=len(snapshot.matches),
+            matches=tuple(
+                WorkspaceSearchMatch(
+                    path=item.path,
+                    line_number=item.line_number,
+                    preview=item.preview,
+                )
+                for item in snapshot.matches
+            ),
+        )
+
     def preview(
         self,
         session_id: str,
         tools: WorkspaceTools,
         command: WorkspacePreviewCommand,
+        *,
+        allow_line_ending_change: bool = False,
     ) -> WorkspaceEditPreview:
         current = tools.read_text_snapshot(command.path)
         if not self._matches(current.revision, command.expected_revision):
             raise LocalAgentError("workspace_revision_changed")
-        if WorkspaceLineEnding(current.line_ending) is not command.line_ending:
+        line_ending_change = WorkspaceLineEnding(current.line_ending) is not command.line_ending
+        if line_ending_change and not allow_line_ending_change:
             raise LocalAgentError("workspace_line_ending_changed")
         prepared = tools.prepare_write(
             current.path,
@@ -251,8 +377,15 @@ class LocalAgentWorkspaceEditor:
             raise LocalAgentError("workspace_revision_changed")
         if self._matches(prepared.proposed_sha256, command.expected_revision):
             raise LocalAgentError("workspace_no_change")
-        if prepared.preview == "(no change)":
+        if prepared.preview == "(no change)" and not (
+            allow_line_ending_change and line_ending_change
+        ):
             raise LocalAgentError("workspace_change_not_reviewable")
+        review_diff = (
+            "(line-ending-only restore; inverse review is owned by the restore contract)"
+            if prepared.preview == "(no change)"
+            else prepared.preview
+        )
 
         now = self._monotonic()
         expires_at = self._clock() + timedelta(seconds=self._ttl_seconds)
@@ -290,7 +423,7 @@ class LocalAgentWorkspaceEditor:
             expected_revision=capability.expected_revision,
             proposed_revision=capability.proposed_revision,
             line_ending=capability.line_ending,
-            diff=prepared.preview,
+            diff=review_diff,
             expires_at=capability.expires_at,
         )
 
@@ -330,18 +463,27 @@ class LocalAgentWorkspaceEditor:
             proposed_sha256=capability.proposed_revision,
             existed=True,
             mode=capability.mode,
+            base_content=None,
+            base_byte_size=None,
         )
         outcome = tools.apply_prepared_write(prepared)
         if not outcome.ok:
             raise LocalAgentError(outcome.code or "workspace_apply_failed")
-        written = tools.read_text_snapshot(capability.path)
-        if not self._matches(written.revision, capability.proposed_revision):
+        receipt = outcome.write_receipt
+        if (
+            receipt is None
+            or receipt.state != "verified"
+            or receipt.path != capability.path
+            or receipt.after_sha256 is None
+            or not self._matches(receipt.after_sha256, capability.proposed_revision)
+            or receipt.byte_size is None
+        ):
             raise LocalAgentError("workspace_verification_failed")
         return WorkspaceApplyResult(
             session_id=session_id,
-            path=written.path,
-            revision=written.revision,
-            byte_size=written.byte_size,
+            path=receipt.path,
+            revision=receipt.after_sha256,
+            byte_size=receipt.byte_size,
         )
 
 
@@ -349,6 +491,7 @@ __all__ = (
     "LocalAgentWorkspaceEditor",
     "WORKSPACE_APPLY_CONFIRMATION",
     "WORKSPACE_CONTRACT_VERSION",
+    "WORKSPACE_SEARCH_CONTRACT_VERSION",
     "WorkspaceApplyCommand",
     "WorkspaceApplyResult",
     "WorkspaceEditPreview",
@@ -357,5 +500,7 @@ __all__ = (
     "WorkspaceFile",
     "WorkspaceLineEnding",
     "WorkspacePreviewCommand",
+    "WorkspaceSearchMatch",
+    "WorkspaceSearchResult",
     "WorkspaceTree",
 )

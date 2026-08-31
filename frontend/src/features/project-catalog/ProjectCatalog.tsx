@@ -276,6 +276,8 @@ export function ProjectCatalog({
           return;
         }
         setSessions(parsed);
+        const availableProjects = new Set(parsed.map((session) => session.project_id));
+        setSelectedProjectIds((selected) => new Set([...selected].filter((id) => availableProjects.has(id))));
       })
       .catch(() => {
         if (!controller.signal.aborted) {

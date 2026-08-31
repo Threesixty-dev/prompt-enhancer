@@ -296,6 +296,11 @@ export function ClaudeSourceCard({ transport }: { transport: ClaudeTransport }) 
               </select>
             </label>
             <button
+              aria-describedby={
+                !status.consent_active || operation !== null || status.captured_sessions === 0
+                  ? "claude-source-index-disabled-reason"
+                  : undefined
+              }
               className="button button--secondary"
               disabled={!status.consent_active || operation !== null || status.captured_sessions === 0}
               onClick={() => void run("index")}
@@ -303,6 +308,15 @@ export function ClaudeSourceCard({ transport }: { transport: ClaudeTransport }) 
             >
               {operation === "index" ? "Indexing…" : "Index captured sessions"}
             </button>
+            {(!status.consent_active || operation !== null || status.captured_sessions === 0) && (
+              <span className="sr-only" id="claude-source-index-disabled-reason">
+                {!status.consent_active
+                  ? "Permit hook capture before indexing captured sessions."
+                  : operation !== null
+                    ? "Wait for the current Claude Code source operation to finish."
+                    : "No captured sessions are available to index yet."}
+              </span>
+            )}
           </div>
           {status.consent_active && status.captured_sessions === 0 && (
             <small className="source-card__hint">

@@ -655,9 +655,9 @@ export function ProjectAutomationSettings({
               </button>
             </header>
             <div className="automation-readiness__gates">
-              <div data-ready={consentActive}>
-                <strong>{consentActive ? "Consent active" : "Consent required"}</strong>
-                <span>Redacted-content access for the local Codex source</span>
+              <div data-ready={consentActive === true}>
+                <strong>{consentActive === null ? "Consent not verified" : consentActive ? "Consent active" : "Consent required"}</strong>
+                <span>Redacted-content access for the local {provider === "claude_code" ? "Claude Code" : "Codex"} source</span>
               </div>
               <div data-ready={projectIndexed}>
                 <strong>{projectIndexed ? "Project indexed" : "Project not indexed"}</strong>

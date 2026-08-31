@@ -129,6 +129,42 @@ def write_private_text(path: Path, text: str) -> None:
         raise PrivacyBoundaryError("could not write private state file") from exc
 
 
+def write_private_text_atomic(path: Path, text: str) -> None:
+    """Atomically replace a small private text file in its private directory.
+
+    The previous file remains authoritative until the replacement has been
+    completely written and synced. This is intended for bounded lifecycle and
+    receipt records where a crash between unlink and create would erase the
+    only diagnostic evidence.
+    """
+
+    _prepare_private_parent(path)
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise PrivacyBoundaryError("private state path must be a regular file")
+    data = (text.strip() + "\n").encode("utf-8")
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    try:
+        _create_private_file(temporary, data)
+        os.replace(temporary, path)
+        _restrict_private_file(path)
+        if os.name != "nt":
+            flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            directory = os.open(path.parent, flags)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+    except PrivacyBoundaryError:
+        raise
+    except OSError as exc:
+        raise PrivacyBoundaryError("could not atomically write private state file") from exc
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def load_or_create_api_token(path: Path) -> str:
     """Load or create a local API token. Callers must never print it."""
 
@@ -142,5 +178,22 @@ def load_or_create_api_token(path: Path) -> str:
         except FileExistsError:
             token = _read_private_file(path).decode("ascii")
     if len(token) < 32:
+        raise PrivacyBoundaryError("local API token is unexpectedly short")
+    return token
+
+
+def load_api_token(path: Path) -> str:
+    """Load an existing local API token without initializing application state.
+
+    External-controller helpers use this read-only boundary so invoking a client
+    cannot silently create a second installation or print the secret as setup
+    output.
+    """
+
+    try:
+        token = _read_private_file(path).decode("ascii")
+    except UnicodeDecodeError:
+        raise PrivacyBoundaryError("local API token is malformed") from None
+    if len(token) < 32 or any(character.isspace() for character in token):
         raise PrivacyBoundaryError("local API token is unexpectedly short")
     return token

@@ -18,6 +18,25 @@
   opacity: 0.85;
 }
 
+.team-folders h4 {
+  margin: 0;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.team-folders__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2, 0.5rem);
+}
+
+.team-folders__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 0.25rem);
+}
+
 .team-folders__note,
 .team-folders__message {
   margin: 0;
@@ -68,4 +87,39 @@
   display: flex;
   gap: var(--space-1, 0.25rem);
   flex-wrap: wrap;
+}
+
+.team-folders__boundary,
+.team-folders__empty,
+.team-folders__pending,
+.team-folders__stale,
+.team-folders__unavailable {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted, inherit);
+}
+
+.team-folders__stale {
+  font-style: italic;
+}
+
+.team-folders__error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-danger, inherit);
+}
+
+.team-folders__form label {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.team-folders__form input:disabled,
+.team-folders__list button:disabled,
+.team-folders__toolbar button:disabled {
+  opacity: 0.6;
+}
+
+.team-folders__token p {
+  margin: 0 0 var(--space-1, 0.25rem);
 }

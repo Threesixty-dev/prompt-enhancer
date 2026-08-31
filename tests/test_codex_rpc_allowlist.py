@@ -19,6 +19,7 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.limits import Cod
 from prompt_enhancer.infrastructure.providers.codex_app_server.transports.stdio_jsonl import (
     StdioJsonRpcTransport,
     codex_app_server_argv,
+    codex_app_server_creation_flags,
 )
 
 
@@ -208,6 +209,29 @@ def test_stdio_transport_resolves_fixed_platform_commands() -> None:
         "--listen",
         "stdio://",
     )
+
+
+def test_stdio_transport_prefers_native_windows_executable_over_cmd_shim() -> None:
+    synthetic_cmd = r"C:\Synthetic Tools\codex.cmd"
+    synthetic_exe = r"C:\Synthetic Tools\codex.exe"
+    observed: list[str] = []
+
+    def resolve(name: str) -> str | None:
+        observed.append(name)
+        return synthetic_exe if name == "codex.exe" else synthetic_cmd
+
+    assert codex_app_server_argv(platform="nt", which=resolve) == (
+        synthetic_exe,
+        "app-server",
+        "--listen",
+        "stdio://",
+    )
+    assert observed == ["codex.exe"]
+
+
+def test_stdio_transport_uses_nonzero_no_window_flag_on_windows() -> None:
+    assert codex_app_server_creation_flags(platform="nt") == 0x08000000
+    assert codex_app_server_creation_flags(platform="posix") == 0
 
 
 def test_stdio_transport_writes_current_headerless_protocol_frames(

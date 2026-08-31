@@ -6,6 +6,8 @@ import hashlib
 import json
 import math
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from datetime import UTC, datetime, timedelta
@@ -16,6 +18,7 @@ from pydantic import Field, field_validator, model_validator
 
 from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTERN, StrictModel
 from ..providers import DecoderDescriptor
+from ..runtime_cancellation import RuntimeCleanupUnconfirmed, RuntimeCooperativeStop
 from .evidence_contracts import (
     ActionState,
     EphemeralTypedEvidenceProjection,
@@ -30,6 +33,7 @@ from .model_ensemble import (
     EnsembleChunkPlan,
     EnsembleMetricSpec,
     MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION,
+    MODEL_ENSEMBLE_MODEL_COUNT,
     SessionModelEnsembleReceipt,
     SessionModelEnsembleTypedMetricReceipt,
     build_ensemble_chunks,
@@ -2007,6 +2011,10 @@ class ModelEnsembleExecutionError(SessionModelEnsembleError):
     code = "local_model_ensemble_execution_failed"
 
 
+class ModelEnsembleRuntimeCleanupError(ModelEnsembleExecutionError):
+    code = "model_ensemble_cleanup_unconfirmed"
+
+
 class ModelEnsemblePersistenceError(SessionModelEnsembleError):
     code = "model_ensemble_persistence_failed"
 
@@ -2066,6 +2074,23 @@ class SessionModelEnsembleService:
         )
         self._requirement_verification_reader = requirement_verification_reader
         self._lock = Lock()
+        self._runtime_cleanup_failed = False
+
+    @contextmanager
+    def _execution_lane(self, progress_callback: Callable[[int, int], None] | None) -> Iterator[None]:
+        # A queued watch must keep its lease and observe cancellation even
+        # while another request owns the model lane. No source is read here.
+        while not self._lock.acquire(timeout=0.1):
+            if progress_callback is not None:
+                progress_callback(0, MODEL_ENSEMBLE_MODEL_COUNT)
+        try:
+            if self._runtime_cleanup_failed:
+                raise ModelEnsembleRuntimeCleanupError("local model cleanup was not confirmed")
+            if progress_callback is not None:
+                progress_callback(0, MODEL_ENSEMBLE_MODEL_COUNT)
+            yield
+        finally:
+            self._lock.release()
 
     def run(
         self,
@@ -2103,7 +2128,7 @@ class SessionModelEnsembleService:
             raise ModelEnsembleConfirmationError(
                 "explicit model ensemble confirmation is required"
             )
-        with self._lock:
+        with self._execution_lane(progress_callback):
             self._enforce_access(provider, session_id)
             resolved_profile = self._resolve_metric_profile(provider, session_id)
             resolved_requirement_plan = self._resolve_requirement_plan_evidence(
@@ -2468,6 +2493,11 @@ class SessionModelEnsembleService:
                     ),
                     receipt=projected_receipt,
                 )
+            except RuntimeCooperativeStop:
+                raise
+            except RuntimeCleanupUnconfirmed:
+                self._runtime_cleanup_failed = True
+                raise ModelEnsembleRuntimeCleanupError("local model cleanup was not confirmed") from None
             except SessionModelEnsembleError:
                 raise
             except Exception:
@@ -2483,6 +2513,8 @@ class SessionModelEnsembleService:
                         semantic_projection.reconciliation
                     )
                 self._repository.save_completed(record, **save_arguments)
+            except RuntimeCooperativeStop:
+                raise
             except Exception:
                 race = self._safe_get(run_id)
                 if race is not None:

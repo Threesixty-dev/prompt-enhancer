@@ -168,43 +168,64 @@ export function ModelLinkExperimentPanel({
   const [terminalRunFailure, setTerminalRunFailure] = useState(false);
   const [annotationError, setAnnotationError] = useState("");
   const [pendingLinkId, setPendingLinkId] = useState<string | null>(null);
+  const [cancelledWait, setCancelledWait] = useState(false);
   const requestController = useRef<AbortController | null>(null);
+  const loadController = useRef<AbortController | null>(null);
+  const annotationController = useRef<AbortController | null>(null);
+  const metadataKnown = useRef(false);
+
+  async function readStoredMetadata(controller = new AbortController()) {
+    loadController.current?.abort();
+    loadController.current = controller;
+    setLoading(true);
+    setLoadError("");
+    try {
+      const value = await transport.getLatestModelLinkExperiment(sessionId, controller.signal);
+      if (controller.signal.aborted || loadController.current !== controller) return;
+      setExperiment(parseModelLinkExperiment(value));
+      metadataKnown.current = true;
+    } catch (error) {
+      if (controller.signal.aborted || loadController.current !== controller) return;
+      if (statusOf(error) === 404) {
+        setExperiment(null);
+        metadataKnown.current = true;
+      } else setLoadError("The stored model experiment summary could not be validated or loaded.");
+    } finally {
+      if (!controller.signal.aborted && loadController.current === controller) {
+        setLoading(false);
+        loadController.current = null;
+      }
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
+    metadataKnown.current = false;
+    requestController.current?.abort();
+    requestController.current = null;
+    annotationController.current?.abort();
+    annotationController.current = null;
     setLoading(true);
+    setRunning(false);
+    setCancelledWait(false);
+    setPendingLinkId(null);
+    setAnnotationError("");
     setLoadError("");
     setRunError("");
     setTerminalRunFailure(false);
     setExperiment(null);
     setOutcome(null);
-    transport
-      .getLatestModelLinkExperiment(sessionId, controller.signal)
-      .then((value) => {
-        if (!controller.signal.aborted) {
-          setExperiment(parseModelLinkExperiment(value));
-        }
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        if (statusOf(error) !== 404) {
-          setLoadError(
-            "The stored model experiment summary could not be validated or loaded.",
-          );
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [sessionId, transport]);
-
-  useEffect(
-    () => () => {
+    void readStoredMetadata(controller);
+    return () => {
+      controller.abort();
+      loadController.current?.abort();
+      loadController.current = null;
       requestController.current?.abort();
-    },
-    [],
-  );
+      requestController.current = null;
+      annotationController.current?.abort();
+      annotationController.current = null;
+    };
+  }, [sessionId, transport]);
 
   const blocker = capabilityBlocker(
     analysisCapability,
@@ -217,10 +238,15 @@ export function ModelLinkExperimentPanel({
   const suggestions = outcome?.suggestions ?? [];
 
   async function runExperiment() {
-    if (running || blocker !== null || terminalRunFailure) return;
+    if (requestController.current || annotationController.current || blocker !== null || terminalRunFailure) return;
+    loadController.current?.abort();
+    loadController.current = null;
+    setLoading(false);
     const controller = new AbortController();
     requestController.current = controller;
+    const owns = () => requestController.current === controller && !controller.signal.aborted;
     setRunning(true);
+    setCancelledWait(false);
     setRunError("");
     setTerminalRunFailure(false);
     setAnnotationError("");
@@ -235,21 +261,26 @@ export function ModelLinkExperimentPanel({
         nextIdempotencyKey("model-link-experiment"),
         controller.signal,
       );
-      if (controller.signal.aborted) return;
+      if (!owns()) return;
       const parsed = parseModelLinkOutcome(value);
       setOutcome(parsed);
       setExperiment(parsed.experiment);
+      metadataKnown.current = true;
+      setLoadError("");
     } catch (error) {
-      if (!controller.signal.aborted) {
+      if (owns()) {
         const reason = reasonOf(error);
         setRunError(safeRunError(error));
         setTerminalRunFailure(
           reason !== null && TERMINAL_SOURCE_LIMIT_REASONS.has(reason),
         );
+        if (!metadataKnown.current) void readStoredMetadata();
       }
     } finally {
-      if (!controller.signal.aborted) setRunning(false);
-      requestController.current = null;
+      if (owns()) {
+        setRunning(false);
+        requestController.current = null;
+      }
     }
   }
 
@@ -257,22 +288,31 @@ export function ModelLinkExperimentPanel({
     requestController.current?.abort();
     requestController.current = null;
     setRunning(false);
+    setCancelledWait(true);
+    if (!metadataKnown.current) void readStoredMetadata();
   }
 
   async function annotate(linkId: string, label: ReviewLabel) {
-    if (!experiment || pendingLinkId !== null) return;
+    if (!experiment || annotationController.current || requestController.current) return;
+    const runId = experiment.run.run_id;
+    const controller = new AbortController();
+    annotationController.current = controller;
+    const owns = () => annotationController.current === controller && !controller.signal.aborted;
     const expectedRevision = annotations.get(linkId)?.revision ?? 0;
     setPendingLinkId(linkId);
     setAnnotationError("");
     try {
       const value = await transport.annotateModelLink(
-        experiment.run.run_id,
+        runId,
         linkId,
         { label, expected_revision: expectedRevision },
+        controller.signal,
       );
+      if (!owns()) return;
       const annotation = parseModelLinkAnnotation(value);
+      if (annotation.link_id !== linkId) throw new Error("model-link-annotation-owner-mismatch");
       setExperiment((current) =>
-        current === null
+        current === null || current.run.run_id !== runId
           ? current
           : {
               ...current,
@@ -285,11 +325,14 @@ export function ModelLinkExperimentPanel({
             },
       );
     } catch {
-      setAnnotationError(
+      if (owns()) setAnnotationError(
         "That review label could not be stored. Refresh this session before retrying.",
       );
     } finally {
-      setPendingLinkId(null);
+      if (owns()) {
+        annotationController.current = null;
+        setPendingLinkId(null);
+      }
     }
   }
 
@@ -316,7 +359,7 @@ export function ModelLinkExperimentPanel({
           ) : (
             <button
               className="button button--primary"
-              disabled={blocker !== null || terminalRunFailure}
+              disabled={blocker !== null || terminalRunFailure || pendingLinkId !== null}
               onClick={() => void runExperiment()}
               title={
                 blocker ??
@@ -369,12 +412,15 @@ export function ModelLinkExperimentPanel({
       <p aria-live="polite" className="model-link-experiment__status" role="status">
         {running
           ? "Loading the two pinned models one at a time and comparing the selected session locally."
+          : cancelledWait ? "Stopped waiting in this view. The local worker may still be running; no worker cancellation was confirmed."
+          : loading ? "Checking stored experiment metadata."
+          : loadError ? "Stored experiment availability is unknown. Retry the metadata read."
           : blocker ??
             (experiment
               ? "Stored content-free experiment metadata is available below."
               : "No model-link experiment has been stored for this session yet.")}
       </p>
-      {loadError && <p className="model-link-experiment__error" role="alert">{loadError}</p>}
+      {loadError && <div className="model-link-experiment__error" role="alert">{loadError}{" "}<button disabled={loading || running || pendingLinkId !== null} onClick={() => void readStoredMetadata()} type="button">Retry stored metadata</button></div>}
       {runError && <p className="model-link-experiment__error" role="alert">{runError}</p>}
 
       {loading ? (

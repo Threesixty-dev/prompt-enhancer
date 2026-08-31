@@ -217,6 +217,7 @@ export function TaskFlowPage({
           </select>
         </label>
         <button
+          aria-describedby="task-flow-reset-status"
           className="button button--secondary button--compact"
           disabled={filtersAreDefault}
           onClick={() => setFilters(DEFAULT_TASK_FLOW_FILTERS)}
@@ -224,6 +225,9 @@ export function TaskFlowPage({
         >
           Reset filters
         </button>
+        <span className="sr-only" id="task-flow-reset-status">
+          {filtersAreDefault ? "Filters already use their defaults." : "Reset every task-flow filter to its default."}
+        </span>
       </form>
 
       {error !== null && <ErrorState message={error} onRetry={() => setReloadToken((value) => value + 1)} />}

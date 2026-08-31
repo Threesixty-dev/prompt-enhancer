@@ -31,7 +31,7 @@ describe("platform routes", () => {
     expect(routePath(session)).toBe(`/live/projects/${projectId}/sessions/${sessionId}`);
     expect(parseRoute(routePath(project))).toEqual(project);
     expect(parseRoute(routePath(session))).toEqual(session);
-    expect(parseRoute("/live/projects/not-a-pseudonym")).toEqual({ name: "discovery" });
+    expect(parseRoute("/live/projects/not-a-pseudonym")).toEqual({ name: "not_found" });
   });
 
   it("round-trips a project-scoped automation settings route", () => {
@@ -82,7 +82,7 @@ describe("platform routes", () => {
     `/projects/${"d".repeat(64)}/sessions/${"e".repeat(63)}/metrics/tools`,
     `/projects/${"d".repeat(64)}/sessions/${"e".repeat(64)}/metrics/tools/extra`,
   ])("rejects unsafe or non-allowlisted project routes: %s", (path) => {
-    expect(parseRoute(path)).toEqual({ name: "discovery" });
+    expect(parseRoute(path)).toEqual({ name: "not_found" });
   });
 
   it("does not permit a display label to be interpolated into a project URL", () => {
@@ -98,7 +98,13 @@ describe("platform routes", () => {
     "/tasks/not-an-id/revisions/1",
     `/tasks/${"d".repeat(64)}/revisions/0`,
     "/unexpected",
-  ])("falls back to discovery for %s", (path) => {
-    expect(parseRoute(path)).toEqual({ name: "discovery" });
+  ])("returns a content-free not-found route for %s", (path) => {
+    expect(parseRoute(path)).toEqual({ name: "not_found" });
+  });
+
+  it("round-trips the content-free not-found recovery route", () => {
+    const route = { name: "not_found" } as const;
+    expect(routePath(route)).toBe("/not-found");
+    expect(parseRoute(routePath(route))).toEqual(route);
   });
 });

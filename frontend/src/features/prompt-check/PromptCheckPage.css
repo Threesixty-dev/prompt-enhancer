@@ -9,7 +9,7 @@
 .prompt-check__error { color: var(--p-8a1f1f); margin: 0; }
 .prompt-check__session-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; margin: 0; padding: 0.5rem 0.7rem; border-radius: 0.5rem; background: var(--teal-50); border: 1px solid var(--teal-100); font-size: 0.84rem; }
 .prompt-check__result { display: grid; gap: 1rem; }
-.prompt-check__result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1rem; }
+.prompt-check__result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
 .prompt-check__card { padding: 1rem; border: 1px solid var(--border, var(--p-d5d9e0)); border-radius: 0.75rem; background: var(--surface, var(--surface)); display: grid; gap: 0.6rem; align-content: start; }
 .prompt-check__card h3 { margin: 0; font-size: 1rem; }
 .prompt-check__card h3 small { font-weight: 400; color: var(--ink-500, var(--p-5b6573)); }

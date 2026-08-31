@@ -155,4 +155,65 @@ describe("SessionTimelinePane", () => {
     render(<SessionTimelinePane sessionId={SESSION} transport={{ getSessionTimeline: broken as never }} />);
     await screen.findByRole("alert");
   });
+
+  it("refreshes in place: keeps zoom and filters, marks failed refreshes stale and retries without mutation", async () => {
+    let fail = false;
+    const getSessionTimeline = vi.fn(async () => {
+      if (fail) throw new TransportError("boom", 500);
+      return timeline();
+    });
+    const transport = { getSessionTimeline };
+    const { rerender } = render(<SessionTimelinePane refreshToken={0} sessionId={SESSION} transport={transport} />);
+    const chart = await screen.findByRole("group", { name: /use plus and minus to zoom/i });
+    fireEvent.keyDown(chart, { key: "+" });
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 5m 0s of 10m 0s");
+    fireEvent.click(screen.getByRole("button", { name: "Write" }));
+    expect(screen.getByRole("button", { name: "Write" })).toHaveAttribute("aria-pressed", "false");
+
+    rerender(<SessionTimelinePane refreshToken={1} sessionId={SESSION} transport={transport} />);
+    await vi.waitFor(() => expect(getSessionTimeline).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 5m 0s of 10m 0s");
+    expect(screen.getByRole("button", { name: "Write" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText(/The last refresh failed/)).toBeNull();
+
+    fail = true;
+    rerender(<SessionTimelinePane refreshToken={2} sessionId={SESSION} transport={transport} />);
+    await screen.findByText(/The last refresh failed/);
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 5m 0s of 10m 0s");
+    expect(screen.getByRole("button", { name: "Write" })).toHaveAttribute("aria-pressed", "false");
+
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await vi.waitFor(() => expect(getSessionTimeline).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(screen.queryByText(/The last refresh failed/)).toBeNull());
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 5m 0s of 10m 0s");
+  });
+
+  it.each([403, 404])("clears the retained timeline after an authoritative %s refresh response", async (status) => {
+    const transport = { getSessionTimeline: vi.fn().mockResolvedValueOnce(timeline()).mockRejectedValueOnce(new TransportError("synthetic withdrawal", status)) };
+    const { rerender } = render(<SessionTimelinePane refreshToken={0} sessionId={SESSION} transport={transport} />);
+    await screen.findByRole("heading", { name: "What happened, when" });
+    rerender(<SessionTimelinePane refreshToken={1} sessionId={SESSION} transport={transport} />);
+    await vi.waitFor(() => expect(screen.queryByRole("heading", { name: "What happened, when" })).toBeNull());
+    expect(screen.queryByText(/showing the last verified timeline/)).toBeNull();
+  });
+
+  it("resets the view and drops the previous session's data when the session changes", async () => {
+    const OTHER = "e".repeat(64);
+    const getSessionTimeline = vi.fn(async (id: string) => ({ ...timeline(), session_id: id }));
+    const transport = { getSessionTimeline };
+    const { container, rerender } = render(<SessionTimelinePane sessionId={SESSION} transport={transport} />);
+    const chart = await screen.findByRole("group", { name: /use plus and minus to zoom/i });
+    fireEvent.keyDown(chart, { key: "+" });
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 5m 0s of 10m 0s");
+
+    rerender(<SessionTimelinePane sessionId={OTHER} transport={transport} />);
+    // The previous session's chart must not survive even one render.
+    expect(container.querySelector(".session-timeline__turn")).toBeNull();
+    expect(container.querySelector("[aria-busy='true']")).not.toBeNull();
+
+    await screen.findByRole("heading", { name: "What happened, when" });
+    expect(getSessionTimeline).toHaveBeenLastCalledWith(OTHER, expect.anything());
+    expect(screen.getByRole("status")).toHaveTextContent("Showing full timeline, from 0s to 10m 0s");
+  });
 });

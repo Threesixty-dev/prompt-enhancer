@@ -19,13 +19,18 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 import json
 import sys
-from typing import Any, TextIO
+from typing import Any, Protocol, TextIO
 
-from ...application.agent_surface import AgentReadSurface, AgentSurfaceError
+from ...application.agent_surface import AgentSurfaceError
 
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
 MCP_SERVER_NAME = "prompt-enhancer"
+MCP_SERVER_INSTRUCTIONS = (
+    "Read-only metrics of the owner's own Codex and Claude Code sessions. "
+    "Values are metadata and metric results; unknown is never zero, and "
+    "model judgments are not metrics."
+)
 CONTEXT_EGRESS_ACKNOWLEDGEMENT_ENV = "PROMPT_ENHANCER_MCP_ACKNOWLEDGE_CONTEXT_EGRESS"
 CONTEXT_EGRESS_NOTICE = (
     "prompt-enhancer mcp: every value a tool returns (session names, metric values, counts) "
@@ -42,6 +47,14 @@ _INVALID_PARAMS = -32602
 _INTERNAL_ERROR = -32603
 
 
+class McpToolSurface(Protocol):
+    """Transport-neutral tool surface used by the small stdio server."""
+
+    def tools(self) -> tuple[Any, ...]: ...
+
+    def call(self, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]: ...
+
+
 def _error(message_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": message_id, "error": {"code": code, "message": message}}
 
@@ -51,10 +64,12 @@ def _result(message_id: Any, result: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def handle_message(
-    surface: AgentReadSurface,
+    surface: McpToolSurface,
     message: Mapping[str, Any],
     *,
     version: str = "0",
+    server_name: str = MCP_SERVER_NAME,
+    instructions: str = MCP_SERVER_INSTRUCTIONS,
 ) -> dict[str, Any] | None:
     """Answer one JSON-RPC message; notifications (no id) return None."""
 
@@ -74,11 +89,8 @@ def handle_message(
             {
                 "protocolVersion": MCP_PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": MCP_SERVER_NAME, "version": version},
-                "instructions": (
-                    "Read-only metrics of the owner's own Codex and Claude Code sessions. "
-                    "Values are metadata and metric results; unknown is never zero, and model judgments are not metrics."
-                ),
+                "serverInfo": {"name": server_name, "version": version},
+                "instructions": instructions,
             },
         )
     if method == "ping":
@@ -103,7 +115,28 @@ def handle_message(
         except AgentSurfaceError as error:
             if error.code == "unknown_tool":
                 return _error(message_id, _INVALID_PARAMS, "unknown tool")
-            return _result(message_id, {"content": [{"type": "text", "text": json.dumps({"error": error.code})}], "isError": True})
+            failure: dict[str, object] = {"error": error.code}
+            http_status = error.details.get("http_status")
+            retryable = error.details.get("retryable")
+            if http_status is None or (
+                isinstance(http_status, int)
+                and not isinstance(http_status, bool)
+                and 100 <= http_status <= 599
+            ):
+                if "http_status" in error.details:
+                    failure["http_status"] = http_status
+            if isinstance(retryable, bool):
+                failure["retryable"] = retryable
+            return _result(
+                message_id,
+                {
+                    "content": [
+                        {"type": "text", "text": json.dumps(failure)}
+                    ],
+                    "structuredContent": failure,
+                    "isError": True,
+                },
+            )
         except Exception:
             return _result(message_id, {"content": [{"type": "text", "text": json.dumps({"error": "tool_failed"})}], "isError": True})
         return _result(
@@ -122,17 +155,25 @@ class McpStdioServer:
 
     def __init__(
         self,
-        surface: AgentReadSurface,
+        surface: McpToolSurface,
         *,
         stdin: TextIO | None = None,
         stdout: TextIO | None = None,
         version: str = "0",
+        server_name: str = MCP_SERVER_NAME,
+        instructions: str = MCP_SERVER_INSTRUCTIONS,
         on_message: Callable[[str], None] | None = None,
     ) -> None:
+        if not server_name or len(server_name) > 120:
+            raise ValueError("MCP server name is invalid")
+        if not instructions or len(instructions) > 512:
+            raise ValueError("MCP server instructions are invalid")
         self._surface = surface
         self._stdin = stdin or sys.stdin
         self._stdout = stdout or sys.stdout
         self._version = version
+        self._server_name = server_name
+        self._instructions = instructions
         self._on_message = on_message
 
     def _send(self, payload: Mapping[str, Any]) -> None:
@@ -155,11 +196,30 @@ class McpStdioServer:
             if self._on_message is not None:
                 self._on_message(message.get("method", "?") if isinstance(message, dict) else "?")
             if isinstance(message, list):
-                replies = [reply for reply in (handle_message(self._surface, item, version=self._version) for item in message) if reply is not None]
+                replies = [
+                    reply
+                    for reply in (
+                        handle_message(
+                            self._surface,
+                            item,
+                            version=self._version,
+                            server_name=self._server_name,
+                            instructions=self._instructions,
+                        )
+                        for item in message
+                    )
+                    if reply is not None
+                ]
                 if replies:
                     self._send_batch(replies)
                 continue
-            reply = handle_message(self._surface, message, version=self._version)
+            reply = handle_message(
+                self._surface,
+                message,
+                version=self._version,
+                server_name=self._server_name,
+                instructions=self._instructions,
+            )
             if reply is not None:
                 self._send(reply)
         return 0
@@ -175,6 +235,8 @@ __all__ = (
     "MAX_MESSAGE_BYTES",
     "MCP_PROTOCOL_VERSION",
     "MCP_SERVER_NAME",
+    "MCP_SERVER_INSTRUCTIONS",
+    "McpToolSurface",
     "McpStdioServer",
     "handle_message",
 )

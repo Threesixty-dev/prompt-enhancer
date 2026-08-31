@@ -393,13 +393,35 @@ def test_default_hub_clients_are_public_only(tmp_path: Path, monkeypatch) -> Non
     service._hub_model_info()  # noqa: SLF001 - verify the production composition boundary
     assert seen["api_token"] is False
 
-    def public_download(*, repo_id, filename, revision, local_dir, token, **_kwargs):
-        seen["download_token"] = token
-        path = Path(local_dir) / filename
-        path.write_bytes(BODY)
-        return str(path)
+    def public_url(repo_id, filename, *, repo_type, revision):
+        assert repo_id == REPO_ID and filename == FILENAME
+        assert repo_type == "model" and revision == REVISION
+        return "https://example.invalid/synthetic-artifact"
 
-    monkeypatch.setattr(huggingface_hub, "hf_hub_download", public_download)
+    class Metadata:
+        commit_hash = REVISION
+        size = len(BODY)
+        location = "https://example.invalid/synthetic-bytes"
+
+    def public_metadata(_url, *, token):
+        seen["metadata_token"] = token
+        return Metadata()
+
+    def public_headers(*, token):
+        seen["header_token"] = token
+        return {"User-Agent": "synthetic-test"}
+
+    def public_download(_url, target, *, resume_size, headers, expected_size, _tqdm_bar, **_kwargs):
+        assert resume_size == 0 and expected_size == len(BODY)
+        assert headers == {"User-Agent": "synthetic-test"}
+        _tqdm_bar.update(len(BODY))
+        target.write(BODY)
+
+    monkeypatch.setattr(
+        LocalModelService,
+        "_assert_hub_transfer_compatibility",
+        staticmethod(lambda: (public_url, public_metadata, public_download, public_headers)),
+    )
     download_service = LocalModelService(
         tmp_path / "download",
         llama_server=lambda: None,
@@ -409,7 +431,7 @@ def test_default_hub_clients_are_public_only(tmp_path: Path, monkeypatch) -> Non
     )
     status = wait_for_download(download_service, download_service.start_download(_request()).download_id)
     assert status.state == "completed"
-    assert seen["download_token"] is False
+    assert seen == {"api_token": False, "metadata_token": False, "header_token": False}
 
 
 def test_one_alias_cannot_be_reserved_by_two_artifacts_concurrently(tmp_path: Path) -> None:
@@ -513,14 +535,20 @@ def test_a_downloader_failure_never_leaks_the_exception_text(tmp_path: Path) -> 
     class GatedRepoError(RuntimeError):
         pass
 
+    hostile_message = (
+        "403 for https://example.invalid/api: token 'example-secret-value'"
+    )
+
     def gated(**_kwargs):
-        raise GatedRepoError("403 for https://example.invalid/api: token 'example-secret-value'")
+        raise GatedRepoError(hostile_message)
 
     service = _service(tmp_path, downloader=gated)
     status = wait_for_download(service, service.start_download(_request()).download_id)
     assert status.state == "failed" and status.error_code == "gated_or_unauthorized"
-    assert "example-secret-value" not in status.model_dump_json()
-    assert "403" not in status.model_dump_json()
+    serialized = status.model_dump_json()
+    assert hostile_message not in serialized
+    assert "https://example.invalid/api" not in serialized
+    assert "example-secret-value" not in serialized
 
     def bland(**_kwargs):
         raise RuntimeError("example-secret-value")

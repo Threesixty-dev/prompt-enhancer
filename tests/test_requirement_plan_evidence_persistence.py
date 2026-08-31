@@ -94,6 +94,18 @@ def _downgrade_synthetic_copy_to_v55(path) -> None:  # type: ignore[no-untyped-d
                     connection.execute(
                         f"DROP {kind.upper()} IF EXISTS {name}"  # noqa: S608
                     )
+        # The current synthetic seed has M61's added columns. Removing only
+        # migration ledger rows would leave a falsely labelled v55 schema and
+        # correctly fail when M61 tries to add those same columns again.
+        for table, columns in (
+            ("calibration_ratings", ("case_fingerprint", "case_version", "window_fingerprint")),
+            ("model_judgments", ("case_fingerprint", "case_version")),
+        ):
+            for column in columns:
+                connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")  # noqa: S608
+            assert not set(columns) & {
+                row[1] for row in connection.execute(f"PRAGMA table_info({table})")  # noqa: S608
+            }
         connection.execute("DELETE FROM schema_migrations WHERE version>=56")
         connection.execute("PRAGMA user_version=55")
         connection.commit()
@@ -1511,7 +1523,7 @@ def test_schema_55_is_content_free_and_migration_54_is_unchanged(tmp_path) -> No
     database, _session_id, _run, _repository, _service = _setup(tmp_path)
     from prompt_enhancer.infrastructure.sqlite import migrations
 
-    assert database.summary()["schema_version"] == 60
+    assert database.summary()["schema_version"] == 61
     assert hashlib.sha256(migrations.MIGRATION_54.encode()).hexdigest() == (
         "aafd1c1cc0c121db267d02f7cf14c1a05e6a796af5affda2988fa700216576ac"
     )

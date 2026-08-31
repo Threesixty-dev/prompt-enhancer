@@ -1,10 +1,10 @@
 # Pending owner decisions (2026-08-19)
 
-Everything that could be built without a decision from the owner has landed
-(see the ledger). The four remaining tracks each move data across a boundary
-that only the owner can authorise - another machine, another person, or a
-copy of transcript content - so they are written up here as decisions with a
-recommendation, not started.
+This is an authorization decision log, not a statement that every existing
+feature is finished. The tracks below move data across boundaries that only
+the owner can authorize: another machine, another person, or a retained content
+copy. Implementation defects and acceptance evidence are tracked separately in
+the [application completion sweep](app-completion-sweep-2026-08-26.md).
 
 ## 1. Identity for sharing (Track 1)
 
@@ -64,7 +64,8 @@ their terms.
 
 ## What does not wait
 
-Ratings on the Calibration page are the one input only the owner can give;
-the model judge has already labelled every indexed session, so each human
-rating immediately yields an agreement pair.
+Ratings on the Calibration page are an input only the owner can give.
+An agreement pair exists only when both the human rating and a stored model
+judgment are present for the same reviewed case. Judge completion must be
+verified from its receipts; it must not be assumed for every indexed session.
 

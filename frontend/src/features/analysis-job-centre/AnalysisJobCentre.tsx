@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AnalysisJobRecord,
   AnalysisJobState,
@@ -13,6 +13,8 @@ import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 
 const PAGE_SIZE = 25;
 const POLL_INTERVAL_MS = 5_000;
+const MAX_AUTO_LIST_RETRIES = 3;
+const MAX_LIST_RETRY_DELAY_MS = 20_000;
 
 export const ANALYSIS_JOB_STATES = [
   "queued",
@@ -195,6 +197,11 @@ export function AnalysisJobCentre({
   const [detailLoading, setDetailLoading] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [autoRetryExhausted, setAutoRetryExhausted] = useState(false);
+  const cancelController = useRef<AbortController | null>(null);
+  const listFailureRef = useRef(0);
+  const jobsRef = useRef<AnalysisJobRecord[] | null>(null);
+  jobsRef.current = jobs;
 
   const localAvailable = runtimeMode === "local_real" && serviceState === "available";
   const selectedSummary = useMemo(
@@ -202,6 +209,28 @@ export function AnalysisJobCentre({
     [jobs, selectedJobId],
   );
   const selected = detail?.job_id === selectedJobId ? detail : selectedSummary;
+
+  useEffect(() => {
+    cancelController.current?.abort();
+    cancelController.current = null;
+    setCancelling(false);
+    setActionError("");
+    setConfirmCancel(false);
+    return () => {
+      cancelController.current?.abort();
+      cancelController.current = null;
+    };
+  }, [localAvailable, selectedJobId, transport]);
+
+  useEffect(() => {
+    // An owner/filter/page/runtime change starts a fresh bounded read-retry budget; the list
+    // effect cleanup below cancels any stale poll or retry timer for the previous surface.
+    listFailureRef.current = 0;
+    jobsRef.current = null;
+    setJobs(null);
+    setListError("");
+    setAutoRetryExhausted(false);
+  }, [filter, localAvailable, offset, transport]);
 
   useEffect(() => {
     if (!localAvailable) {
@@ -213,11 +242,13 @@ export function AnalysisJobCentre({
     const controller = new AbortController();
     let timer: number | undefined;
     setLoading(true);
-    setListError("");
     void transport
       .listAnalysisJobs(filter === "all" ? null : filter, PAGE_SIZE, offset, controller.signal)
       .then((page) => {
         if (controller.signal.aborted) return;
+        listFailureRef.current = 0;
+        setListError("");
+        setAutoRetryExhausted(false);
         setJobs(page.jobs);
         const hasLiveJobs = page.jobs.some((job) => !TERMINAL_STATES.has(job.state));
         if (hasLiveJobs) {
@@ -228,7 +259,23 @@ export function AnalysisJobCentre({
         }
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted) setListError(safeJobError(error, "list"));
+        if (controller.signal.aborted) return;
+        setListError(safeJobError(error, "list"));
+        // Last verified rows are preserved and labelled stale. Only the read is retried,
+        // automatically and with a bounded backoff; job commands are never retried here.
+        const known = jobsRef.current;
+        const liveKnownJobs = known === null || known.some((item) => !TERMINAL_STATES.has(item.state));
+        const failures = listFailureRef.current + 1;
+        listFailureRef.current = failures;
+        if (!liveKnownJobs) return;
+        if (failures > MAX_AUTO_LIST_RETRIES) {
+          setAutoRetryExhausted(true);
+          return;
+        }
+        timer = window.setTimeout(
+          () => setRefreshKey((value) => value + 1),
+          Math.min(POLL_INTERVAL_MS * 2 ** (failures - 1), MAX_LIST_RETRY_DELAY_MS),
+        );
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -251,7 +298,7 @@ export function AnalysisJobCentre({
       .getAnalysisJob(selectedJobId, controller.signal)
       .then((job) => {
         if (controller.signal.aborted) return;
-        if (selectedSummary !== null && !hasSameIdentity(selectedSummary.identity, job.identity)) {
+        if (job.job_id !== selectedJobId || (selectedSummary !== null && !hasSameIdentity(selectedSummary.identity, job.identity))) {
           setDetail(null);
           setDetailError(
             "The local job identity changed unexpectedly. Refresh the queue before acting on this receipt.",
@@ -278,6 +325,14 @@ export function AnalysisJobCentre({
     setConfirmCancel(false);
   }
 
+  function manualRefresh() {
+    // A person-initiated read restarts the bounded automatic retry budget. This issues reads
+    // only; it never mutates or retries job commands.
+    listFailureRef.current = 0;
+    setAutoRetryExhausted(false);
+    setRefreshKey((value) => value + 1);
+  }
+
   function openJob(jobId: string) {
     setSelectedJobId(jobId);
     setDetail(null);
@@ -287,12 +342,17 @@ export function AnalysisJobCentre({
   }
 
   async function cancelSelected() {
-    if (!selected || cancelling) return;
+    if (!selected || cancelController.current || !localAvailable) return;
+    const target = selected;
+    const controller = new AbortController();
+    cancelController.current = controller;
+    const owns = () => cancelController.current === controller && !controller.signal.aborted;
     setCancelling(true);
     setActionError("");
     try {
-      const updated = await transport.cancelAnalysisJob(selected.job_id);
-      if (!hasSameIdentity(selected.identity, updated.identity)) {
+      const updated = await transport.cancelAnalysisJob(target.job_id, controller.signal);
+      if (!owns()) return;
+      if (updated.job_id !== target.job_id || !hasSameIdentity(target.identity, updated.identity)) {
         setActionError(
           "The cancellation response did not match the selected job identity. Refresh before trying again.",
         );
@@ -304,9 +364,12 @@ export function AnalysisJobCentre({
       ) ?? null);
       setConfirmCancel(false);
     } catch (error) {
-      setActionError(safeJobError(error, "cancel"));
+      if (owns()) setActionError(safeJobError(error, "cancel"));
     } finally {
-      setCancelling(false);
+      if (owns()) {
+        cancelController.current = null;
+        setCancelling(false);
+      }
     }
   }
 
@@ -380,7 +443,7 @@ export function AnalysisJobCentre({
         <button
           className="button button--secondary button--compact"
           disabled={loading}
-          onClick={() => setRefreshKey((value) => value + 1)}
+          onClick={manualRefresh}
           type="button"
         >
           {loading ? "Refreshing…" : "Refresh queue"}
@@ -394,7 +457,10 @@ export function AnalysisJobCentre({
           {jobs !== null && (
             <small>The receipts below are the last verified response and may now be stale.</small>
           )}
-          <button className="button button--secondary button--compact" onClick={() => setRefreshKey((value) => value + 1)} type="button">
+          {autoRetryExhausted && (
+            <small>Automatic refresh paused after repeated read failures. Retry safely resumes verified reads.</small>
+          )}
+          <button className="button button--secondary button--compact" onClick={manualRefresh} type="button">
             Retry safely
           </button>
         </div>
@@ -452,6 +518,7 @@ export function AnalysisJobCentre({
 
           <footer className="analysis-job-list__pagination" aria-label="Job pages">
             <button
+              aria-describedby={offset === 0 || loading ? "analysis-jobs-newer-disabled-reason" : undefined}
               className="button button--secondary button--compact"
               disabled={offset === 0 || loading}
               onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
@@ -461,6 +528,7 @@ export function AnalysisJobCentre({
             </button>
             <span>Offset {offset}</span>
             <button
+              aria-describedby={(jobs?.length ?? 0) < PAGE_SIZE || loading ? "analysis-jobs-older-disabled-reason" : undefined}
               className="button button--secondary button--compact"
               disabled={(jobs?.length ?? 0) < PAGE_SIZE || loading}
               onClick={() => setOffset(offset + PAGE_SIZE)}
@@ -468,6 +536,8 @@ export function AnalysisJobCentre({
             >
               Older jobs
             </button>
+            <span className="sr-only" id="analysis-jobs-newer-disabled-reason">{loading ? "Wait for the current job page to finish loading." : "You are already viewing the newest jobs."}</span>
+            <span className="sr-only" id="analysis-jobs-older-disabled-reason">{loading ? "Wait for the current job page to finish loading." : "There are no older jobs after this page."}</span>
           </footer>
         </section>
 

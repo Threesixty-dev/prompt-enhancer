@@ -71,7 +71,6 @@ from ...application.analysis.evidence_contracts import EphemeralTypedEvidencePro
 from ...application.persistence import MetricValueState
 from .model_ensemble import (
     MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
-    MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
     MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE,
     EnsembleExpertSpec,
     ModelEnsembleError,
@@ -80,6 +79,7 @@ from .model_ensemble import (
     probabilistic_challenger_specs,
     run_ensemble_expert_subprocess,
 )
+from .run_control import ModelRunControl, controlled_model_run
 
 
 LIVE_PROBABILISTIC_PLAN_VERSION = "small-factor-router-v5"
@@ -767,7 +767,15 @@ class LocalProbabilisticMetricRunner:
             else None
         )
         self._deep_enabled = deep_enabled
-        self._heartbeat: Callable[[], None] | None = None
+        self._run_control = ModelRunControl()
+
+    @property
+    def _heartbeat(self) -> Callable[[], None] | None:
+        return self._run_control.heartbeat
+
+    @_heartbeat.setter
+    def _heartbeat(self, callback: Callable[[], None] | None) -> None:
+        self._run_control.heartbeat = callback
 
     def _execute(
         self,
@@ -847,6 +855,7 @@ class LocalProbabilisticMetricRunner:
             }
         )
 
+    @controlled_model_run
     def run(
         self,
         chunk_plan: EnsembleChunkPlan,
@@ -923,10 +932,12 @@ class LocalProbabilisticMetricRunner:
                 english_cases if spec in challenger_specs else cases
             )
             stage_payload = {**common, "cases": list(stage_cases)}
+            self._run_control.check()
             try:
                 result = self._executor(
                     spec, "scope_nli", stage_payload, self._device
                 )
+                self._run_control.check()
                 if (
                     result.get("status") != "completed"
                     and result.get("error_code") == "resource_exhausted"
@@ -935,13 +946,12 @@ class LocalProbabilisticMetricRunner:
                     result = self._executor(
                         spec, "scope_nli", stage_payload, "cpu"
                     )
+                    self._run_control.check()
             except ModelEnsembleError as error:
-                if error.args == (
-                    MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
-                ):
-                    raise
+                self._run_control.check(error)
                 result = None
-            except Exception:
+            except Exception as error:
+                self._run_control.check(error)
                 result = None
             try:
                 stage = _stage_receipt(spec, result)
@@ -1000,6 +1010,7 @@ class LocalProbabilisticMetricRunner:
                     "error_code": PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE,
                 }
             else:
+                self._run_control.check()
                 try:
                     deep_result = self._deep_executor(
                         deep_spec,
@@ -1008,11 +1019,9 @@ class LocalProbabilisticMetricRunner:
                         self._device,
                         "bitsandbytes_nf4",
                     )
+                    self._run_control.check()
                 except ModelEnsembleError as error:
-                    if error.args == (
-                        MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
-                    ):
-                        raise
+                    self._run_control.check(error)
                     deep_result = (
                         {
                             "status": "unavailable",
@@ -1022,7 +1031,8 @@ class LocalProbabilisticMetricRunner:
                         == (MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE,)
                         else None
                     )
-                except Exception:
+                except Exception as error:
+                    self._run_control.check(error)
                     deep_result = None
             if monotonic() >= deep_deadline:
                 deep_result = {

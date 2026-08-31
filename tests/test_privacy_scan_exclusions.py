@@ -33,6 +33,50 @@ def test_scanner_ignores_generated_directories_but_rejects_database_artifacts(
     ] == [("runtime/metrics.sqlite3", "prohibited repository artifact")]
 
 
+def test_scanner_ignores_only_the_generated_dashboard_resource_tree(
+    tmp_path,
+) -> None:
+    unsafe_value = "api_" + "key = " + "sk-" + ("B" * 32)
+    generated = (
+        tmp_path
+        / "src"
+        / "prompt_enhancer"
+        / "_resources"
+        / "dashboard"
+        / "assets"
+        / "generated.js"
+    )
+    sibling = (
+        tmp_path
+        / "src"
+        / "prompt_enhancer"
+        / "_resources"
+        / "review-me.js"
+    )
+    generated.parent.mkdir(parents=True)
+    generated.write_text(unsafe_value, encoding="utf-8")
+    sibling.write_text(unsafe_value, encoding="utf-8")
+
+    findings = privacy_scan.scan_repository(tmp_path)
+
+    assert [(finding.path, finding.kind) for finding in findings] == [
+        (
+            "src/prompt_enhancer/_resources/review-me.js",
+            "possible assigned secret",
+        ),
+        (
+            "src/prompt_enhancer/_resources/review-me.js",
+            "possible access token",
+        ),
+    ]
+
+    explicit_findings = privacy_scan.scan_repository(tmp_path, paths=(generated,))
+    assert [finding.kind for finding in explicit_findings] == [
+        "possible assigned secret",
+        "possible access token",
+    ]
+
+
 def test_scanner_fails_closed_for_oversized_and_binary_files(
     tmp_path,
     monkeypatch,

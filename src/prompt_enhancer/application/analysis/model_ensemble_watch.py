@@ -16,6 +16,7 @@ from typing import Callable, Literal, Protocol
 from pydantic import Field, field_validator, model_validator
 
 from ...domain import PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTERN, StrictModel
+from ..runtime_cancellation import RuntimeCooperativeStop
 from .text_source import TEXT_ANALYSIS_PROVIDERS
 from .model_ensemble import (
     MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION,
@@ -25,6 +26,7 @@ from .model_ensemble import (
 )
 from .session_model_ensemble import (
     MODEL_ENSEMBLE_CONFIRMATION,
+    ModelEnsembleRuntimeCleanupError,
     SessionModelEnsembleError,
     SessionModelEnsembleOutcome,
     SessionModelEnsemblePersistenceAuthority,
@@ -65,6 +67,7 @@ MODEL_ENSEMBLE_WATCH_NONRETRYABLE_REASONS = frozenset(
         "session_not_in_safe_index",
         "provider_compatibility_blocked",
         "privacy_deleted",
+        "model_ensemble_cleanup_unconfirmed",
     }
 )
 
@@ -641,6 +644,15 @@ class ModelEnsembleWatchRepository(Protocol):
         reason_code: str,
     ) -> int: ...
 
+    def quarantine_stopped_attempt(
+        self,
+        lease: ModelEnsembleWatchLease,
+        *,
+        generation: int,
+        now: datetime,
+        reason_code: str,
+    ) -> ModelEnsembleWatchRecord: ...
+
     def heartbeat(
         self,
         lease: ModelEnsembleWatchLease,
@@ -675,6 +687,8 @@ class ModelEnsembleWatchRepository(Protocol):
         *,
         now: datetime,
         next_check_at: datetime,
+        lease: ModelEnsembleWatchLease | None = None,
+        reason_code: str = "analysis_cancelled",
     ) -> ModelEnsembleWatchRecord: ...
 
 
@@ -714,7 +728,7 @@ class ModelEnsembleWatchConflictError(ModelEnsembleWatchError):
     code = "model_ensemble_watch_conflict"
 
 
-class ModelEnsembleWatchStopped(RuntimeError):
+class ModelEnsembleWatchStopped(RuntimeCooperativeStop):
     """Private cooperative signal used between serial expert stages."""
 
 
@@ -750,6 +764,13 @@ class ModelEnsembleWatchService:
         self._owner = self._id_factory(
             f"{MODEL_ENSEMBLE_WATCH_CONTRACT_VERSION}:worker:{id(self)}"
         )
+        self._cleanup_unconfirmed = Event()
+
+    @property
+    def cleanup_unconfirmed(self) -> bool:
+        """Thread exit cannot prove that an uncertain model child was reaped."""
+
+        return self._cleanup_unconfirmed.is_set()
 
     def enable(
         self,
@@ -972,7 +993,9 @@ class ModelEnsembleWatchService:
             reason_code=reason_code,
         )
 
-    def run_once(self) -> ModelEnsembleWatchRecord | None:
+    def run_once(self, *, stop_requested: Callable[[], bool] = lambda: False) -> ModelEnsembleWatchRecord | None:
+        if stop_requested():
+            return None
         now = self._clock()
         claimed = self._repository.claim_due(
             owner=self._owner,
@@ -984,8 +1007,24 @@ class ModelEnsembleWatchService:
             return None
         record, lease = claimed
 
+        def guard_shutdown() -> None:
+            if stop_requested():
+                stopped_at = self._clock()
+                try:
+                    self._repository.cancel_attempt(
+                        record.watch_id, now=stopped_at,
+                        next_check_at=stopped_at + self._poll_interval,
+                        lease=lease, reason_code="application_shutdown",
+                    )
+                except ValueError:
+                    # A replaced/expired lease is not ours to cancel. Its
+                    # publication or new attempt remains authoritative.
+                    pass
+                raise ModelEnsembleWatchStopped()
+
         def progress(completed: int, total: int) -> None:
             nonlocal record, lease
+            guard_shutdown()
             if total != MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL:
                 raise ValueError("watch progress total changed")
             operation_at = self._clock()
@@ -999,6 +1038,7 @@ class ModelEnsembleWatchService:
                 raise ModelEnsembleWatchStopped()
 
         def persistence_authority() -> SessionModelEnsemblePersistenceAuthority:
+            guard_shutdown()
             return SessionModelEnsemblePersistenceAuthority(
                 watch_id=record.watch_id,
                 owner=lease.owner,
@@ -1012,6 +1052,9 @@ class ModelEnsembleWatchService:
             f"{MODEL_ENSEMBLE_WATCH_CONTRACT_VERSION}:{record.watch_id}:{record.generation}"
         )
         try:
+            guard_shutdown()
+            if self.cleanup_unconfirmed:
+                raise ModelEnsembleRuntimeCleanupError()
             outcome = self._ensemble.run(
                 provider=record.provider,
                 session_id=record.session_id,
@@ -1035,6 +1078,8 @@ class ModelEnsembleWatchService:
             return current
         except SessionModelEnsembleError as error:
             reason = error.code
+            if reason == ModelEnsembleRuntimeCleanupError.code:
+                self._cleanup_unconfirmed.set()
         except Exception:
             reason = "model_ensemble_watch_execution_failed"
         failed_at = self._clock()
@@ -1047,6 +1092,19 @@ class ModelEnsembleWatchService:
                 policy=self._failure_policy,
             )
         except ValueError:
+            if reason == ModelEnsembleRuntimeCleanupError.code:
+                try:
+                    # Cancellation may already have sealed the attempt and
+                    # released its lease. Retain the resource warning without
+                    # rewriting that receipt or touching a replacement owner.
+                    return self._repository.quarantine_stopped_attempt(
+                        lease,
+                        generation=record.generation,
+                        now=failed_at,
+                        reason_code=reason,
+                    )
+                except ValueError:
+                    pass
             return self._repository.get(record.watch_id)
 
 
@@ -1069,6 +1127,8 @@ class ModelEnsembleWatchWorker:
 
     def start(self) -> None:
         with self._lock:
+            if self._service.cleanup_unconfirmed:
+                raise RuntimeError(_WORKER_START_FAILURE)
             if self._thread is not None and self._thread.is_alive():
                 if self._stop.is_set():
                     raise RuntimeError(_WORKER_STOP_IN_PROGRESS)
@@ -1110,6 +1170,8 @@ class ModelEnsembleWatchWorker:
         with self._lock:
             thread = self._thread
             if thread is None:
+                if self._service.cleanup_unconfirmed:
+                    raise RuntimeError(_WORKER_STOP_FAILURE)
                 return
             self._stop.set()
             stop_failed = False
@@ -1125,9 +1187,11 @@ class ModelEnsembleWatchWorker:
                 raise RuntimeError(_WORKER_STOP_TIMEOUT)
             if self._thread is thread:
                 self._thread = None
+            if self._service.cleanup_unconfirmed:
+                raise RuntimeError(_WORKER_STOP_FAILURE)
 
     def run_once(self) -> ModelEnsembleWatchRecord | None:
-        return self._service.run_once()
+        return self._service.run_once(stop_requested=self._stop.is_set)
 
     def _run(self) -> None:
         self.recover()

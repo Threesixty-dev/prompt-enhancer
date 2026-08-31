@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -80,6 +80,20 @@ afterEach(() => {
 });
 
 describe("AnalyzeLocallyDialog", () => {
+  it("labels a missing compatibility recheck action as Close instead of promising a no-op", async () => {
+    const props = dialogProps({
+      onPreparePreview: vi.fn().mockRejectedValue(new TransportError("example-blocked", 409, "provider_compatibility_blocked")),
+      onCheckCompatibility: undefined,
+    });
+    render(<AnalyzeLocallyDialog {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "Recheck compatibility" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+    expect(props.onApprovePreview).not.toHaveBeenCalled();
+  });
+
   it("fails closed when transport callbacks swap and a detached approval is clicked", async () => {
     const first = dialogProps();
     const second = dialogProps({
@@ -184,9 +198,38 @@ describe("AnalyzeLocallyDialog", () => {
     resolveApproval();
     await Promise.resolve();
 
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Analysis completed and stored locally/i)).not.toBeInTheDocument();
-    expect(approve).toHaveBeenCalledTimes(1);
+   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+   expect(screen.queryByText(/Analysis completed and stored locally/i)).not.toBeInTheDocument();
+   expect(approve).toHaveBeenCalledTimes(1);
+ });
+
+  it("erases an expired preview but still accepts the already-dispatched approval receipt", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let resolveApproval!: () => void;
+      const approve = vi.fn(() => new Promise<void>((resolve) => {
+        resolveApproval = resolve;
+      }));
+      const props = dialogProps({ onApprovePreview: approve });
+      render(<div className="app-shell"><AnalyzeLocallyDialog {...props} /></div>);
+      fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Approve once and analyze" }));
+      expect(approve).toHaveBeenCalledTimes(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(661_000); });
+
+      expect(screen.queryByText(PREVIEW_TEXT)).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Approve once and analyze" })).not.toBeInTheDocument();
+
+      await act(async () => resolveApproval());
+
+      expect(await screen.findByRole("dialog", { name: "Analysis completed" })).toBeVisible();
+      expect(approve).toHaveBeenCalledTimes(1);
+      expect(props.onClose).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("prepares first, then shows the exact local binding, metric set, and redacted text", async () => {

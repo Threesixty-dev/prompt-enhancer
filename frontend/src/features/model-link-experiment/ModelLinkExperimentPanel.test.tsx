@@ -1,7 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ModelLinkExperimentRequest,
+  ModelLinkExperimentOutcome,
+  ModelLinkAnnotation,
   PromptEnhancerTransport,
   ProviderCompatibilityStatus,
 } from "../../shared/api/contracts";
@@ -47,18 +49,120 @@ const CAPABILITY = {
   raw_transcripts: false,
 } as const;
 
-function renderPanel(transport: PromptEnhancerTransport) {
-  return render(
+function panelElement(transport: PromptEnhancerTransport, sessionId = SYNTHETIC_QUALITY_SESSION_ID) {
+  return (
     <ModelLinkExperimentPanel
       analysisCapability={CAPABILITY}
       providerCompatibility={EXACT}
-      sessionId={SYNTHETIC_QUALITY_SESSION_ID}
+      sessionId={sessionId}
       transport={transport}
-    />,
+    />
   );
 }
 
+function renderPanel(transport: PromptEnhancerTransport) {
+  return render(panelElement(transport));
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => { resolve = accept; reject = decline; });
+  return { promise, resolve, reject };
+}
+
 describe("ModelLinkExperimentPanel", () => {
+  it.each(["failure", "cancel"] as const)("recovers the interrupted initial metadata read after a run %s without restarting the model", async (result) => {
+    const initial = deferred<typeof SYNTHETIC_MODEL_LINK_EXPERIMENT>();
+    const pendingRun = deferred<ModelLinkExperimentOutcome>();
+    const getLatestModelLinkExperiment = vi.fn()
+      .mockImplementationOnce(() => initial.promise)
+      .mockResolvedValue(structuredClone(SYNTHETIC_MODEL_LINK_EXPERIMENT));
+    const startModelLinkExperiment = vi.fn(() => pendingRun.promise);
+    renderPanel({ ...createSyntheticTransport(), getLatestModelLinkExperiment, startModelLinkExperiment });
+    expect(screen.queryByText(/No model-link experiment has been stored/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run Qwen + BGE locally" }));
+    if (result === "cancel") fireEvent.click(screen.getByRole("button", { name: "Cancel wait" }));
+    else await act(async () => pendingRun.reject(new Error("synthetic failure")));
+    expect(await screen.findByText(/Only content-free scores and labels survive reload/)).toBeVisible();
+    expect(getLatestModelLinkExperiment).toHaveBeenCalledTimes(2);
+    expect(startModelLinkExperiment).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/No model-link experiment has been stored/)).toBeNull();
+    await act(async () => initial.resolve(structuredClone(SYNTHETIC_MODEL_LINK_EXPERIMENT)));
+    expect(getLatestModelLinkExperiment).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a failed metadata read unknown and offers a read-only retry", async () => {
+    const base = createSyntheticTransport();
+    const start = vi.spyOn(base, "startModelLinkExperiment");
+    base.getLatestModelLinkExperiment = vi.fn().mockRejectedValueOnce(new Error("synthetic read failure"))
+      .mockResolvedValue(structuredClone(SYNTHETIC_MODEL_LINK_EXPERIMENT));
+    renderPanel(base);
+    const retry = await screen.findByRole("button", { name: "Retry stored metadata" });
+    expect(screen.getByRole("status")).toHaveTextContent("availability is unknown");
+    fireEvent.click(retry);
+    expect(await screen.findByText(/Only content-free scores and labels survive reload/)).toBeVisible();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["session", "resolve"], ["session", "reject"], ["transport", "resolve"], ["transport", "reject"],
+  ] as const)("ignores a late run %s context change and %s", async (context, completion) => {
+    const pending = deferred<ModelLinkExperimentOutcome>();
+    const start = vi.fn((_id: string, _request: ModelLinkExperimentRequest, _key: string, _signal?: AbortSignal) => pending.promise);
+    const transport = { ...createSyntheticTransport(),
+      getLatestModelLinkExperiment: vi.fn(async () => { throw new TransportError("example-not-found", 404); }),
+      startModelLinkExperiment: start };
+    const view = renderPanel(transport);
+    fireEvent.click(await screen.findByRole("button", { name: "Run Qwen + BGE locally" }));
+    view.rerender(panelElement(context === "transport" ? { ...transport } : transport, context === "session" ? "f".repeat(64) : SYNTHETIC_QUALITY_SESSION_ID));
+    await screen.findByText(/No model-link experiment has been stored/);
+    expect(screen.queryByRole("button", { name: "Cancel wait" })).not.toBeInTheDocument();
+    await act(async () => {
+      if (completion === "resolve") pending.resolve(structuredClone(SYNTHETIC_MODEL_LINK_OUTCOME));
+      else pending.reject(new Error("example-late-error"));
+      await pending.promise.catch(() => undefined);
+    });
+    expect(start.mock.calls[0][3]?.aborted).toBe(true);
+    expect(screen.queryByText("User request")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run Qwen + BGE locally" })).toBeEnabled();
+  });
+
+  it("does not let an old cancelled wait release a replacement run's controller", async () => {
+    const first = deferred<ModelLinkExperimentOutcome>();
+    const second = deferred<ModelLinkExperimentOutcome>();
+    const start = vi.fn((_id: string, _request: ModelLinkExperimentRequest, _key: string, _signal?: AbortSignal) => (
+      start.mock.calls.length === 1 ? first.promise : second.promise
+    ));
+    renderPanel({ ...createSyntheticTransport(), startModelLinkExperiment: start });
+    fireEvent.click(await screen.findByRole("button", { name: "Run Qwen + BGE locally" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel wait" }));
+    expect(screen.getByText(/worker may still be running/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Run Qwen + BGE locally" }));
+    await act(async () => { first.resolve(structuredClone(SYNTHETIC_MODEL_LINK_OUTCOME)); await first.promise; });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel wait" }));
+    expect(start.mock.calls[1][3]?.aborted).toBe(true);
+    await act(async () => { second.resolve(structuredClone(SYNTHETIC_MODEL_LINK_OUTCOME)); await second.promise; });
+    expect(screen.queryByText("User request")).not.toBeInTheDocument();
+  });
+
+  it("aborts a pending review label on context change and does not merge it into the replacement experiment", async () => {
+    const pending = deferred<ModelLinkAnnotation>();
+    const annotate = vi.fn((_run: string, _link: string, _request: unknown, _signal?: AbortSignal) => pending.promise);
+    const transport = { ...createSyntheticTransport(), annotateModelLink: annotate,
+      startModelLinkExperiment: vi.fn(async () => structuredClone(SYNTHETIC_MODEL_LINK_OUTCOME)) };
+    const view = renderPanel(transport);
+    fireEvent.click(await screen.findByRole("button", { name: "Run Qwen + BGE locally" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Relevant" }))[0]);
+    view.rerender(panelElement(transport, "f".repeat(64)));
+    await waitFor(() => expect(screen.queryByText("Loading stored experiment metadata...")).not.toBeInTheDocument());
+    await act(async () => { pending.resolve({ link_id: SYNTHETIC_MODEL_LINK_OUTCOME.suggestions[0].link_id, revision: 1, label: "relevant", annotated_at: "2040-01-03T09:02:00Z" }); await pending.promise; });
+    expect(annotate.mock.calls[0][3]?.aborted).toBe(true);
+    expect(screen.queryByText(/Qwen: 1\/1 relevant/)).not.toBeInTheDocument();
+    expect(screen.queryByText("User request")).not.toBeInTheDocument();
+  });
+
   it("loads only content-free stored metadata and makes no experiment command on render", async () => {
     const latest = vi.fn(async () => structuredClone(SYNTHETIC_MODEL_LINK_EXPERIMENT));
     const start = vi.fn();

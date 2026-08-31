@@ -16,15 +16,19 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
 import json
-import re
 import threading
-from typing import Literal, Protocol
+from typing import Annotated, Literal, Protocol
 
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, ValidationError, ValidationInfo, field_validator
 
 from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, StrictModel
 from ..estimators.calibration import AgreementObservation, EvaluationState, model_human_agreement
-from .calibration_ratings import CALIBRATION_METRIC_KEYS, RatingLabel
+from ..model_reply import completed_chat_content, model_json_object
+from .calibration_ratings import CALIBRATION_METRIC_KEYS, CALIBRATION_RATING_VERSION, RatingLabel
+from .calibration_cases import (
+    CALIBRATION_CASE_VERSION, JUDGE_WINDOW_SCHEMA_VERSION,
+    CalibrationReviewError, PreparedCalibrationCase, prepare_calibration_case,
+)
 from .text_contracts import (
     P1TextAnalysisInput,
     TextMessageKind,
@@ -36,18 +40,18 @@ from .text_source import TextAnalysisPurpose, TextAnalysisSelection, TextSourceA
 
 MODEL_JUDGE_CONTRACT_VERSION = "model-judge.v1"
 MODEL_JUDGE_CATALOG_UNAVAILABLE = "model_judge_catalog_unavailable"
-JUDGE_PROMPT_VERSION = "judge-v3-untrusted-json-anchor-15k"
-JUDGE_RETRY_PROMPT_VERSION = "judge-v3-untrusted-json-anchor-6k"
+JUDGE_PROMPT_VERSION = "judge-v4-complete-json-anchor-15k"
+JUDGE_RETRY_PROMPT_VERSION = "judge-v4-complete-json-anchor-6k"
 CURRENT_JUDGE_PROMPT_VERSIONS = frozenset(
     {JUDGE_PROMPT_VERSION, JUDGE_RETRY_PROMPT_VERSION}
 )
-JUDGE_WINDOW_SCHEMA_VERSION = "model-judge-window.v2"
 #: ~4k tokens of transcript so prompt + window stay well inside an 8192 context.
 MAX_WINDOW_CHARACTERS = 15_000
 MAX_WINDOW_MESSAGES = 120
 MAX_TASK_ANCHOR_CHARACTERS = 2_000
 MIN_TRUNCATED_TASK_ANCHOR_CHARACTERS = 64
 JUDGE_MAX_TOKENS = 220
+INTERPRET_PROMPT_VERSION = "interpret-v2-complete-json"
 #: Reserved fingerprint value. A judgment carrying it would claim to have read a
 #: window that no source ever sealed, so first-party writers must never mint it.
 ZERO_WINDOW_FINGERPRINT = "0" * 64
@@ -91,6 +95,8 @@ class ModelJudgment(StrictModel):
     prompt_version: str = Field(min_length=1, max_length=64)
     window_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     judged_at: datetime
+    case_fingerprint: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
+    case_version: str | None = Field(default=None, min_length=1, max_length=64)
 
     @field_validator("window_fingerprint")
     @classmethod
@@ -137,6 +143,7 @@ class SessionInterpretation(StrictModel):
     contract_version: Literal[MODEL_JUDGE_CONTRACT_VERSION] = MODEL_JUDGE_CONTRACT_VERSION
     session_id: str
     model_alias: str
+    prompt_version: str = INTERPRET_PROMPT_VERSION
     strengths: tuple[str, ...] = ()
     improvements: tuple[str, ...] = ()
     reframed_prompt: str | None = None
@@ -156,7 +163,12 @@ class SessionJudgments(StrictModel):
     active_model_alias: str | None = None
     questions: dict[str, str]
     judgments: tuple[ModelJudgment, ...]
-    caveat: str = "Model judgments are labels from a local model, stored apart from metrics; they are never metric values."
+    accepted_prompt_versions: tuple[str, ...] = tuple(sorted(CURRENT_JUDGE_PROMPT_VERSIONS))
+    accepted_case_version: str = CALIBRATION_CASE_VERSION
+    caveat: str = (
+        "Model judgments are labels stored apart from metrics; they are never metric values. "
+        "Historical protocols and unbound cases remain visible but are excluded from current agreement."
+    )
 
 
 class MetricAgreement(StrictModel):
@@ -166,17 +178,46 @@ class MetricAgreement(StrictModel):
     cohen_kappa: float | None = None
     state: str
     reason: str | None = None
+    unmatched_ratings: int = Field(default=0, ge=0)
+    abstained_pairs: int = Field(default=0, ge=0)
 
 
 class JudgeAgreementReport(StrictModel):
     contract_version: Literal[MODEL_JUDGE_CONTRACT_VERSION] = MODEL_JUDGE_CONTRACT_VERSION
     model_alias: str | None
+    model_identity: str | None = None
+    model_identity_ambiguous: bool = False
     judged_sessions: int = Field(ge=0)
+    excluded_judgments: int = Field(default=0, ge=0)
+    accepted_prompt_versions: tuple[str, ...] = tuple(sorted(CURRENT_JUDGE_PROMPT_VERSIONS))
     metrics: tuple[MetricAgreement, ...]
     caveat: str = (
         "Model judgments are experimental and are never product metrics; agreement with human ratings "
-        "is evidence for the activation gate, not calibration by itself."
+        "is evidence for the activation gate, not calibration by itself. Only current prompt/acceptance protocols "
+        "and matching reviewed-case identities enter this report. Can't judge is an abstention. "
+        "Historical and unmatched rows are retained but excluded. Recorded model identity is not proof of an immutable weight revision."
     )
+
+
+class _InterpretationReply(StrictModel):
+    summary: str | None = Field(default=None, min_length=1, max_length=600)
+    strengths: list[Annotated[str, Field(min_length=1, max_length=400)]] = Field(default_factory=list, max_length=3)
+    improvements: list[Annotated[str, Field(min_length=1, max_length=400)]] = Field(default_factory=list, max_length=3)
+    reframed_prompt: str | None = Field(default=None, min_length=1, max_length=2_000)
+
+    @field_validator("summary", "reframed_prompt")
+    @classmethod
+    def _nonblank_text(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("model_reply_invalid")
+        return value.strip() if value is not None else None
+
+    @field_validator("strengths", "improvements")
+    @classmethod
+    def _nonblank_items(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() for value in values):
+            raise ValueError("model_reply_invalid")
+        return [value.strip() for value in values]
 
 
 class ModelJudgeSweepFailureCode(StrEnum):
@@ -395,6 +436,37 @@ def render_window(context: P1TextAnalysisInput, *, max_characters: int = MAX_WIN
     )
 
 
+def read_judge_window(*, access: object, source_factory: Callable[[Provider], object], provider: Provider, session_id: str) -> P1TextAnalysisInput:
+    """The same consent-gated, sealed source path for judging and blind review."""
+    if not access.has_active_consent(provider, DataTier.REDACTED_CONTENT):
+        raise ModelJudgeError("consent_required")
+    selection = TextAnalysisSelection(provider=provider, session_id=session_id)
+    grant = TextSourceAccessGrant(
+        purpose=TextAnalysisPurpose.TEXT_ANALYSIS, provider=provider, session_id=session_id,
+        data_tier=DataTier.REDACTED_CONTENT, per_run_confirmation_active=True,
+        local_only=True, content_persistence_allowed=False,
+    )
+    context = source_factory(provider).read(
+        selection=selection, grant=grant, task_profile=TextTaskProfile(applicability=()),
+    )
+    if context.session_id != session_id or context.provider != provider:
+        raise ModelJudgeError("window_unavailable")
+    if context.analysis_window_fingerprint == ZERO_WINDOW_FINGERPRINT:
+        raise ModelJudgeError("window_unavailable")
+    return context
+
+
+def eligible_model_judgment(row: ModelJudgment) -> bool:
+    return (
+        row.prompt_version in CURRENT_JUDGE_PROMPT_VERSIONS
+        and row.window_fingerprint != ZERO_WINDOW_FINGERPRINT
+        and row.case_version == CALIBRATION_CASE_VERSION
+        and row.case_fingerprint is not None
+        and PSEUDONYM_PATTERN.fullmatch(row.case_fingerprint) is not None
+        and row.case_fingerprint != ZERO_WINDOW_FINGERPRINT
+    )
+
+
 def _judge_user_prompt(window_json: str) -> str:
     questions = "\n".join(f"- {key}: {question}" for key, question in _QUESTIONS.items())
     return (
@@ -409,18 +481,11 @@ def _judge_user_prompt(window_json: str) -> str:
 _LABELS = {label.value: label for label in RatingLabel}
 
 
-def parse_judge_reply(text: str) -> dict[str, RatingLabel] | None:
+def parse_judge_reply(text: object) -> dict[str, RatingLabel] | None:
     """Strict JSON with the three keys; tolerate a fenced block around it."""
 
-    candidate = text.strip()
-    fenced = re.search(r"\{.*\}", candidate, re.S)
-    if fenced:
-        candidate = fenced.group(0)
-    try:
-        payload = json.loads(candidate)
-    except ValueError:
-        return None
-    if not isinstance(payload, dict) or set(payload) != set(CALIBRATION_METRIC_KEYS):
+    payload = model_json_object(text, max_characters=4_096)
+    if payload is None or set(payload) != set(CALIBRATION_METRIC_KEYS):
         return None
     labels: dict[str, RatingLabel] = {}
     for key in CALIBRATION_METRIC_KEYS:
@@ -501,43 +566,28 @@ class ModelJudgeService:
         return self._window(provider, session_id)
 
     def _window(self, provider: Provider, session_id: str) -> P1TextAnalysisInput:
-        if not self._access.has_active_consent(provider, DataTier.REDACTED_CONTENT):
-            raise ModelJudgeError("consent_required")
-        selection = TextAnalysisSelection(provider=provider, session_id=session_id)
-        grant = TextSourceAccessGrant(
-            purpose=TextAnalysisPurpose.TEXT_ANALYSIS,
-            provider=provider,
-            session_id=session_id,
-            data_tier=DataTier.REDACTED_CONTENT,
-            per_run_confirmation_active=True,
-            local_only=True,
-            content_persistence_allowed=False,
+        return read_judge_window(
+            access=self._access, source_factory=self._source_factory,
+            provider=provider, session_id=session_id,
         )
-        source = self._source_factory(provider)
-        return source.read(selection=selection, grant=grant, task_profile=TextTaskProfile(applicability=()))  # type: ignore[attr-defined]
 
-    def _current_window_fingerprint(self, session_id: str) -> str:
-        """Read the current sealed source fingerprint for sweep freshness."""
+    def _current_case(self, session_id: str, prompt_version: str) -> PreparedCalibrationCase:
+        """Check freshness against both the sealed source and actual rendered case."""
 
         session = self._session_lookup(session_id)
         if session is None:
             raise ModelJudgeError("session_not_found")
         try:
             provider = Provider(getattr(session, "provider"))
-            fingerprint = self._window(
-                provider, session_id
-            ).analysis_window_fingerprint
+            context = self._window(provider, session_id)
+            return prepare_calibration_case(
+                session_id=session_id, provider=provider, window_fingerprint=context.analysis_window_fingerprint,
+                rendered_window=render_window(context, max_characters=6_000 if prompt_version == JUDGE_RETRY_PROMPT_VERSION else MAX_WINDOW_CHARACTERS),
+            )
         except ModelJudgeError:
             raise
         except Exception:
             raise ModelJudgeError("window_unavailable") from None
-        if (
-            not isinstance(fingerprint, str)
-            or PSEUDONYM_PATTERN.fullmatch(fingerprint) is None
-            or fingerprint == ZERO_WINDOW_FINGERPRINT
-        ):
-            raise ModelJudgeError("window_unavailable")
-        return fingerprint
 
     def judge(self, session_id: str) -> JudgeOutcome:
         active = self._resolve_active_model()
@@ -596,17 +646,23 @@ class ModelJudgeService:
                 except Exception:
                     raise ModelJudgeError("model_unreachable") from None
                 prompt_version = JUDGE_RETRY_PROMPT_VERSION
+                window = retry_window
             if status != 200:
                 raise ModelJudgeError("model_error")
-        try:
-            reply = json.loads(payload.decode("utf-8"))
-            text = reply["choices"][0]["message"].get("content") or ""
-        except Exception:
-            raise ModelJudgeError("model_reply_invalid") from None
+        text = completed_chat_content(payload)
+        if text is None:
+            raise ModelJudgeError("model_reply_invalid")
         labels = parse_judge_reply(text)
         judged_at = self._clock()
         judgments: list[ModelJudgment] = []
         if labels is not None:
+            try:
+                case = prepare_calibration_case(
+                    session_id=session_id, provider=provider,
+                    window_fingerprint=context.analysis_window_fingerprint, rendered_window=window,
+                )
+            except CalibrationReviewError:
+                raise ModelJudgeError("window_unavailable") from None
             for key, label in labels.items():
                 judgment = ModelJudgment(
                     session_id=session_id,
@@ -617,6 +673,8 @@ class ModelJudgeService:
                     prompt_version=prompt_version,
                     window_fingerprint=context.analysis_window_fingerprint,
                     judged_at=judged_at,
+                    case_fingerprint=case.case_fingerprint,
+                    case_version=case.case_version,
                 )
                 self._repository.upsert(judgment)
                 judgments.append(judgment)
@@ -646,15 +704,19 @@ class ModelJudgeService:
                 or {row.model_identity for row in rows} != {identity}
                 or len({row.prompt_version for row in rows}) != 1
                 or rows[0].prompt_version not in CURRENT_JUDGE_PROMPT_VERSIONS
+                or not all(eligible_model_judgment(row) for row in rows)
             ):
                 continue
             try:
-                current_fingerprint = self._current_window_fingerprint(session_id)
+                current_case = self._current_case(session_id, rows[0].prompt_version)
             except Exception:
                 # Do not let unavailable current evidence make stale rows look
                 # fresh. The worker retries and records the existing closed code.
                 continue
-            if {row.window_fingerprint for row in rows} == {current_fingerprint}:
+            if (
+                {row.window_fingerprint for row in rows} == {current_case.window_fingerprint}
+                and {row.case_fingerprint for row in rows} == {current_case.case_fingerprint}
+            ):
                 already.add(session_id)
         launch_failed = False
         with self._sweep_lock:
@@ -775,25 +837,22 @@ class ModelJudgeService:
             raise ModelJudgeError("model_unreachable") from None
         if status != 200:
             raise ModelJudgeError("model_error")
+        data = model_json_object(completed_chat_content(payload), max_characters=12_000)
+        if data is None:
+            raise ModelJudgeError("model_reply_invalid")
         try:
-            text = json.loads(payload.decode("utf-8"))["choices"][0]["message"]["content"]
-            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", str(text).strip(), flags=re.I | re.M)
-            data = json.loads(cleaned[cleaned.find("{") : cleaned.rfind("}") + 1])
-        except (ValueError, KeyError, IndexError, TypeError, UnicodeDecodeError):
+            reading = _InterpretationReply.model_validate(data, strict=True)
+        except ValidationError:
             raise ModelJudgeError("model_reply_invalid") from None
-        def _strings(value: object) -> tuple[str, ...]:
-            if not isinstance(value, list):
-                return ()
-            return tuple(str(item).strip()[:400] for item in value if str(item).strip())[:3]
-        reframed = data.get("reframed_prompt") if isinstance(data, dict) else None
-        summary = data.get("summary") if isinstance(data, dict) else None
+        if not (reading.summary or reading.strengths or reading.improvements or reading.reframed_prompt):
+            raise ModelJudgeError("model_reply_invalid")
         return SessionInterpretation(
             session_id=session_id,
             model_alias=alias,
-            strengths=_strings(data.get("strengths") if isinstance(data, dict) else None),
-            improvements=_strings(data.get("improvements") if isinstance(data, dict) else None),
-            reframed_prompt=str(reframed).strip()[:2_000] if isinstance(reframed, str) and reframed.strip() else None,
-            summary=str(summary).strip()[:600] if isinstance(summary, str) and summary.strip() else None,
+            strengths=tuple(reading.strengths),
+            improvements=tuple(reading.improvements),
+            reframed_prompt=reading.reframed_prompt,
+            summary=reading.summary,
             metrics_seen=len(lines),
         )
 
@@ -817,24 +876,48 @@ class ModelJudgeService:
         return tuple(sorted({judgment.model_alias for judgment in self._repository.list()}))
 
     def agreement(self, model_alias: str | None = None) -> JudgeAgreementReport:
+        identity = None
         if model_alias is None:
             active = self._resolve_active_model()
             alias = active[0] if active else None
+            identity = active[1] if active else None
         else:
             alias = model_alias
-        judgments = self._repository.list(model_alias=alias) if alias else ()
+        stored = self._repository.list(model_alias=alias) if alias else ()
+        eligible = tuple(row for row in stored if eligible_model_judgment(row))
+        identities = {row.model_identity for row in eligible}
+        ambiguous = model_alias is not None and len(identities) > 1
+        if model_alias is not None and len(identities) == 1:
+            identity = next(iter(identities))
+        judgments = tuple(row for row in eligible if not ambiguous and row.model_identity == identity)
         judged_sessions = {j.session_id for j in judgments}
         ratings = self._ratings.list_ratings()
         metrics: list[MetricAgreement] = []
         for key in CALIBRATION_METRIC_KEYS:
-            by_session = {j.session_id: j.label.value for j in judgments if j.metric_key == key}
-            pairs = [
-                AgreementObservation(first_label=by_session[r.session_id], second_label=r.label.value)
-                for r in ratings
-                if r.metric_key == key and r.session_id in by_session
-            ]
+            by_session = {j.session_id: j for j in judgments if j.metric_key == key}
+            pairs: list[AgreementObservation] = []
+            unmatched = abstained = 0
+            for rating in ratings:
+                if rating.metric_key != key:
+                    continue
+                judgment = by_session.get(rating.session_id)
+                if (
+                    judgment is None
+                    or getattr(rating, "rating_version", None) != CALIBRATION_RATING_VERSION
+                    or getattr(rating, "case_version", None) != CALIBRATION_CASE_VERSION
+                    or getattr(rating, "case_fingerprint", None) != judgment.case_fingerprint
+                    or getattr(rating, "window_fingerprint", None) != judgment.window_fingerprint
+                ):
+                    unmatched += 1
+                elif rating.label is RatingLabel.CANNOT_JUDGE or judgment.label is RatingLabel.CANNOT_JUDGE:
+                    abstained += 1
+                else:
+                    pairs.append(AgreementObservation(first_label=judgment.label.value, second_label=rating.label.value))
             if not pairs:
-                metrics.append(MetricAgreement(metric_key=key, pairs=0, state="insufficient_data", reason="no_overlapping_ratings"))
+                metrics.append(MetricAgreement(
+                    metric_key=key, pairs=0, state="insufficient_data", reason="no_comparable_reviewed_cases",
+                    unmatched_ratings=unmatched, abstained_pairs=abstained,
+                ))
                 continue
             report = model_human_agreement(pairs)
             metrics.append(
@@ -845,9 +928,15 @@ class ModelJudgeService:
                     cohen_kappa=report.cohen_kappa.value,
                     state=report.state.value if isinstance(report.state, EvaluationState) else str(report.state),
                     reason=report.reason,
+                    unmatched_ratings=unmatched,
+                    abstained_pairs=abstained,
                 )
             )
-        return JudgeAgreementReport(model_alias=alias, judged_sessions=len(judged_sessions), metrics=tuple(metrics))
+        return JudgeAgreementReport(
+            model_alias=alias, judged_sessions=len(judged_sessions),
+            model_identity=identity, model_identity_ambiguous=ambiguous,
+            excluded_judgments=len(stored) - len(judgments), metrics=tuple(metrics),
+        )
 
 
 __all__ = (
@@ -871,6 +960,8 @@ __all__ = (
     "SessionJudgments",
     "ModelJudgmentRepository",
     "parse_judge_reply",
+    "read_judge_window",
+    "eligible_model_judgment",
     "rehydrate_persisted_judgment",
     "render_window",
 )

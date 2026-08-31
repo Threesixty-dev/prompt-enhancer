@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ModelEvaluationJob,
   ModelRuntimeInventory,
@@ -199,41 +199,78 @@ function MethodsView({ catalog }: { catalog: TextAnalysisResearchCatalog }) {
 
 function ModelEvaluationPanel({ transport }: { transport: PromptEnhancerTransport }) {
   const [runtime, setRuntime] = useState<ModelRuntimeInventory | null>(null);
+  const [runtimeLoading, setRuntimeLoading] = useState(transport.getTextModelRuntime !== undefined);
+  const [runtimeRetry, setRuntimeRetry] = useState(0);
   const [job, setJob] = useState<ModelEvaluationJob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState(false);
+  const [statusRetry, setStatusRetry] = useState(0);
+  const [polling, setPolling] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const startController = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!transport.getTextModelRuntime) return;
+    setRuntime(null);
+    setJob(null);
+    setError(null);
+    setStatusError(false);
+    setPolling(false);
+    setStarting(false);
+    return () => {
+      startController.current?.abort();
+      startController.current = null;
+    };
+  }, [transport]);
+
+  useEffect(() => {
+    if (!transport.getTextModelRuntime) {
+      setRuntimeLoading(false);
+      return;
+    }
     const controller = new AbortController();
+    setRuntimeLoading(true);
     void transport.getTextModelRuntime(controller.signal)
       .then((value) => {
         if (!controller.signal.aborted) setRuntime(value);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setError("Local model runtime is unavailable.");
+        if (!controller.signal.aborted) setRuntime(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRuntimeLoading(false);
       });
     return () => controller.abort();
-  }, [transport]);
+  }, [runtimeRetry, transport]);
 
   useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status) || !transport.getTextModelEvaluation) {
       return;
     }
     const controller = new AbortController();
+    setPolling(true);
     const timeout = window.setTimeout(() => {
       void transport.getTextModelEvaluation?.(job.job_id, controller.signal)
         .then((value) => {
-          if (!controller.signal.aborted) setJob(value);
+          if (controller.signal.aborted) return;
+          if (value.job_id !== job.job_id) {
+            setStatusError(true);
+            return;
+          }
+          setStatusError(false);
+          setJob(value);
         })
         .catch(() => {
-          if (!controller.signal.aborted) setError("The local benchmark status is unavailable.");
+          if (!controller.signal.aborted) setStatusError(true);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setPolling(false);
         });
     }, 750);
     return () => {
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [job, transport]);
+  }, [job, statusRetry, transport]);
 
   const running = job?.status === "queued" || job?.status === "running";
 
@@ -246,17 +283,28 @@ function ModelEvaluationPanel({ transport }: { transport: PromptEnhancerTranspor
     candidate: ModelEvaluationJob["candidate"]["candidate"];
     mode: ModelEvaluationJob["candidate"]["mode"];
   }) {
-    if (!transport.startTextModelEvaluation || running) return;
+    if (!transport.startTextModelEvaluation || running || startController.current) return;
+    const controller = new AbortController();
+    startController.current = controller;
+    const owns = () => startController.current === controller && !controller.signal.aborted;
+    setStarting(true);
     setError(null);
+    setStatusError(false);
     try {
-      setJob(await transport.startTextModelEvaluation({
+      const created = await transport.startTextModelEvaluation({
         candidate,
         device: "auto",
         mode,
         allow_download: allowDownload,
-      }));
+      }, controller.signal);
+      if (owns()) setJob(created);
     } catch {
-      setError("The local benchmark could not be started. Another run may already be active.");
+      if (owns()) setError("The local benchmark could not be started. Another run may already be active.");
+    } finally {
+      if (owns()) {
+        startController.current = null;
+        setStarting(false);
+      }
     }
   }
 
@@ -281,14 +329,20 @@ function ModelEvaluationPanel({ transport }: { transport: PromptEnhancerTranspor
           </p>
         </div>
         <dl>
-          <div><dt>Preferred device</dt><dd>{runtime?.preferred_device.toUpperCase() ?? "Checking…"}</dd></div>
-          <div><dt>CUDA memory</dt><dd>{cudaMemoryLabel(runtime)}</dd></div>
+          <div><dt>Preferred device</dt><dd>{runtime?.preferred_device.toUpperCase() ?? (runtimeLoading ? "Checking…" : "Unavailable")}</dd></div>
+          <div><dt>CUDA memory</dt><dd>{runtime === null && !runtimeLoading ? "CUDA status unknown" : cudaMemoryLabel(runtime)}</dd></div>
           <div><dt>Product activation</dt><dd>Off until calibrated</dd></div>
         </dl>
       </div>
       <div className="model-evaluation-panel__actions">
+        {!runtimeLoading && runtime === null && (
+          <div role="status">
+            <p>Local runtime inventory is unavailable; device and memory remain unknown.</p>
+            {transport.getTextModelRuntime && <button onClick={() => setRuntimeRetry((value) => value + 1)} type="button">Retry runtime status</button>}
+          </div>
+        )}
         <button
-          disabled={running}
+          disabled={running || starting}
           onClick={() =>
             void start({
               allowDownload: false,
@@ -298,11 +352,11 @@ function ModelEvaluationPanel({ transport }: { transport: PromptEnhancerTranspor
           }
           type="button"
         >
-          {running ? "Running models…" : "Test cached session models"}
+          {starting ? "Starting benchmark…" : running ? statusError ? "Waiting for benchmark status" : "Running models…" : "Test cached session models"}
         </button>
         <button
           className="button-secondary"
-          disabled={running}
+          disabled={running || starting}
           onClick={() =>
             void start({
               allowDownload: true,
@@ -316,7 +370,7 @@ function ModelEvaluationPanel({ transport }: { transport: PromptEnhancerTranspor
         </button>
         <button
           className="button-secondary"
-          disabled={running}
+          disabled={running || starting}
           onClick={() =>
             void start({
               allowDownload: false,
@@ -333,12 +387,24 @@ function ModelEvaluationPanel({ transport }: { transport: PromptEnhancerTranspor
         </small>
       </div>
       {error && <p className="model-evaluation-panel__error" role="alert">{error}</p>}
+      {statusError && (
+        <div>
+          <p className="model-evaluation-panel__error" role="alert">
+            The local benchmark status is unavailable. Its last receipt is retained; the worker may still be running.
+          </p>
+          <button disabled={polling} onClick={() => setStatusRetry((value) => value + 1)} type="button">
+            {polling ? "Checking benchmark status…" : "Retry benchmark status"}
+          </button>
+        </div>
+      )}
       {job && (
         <div className="model-evaluation-results" aria-live="polite">
           <header>
-            <strong>{job.status === "completed" ? "Screen complete" : job.status === "failed" ? "Screen incomplete" : "Screen in progress"}</strong>
+            <strong>{statusError ? "Benchmark status unknown" : job.status === "completed" ? "Screen complete" : job.status === "failed" ? "Screen incomplete" : job.status === "cancelled" ? "Screen cancelled" : "Screen in progress"}</strong>
             <span>{job.resolved_device?.toUpperCase() ?? job.candidate.device.toUpperCase()} · {job.candidate.mode}</span>
           </header>
+          {job.status === "cancelled" && <p>The app shut down before the screen completed. No evaluation result was accepted.</p>}
+          {job.error_code === "model_evaluation_cleanup_unconfirmed" && <p>The model process could not be confirmed stopped. Check the local runtime before starting another screen.</p>}
           {job.status === "failed" && job.outcomes.some((item) => item.error_code === "model_cache_missing_or_invalid") && (
             <p>One or more verified snapshots are missing. Use “{DOWNLOAD_SESSION_MODELS_LABEL}” to fetch only pinned public artifacts.</p>
           )}

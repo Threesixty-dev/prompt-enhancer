@@ -118,7 +118,36 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
+async function flushEffects(cycles = 5): Promise<void> {
+  for (let cycle = 0; cycle < cycles; cycle += 1) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+}
+
 describe("MetricEvidenceFilePanel", () => {
+  it.each([
+    { session_id: sessionId, proposals: [], total: 1, complete: false },
+    { session_id: sessionId, proposals: [], total: 1, complete: true },
+    { session_id: nextRunId, proposals: [], total: 0, complete: true },
+  ])("does not misreport an incomplete or wrong-session proposal page as no evidence", async (page) => {
+    const local = transport();
+    vi.mocked(local.listMetricLifecycleProposals!).mockResolvedValue(page);
+    render(<MetricEvidenceFilePanel compact={false} sessionId={sessionId} sourceRunId={runId} transport={local} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/proposal list is incomplete or could not be verified/);
+    expect(screen.queryByText(/No unconfirmed proposals are bound/)).not.toBeInTheDocument();
+    expect(local.decideMetricLifecycleProposal).not.toHaveBeenCalled();
+  });
+
+  it("keeps confirmation disabled when the native capability's mode contradicts its flag", async () => {
+    const local = transport([proposal]);
+    vi.mocked(local.getUserPresenceCapability!).mockResolvedValue({ contract_version: "native-user-presence-capability-v1", confirmation_available: true, mode: "unavailable" });
+    render(<MetricEvidenceFilePanel compact={false} sessionId={sessionId} sourceRunId={runId} transport={local} />);
+    expect(await screen.findByRole("button", { name: "Confirm evidence" })).toBeDisabled();
+    expect(local.decideMetricLifecycleProposal).not.toHaveBeenCalled();
+  });
+
   it("reports compact loading, filters proposals to the exact run, and stays read-only", async () => {
     const page = deferred<Awaited<ReturnType<NonNullable<LocalTransport["listMetricLifecycleProposals"]>>>>();
     const local = transport();
@@ -433,5 +462,85 @@ describe("MetricEvidenceFilePanel", () => {
     expect(await screen.findByText(/1 confirmed · 1 rejected decisions recorded/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Confirm evidence|Reject/ })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Import agent metric evidence" })).toHaveAttribute("data-state", "confirmed");
+  });
+
+  it("expires an idle strict preview and replaces it with reselect and refresh guidance", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2042-01-01T00:00:00Z"));
+      const local = transport();
+      render(<MetricEvidenceFilePanel compact={false} sessionId={sessionId} sourceRunId={runId} transport={local} />);
+      await flushEffects();
+      fireEvent.change(screen.getByLabelText("Choose canonical evidence file"), {
+        target: { files: [canonicalFile()] },
+      });
+      await flushEffects();
+
+      expect(screen.getByRole("region", { name: "Strict local preview" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Import as unconfirmed" })).toBeEnabled();
+      expect(screen.getByText(/Strict preview ready/i)).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(60 * 60 * 1000);
+      });
+
+      expect(screen.queryByRole("region", { name: "Strict local preview" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Import as unconfirmed" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/example-agent/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Strict preview ready/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(/strict preview expired.*Select the canonical file again before importing/i);
+      expect(screen.getByRole("button", { name: "Refresh exact-run review" })).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Import agent metric evidence" })).toHaveAttribute("data-state", "stale");
+      expect(local.importAgentMetricEvidence).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never lets a replaced or unmounted preview timer disturb a newer context", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2042-01-01T00:00:00Z"));
+      const local = transport();
+      vi.mocked(local.previewAgentMetricEvidence!).mockResolvedValueOnce({
+        ...preview,
+        expires_at: "2042-01-01T00:10:00+00:00",
+      });
+      const view = render(
+        <MetricEvidenceFilePanel compact={false} sessionId={sessionId} sourceRunId={runId} transport={local} />,
+      );
+      await flushEffects();
+      const picker = screen.getByLabelText("Choose canonical evidence file");
+      fireEvent.change(picker, { target: { files: [canonicalFile()] } });
+      await flushEffects();
+      fireEvent.change(picker, { target: { files: [canonicalFile()] } });
+      await flushEffects();
+
+      await act(async () => {
+        vi.advanceTimersByTime(20 * 60 * 1000);
+      });
+
+      expect(screen.getByRole("region", { name: "Strict local preview" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Import as unconfirmed" })).toBeEnabled();
+      expect(screen.getByText(/Strict preview ready/i)).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+      view.unmount();
+      expect(() => act(() => {
+        vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+      })).not.toThrow();
+
+      render(<MetricEvidenceFilePanel compact={false} sessionId={sessionId} sourceRunId={nextRunId} transport={local} />);
+      await flushEffects();
+      await act(async () => {
+        vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+      });
+
+      expect(screen.getByRole("region", { name: "Import agent metric evidence" })).toHaveAttribute("data-state", "empty");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Strict local preview" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

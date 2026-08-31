@@ -5,22 +5,27 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import textwrap
 import threading
 import time
 
 from fastapi.testclient import TestClient
+import pytest
 
 from prompt_enhancer.api import API_TOKEN_HEADER
+from prompt_enhancer.application import local_models
 from prompt_enhancer.application.local_models import (
     ActivateLocalModel,
     AddLocalModel,
     DeviceMode,
+    ContextAdmissionReason,
     DownloadRequest,
     DownloadStatus,
     HardwareSummary,
@@ -28,7 +33,13 @@ from prompt_enhancer.application.local_models import (
     LlamaServerProcess,
     LocalModelError,
     LocalModelService,
+    RuntimeCapabilities,
+    RuntimeCapabilityState,
+    RuntimeCleanupState,
+    RuntimeCoordinatorState,
     RuntimeState,
+    RuntimeContextStatus,
+    SwitchLocalRuntime,
     detect_llama_server,
     estimate_gpu_layers,
 )
@@ -62,6 +73,12 @@ STUB_SERVER = textwrap.dedent(
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length) or b"{}")
             text = "echo:" + body["messages"][-1]["content"] + " ngl=" + ngl + " ctx=" + ctx
+            if body["messages"][-1]["content"] == "redirect":
+                self.send_response(302)
+                self.send_header("Location", "https://example.invalid/not-local")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if body["messages"][-1]["content"] == "overflow":
                 self.send_response(400); self.send_header("Content-Type", "application/json"); self.end_headers()
                 self.wfile.write(b'{"error": {"code": 400, "message": "context too long"}}')
@@ -105,6 +122,28 @@ def _weights(tmp_path: Path, name: str = "example-q4.gguf", size: int = 4096) ->
     return path
 
 
+def _metadata_weights(tmp_path: Path, name: str = "metadata.gguf") -> Path:
+    def text(value: str) -> bytes:
+        encoded = value.encode("utf-8")
+        return struct.pack("<Q", len(encoded)) + encoded
+
+    entries = (
+        ("general.architecture", 8, text("example-arch")),
+        ("tokenizer.ggml.model", 8, text("example-tokenizer")),
+        ("example-arch.block_count", 4, struct.pack("<I", 32)),
+        ("example-arch.context_length", 4, struct.pack("<I", 32768)),
+    )
+    payload = bytearray(b"GGUF")
+    payload.extend(struct.pack("<IQQ", 3, 0, len(entries)))
+    for key, value_type, value in entries:
+        payload.extend(text(key))
+        payload.extend(struct.pack("<I", value_type))
+        payload.extend(value)
+    path = tmp_path / name
+    path.write_bytes(payload)
+    return path
+
+
 def _service(tmp_path: Path, *, gpu_free_mb: int | None = 12000) -> LocalModelService:
     script = _stub_binary(tmp_path)
     return LocalModelService(
@@ -141,6 +180,364 @@ def test_split_estimate_is_conservative_and_never_guesses() -> None:
     layers = estimate_gpu_layers(size_bytes=16 * 1024 ** 3, layer_count=64, gpu_memory_free_mb=16000, context_size=8192)
     assert 40 <= layers < 64
     assert estimate_gpu_layers(size_bytes=16 * 1024 ** 3, layer_count=64, gpu_memory_free_mb=1000, context_size=8192) == 0
+
+
+def test_placement_admission_fails_closed_without_accelerator_evidence(tmp_path: Path) -> None:
+    weights = _weights(tmp_path, size=8 * 1024)
+    service = LocalModelService(
+        tmp_path / "local-models",
+        llama_server=lambda: None,
+        hardware=lambda _binary: HardwareSummary(ram_mb=32768),
+        clock=lambda: T0,
+    )
+    service.add(AddLocalModel(
+        alias="placement-example",
+        path=str(weights),
+        layer_count=8,
+        default_device=DeviceMode.SPLIT,
+    ))
+
+    admission = service.placement_admission("placement-example", context_size=8192)
+
+    assert admission.actual_offload_verified is False
+    assert [option.device for option in admission.options] == [
+        DeviceMode.GPU,
+        DeviceMode.SPLIT,
+        DeviceMode.CPU,
+    ]
+    assert admission.options[0].state == "blocked"
+    assert admission.options[0].reason_code == "accelerator_evidence_unavailable"
+    assert admission.options[1].state == "blocked"
+    assert admission.options[1].reason_code == "accelerator_evidence_unavailable"
+    assert admission.options[2].state == "available"
+    assert admission.options[2].recommended_gpu_layers == 0
+
+
+def test_activation_rejects_incoherent_placement_before_spawning(tmp_path: Path) -> None:
+    processes: list[object] = []
+    service = _service(tmp_path)
+    service._popen = lambda *args, **kwargs: processes.append((args, kwargs))  # type: ignore[method-assign]  # noqa: SLF001
+    service.add(AddLocalModel(
+        alias="placement-example",
+        path=str(_weights(tmp_path)),
+        layer_count=8,
+    ))
+
+    with pytest.raises(LocalModelError, match="^runtime_gpu_layers_invalid$"):
+        service.activate(
+            "placement-example",
+            ActivateLocalModel(device=DeviceMode.SPLIT, gpu_layers=0),
+        )
+
+    assert processes == []
+
+
+def test_activation_refuses_context_above_verified_model_metadata_before_spawning(
+    tmp_path: Path,
+) -> None:
+    processes: list[object] = []
+    service = _service(tmp_path)
+    service._popen = lambda *args, **kwargs: processes.append((args, kwargs))  # type: ignore[method-assign]  # noqa: SLF001
+    service.add(AddLocalModel(
+        alias="context-example",
+        path=str(_metadata_weights(tmp_path)),
+        default_device=DeviceMode.CPU,
+    ))
+
+    with pytest.raises(LocalModelError, match="^runtime_context_unsupported$"):
+        service.activate(
+            "context-example",
+            ActivateLocalModel(device=DeviceMode.CPU, context_size=65536),
+        )
+
+    assert processes == []
+
+
+def test_runtime_creation_flags_are_console_free_only_on_windows() -> None:
+    assert local_models._runtime_creation_flags("posix") == 0  # noqa: SLF001
+    assert local_models._runtime_creation_flags("nt") & 0x08000000  # noqa: SLF001
+
+
+def test_hardware_and_runtime_identity_probes_are_console_free_on_windows(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def run(command, **kwargs):
+        calls.append((list(command), dict(kwargs)))
+        stdout = (
+            "Synthetic GPU, 16384, 12288\n"
+            if command[0] == "nvidia-smi"
+            else "synthetic-llama.cpp-b9000\n"
+        )
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(local_models.os, "name", "nt")
+    summary = local_models.probe_hardware(
+        llama_server=Path("C:/synthetic/runtime/llama-server.exe"),
+        run=run,
+    )
+
+    assert summary.gpu_name == "Synthetic GPU"
+    assert summary.llama_server_version == "synthetic-llama.cpp-b9000"
+    assert calls[0][0][0] == "nvidia-smi"
+    assert calls[1][0][0].replace("\\", "/") == "C:/synthetic/runtime/llama-server.exe"
+    for _command, options in calls:
+        assert options["creationflags"] == local_models._runtime_creation_flags("nt")  # noqa: SLF001
+
+
+def test_hardware_poll_caches_llama_server_version_by_executable_revision(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    binary = tmp_path / "synthetic-llama-server.exe"
+    binary.write_bytes(b"synthetic-runtime-v1")
+    calls: list[list[str]] = []
+
+    def run(command, **_kwargs):
+        command_parts = [str(part) for part in command]
+        calls.append(command_parts)
+        stdout = (
+            ""
+            if command_parts[0] == "nvidia-smi"
+            else "synthetic-llama.cpp-b9100\n"
+        )
+        return subprocess.CompletedProcess(command_parts, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(local_models.subprocess, "run", run)
+
+    first = local_models.probe_hardware(llama_server=binary)
+    second = local_models.probe_hardware(llama_server=binary)
+
+    assert first.llama_server_version == second.llama_server_version == (
+        "synthetic-llama.cpp-b9100"
+    )
+    assert sum(command[-1] == "--version" for command in calls) == 1
+    assert sum(command[0] == "nvidia-smi" for command in calls) == 2
+
+    binary.write_bytes(b"synthetic-runtime-v2-with-new-size")
+    third = local_models.probe_hardware(llama_server=binary)
+
+    assert third.llama_server_version == "synthetic-llama.cpp-b9100"
+    assert sum(command[-1] == "--version" for command in calls) == 2
+    assert sum(command[0] == "nvidia-smi" for command in calls) == 3
+
+
+def test_read_only_model_discovery_never_spawns_a_runtime(tmp_path: Path) -> None:
+    binary = tmp_path / "synthetic-llama-server"
+    binary.write_text("synthetic", encoding="utf-8")
+    spawn_calls: list[object] = []
+
+    def deny_spawn(command, **_kwargs):
+        spawn_calls.append(command)
+        raise AssertionError("read-only model discovery attempted to spawn a runtime")
+
+    service = LocalModelService(
+        tmp_path / "local-models",
+        llama_server=lambda: binary,
+        hardware=lambda _binary: HardwareSummary(),
+        popen=deny_spawn,
+        clock=lambda: T0,
+    )
+    service.add(AddLocalModel(alias="discovery-only", path=str(_weights(tmp_path))))
+
+    assert service.overview().models[0].runtime.state is RuntimeState.STOPPED
+    assert service.status("discovery-only").runtime.state is RuntimeState.STOPPED
+    assert service.running_aliases() == ()
+    assert spawn_calls == []
+
+
+def test_explicit_activation_applies_console_free_spawn_policy(tmp_path: Path) -> None:
+    binary = tmp_path / "synthetic-llama-server"
+    binary.write_text("synthetic", encoding="utf-8")
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    process = _FakeRuntimeProcess()
+
+    def capture_spawn(command, **kwargs):
+        calls.append((list(command), dict(kwargs)))
+        return process
+
+    service = LocalModelService(
+        tmp_path / "local-models",
+        llama_server=lambda: binary,
+        hardware=lambda _binary: HardwareSummary(),
+        popen=capture_spawn,
+        clock=lambda: T0,
+        health_timeout_seconds=0.1,
+        capability_probe=lambda _handle, _alias, tool_calling: RuntimeCapabilities(
+            state=RuntimeCapabilityState.VERIFIED,
+            text=True,
+            tools=tool_calling,
+        ),
+    )
+    service.add(AddLocalModel(
+        alias="explicit-start",
+        path=str(_weights(tmp_path)),
+        default_device=DeviceMode.CPU,
+    ))
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+
+    assert service.activate(
+        "explicit-start", ActivateLocalModel(fast_attention=False)
+    ).runtime.state is RuntimeState.RUNNING
+    assert len(calls) == 1
+    _command, options = calls[0]
+    assert options == {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "shell": False,
+        "creationflags": local_models._runtime_creation_flags(),  # noqa: SLF001
+    }
+    service.shutdown()
+
+
+def test_explicit_projector_is_validated_and_passed_to_hidden_runtime(
+    tmp_path: Path,
+) -> None:
+    binary = tmp_path / "synthetic-llama-server"
+    binary.write_text("synthetic", encoding="utf-8")
+    projector = _weights(tmp_path, "mmproj-synthetic.gguf", size=1024)
+    calls: list[list[str]] = []
+    process = _FakeRuntimeProcess()
+
+    def capture_spawn(command, **_kwargs):
+        calls.append(list(command))
+        return process
+
+    service = LocalModelService(
+        tmp_path / "local-models",
+        llama_server=lambda: binary,
+        hardware=lambda _binary: HardwareSummary(),
+        popen=capture_spawn,
+        clock=lambda: T0,
+        capability_probe=lambda _handle, _alias, tool_calling: RuntimeCapabilities(
+            state=RuntimeCapabilityState.VERIFIED,
+            text=True,
+            tools=tool_calling,
+            vision=True,
+        ),
+    )
+    record = service.add(AddLocalModel(
+        alias="vision-example",
+        path=str(_weights(tmp_path, "vision-example.gguf")),
+        mmproj_path=str(projector),
+        default_device=DeviceMode.CPU,
+    ))
+    assert record.mmproj_path == str(projector)
+    assert record.mmproj_size_bytes == 1024
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    service.activate("vision-example", ActivateLocalModel(fast_attention=False))
+    assert calls and calls[0][calls[0].index("--mmproj") + 1] == str(projector)
+    service.shutdown()
+
+    invalid = tmp_path / "mmproj-invalid.gguf"
+    invalid.write_bytes(b"NOT-GGUF")
+    with pytest.raises(LocalModelError, match="^model_projector_invalid$"):
+        service.add(AddLocalModel(
+            alias="invalid-projector",
+            path=str(_weights(tmp_path, "another.gguf")),
+            mmproj_path=str(invalid),
+        ))
+
+
+class _ProbeResponse(io.BytesIO):
+    def __init__(self, payload: object, *, status: int = 200) -> None:
+        super().__init__(json.dumps(payload).encode("utf-8"))
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+
+
+def test_live_multimodal_capabilities_require_advertisement_and_successful_media_probes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[tuple[str, dict[str, object] | None]] = []
+
+    class ProbeOpener:
+        def open(self, request, timeout):
+            assert timeout in {10, 30}
+            body = json.loads(request.data) if request.data is not None else None
+            observed.append((request.full_url, body))
+            if request.full_url.endswith("/v1/models"):
+                return _ProbeResponse({
+                    "object": "list",
+                    "data": [{
+                        "id": "synthetic-model",
+                        "capabilities": ["completion", "multimodal"],
+                        "architecture": {"input_modalities": ["text", "image", "audio"]},
+                    }],
+                })
+            content = body["messages"][0]["content"]
+            if isinstance(content, list) and any(
+                part.get("type") == "input_audio" for part in content
+            ):
+                return _ProbeResponse({"error": "synthetic audio rejection"}, status=400)
+            return _ProbeResponse({
+                "choices": [{"message": {"role": "assistant", "content": "OK"}}],
+            })
+
+    monkeypatch.setattr(local_models, "_runtime_opener", lambda: ProbeOpener())
+    service = LocalModelService(tmp_path / "models")
+    handle = LlamaServerProcess(
+        process=_FakeRuntimeProcess(),
+        port=54321,
+        activation_generation=1,
+        status=local_models.RuntimeStatus(state=RuntimeState.RUNNING),
+    )
+    capabilities = service._probe_runtime_capabilities(  # noqa: SLF001
+        handle, "synthetic-model", True
+    )
+    assert capabilities.state is RuntimeCapabilityState.VERIFIED
+    assert capabilities.text and capabilities.tools and capabilities.vision
+    assert not capabilities.audio and not capabilities.recording
+    assert capabilities.probe_version == "local-runtime-multimodal-probe.v2"
+    media_bodies = [body for _url, body in observed if body and isinstance(body["messages"][0]["content"], list)]
+    assert len(media_bodies) == 2
+    image_part = media_bodies[0]["messages"][0]["content"][1]
+    audio_part = media_bodies[1]["messages"][0]["content"][1]
+    assert image_part["type"] == "image_url"
+    assert str(image_part["image_url"]["url"]).startswith("data:image/png;base64,")
+    assert audio_part["type"] == "input_audio"
+    assert audio_part["input_audio"]["format"] == "wav"
+    assert not str(audio_part["input_audio"]["data"]).startswith("data:")
+
+
+def test_model_scan_never_registers_a_projector_as_text_weights(tmp_path: Path) -> None:
+    service = LocalModelService(tmp_path / "registry")
+    folder = tmp_path / "models"
+    folder.mkdir()
+    _weights(folder, "example.gguf")
+    _weights(folder, "mmproj-example.gguf")
+    result = service.scan_folder(local_models.ScanFolderRequest(path=str(folder)))
+    assert [record.alias for record in result.registered] == ["example"]
+    assert result.skipped_invalid == 1
+
+
+def test_gguf_identity_metadata_is_bounded_and_never_inferred_from_a_name(tmp_path: Path) -> None:
+    service = LocalModelService(tmp_path / "registry")
+    record = service.add(AddLocalModel(
+        alias="metadata-example",
+        path=str(_metadata_weights(tmp_path)),
+    ))
+    assert record.architecture == "example-arch"
+    assert record.tokenizer_model == "example-tokenizer"
+    assert record.training_context_size == 32768
+    assert record.layer_count == 32
+    assert record.metadata_reader_version == "gguf-metadata.v1"
+
+    named_only = service.add(AddLocalModel(
+        alias="qwen-looking-name",
+        path=str(_weights(tmp_path, "qwen-looking-name.gguf")),
+    ))
+    assert named_only.architecture is None
+    assert named_only.tokenizer_model is None
+    assert named_only.training_context_size is None
 
 
 def test_registry_activation_devices_chat_and_deactivation(tmp_path: Path) -> None:
@@ -276,13 +673,128 @@ def _fake_runtime_service(
     service = LocalModelService(
         tmp_path / "local-models",
         llama_server=lambda: binary,
-        hardware=lambda _binary: HardwareSummary(),
+        hardware=lambda _binary: HardwareSummary(
+            gpu_name="Synthetic GPU",
+            gpu_memory_mb=16384,
+            gpu_memory_free_mb=12000,
+            ram_mb=32768,
+        ),
         popen=popen,
         clock=lambda: T0,
         health_timeout_seconds=0.1,
+        capability_probe=lambda _handle, _alias, tool_calling: RuntimeCapabilities(
+            state=RuntimeCapabilityState.VERIFIED,
+            text=True,
+            tools=tool_calling,
+        ),
     )
-    service.add(AddLocalModel(alias="owned", path=str(_weights(tmp_path))))
+    service.add(AddLocalModel(
+        alias="owned",
+        path=str(_weights(tmp_path)),
+        default_device=DeviceMode.CPU,
+        layer_count=8,
+    ))
     return service
+
+
+def test_compatibility_requires_the_exact_live_text_execution(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    before = service.compatibility_catalog()
+    assert before.contract_version == "local-model-compatibility.v1"
+    assert before.models[0].state == "unknown"
+    assert before.models[0].reason_code == "model_not_executed"
+    assert before.models[0].execution_state == "not_run"
+    assert before.models[0].artifact_identity_state == "unverified"
+    assert before.models[0].artifact_sha256 is None
+
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    service.activate("owned", ActivateLocalModel(context_size=512, fast_attention=False))
+    live = service.compatibility_catalog()
+    assert live.models[0].state == "supported"
+    assert live.models[0].reason_code == "live_text_probe_verified"
+    assert live.models[0].execution_state == "verified"
+    assert live.models[0].context_counter_state == "not_run"
+    service.deactivate("owned")
+    stopped = service.compatibility_catalog()
+    assert stopped.models[0].state == "unknown"
+    assert stopped.models[0].reason_code == "model_not_executed"
+
+
+def test_exact_chat_context_preflight_refuses_before_inference(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    service.activate("owned", ActivateLocalModel(context_size=512, fast_attention=False))
+    observed: list[str] = []
+
+    class ExactCounterOpener:
+        def open(self, request, timeout):
+            assert timeout == 30
+            observed.append(request.full_url)
+            assert request.full_url.endswith("/v1/chat/completions/input_tokens")
+            return _ProbeResponse({"object": "response.input_tokens", "input_tokens": 450})
+
+    monkeypatch.setattr(local_models, "_runtime_opener", lambda: ExactCounterOpener())
+    body = json.dumps({
+        "messages": [{"role": "user", "content": "synthetic bounded request"}],
+        "max_tokens": 64,
+    }).encode()
+    measured = service.preflight_chat("owned", body)
+    assert measured == RuntimeContextStatus(
+        state="known",
+        used_tokens=450,
+        limit_tokens=512,
+        requested_output_tokens=64,
+        available_output_tokens=62,
+        source="runtime_chat_input_tokens",
+        scope="last_request",
+        policy="exact_refused",
+        reason_code=ContextAdmissionReason.CONTEXT_WINDOW_EXCEEDED,
+    )
+    with pytest.raises(LocalModelError, match="^context_window_exceeded$"):
+        service.open_chat("owned", body)
+    assert observed and all(url.endswith("/input_tokens") for url in observed)
+    assert service.coordinator_status().context.policy == "exact_refused"
+    exact = service.chat_input_tokens("owned", body)
+    assert exact.object == "response.input_tokens" and exact.input_tokens == 450
+    assert service.compatibility_catalog().models[0].context_counter_state == "verified"
+    service.shutdown()
+
+
+def test_missing_or_malformed_exact_counter_remains_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    service.activate("owned", ActivateLocalModel(context_size=1024, fast_attention=False))
+
+    class MalformedCounterOpener:
+        def open(self, _request, timeout):
+            assert timeout == 30
+            return _ProbeResponse({"object": "response.input_tokens"})
+
+    monkeypatch.setattr(local_models, "_runtime_opener", lambda: MalformedCounterOpener())
+    context = service.preflight_chat(
+        "owned",
+        b'{"messages":[{"role":"user","content":"synthetic"}],"max_tokens":64}',
+    )
+    assert context.state == "unknown"
+    assert context.used_tokens is None
+    assert context.limit_tokens == 1024
+    assert context.reason_code == "input_counter_invalid"
+    assert context.source == "runtime_limit_only"
+    with pytest.raises(LocalModelError, match="^input_tokens_unavailable$"):
+        service.chat_input_tokens(
+            "owned",
+            b'{"messages":[{"role":"user","content":"synthetic"}]}',
+        )
+    service.shutdown()
 
 
 def _delay_registry_upsert(
@@ -302,6 +814,209 @@ def _delay_registry_upsert(
 
     service.registry.upsert = delayed_upsert  # type: ignore[method-assign]
     return entered, release
+
+
+def _add_second_model(service: LocalModelService, tmp_path: Path) -> None:
+    service.add(
+        AddLocalModel(
+            alias="second",
+            path=str(_weights(tmp_path, "second.gguf")),
+        )
+    )
+
+
+def test_global_coordinator_switches_only_after_the_previous_runtime_stops(
+    tmp_path: Path,
+) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    _add_second_model(service, tmp_path)
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+
+    service.activate("owned", ActivateLocalModel(device=DeviceMode.CPU, fast_attention=False))
+    revision = service.coordinator_status().revision
+    switched = service.switch_runtime(
+        SwitchLocalRuntime(
+            alias="second",
+            expected_revision=revision,
+            device=DeviceMode.CPU,
+            fast_attention=False,
+        )
+    )
+
+    assert len(processes) == 2
+    assert processes[0].poll() is not None
+    assert processes[1].poll() is None
+    assert switched.state is RuntimeCoordinatorState.READY
+    assert switched.requested is not None and switched.requested.alias == "second"
+    assert switched.served is not None and switched.served.alias == "second"
+    assert switched.context.used_tokens is None
+    assert switched.context.limit_tokens == 8192
+    assert service.running_aliases() == ("second",)
+    assert service.status("owned").runtime.state is RuntimeState.STOPPED
+
+    service.shutdown()
+
+
+def test_switch_is_refused_while_inference_is_active_and_recovers_to_ready(
+    tmp_path: Path,
+) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    _add_second_model(service, tmp_path)
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    service.activate("owned", ActivateLocalModel(device=DeviceMode.CPU, fast_attention=False))
+    handle = service._processes["owned"]  # noqa: SLF001
+    service._reserve_runtime_request("owned", handle)  # noqa: SLF001
+
+    with pytest.raises(LocalModelError, match="runtime_busy") as failure:
+        service.switch_runtime(
+            SwitchLocalRuntime(
+                alias="second",
+                expected_revision=service.coordinator_status().revision,
+                device=DeviceMode.CPU,
+                fast_attention=False,
+            )
+        )
+    assert failure.value.code == "runtime_busy"
+    draining = service.coordinator_status()
+    assert draining.state is RuntimeCoordinatorState.DRAINING
+    assert draining.active_requests == 1
+    assert draining.served is not None and draining.served.alias == "owned"
+    assert len(processes) == 1 and processes[0].poll() is None
+
+    service._release_runtime_request("owned")  # noqa: SLF001
+    recovered = service.coordinator_status()
+    assert recovered.state is RuntimeCoordinatorState.READY
+    assert recovered.active_requests == 0
+    assert recovered.requested is not None and recovered.requested.alias == "owned"
+    assert recovered.served is not None and recovered.served.alias == "owned"
+
+    service.shutdown()
+
+
+def test_unknown_gpu_cleanup_blocks_the_replacement_runtime(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    _add_second_model(service, tmp_path)
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    service.activate("owned", ActivateLocalModel(device=DeviceMode.GPU, fast_attention=False))
+    service._hardware = lambda _binary: HardwareSummary()  # type: ignore[method-assign]  # noqa: SLF001
+
+    with pytest.raises(LocalModelError, match="runtime_cleanup_unconfirmed") as failure:
+        service.switch_runtime(
+            SwitchLocalRuntime(
+                alias="second",
+                expected_revision=service.coordinator_status().revision,
+                device=DeviceMode.CPU,
+                fast_attention=False,
+            )
+        )
+    assert failure.value.code == "runtime_cleanup_unconfirmed"
+    status = service.coordinator_status()
+    assert status.state is RuntimeCoordinatorState.CLEANUP_UNKNOWN
+    assert status.cleanup.state is RuntimeCleanupState.UNKNOWN
+    assert status.served is None
+    assert len(processes) == 1 and processes[0].poll() is not None
+
+
+def test_failed_capability_probe_never_marks_runtime_ready(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    service._capability_probe = lambda *_args: RuntimeCapabilities(  # type: ignore[method-assign]  # noqa: SLF001
+        state=RuntimeCapabilityState.FAILED,
+        error_code="runtime_capability_probe_failed",
+    )
+
+    with pytest.raises(LocalModelError, match="runtime_capability_probe_failed") as failure:
+        service.activate("owned", ActivateLocalModel(device=DeviceMode.CPU, fast_attention=False))
+    assert failure.value.code == "runtime_capability_probe_failed"
+    status = service.coordinator_status()
+    assert status.state is RuntimeCoordinatorState.FAILED
+    assert status.served is None
+    assert status.capabilities.state is RuntimeCapabilityState.FAILED
+    assert service.running_aliases() == ()
+    assert len(processes) == 1 and processes[0].poll() is not None
+
+
+def test_recording_capability_cannot_be_advertised_without_audio_input() -> None:
+    with pytest.raises(ValueError, match="recording capability requires verified audio input"):
+        RuntimeCapabilities(
+            state=RuntimeCapabilityState.VERIFIED,
+            text=True,
+            recording=True,
+        )
+
+
+def test_runtime_switch_rejects_a_stale_revision_before_spawning(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    service.activate("owned", ActivateLocalModel(device=DeviceMode.CPU, fast_attention=False))
+
+    with pytest.raises(LocalModelError, match="runtime_revision_conflict") as failure:
+        service.switch_runtime(
+            SwitchLocalRuntime(
+                alias="owned",
+                expected_revision=0,
+                device=DeviceMode.CPU,
+                fast_attention=False,
+            )
+        )
+    assert failure.value.code == "runtime_revision_conflict"
+    assert len(processes) == 1 and processes[0].poll() is None
+
+    service.shutdown()
+
+
+def test_concurrent_cross_alias_activation_never_owns_two_live_processes(
+    tmp_path: Path,
+) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    _add_second_model(service, tmp_path)
+    first_wait_started = threading.Event()
+    release_first_wait = threading.Event()
+    wait_calls = 0
+    wait_lock = threading.Lock()
+
+    def wait_healthy(_handle: LlamaServerProcess) -> bool:
+        nonlocal wait_calls
+        with wait_lock:
+            wait_calls += 1
+            call = wait_calls
+        if call == 1:
+            first_wait_started.set()
+            assert release_first_wait.wait(timeout=5)
+        return True
+
+    service._wait_healthy = wait_healthy  # type: ignore[method-assign]  # noqa: SLF001
+    outcomes: dict[str, str] = {}
+
+    def activate(alias: str) -> None:
+        try:
+            service.activate(alias, ActivateLocalModel(device=DeviceMode.CPU, fast_attention=False))
+            outcomes[alias] = "ready"
+        except LocalModelError as error:
+            outcomes[alias] = error.code
+
+    first = threading.Thread(target=activate, args=("owned",), daemon=True)
+    second = threading.Thread(target=activate, args=("second",), daemon=True)
+    first.start()
+    assert first_wait_started.wait(timeout=5)
+    second.start()
+    second.join(timeout=5)
+    release_first_wait.set()
+    first.join(timeout=5)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert outcomes == {"second": "ready", "owned": "runtime_activation_superseded"}
+    assert len(processes) == 2
+    assert sum(process.poll() is None for process in processes) == 1
+    assert service.running_aliases() == ("second",)
+
+    service.shutdown()
 
 
 def test_concurrent_activation_cannot_remove_the_newer_live_runtime(tmp_path: Path) -> None:
@@ -370,14 +1085,14 @@ def test_status_reaping_own_starting_handle_is_not_a_newer_activation(tmp_path: 
 
     observed = service.status("owned")
     assert observed.runtime.state is RuntimeState.FAILED
-    assert observed.runtime.last_error_code == "runtime_exited"
+    assert observed.runtime.last_error_code == "runtime_crashed"
     assert "owned" not in service._processes  # noqa: SLF001
 
     release_health_wait.set()
     activation.join(timeout=5)
     assert not activation.is_alive()
-    assert activation_errors == ["runtime_not_healthy"]
-    assert service.status("owned").runtime.last_error_code == "runtime_not_healthy"
+    assert activation_errors == ["runtime_crashed"]
+    assert service.status("owned").runtime.last_error_code == "runtime_crashed"
 
 
 def test_deactivate_cancels_activation_before_runtime_ownership(tmp_path: Path) -> None:
@@ -481,6 +1196,140 @@ def test_shutdown_cancels_activation_before_runtime_ownership(tmp_path: Path) ->
     assert service.running_aliases() == ()
 
 
+def test_shutdown_rejects_an_activation_that_starts_after_cleanup(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    service._wait_healthy = lambda _handle: True
+    service.shutdown()
+
+    with pytest.raises(LocalModelError) as caught:
+        service.activate("owned")
+
+    assert caught.value.code == "runtime_shutdown_in_progress"
+    assert processes == []
+
+
+@pytest.mark.parametrize("forced", (False, True))
+def test_owned_http_shutdown_stops_the_real_stub_process(tmp_path: Path, monkeypatch, forced) -> None:
+    import socket
+    import urllib.request
+
+    from prompt_enhancer import desktop_overlay
+    from prompt_enhancer.bootstrap import LocalApplication
+    from prompt_enhancer.privacy import load_or_create_api_token
+
+    class IsolatedSettings(AppSettings):
+        @property
+        def local_models_dir(self):
+            return self.home / "local-models"
+
+    service = _service(tmp_path)
+    service.add(AddLocalModel(
+        alias="example-model",
+        path=str(_weights(tmp_path)),
+        default_device=DeviceMode.CPU,
+    ))
+    monkeypatch.setattr(LocalApplication, "create_local_model_service", lambda _self: service)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    selected = IsolatedSettings(home=tmp_path / "app", port=port, session_reader_enabled=False)
+    owned = desktop_overlay._start_owned_server(selected)
+    handles: tuple[LlamaServerProcess, ...] = ()
+    try:
+        token = load_or_create_api_token(selected.api_token_path)
+        endpoints = desktop_overlay._exact_loopback_endpoints(selected.host, port)
+        origin = desktop_overlay._wait_for_owned_service(endpoints, token, owned)
+        request = urllib.request.Request(
+            f"{origin}/v1/local-models/example-model/activate",
+            data=json.dumps({"device": "cpu"}).encode(),
+            headers={API_TOKEN_HEADER: token, "Content-Type": "application/json"},
+            method="POST",
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=10) as response:
+            assert response.status == 200
+            assert json.load(response)["runtime"]["state"] == "running"
+        handles = tuple(service._processes.values())
+        assert len(handles) == 1 and handles[0].process.poll() is None
+    finally:
+        if forced:
+            owned.server.force_exit = True
+        try:
+            owned.stop()
+        finally:
+            # Keep a failed assertion from leaking even a synthetic process.
+            service.shutdown()
+
+    assert not owned.thread.is_alive()
+    assert owned.lifecycle.cleanup_finished is True
+    assert owned.lifecycle.shutdown_failures == ()
+    assert all(handle.process.poll() is not None for handle in handles)
+
+
+def test_shutdown_conflict_has_an_explicit_http_contract() -> None:
+    from prompt_enhancer.interfaces.http.local_model_routes import (
+        LocalModelActivationConflictFailureDetail,
+        _failure,
+    )
+
+    failure = _failure(LocalModelError("runtime_shutdown_in_progress"))
+    assert failure.status_code == 409
+    assert LocalModelActivationConflictFailureDetail.model_validate(failure.detail).code == (
+        "runtime_shutdown_in_progress"
+    )
+
+
+def test_local_inference_bypasses_system_proxies(tmp_path: Path, monkeypatch) -> None:
+    import urllib.request
+
+    service = _service(tmp_path)
+    service.add(AddLocalModel(
+        alias="example-model",
+        path=str(_weights(tmp_path)),
+        default_device=DeviceMode.CPU,
+    ))
+    try:
+        assert service.activate("example-model").runtime.state is RuntimeState.RUNNING
+        monkeypatch.setattr(urllib.request, "getproxies", lambda: {"http": "http://127.0.0.1:1"})
+        monkeypatch.setattr(urllib.request, "proxy_bypass", lambda _host: False)
+        monkeypatch.setattr(urllib.request, "_opener", None)
+        body = {"messages": [{"role": "user", "content": "example local prompt"}]}
+        status, payload, _ = service.chat("example-model", json.dumps(body).encode())
+        assert status == 200
+        assert "echo:example local prompt" in json.loads(payload)["choices"][0]["message"]["content"]
+        body["stream"] = True
+        upstream = service.open_chat("example-model", json.dumps(body).encode())
+        assert upstream.status_code == 200
+        assert upstream.lines is not None
+        assert b"data: [DONE]" in b"".join(upstream.lines)
+        assert service._wait_healthy(service._processes["example-model"]) is True
+    finally:
+        service.shutdown()
+
+
+@pytest.mark.parametrize("stream", (False, True))
+def test_local_inference_never_follows_a_runtime_redirect(tmp_path: Path, stream) -> None:
+    service = _service(tmp_path)
+    service.add(AddLocalModel(
+        alias="example-model",
+        path=str(_weights(tmp_path)),
+        default_device=DeviceMode.CPU,
+    ))
+    try:
+        assert service.activate("example-model").runtime.state is RuntimeState.RUNNING
+        body = json.dumps({
+            "messages": [{"role": "user", "content": "redirect"}],
+            "stream": stream,
+        }).encode()
+        if stream:
+            assert service.open_chat("example-model", body).status_code == 302
+        else:
+            assert service.chat("example-model", body)[0] == 302
+    finally:
+        service.shutdown()
+
+
 def test_internal_health_fallback_keeps_its_activation_ownership(tmp_path: Path) -> None:
     processes: list[_FakeRuntimeProcess] = []
     service = _fake_runtime_service(tmp_path, processes)
@@ -568,7 +1417,12 @@ def test_newer_remember_defaults_cannot_be_overwritten_by_older_activation(tmp_p
     def hardware(_binary: Path | None) -> HardwareSummary:
         if threading.current_thread().name == "synthetic-newer-activation":
             newer_reached_hardware.set()
-        return HardwareSummary()
+        return HardwareSummary(
+            gpu_name="Synthetic GPU",
+            gpu_memory_mb=16384,
+            gpu_memory_free_mb=12000,
+            ram_mb=32768,
+        )
 
     service._hardware = hardware  # type: ignore[method-assign]  # noqa: SLF001
     service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
@@ -645,7 +1499,7 @@ def test_dead_and_unstoppable_runtimes_are_never_advertised_as_running(tmp_path:
     assert dead_service.activate("owned").runtime.state is RuntimeState.RUNNING
     dead_processes[0].returncode = 1
     assert dead_service.running_aliases() == ()
-    assert dead_service.status("owned").runtime.last_error_code == "runtime_exited"
+    assert dead_service.status("owned").runtime.last_error_code == "runtime_crashed"
 
     stuck_processes: list[_FakeRuntimeProcess] = []
     stuck_service = _fake_runtime_service(tmp_path / "stuck", stuck_processes, stoppable=False)
@@ -807,6 +1661,7 @@ def test_overview_snapshots_downloads_while_holding_the_service_lock(
         bytes_total=1,
         bytes_done=0,
         started_at=T0,
+        updated_at=T0,
     )
     second = first.model_copy(
         update={
@@ -862,7 +1717,7 @@ def test_overview_snapshots_downloads_while_holding_the_service_lock(
     assert service.overview().downloads == (first, second)
 
 
-def test_http_routes_and_capability(tmp_path: Path, monkeypatch) -> None:
+def test_http_routes_and_capability(tmp_path: Path, monkeypatch, request) -> None:
     script = _stub_binary(tmp_path)
     monkeypatch.setenv("PROMPT_ENHANCER_LLAMA_SERVER", str(script))
     settings = AppSettings(home=tmp_path / "app")
@@ -875,6 +1730,14 @@ def test_http_routes_and_capability(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(type(application), "create_local_model_service", lambda self: service)
     app = application.create_http_app()
     client = TestClient(app, base_url="http://127.0.0.1")
+
+    def cleanup() -> None:
+        try:
+            client.close()
+        finally:
+            service.shutdown()
+
+    request.addfinalizer(cleanup)
     headers = {API_TOKEN_HEADER: settings.api_token_path.read_text(encoding="utf-8").strip()}
     assert client.get("/v1/local-models").status_code == 401
     capabilities = client.get("/v1/capabilities", headers=headers).json()
@@ -885,6 +1748,20 @@ def test_http_routes_and_capability(tmp_path: Path, monkeypatch) -> None:
     weights = _weights(tmp_path)
     added = client.post("/v1/local-models", headers=headers, json={"alias": "stub", "path": str(weights), "layer_count": 4})
     assert added.status_code == 201, added.text
+    placement = client.get(
+        "/v1/local-models/stub/placement?context_size=8192",
+        headers=headers,
+    )
+    assert placement.status_code == 200, placement.text
+    assert placement.json()["actual_offload_verified"] is False
+    assert placement.json()["options"][0]["reason_code"] == "accelerator_evidence_unavailable"
+    invalid_layers = client.post(
+        "/v1/local-models/stub/activate",
+        headers=headers,
+        json={"device": "split", "gpu_layers": 0},
+    )
+    assert invalid_layers.status_code == 409
+    assert invalid_layers.json()["detail"]["code"] == "runtime_gpu_layers_invalid"
     bad = client.post("/v1/local-models", headers=headers, json={"alias": "bad", "path": str(tmp_path / "missing.gguf")})
     assert bad.status_code == 422
     missing = client.post("/v1/local-models/nope/activate", headers=headers, json={"device": "cpu"})
@@ -893,6 +1770,48 @@ def test_http_routes_and_capability(tmp_path: Path, monkeypatch) -> None:
     assert inactive.status_code == 409 and inactive.json()["detail"]["code"] == "model_not_active"
     reserved = client.post("/v1/local-models", headers=headers, json={"alias": "openai", "path": str(weights)})
     assert reserved.status_code == 422
+    runtime = client.get("/v1/local-models/runtime", headers=headers)
+    assert runtime.status_code == 200
+    assert runtime.json()["state"] == "idle" and runtime.json()["served"] is None
+    stale = client.post(
+        "/v1/local-models/runtime/switch",
+        headers=headers,
+        json={"alias": "stub", "expected_revision": runtime.json()["revision"] + 1, "device": "cpu"},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "runtime_revision_conflict"
+    switched = client.post(
+        "/v1/local-models/runtime/switch",
+        headers=headers,
+        json={"alias": "stub", "expected_revision": runtime.json()["revision"], "device": "cpu"},
+    )
+    assert switched.status_code == 200, switched.text
+    assert switched.json()["state"] == "ready"
+    assert switched.json()["requested"]["alias"] == "stub"
+    assert switched.json()["served"]["alias"] == "stub"
+    assert switched.json()["capabilities"]["text"] is True
+    assert switched.json()["context"] == {
+        "state": "unknown",
+        "used_tokens": None,
+        "limit_tokens": 8192,
+        "requested_output_tokens": None,
+        "available_output_tokens": None,
+        "source": "runtime_limit_only",
+        "scope": "runtime_limit",
+        "policy": "runtime_enforced",
+        "compacted_messages": 0,
+        "reason_code": "no_request_measured",
+    }
+    compatibility = client.get("/v1/local-models/compatibility", headers=headers)
+    assert compatibility.status_code == 200
+    assert compatibility.json()["models"][0]["state"] == "supported"
+    stopped = client.post(
+        "/v1/local-models/runtime/stop",
+        headers=headers,
+        json={"alias": "stub", "expected_revision": switched.json()["revision"]},
+    )
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json()["state"] == "idle" and stopped.json()["served"] is None
     # OpenAI-style clients: bearer app token, a base URL per model or one shared base URL routed by "model".
     bearer = {"Authorization": f"Bearer {headers[API_TOKEN_HEADER]}"}
     assert client.get("/v1/local-models/openai/v1/models", headers={"Authorization": "Bearer nope"}).status_code == 401

@@ -1,0 +1,103 @@
+.agent-runtime {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg, 14px);
+  background: color-mix(in srgb, var(--surface) 94%, var(--accent-primary) 6%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
+}
+
+.agent-runtime[data-state="ready"] { border-color: var(--status-positive, var(--accent-primary)); }
+.agent-runtime[data-state="cleanup_unknown"],
+.agent-runtime[data-state="quarantined"],
+.agent-runtime[data-state="failed"] { border-color: var(--status-negative); }
+.agent-runtime[data-state="loading"],
+.agent-runtime[data-state="unloading"],
+.agent-runtime[data-state="draining"] { border-color: var(--status-caution); }
+
+.agent-runtime__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.agent-runtime__head > span:first-child { display: grid; gap: 0.05rem; }
+.agent-runtime__head small { color: var(--ink-500); font-size: 0.62rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+.agent-runtime__head strong { color: var(--ink-800); font-size: 0.84rem; }
+.agent-runtime__state { flex: 0 0 auto; padding: 0.16rem 0.38rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-650); font-size: 0.62rem; font-weight: 750; }
+
+.agent-runtime label { display: grid; gap: 0.25rem; min-width: 0; color: var(--ink-650); font-size: 0.68rem; font-weight: 750; }
+.agent-runtime select { width: 100%; min-width: 0; min-height: 2.75rem; padding: 0.45rem 0.55rem; border: 1px solid var(--line-strong); border-radius: 0.48rem; background: var(--surface); color: inherit; font: inherit; font-size: 0.76rem; }
+.agent-runtime__placement { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+.agent-runtime__placement-note { margin: 0; color: var(--ink-500); font-size: 0.64rem; line-height: 1.4; }
+.agent-runtime__placement-note[data-state="blocked"] { color: var(--status-negative); }
+.agent-runtime__placement-note[data-state="recheck_required"] { color: var(--status-caution); }
+
+.agent-runtime__context-card { display: grid; gap: 0.35rem; padding: 0.5rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--surface); }
+.agent-runtime__context-card[data-tone="caution"],
+.agent-runtime__context-card[data-tone="stale"] { border-color: var(--status-caution); }
+.agent-runtime__context-card[data-tone="critical"] { border-color: var(--status-negative); }
+.agent-runtime__context { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; margin: 0; color: var(--ink-500); font-size: 0.63rem; }
+.agent-runtime__context strong { min-width: 0; color: var(--ink-650); font-size: 0.66rem; line-height: 1.35; text-align: right; }
+.agent-runtime__context-meter { overflow: hidden; height: 0.35rem; border-radius: 999px; background: var(--surface-soft); }
+.agent-runtime__context-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--status-positive, var(--accent-primary)); transition: width 160ms ease; }
+.agent-runtime__context-meter[data-tone="caution"] > span,
+.agent-runtime__context-meter[data-tone="stale"] > span { background: var(--status-caution); }
+.agent-runtime__context-meter[data-tone="critical"] > span { background: var(--status-negative); }
+.agent-runtime__context-note { margin: 0; color: var(--ink-500); font-size: 0.62rem; line-height: 1.4; }
+.agent-runtime__context-note[role="alert"] { color: var(--status-negative); }
+.agent-runtime__details { border: 1px solid var(--line); border-radius: 0.5rem; background: var(--surface); }
+.agent-runtime__details > summary { min-height: 2.75rem; display: flex; align-items: center; box-sizing: border-box; padding: 0.42rem 0.5rem; color: var(--ink-650); cursor: pointer; font-size: 0.68rem; font-weight: 750; }
+.agent-runtime__details[open] > summary { border-bottom: 1px solid var(--line); }
+.agent-runtime__details-body { display: grid; gap: 0.45rem; padding: 0.5rem; }
+
+.agent-runtime__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.35rem; margin: 0; }
+.agent-runtime__facts div { min-width: 0; padding: 0.38rem 0.45rem; border: 1px solid var(--line); border-radius: 0.45rem; background: var(--surface-soft); }
+.agent-runtime__facts dt { color: var(--ink-500); font-size: 0.58rem; font-weight: 750; letter-spacing: 0.04em; text-transform: uppercase; }
+.agent-runtime__facts dd { overflow: hidden; margin: 0.08rem 0 0; color: var(--ink-650); font-size: 0.67rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.agent-runtime__capabilities { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.agent-runtime__capabilities span { padding: 0.16rem 0.34rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-500); font-size: 0.58rem; }
+.agent-runtime__capabilities span[data-supported="true"] { border-color: var(--status-positive, var(--accent-primary)); color: var(--status-positive, var(--accent-primary)); }
+
+.agent-runtime__actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.35rem; }
+.agent-runtime__actions .button { min-width: 0; min-height: 2.75rem; padding-inline: 0.55rem; font-size: 0.7rem; }
+.agent-runtime__hint, .agent-runtime__error, .agent-runtime__notice, .agent-runtime > small { margin: 0; font-size: 0.67rem; line-height: 1.4; }
+.agent-runtime__hint, .agent-runtime > small { color: var(--ink-500); }
+.agent-runtime__error { color: var(--status-negative); }
+.agent-runtime__notice { color: var(--status-positive, var(--ink-650)); }
+
+@media (min-width: 901px) {
+  .agent-runtime {
+    align-self: end;
+    min-height: 0;
+    max-height: min(36dvh, 23rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
+
+@media (max-width: 900px) {
+  .agent-runtime {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
+  .agent-runtime__placement, .agent-runtime__facts { grid-template-columns: repeat(2, minmax(8rem, 1fr)); }
+}
+
+@media (max-width: 480px) {
+  .agent-runtime__placement, .agent-runtime__facts { grid-template-columns: minmax(0, 1fr); }
+  .agent-runtime__actions { grid-template-columns: minmax(0, 1fr) auto; }
+  .agent-runtime__actions .button:last-child { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-runtime__context-meter > span { transition: none; }
+}

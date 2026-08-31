@@ -28,7 +28,7 @@ from ...application.analysis.session_model_ensemble import (
     ModelEnsembleSelectionError,
     SessionModelEnsembleRunRecord,
 )
-from ...domain import PSEUDONYM_PATTERN, Provider, StrictModel
+from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider, StrictModel
 from .model_ensemble_routes import ModelEnsembleRunDto
 from .session_provider_contracts import SessionProviderFailureResponse
 
@@ -61,6 +61,10 @@ class ModelEnsembleWatchDto(StrictModel):
     progress_total: Literal[10]
     has_result: bool
     last_error_code: str | None
+    # Older clients omitted this metadata. Unknown must not imply automatic
+    # retry; current records always provide the authoritative boolean/reason.
+    quarantined: bool | None = None
+    quarantine_reason_code: str | None = Field(default=None, pattern=SAFE_VERSION_PATTERN.pattern)
     next_check_at: datetime
     updated_at: datetime
     serial_model_execution: Literal[True] = True
@@ -68,6 +72,14 @@ class ModelEnsembleWatchDto(StrictModel):
     cuda_resource_retry_on_cpu: Literal[True] = True
     content_persisted: Literal[False] = False
     calibrated_as_truth: Literal[False] = False
+
+    @model_validator(mode="after")
+    def matching_quarantine(self) -> "ModelEnsembleWatchDto":
+        if (self.quarantined is True) != (self.quarantine_reason_code is not None):
+            raise ValueError("watch quarantine and reason must agree")
+        if self.quarantined is True and self.state not in {"failed", "disabled"}:
+            raise ValueError("only a stopped watch may be quarantined")
+        return self
 
     @classmethod
     def from_record(cls, record: ModelEnsembleWatchRecord) -> "ModelEnsembleWatchDto":
@@ -83,6 +95,8 @@ class ModelEnsembleWatchDto(StrictModel):
             progress_total=10,
             has_result=record.latest_run_id is not None,
             last_error_code=record.last_error_code,
+            quarantined=record.quarantined,
+            quarantine_reason_code=record.quarantine_reason_code,
             next_check_at=record.next_check_at,
             updated_at=record.updated_at,
         )

@@ -108,13 +108,14 @@ def test_agent_annotation_path_behind_allowance(tmp_path: Path, monkeypatch) -> 
 
     # Submit labels; stored as ordinary model judgments under agent:<name>.
     labels = {CALIBRATION_METRIC_KEYS[0]: "high", CALIBRATION_METRIC_KEYS[1]: "medium", CALIBRATION_METRIC_KEYS[2]: "cannot_judge"}
-    submitted = client.post("/v1/annotation/annotations", headers=headers, json={"session_id": session_id, "model_name": "codex-gpt", "window_fingerprint": fingerprint, "labels": labels})
+    submitted = client.post("/v1/annotation/annotations", headers=headers, json={"session_id": session_id, "model_name": "codex-gpt", "window_fingerprint": fingerprint, "case_fingerprint": window.json()["case_fingerprint"], "case_version": window.json()["case_version"], "labels": labels})
     assert submitted.status_code == 201, submitted.text
     assert submitted.json() == {"contract_version": "annotation.v1", "session_id": session_id, "model_alias": "agent:codex-gpt", "stored": 3}
     stored = application.database.model_judgment_repository().list(session_id=session_id, model_alias="agent:codex-gpt")
     assert len(stored) == 3 and all(j.model_identity == "codex-gpt" for j in stored)
     # Provenance: every judgment names the window the source actually sealed.
     assert {j.window_fingerprint for j in stored} == {fingerprint}
+    assert {j.case_fingerprint for j in stored} == {window.json()["case_fingerprint"]}
 
     # The annotated session leaves this agent's work list; unknown metric keys are rejected.
     again = client.get("/v1/annotation/work?model=codex-gpt", headers=headers).json()
