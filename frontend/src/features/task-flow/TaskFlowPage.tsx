@@ -132,7 +132,7 @@ export function TaskFlowPage({
 
   return (
     <section aria-labelledby="task-flow-title" className="task-flow">
-      <header className="page-header task-flow__header">
+      <header className="page-header route-header task-flow__header">
         <div>
           <p className="eyebrow">Evidence-honest task records</p>
           <h1 id="task-flow-title">Task flow</h1>

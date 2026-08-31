@@ -13,6 +13,22 @@ import { nextIdempotencyKey } from "../../shared/api/idempotency";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
 import { Icon } from "../../shared/ui/Icon";
 
+function TaskStateHeader({ state }: { state: "loading" | "error" }) {
+  return (
+    <header className="page-header route-header">
+      <div>
+        <p className="eyebrow">Reviewed task</p>
+        <h1 id="task-detail-title">Task analysis</h1>
+        <p>
+          {state === "loading"
+            ? "Loading the selected immutable task revision and its analysis evidence."
+            : "The selected task revision is unavailable; no task or analysis result is being inferred."}
+        </p>
+      </div>
+    </header>
+  );
+}
+
 export function TaskDetail({
   taskId,
   revision,
@@ -101,9 +117,15 @@ export function TaskDetail({
         <Icon name="chevron" /> Discovery inbox
       </button>
       {loading ? (
-        <LoadingState label="Loading task analysis" />
+        <>
+          <TaskStateHeader state="loading" />
+          <LoadingState label="Loading task analysis" />
+        </>
       ) : error ? (
-        <ErrorState message={error} onRetry={() => void load()} />
+        <>
+          <TaskStateHeader state="error" />
+          <ErrorState message={error} onRetry={() => void load()} />
+        </>
       ) : task ? (
         <>
           <TaskSummary task={task} />

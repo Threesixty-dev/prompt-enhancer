@@ -54,10 +54,10 @@ function safeRunError(error: unknown): string {
     return "This bounded window has no user-request and later agent-response pair to compare.";
   }
   if (reason === "redacted_content_consent_required") {
-    return "Redacted-text access is not active. Grant it in Local sources before running the experiment.";
+    return "Redacted-text access is not active. Grant it in Data sources before running the experiment.";
   }
   if (reason === "session_not_in_safe_index") {
-    return "This session is no longer in the safe index. Refresh Local sources and reopen it.";
+    return "This session is no longer in the safe index. Refresh Data sources and reopen it.";
   }
   if (reason === "provider_compatibility_blocked") {
     return "Installed-schema compatibility changed. Recheck compatibility before retrying.";
@@ -100,7 +100,7 @@ function capabilityBlocker(
   if (capability === null) return "Checking local redacted-text access.";
   if (!capability.available) {
     if (capability.reason_code === "redacted_content_consent_required") {
-      return "Grant redacted-text access in Local sources first.";
+      return "Grant redacted-text access in Data sources first.";
     }
     return "This local installation cannot run selected-session text experiments.";
   }

@@ -1,4 +1,4 @@
-.calibration { display: grid; gap: 18px; }
+.calibration { width: 100%; max-width: var(--route-content-max); display: grid; gap: var(--route-section-gap); margin-inline: auto; padding: var(--route-block-start) var(--route-inline) var(--route-block-end); }
 .calibration__head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: 18px 28px; align-items: start; padding: 4px 0 14px; border-bottom: 1px solid var(--line); }
 .calibration__head h1 { margin: 2px 0 6px; }
 .calibration__lede { margin: 0; color: var(--ink-650); font-size: 0.88rem; line-height: 1.55; max-width: 64ch; }

@@ -376,10 +376,10 @@ export function AnalysisJobCentre({
   if (runtimeMode === "synthetic_demo") {
     return (
       <section aria-labelledby="analysis-job-centre-title" className="analysis-job-centre">
-        <header className="analysis-job-centre__header">
+        <header className="analysis-job-centre__header route-header">
           <div>
             <p className="eyebrow">Synthetic demo · fictional fixtures only</p>
-            <h1 id="analysis-job-centre-title">Analysis Job Centre</h1>
+            <h1 id="analysis-job-centre-title">Analysis jobs</h1>
             <p>Durable execution is disabled in demo mode.</p>
           </div>
         </header>
@@ -397,10 +397,10 @@ export function AnalysisJobCentre({
   if (serviceState !== "available") {
     return (
       <section aria-labelledby="analysis-job-centre-title" className="analysis-job-centre">
-        <header className="analysis-job-centre__header">
+        <header className="analysis-job-centre__header route-header">
           <div>
             <p className="eyebrow">Local real · content-free queue</p>
-            <h1 id="analysis-job-centre-title">Analysis Job Centre</h1>
+            <h1 id="analysis-job-centre-title">Analysis jobs</h1>
           </div>
         </header>
         <div className="analysis-job-centre__boundary" role="status">
@@ -417,10 +417,10 @@ export function AnalysisJobCentre({
 
   return (
     <section aria-labelledby="analysis-job-centre-title" className="analysis-job-centre">
-      <header className="analysis-job-centre__header">
+      <header className="analysis-job-centre__header route-header">
         <div>
           <p className="eyebrow">Local real · SQLite queue · one local worker</p>
-          <h1 id="analysis-job-centre-title">Analysis Job Centre</h1>
+          <h1 id="analysis-job-centre-title">Analysis jobs</h1>
           <p>Inspect durable state, bounded retries, approval pauses, recovery, and cancellation without opening session text.</p>
         </div>
         <div className="analysis-job-centre__health" role="status">

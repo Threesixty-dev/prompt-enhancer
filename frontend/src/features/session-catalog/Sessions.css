@@ -1,4 +1,4 @@
-.sessions-page { padding: 28px clamp(16px, 3vw, 32px) 48px; }
+.sessions-page { width: 100%; max-width: var(--route-content-max); margin-inline: auto; padding: var(--route-block-start) var(--route-inline) var(--route-block-end); }
 .sessions-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 14px; }
 .sessions-search { flex: 1 1 260px; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-500); }
 .sessions-search svg { width: 16px; height: 16px; flex: none; }

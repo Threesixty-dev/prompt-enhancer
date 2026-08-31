@@ -91,10 +91,10 @@ describe("SessionsPage", () => {
     expect(durationLabel("bad", null)).toBe("Start unknown");
   });
 
-  it("shows an empty state that points at the Data source page", async () => {
+  it("shows an empty state that points at the Data sources page", async () => {
     render(<SessionsPage navigate={vi.fn()} runtimeMode="local_real" transport={transportWith([])} />);
     expect(await screen.findByText("No sessions captured yet")).toBeInTheDocument();
-    expect(screen.getByText(/Data source page/)).toBeInTheDocument();
+    expect(screen.getByText(/Data sources page/)).toBeInTheDocument();
   });
 
   it("keeps the partial-search warning visible with no matches and loads the next bounded page", async () => {
@@ -115,7 +115,7 @@ describe("SessionsPage", () => {
   it("does not point an empty synthetic preview at an unavailable source page", async () => {
     render(<SessionsPage navigate={vi.fn()} runtimeMode="synthetic_demo" transport={transportWith([])} />);
     expect(await screen.findByText(/This synthetic preview has no session fixtures/)).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Open Data source" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Data sources" })).not.toBeInTheDocument();
   });
 
   it("keeps contradictory duration unknown instead of reporting a zero-second session", () => {

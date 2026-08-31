@@ -44,7 +44,7 @@ describe("scoped analytics and task flow routes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Team analytics" }));
     expect(await screen.findByRole(
       "heading",
-      { level: 1, name: "Me · Team · Organization" },
+      { level: 1, name: "Team analytics" },
       { timeout: 5_000 },
     )).toBeVisible();
     expect(screen.getByLabelText("Current location").textContent).toContain("Scoped workspace");

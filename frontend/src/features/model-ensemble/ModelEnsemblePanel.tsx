@@ -57,10 +57,10 @@ function runErrorCopy(error: unknown): string {
   const reason = reasonOf(error);
   if (reason === MODEL_CLEANUP_UNCONFIRMED) return MODEL_CLEANUP_RECOVERY;
   if (reason === "redacted_content_consent_required") {
-    return "Grant redacted-text access in Local sources before running the ensemble.";
+    return "Grant redacted-text access in Data sources before running the ensemble.";
   }
   if (reason === "session_not_in_safe_index") {
-    return "This session is no longer in the safe index. Refresh Local sources first.";
+    return "This session is no longer in the safe index. Refresh Data sources first.";
   }
   if (reason === "provider_compatibility_blocked") {
     return "Installed Codex compatibility is not verified. Recheck it before running models.";
@@ -91,7 +91,7 @@ function blocker(
   if (capability === null) return "Checking local redacted-text access.";
   if (!capability.available) {
     return capability.reason_code === "redacted_content_consent_required"
-      ? "Grant redacted-text access in Local sources first."
+      ? "Grant redacted-text access in Data sources first."
       : "This installation cannot read the selected session through the bounded adapter.";
   }
   if (compatibilityLoading) return "Checking installed Codex compatibility.";

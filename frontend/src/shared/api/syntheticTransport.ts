@@ -794,34 +794,34 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       };
     },
     async grantClaudeLocalHistoryConsent() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async revokeClaudeLocalHistoryConsent() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async indexClaudeLocalSessions() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async grantCodexLocalHistoryConsent() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async revokeCodexLocalHistoryConsent() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async indexCodexLocalSessions() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async analyzeCodexLocalSessions() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async enrichCodexDisplayLabels() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async setManualDisplayLabel() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async clearManualDisplayLabel() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      throw new TransportError("Data sources are unavailable in synthetic preview", 404);
     },
     async listCodexSessions(limit = 100, offset = 0) {
       return {

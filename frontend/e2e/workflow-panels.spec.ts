@@ -427,7 +427,7 @@ for (const width of [360, 1440]) {
       await composer.fill("Reply about the fictional example only.");
       await page.getByRole("button", { name: "Send", exact: true }).click();
       await expect(page.getByText("Synthetic agent reply: no real files were read or changed.", { exact: true })).toBeVisible();
-      await page.getByText("Reasoning", { exact: true }).click();
+      await page.getByText("Model reasoning", { exact: true }).click();
       await expect(page.getByText("Synthetic reasoning: inspect the fictional request.", { exact: true })).toBeVisible();
       await fitsViewport(page);
       await page.getByRole("button", { name: "Stop model", exact: true }).click();
@@ -1138,13 +1138,15 @@ for (const width of [360, 1440]) {
         await expect(page.getByLabel("Agent activity status")).toContainText("Stopping response");
         await expect(page.getByLabel("Agent activity status")).toContainText("model stays loaded");
         await expect(page.getByText(/running · stopping current response/)).toBeVisible();
-        await expect(composer).toBeDisabled();
+        await expect(composer).toBeEnabled();
+        await expect(composer).toHaveAttribute("placeholder", "Keep writing the next message while this response stops…");
+        await composer.fill("Fictional next request drafted while stopping.");
         await fitsViewport(page);
         await page.getByRole("button", { name: "Finish cancelled example request", exact: true }).click();
         await expect(composer).toBeEnabled();
+        await expect(composer).toHaveValue("Fictional next request drafted while stopping.");
         await expect(page.getByLabel("Turn 2 details", { exact: true })).toContainText("Stopped");
         await expect(page.getByLabel("Turn 2 details", { exact: true })).toContainText("Usage not reported");
-        await composer.fill("Fictional next request after stopping.");
         await page.getByRole("button", { name: "Send", exact: true }).click();
         await expect(page.getByText("Synthetic agent reply: no real files were read or changed.", { exact: true })).toBeVisible();
         await expect(composer).toBeEnabled();

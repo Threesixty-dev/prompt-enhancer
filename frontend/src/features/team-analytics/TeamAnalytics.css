@@ -14,9 +14,12 @@
   --team-state-ink: var(--unknown-ink, var(--unknown-ink));
   --team-state-surface: var(--unknown-surface, var(--unknown-surface));
   min-width: 0;
+  width: 100%;
+  max-width: var(--route-content-max);
   display: grid;
-  gap: 18px;
-  padding: 34px clamp(18px, 3vw, 36px) 56px;
+  gap: var(--route-section-gap);
+  margin-inline: auto;
+  padding: var(--route-block-start) var(--route-inline) var(--route-block-end);
 }
 
 .team-analytics *,
@@ -404,7 +407,7 @@
   .team-analytics__lenses { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
-  .team-analytics { padding: 20px 14px 40px; }
+  .team-analytics { padding: var(--route-block-start) var(--route-inline) var(--route-block-end); }
   .scope-switcher__group { grid-template-columns: 1fr; }
   .team-analytics__not-served { grid-template-columns: 34px minmax(0, 1fr); }
   .team-analytics__not-served > .button { grid-column: 2; justify-self: start; }

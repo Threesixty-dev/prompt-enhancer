@@ -16,7 +16,7 @@ const PRIMARY_ROUTES = [
 ] as const satisfies readonly AppRoute[];
 
 const READY_HEADING: Record<(typeof PRIMARY_ROUTES)[number]["name"], string> = {
-  overview: "Everything the app did on its own",
+  overview: "Overview",
   projects: "Projects",
   sessions: "Sessions",
   agent: "Agent workspace",
@@ -28,9 +28,9 @@ const SECONDARY_ROUTES = [
   { route: { name: "task_flow" }, ready: "Task flow" },
   { route: { name: "prompt_checks" }, ready: "Check a prompt" },
   { route: { name: "calibration" }, ready: "Rate sessions" },
-  { route: { name: "analysis_jobs" }, ready: "Analysis Job Centre" },
-  { route: { name: "research" }, ready: "Build useful metrics, then earn trust" },
-  { route: { name: "team" }, ready: "Me · Team · Organization" },
+  { route: { name: "analysis_jobs" }, ready: "Analysis jobs" },
+  { route: { name: "research" }, ready: "Methods & models" },
+  { route: { name: "team" }, ready: "Team analytics" },
   { route: { name: "social" }, ready: "Social hub" },
 ] as const satisfies readonly { route: AppRoute; ready: string }[];
 
@@ -38,8 +38,8 @@ const LOCAL_REAL_REGRESSION_ROUTES = [
   { route: { name: "agent" }, ready: "Agent workspace" },
   { route: { name: "models" }, ready: "Models" },
   { route: { name: "prompt_checks" }, ready: "Check a prompt" },
-  { route: { name: "analysis_jobs" }, ready: "Analysis Job Centre" },
-  { route: { name: "local_sources" }, ready: "Local sources" },
+  { route: { name: "analysis_jobs" }, ready: "Analysis jobs" },
+  { route: { name: "local_sources" }, ready: "Data sources" },
 ] as const satisfies readonly { route: AppRoute; ready: string }[];
 
 function fixedPlatform(route: AppRoute): PlatformAdapter {
@@ -112,7 +112,7 @@ describe("route-level control explanations", () => {
     15_000,
   );
 
-  it("keeps the synthetic Data source gate actionable without a disabled dead end", async () => {
+  it("keeps the synthetic Data sources gate actionable without a disabled dead end", async () => {
     const route = { name: "local_sources" } as const;
     render(
       <App
@@ -121,7 +121,7 @@ describe("route-level control explanations", () => {
       />,
     );
 
-    await screen.findByText("Local sources are disabled in synthetic preview");
+    await screen.findByText("Data sources are disabled in synthetic preview");
     const main = document.getElementById("main-content");
     expect(main).not.toBeNull();
     expect(auditControlSurface(main as HTMLElement)).toEqual([]);

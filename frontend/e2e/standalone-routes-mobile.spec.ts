@@ -10,7 +10,7 @@ type StandaloneRoute = {
 
 const ROUTES: readonly StandaloneRoute[] = [
   {
-    heading: "Everything the app did on its own",
+    heading: "Overview",
     navName: "Overview",
     path: "/overview",
     routeTitle: "Overview",
@@ -98,7 +98,7 @@ for (const route of ROUTES) {
 
 test("mobile primary navigation remains keyboard-visible and usable", async ({ page }) => {
   await page.goto("/overview");
-  await expect(page.getByRole("heading", { level: 1, name: "Everything the app did on its own" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
 
   const skipLink = page.getByRole("link", { name: "Skip to main content" });
   await resetFocusToDocument(page);
@@ -141,7 +141,7 @@ test("mobile primary navigation remains keyboard-visible and usable", async ({ p
 test("click and browser-history route changes update exact title and main focus", async ({ page }) => {
   await page.goto("/overview");
   const main = page.locator("#main-content");
-  await expect(page.getByRole("heading", { level: 1, name: "Everything the app did on its own" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   await expect(page).toHaveTitle("Overview · Prompt Enhancer");
   await expect(main).not.toBeFocused();
 
@@ -162,7 +162,7 @@ test("click and browser-history route changes update exact title and main focus"
   await expect(historyDialog).toHaveCount(0);
   await expect(page).toHaveURL(/\/overview$/);
   await expect(page).toHaveTitle("Overview · Prompt Enhancer");
-  await expect(page.getByRole("heading", { level: 1, name: "Everything the app did on its own" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   await expect(main).toBeFocused();
 });
 

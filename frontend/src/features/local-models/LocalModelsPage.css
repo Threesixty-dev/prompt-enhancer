@@ -1,4 +1,4 @@
-.local-models { display: grid; gap: 18px; }
+.local-models { width: 100%; max-width: var(--route-content-max); display: grid; gap: var(--route-section-gap); margin-inline: auto; padding: var(--route-block-start) var(--route-inline) var(--route-block-end); }
 .local-models__head h1 { margin: 2px 0 6px; }
 .local-models__lede { margin: 0; color: var(--ink-650); font-size: 0.88rem; line-height: 1.55; max-width: 66ch; }
 .local-models__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }

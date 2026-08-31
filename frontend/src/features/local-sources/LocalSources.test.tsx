@@ -286,7 +286,7 @@ describe("LocalSources", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("could not be loaded");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { name: "Local sources" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Data sources" })).toBeVisible();
     expect(transport.getCodexLocalSourceStatus).toHaveBeenCalledTimes(2);
     expect(errorLog).not.toHaveBeenCalled();
     errorLog.mockRestore();

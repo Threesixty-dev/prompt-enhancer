@@ -262,7 +262,7 @@ function operationFailure(caught: unknown, label: string): string {
 
 function LocalModelsHeader() {
   return (
-    <header className="local-models__head">
+    <header className="local-models__head route-header">
       <div>
         <p className="eyebrow">Local models · on this machine only</p>
         <h1 id="local-models-title">Models</h1>

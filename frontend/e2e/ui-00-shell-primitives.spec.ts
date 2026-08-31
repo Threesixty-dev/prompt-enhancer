@@ -54,7 +54,7 @@ for (const viewport of VIEWPORTS) {
     await expect(page).toHaveTitle("Overview · Prompt Enhancer");
     await expect(page.locator("#main-content").getByRole("heading", {
       level: 1,
-      name: "Everything the app did on its own",
+      name: "Overview",
     })).toBeVisible();
     await assertSyntheticShell(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

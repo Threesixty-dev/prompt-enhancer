@@ -267,7 +267,7 @@ function analysisCapabilityCopy(
     return "This running app does not expose bounded text analysis. Restart after updating the local backend.";
   }
   if (capability.reason_code === "redacted_content_consent_required") {
-    return "Redacted-text consent is not active. Open Local sources and grant access before analyzing.";
+    return "Redacted-text consent is not active. Open Data sources and grant access before analyzing.";
   }
   if (capability.reason_code === "consent_status_invalid") {
     return "Consent status could not be verified, so local analysis stays disabled.";

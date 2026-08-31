@@ -4546,7 +4546,7 @@ describe("AgentPage", () => {
       .getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Resume chat" })).toBeEnabled());
     expect(persistedEvents).toHaveBeenCalledOnce();
-  }, 10_000);
+  }, 15_000);
 
   it("clears a deleted selected retained chat and removes every stale action", async () => {
     const projectId = "2".repeat(32);

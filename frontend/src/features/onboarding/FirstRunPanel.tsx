@@ -351,7 +351,7 @@ export function FirstRunPanel({
         <button className="button button--ghost" disabled={busy} onClick={dismiss} type="button">Not now</button>
       </div>
       <p className="first-run__note">
-        This grants local-history access for the sources above. Nothing is sent anywhere; you can revoke it on the Data source page at any time.
+        This grants local-history access for the sources above. Nothing is sent anywhere; you can revoke it on the Data sources page at any time.
       </p>
     </section>
   );

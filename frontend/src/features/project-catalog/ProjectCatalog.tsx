@@ -413,7 +413,7 @@ export function ProjectCatalog({
 
   return (
     <section className="project-catalog" aria-labelledby="project-catalog-title">
-      <header className="project-catalog__header">
+      <header className="project-catalog__header route-header">
         <div>
           <p className="eyebrow">Fast analysis loops</p>
           <h1 id="project-catalog-title">Projects</h1>
@@ -498,7 +498,7 @@ export function ProjectCatalog({
           <p>
             {query.trim()
               ? "Try a different local label."
-              : "Use Local sources to run a bounded, content-discarding index first."}
+              : "Use Data sources to run a bounded, content-discarding index first."}
           </p>
         </div>
       ) : (

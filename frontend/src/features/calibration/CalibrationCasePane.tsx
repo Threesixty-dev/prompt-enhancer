@@ -32,7 +32,7 @@ function reviewFailure(error: unknown): string {
     return "Case review is off. Start the local server with PROMPT_ENHANCER_SESSION_READER=enabled before reviewing and saving ratings.";
   }
   if (error instanceof TransportError && error.reasonCode === "calibration_review_consent_required") {
-    return "Redacted-content consent is required for this provider. Review its permission on the Data source page.";
+    return "Redacted-content consent is required for this provider. Review its permission on the Data sources page.";
   }
   return "The reviewed case could not be verified. No rating will be saved against unknown evidence.";
 }

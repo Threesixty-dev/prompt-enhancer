@@ -539,12 +539,12 @@ export function ResearchLab({ transport }: { transport: PromptEnhancerTransport 
 
   return (
     <section className="research-lab">
-      <header className="research-hero">
+      <header className="research-hero route-header">
         <div>
           <p className="eyebrow">Analysis methods · catalog v{catalog.catalog_version}</p>
-          <h1 tabIndex={-1}>Build useful metrics, then earn trust</h1>
+          <h1 tabIndex={-1}>Methods &amp; models</h1>
           <p>
-            A concrete roadmap for measuring prompts, collaboration, observable logic,
+            Build useful metrics, then earn trust. Explore a concrete roadmap for measuring prompts, collaboration, observable logic,
             agent answers and verified outcomes—without pretending they are intelligence.
           </p>
         </div>

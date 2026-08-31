@@ -29,8 +29,8 @@ control on that screen has completed the control-contract audit.
 | Prompt check | `/prompt-checks`, `/prompt-checks/{check}`, `/prompt-checks/for/{session}` | Prompt check | Shell | All three shapes shell green; controls active |
 | Calibration | `/calibration` | Calibration | Shell | Shell green; controls active |
 | Models | `/models` | Models | Shell | Shell green; controls active |
-| Data source | `/local-sources` | Data source in local-real mode | Shell | Shell green; mode gate preserved; controls active |
-| Job centre | `/analysis-jobs` | Job centre | Shell | Shell green; controls active |
+| Data sources | `/local-sources` | Data sources in local-real mode | Shell | Shell green; mode gate preserved; controls active |
+| Analysis jobs | `/analysis-jobs` | Analysis jobs | Shell | Shell green; controls active |
 | Methods & models | `/research/methods` | Methods & models | Shell | Shell green; controls active |
 | Team analytics | `/team` | Team analytics | Shell | Shell green; controls active |
 | Social hub | `/social` | Social | Shell | Shell green; controls active |
@@ -59,7 +59,7 @@ accepts only allowlisted lowercase pseudonyms and metric categories.
 
 1. primary work: Agent, Models, Projects/Sessions and workspace controls;
 2. review work: Discovery, Reviewed task, Task flow, Prompt check, Calibration;
-3. system work: Data source, Job centre and Methods & models;
+3. system work: Data sources, Analysis jobs and Methods & models;
 4. collaboration: Team and Social fail-closed controls;
 5. child windows and every loading/empty/error/retry variant.
 
@@ -67,7 +67,7 @@ All five groups now share the rendered disabled-reason/name audit and the
 TypeScript source contract for wired native controls. Focused state-recovery
 packs are green; see [the state recovery ledger](sweep-01a-state-recovery-ledger.md).
 Complete regressions and the rebuilt live-browser pass are green. The local-real
-audit now covers Agent, Models, Prompt Check, Job Centre and Data Source
+audit now covers Agent, Models, Prompt Check, Analysis jobs and Data sources
 prerequisite states in addition to the exhaustive synthetic direct-route
 traversal. See the [checkpoint handoff](checkpoint-sweep-01a-handoff.md) for the
 exact gate and process receipts.

@@ -182,7 +182,7 @@ export function SessionsPage({
 
   return (
     <section className="sessions-page" aria-labelledby="sessions-title">
-      <header className="page-header">
+      <header className="page-header route-header">
         <div>
           <p className="eyebrow">Personal workspace</p>
           <h1 id="sessions-title">Sessions</h1>
@@ -244,11 +244,11 @@ export function SessionsPage({
           <p>
             {rows.length === 0
               ? runtimeMode === "local_real"
-                ? "Grant a source on the Data source page and index it; sessions appear here with their project and title."
+                ? "Grant a source on the Data sources page and index it; sessions appear here with their project and title."
                 : "This synthetic preview has no session fixtures to show. Local-source access is available only in the local application."
               : complete ? "Try a different search or source filter." : "No matches in the loaded batch. Load more sessions or change the search or source filter."}
           </p>
-          {rows.length === 0 && runtimeMode === "local_real" && <button className="button button--ghost" onClick={() => navigate({ name: "local_sources" })} type="button">Open Data source</button>}
+          {rows.length === 0 && runtimeMode === "local_real" && <button className="button button--ghost" onClick={() => navigate({ name: "local_sources" })} type="button">Open Data sources</button>}
         </div>
       ) : (
         <>

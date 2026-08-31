@@ -195,10 +195,10 @@ export function OverviewPage({
 
   return (
     <section aria-labelledby="overview-title" className="overview">
-      <header className="overview__head">
+      <header className="overview__head route-header">
         <div>
           <p className="eyebrow">Overview · this machine, today</p>
-          <h1 id="overview-title">Everything the app did on its own</h1>
+          <h1 id="overview-title">Overview</h1>
           <p className="overview__lede">
             A snapshot of indexed sessions, local models, calibration and prompt checks. Automatic work depends on your enabled sources and settings;
             nothing here is a score of a person, and unknown stays unknown. Each tile opens the page that owns it.

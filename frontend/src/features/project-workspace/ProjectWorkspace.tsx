@@ -1243,7 +1243,7 @@ export function ProjectWorkspace({
           />
         </div>
       </div>
-      <header className="project-workspace__header">
+      <header className="project-workspace__header route-header route-header--workspace">
         <span
           aria-hidden="true"
           className="project-workspace__masthead-sentinel"

@@ -77,7 +77,7 @@ describe("App discovery navigation", () => {
     );
 
     const recovery = screen.getByRole("region", { name: "Page not found" });
-    expect(within(recovery).getByText("Page not found", { selector: "strong" })).toBeVisible();
+    expect(within(recovery).getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
     expect(within(recovery).getByText(/invalid path is not retained or displayed/i)).toBeVisible();
     expect(document.title).toBe("Page not found · Prompt Enhancer");
     expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
@@ -94,7 +94,7 @@ describe("App discovery navigation", () => {
     const platform = createBrowserPlatform(window);
     const view = render(<App runtime={syntheticRuntime()} platform={platform} />);
 
-    expect(await screen.findByRole("heading", { level: 1, name: "Everything the app did on its own" })).toBeVisible();
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
     expect(document.title).toBe("Overview · Prompt Enhancer");
     expect(screen.getByRole("button", { name: "Overview", current: "page" })).toBeVisible();
 
@@ -374,7 +374,7 @@ describe("App discovery navigation", () => {
       />,
     );
     expect(
-      screen.queryByRole("button", { name: "Data source" }),
+      screen.queryByRole("button", { name: "Data sources" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Projects" })).toBeVisible();
     unmount();
@@ -387,7 +387,7 @@ describe("App discovery navigation", () => {
       />,
     );
     expect(
-      screen.getByRole("button", { name: "Data source" }),
+      screen.getByRole("button", { name: "Data sources" }),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "Projects" })).toBeVisible();
     expect(
@@ -409,7 +409,7 @@ describe("App discovery navigation", () => {
     expect(fallback).toHaveAttribute("aria-live", "polite");
     expect(screen.getByLabelText("Current location")).toHaveTextContent("Methods & models");
     expect(
-      await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" }),
+      await screen.findByRole("heading", { name: "Methods & models" }),
     ).toBeVisible();
   });
 
@@ -506,9 +506,9 @@ describe("App discovery navigation", () => {
     );
 
     expect(
-      screen.getByText("Local sources are disabled in synthetic preview"),
+      screen.getByText("Data sources are disabled in synthetic preview"),
     ).toBeVisible();
-    const closedState = screen.getByText("Local sources are disabled in synthetic preview")
+    const closedState = screen.getByText("Data sources are disabled in synthetic preview")
       .closest(".ui-empty-state");
     expect(closedState).toHaveAttribute("data-tone", "closed");
     expect(closedState).toHaveAttribute("role", "status");
@@ -525,7 +525,7 @@ describe("App discovery navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Methods & models" }));
     expect(
-      await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" }),
+      await screen.findByRole("heading", { name: "Methods & models" }),
     ).toBeVisible();
   });
 
@@ -539,8 +539,8 @@ describe("App discovery navigation", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Job centre" }));
-    expect(await screen.findByRole("heading", { name: "Analysis Job Centre" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Analysis jobs" }));
+    expect(await screen.findByRole("heading", { name: "Analysis jobs" })).toBeVisible();
     expect(screen.getByText("No jobs ran")).toBeVisible();
     expect(listJobs).not.toHaveBeenCalled();
   });

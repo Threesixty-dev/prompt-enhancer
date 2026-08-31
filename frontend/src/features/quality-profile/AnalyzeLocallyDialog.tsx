@@ -101,10 +101,10 @@ function reasonCodeOf(error: unknown): string | null {
 function safeError(error: unknown): string {
   const reasonCode = reasonCodeOf(error);
   if (reasonCode === "redacted_content_consent_required") {
-    return "Redacted-text access is not granted. Open Local sources, grant access, then prepare a fresh preview.";
+    return "Redacted-text access is not granted. Open Data sources, grant access, then prepare a fresh preview.";
   }
   if (reasonCode === "session_not_in_safe_index") {
-    return "This session is no longer in the bounded safe index. Refresh Local sources, then reopen the session.";
+    return "This session is no longer in the bounded safe index. Refresh Data sources, then reopen the session.";
   }
   if (reasonCode === "analysis_idempotency_conflict") {
     return "The one-shot request conflicts with an earlier local run. Refresh this session before preparing another preview.";

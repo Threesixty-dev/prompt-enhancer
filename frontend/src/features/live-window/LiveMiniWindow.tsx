@@ -168,7 +168,7 @@ export function LiveMiniWindow({
 
   return (
     <section aria-labelledby="live-window-title" className="live-window" data-kind={sessionId ? "session" : "project"}>
-      <header className="live-window__head">
+      <header className="live-window__head route-header route-header--window">
         <div className="live-window__title">
           <p className="eyebrow">Live · {sessionId ? "session" : "project"}</p>
           <h1 id="live-window-title">{title}</h1>

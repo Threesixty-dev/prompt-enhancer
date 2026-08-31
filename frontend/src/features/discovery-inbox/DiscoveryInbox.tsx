@@ -153,7 +153,7 @@ export function DiscoveryInbox({
 
   return (
     <div className="discovery-page">
-      <header className="page-header">
+      <header className="page-header route-header">
         <div>
           <p className="eyebrow">Task discovery</p>
           <h1>Discovery inbox</h1>

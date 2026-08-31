@@ -120,7 +120,7 @@ describe("ResearchLab", () => {
 
     render(<ResearchLab transport={transport} />);
 
-    expect(await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Methods & models" })).toBeVisible();
     expect(screen.getByText("One profile, not one developer score")).toBeVisible();
     expect(screen.getByText("Task definition")).toBeVisible();
     expect(screen.getByText("Clarification value")).toBeVisible();
@@ -141,7 +141,7 @@ describe("ResearchLab", () => {
     const compatibilitySpy = vi.spyOn(transport, "getTextModelCompatibility");
     const sessionSpy = vi.spyOn(transport, "listCodexSessions");
     render(<ResearchLab transport={transport} />);
-    await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
+    await screen.findByRole("heading", { name: "Methods & models" });
 
     fireEvent.click(screen.getByRole("tab", { name: "Method stack" }));
     expect(screen.getByRole("heading", { name: "Multilingual semantic retrieval" })).toBeVisible();
@@ -188,7 +188,7 @@ describe("ResearchLab", () => {
     const transport = createSyntheticTransport();
     const inventorySpy = vi.spyOn(transport, "getModelLabInventory");
     render(<ResearchLab transport={transport} />);
-    await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
+    await screen.findByRole("heading", { name: "Methods & models" });
 
     const tablist = screen.getByRole("tablist", { name: "Research catalog view" });
     const metricTab = screen.getByRole("tab", { name: "Metric roadmap" });
@@ -257,7 +257,7 @@ describe("ResearchLab", () => {
     transport.startTextModelEvaluation = vi.fn(async () => missingCacheJob);
 
     render(<ResearchLab transport={transport} />);
-    await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
+    await screen.findByRole("heading", { name: "Methods & models" });
     fireEvent.click(screen.getByRole("tab", { name: "Model candidates" }));
     fireEvent.click(await screen.findByRole("button", { name: "Test cached session models" }));
 
@@ -331,7 +331,7 @@ describe("ResearchLab", () => {
     });
 
     render(<ResearchLab transport={transport} />);
-    await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
+    await screen.findByRole("heading", { name: "Methods & models" });
     fireEvent.click(screen.getByRole("tab", { name: "Model candidates" }));
 
     expect((await screen.findAllByText(expected)).length).toBeGreaterThan(0);
@@ -346,7 +346,7 @@ describe("ResearchLab", () => {
     );
 
     render(<ResearchLab transport={transport} />);
-    await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
+    await screen.findByRole("heading", { name: "Methods & models" });
     fireEvent.click(screen.getByRole("tab", { name: "Model candidates" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -362,7 +362,7 @@ describe("ResearchLab", () => {
     );
 
     render(<ResearchLab transport={transport} />);
-    await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
+    await screen.findByRole("heading", { name: "Methods & models" });
     fireEvent.click(screen.getByRole("tab", { name: "Model candidates" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -383,7 +383,7 @@ describe("ResearchLab", () => {
     });
 
     const rendered = render(<ResearchLab transport={transport} />);
-    await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
+    await screen.findByRole("heading", { name: "Methods & models" });
     fireEvent.click(screen.getByRole("tab", { name: "Model candidates" }));
     expect(await screen.findByRole("heading", { name: "Model compatibility" })).toBeVisible();
     expect(observedSignal?.aborted).toBe(false);

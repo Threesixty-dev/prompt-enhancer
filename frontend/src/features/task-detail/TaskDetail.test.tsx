@@ -22,6 +22,36 @@ function deferred<T>() {
 }
 
 describe("TaskDetail analysis lifecycle", () => {
+  it("keeps one semantic route heading while a task revision loads or fails", async () => {
+    const pending = deferred<TaskRevisionResponse>();
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getTaskRevision: vi.fn(() => pending.promise),
+      listAnalysisRuns: vi.fn(async () => ({ runs: [], limit: 100, offset: 0 })),
+    };
+    render(
+      <TaskDetail
+        navigate={vi.fn()}
+        revision={1}
+        taskId={"c".repeat(64)}
+        transport={transport}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { level: 1, name: "Task analysis" })).toBeVisible();
+    expect(screen.getByText("Loading the selected immutable task revision and its analysis evidence.")).toBeVisible();
+
+    await act(async () => {
+      pending.reject(new Error("example-private-diagnostic"));
+      await pending.promise.catch(() => undefined);
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Task detail could not be loaded");
+    expect(screen.getByRole("heading", { level: 1, name: "Task analysis" })).toBeVisible();
+    expect(screen.getByText(/no task or analysis result is being inferred/i)).toBeVisible();
+    expect(screen.queryByText(/example-private-diagnostic/)).not.toBeInTheDocument();
+  });
+
   it("keeps the task and previous results available when an analysis request fails", async () => {
     const startAnalysis = vi.fn().mockRejectedValue(new Error("example-diagnostic-must-stay-hidden"));
     const transport = { ...createSyntheticTransport(), startAnalysis };

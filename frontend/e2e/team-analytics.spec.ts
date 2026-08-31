@@ -46,7 +46,7 @@ test.describe("team analytics scopes", () => {
   test("renders permission-aware scopes, honest readiness, and an aggregate-only table", async ({ page }) => {
     await installClsObserver(page);
     await page.goto("/team");
-    await expect(page.getByRole("heading", { name: "Me · Team · Organization" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Team analytics" })).toBeVisible();
     const scopes = page.getByRole("group", { name: "Analytics scope" });
     await expect(scopes.getByRole("button", { name: /^Team/ })).toHaveAttribute("aria-pressed", "true");
     await expect(scopes.getByRole("button", { name: /^Organization/ })).toHaveAttribute("aria-disabled", "true");

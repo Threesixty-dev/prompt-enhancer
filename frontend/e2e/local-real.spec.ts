@@ -1737,7 +1737,7 @@ test("keeps local job state truthful and responsive", async ({ page }) => {
   await page.setViewportSize({ width: 600, height: 820 });
   await page.goto("/analysis-jobs");
 
-  await expect(page.getByRole("heading", { name: "Analysis Job Centre" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Analysis jobs" })).toBeVisible();
   await expect(
     page.getByText("No durable jobs match this filter. Missing jobs are not treated as completed work."),
   ).toBeVisible();

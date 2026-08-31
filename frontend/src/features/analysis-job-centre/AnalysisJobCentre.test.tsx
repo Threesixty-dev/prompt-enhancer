@@ -169,7 +169,7 @@ describe("AnalysisJobCentre", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Analysis Job Centre" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Analysis jobs" })).toBeVisible();
     expect(screen.getByText("No jobs ran")).toBeVisible();
     expect(screen.getByText(/does not invent queue history/i)).toBeVisible();
     expect(listAnalysisJobs).not.toHaveBeenCalled();

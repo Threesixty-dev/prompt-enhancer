@@ -86,20 +86,20 @@ export const READINESS_STATE_LABELS: Readonly<Record<ReadinessState, string>> = 
 export const READINESS_REASON_COPY: Readonly<Record<ReadinessReason, string>> = {
   synthetic_fixture: "Fictional in-memory fixtures are loaded. No local source, provider history, or account is read in this preview.",
   loopback_service_checking: "The loopback service health check has not answered yet.",
-  loopback_service_available: "The loopback service answered its health check. Source consent and indexing stay separate explicit actions in Data source.",
+  loopback_service_available: "The loopback service answered its health check. Source consent and indexing stay separate explicit actions in Data sources.",
   loopback_service_unavailable: "The loopback service did not answer. Personal analytics stay local and nothing is sent anywhere.",
   no_team_sync_service_in_this_build: "No team sync service exists in this build. Nothing is uploaded, no cohort is joined, and no account is signed in.",
   development_control_plane_incomplete: "The default-off loopback development boundary answered, but it reports blocking identity, producer, disclosure, durability, and governance gaps. No team value is published.",
   team_sync_not_configured: "A team control plane exists but is not configured for this installation.",
   deep_analysis_not_in_synthetic_preview: "Local model lanes are not part of the synthetic preview; the deep-analysis pipeline runs only in the local loopback build.",
-  deep_analysis_not_verified_by_this_view: "Local model lanes are configured in Methods & models and observed in the Job centre; this view does not verify installed models or hardware.",
+  deep_analysis_not_verified_by_this_view: "Local model lanes are configured in Methods & models and observed in Analysis jobs; this view does not verify installed models or hardware.",
   no_billing_service_in_this_build: "No billing, plan, or entitlement service exists in this build. Nothing is metered or charged.",
 };
 
 export const READINESS_ACTION_LABELS: Readonly<Record<ReadinessActionKind, string | null>> = {
   none: null,
-  open_local_sources: "Open Data source",
-  open_job_centre: "Open Job centre",
+  open_local_sources: "Open Data sources",
+  open_job_centre: "Open Analysis jobs",
   open_methods_and_models: "Open Methods & models",
 };
 

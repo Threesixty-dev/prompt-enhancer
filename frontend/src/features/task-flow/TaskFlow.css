@@ -11,9 +11,12 @@
   --flow-confirmed: var(--teal-700, var(--teal-700));
   --flow-confirmed-soft: var(--teal-50, var(--teal-50));
   min-width: 0;
+  width: 100%;
+  max-width: var(--route-content-max);
   display: grid;
-  gap: 18px;
-  padding: 34px clamp(18px, 3vw, 36px) 56px;
+  gap: var(--route-section-gap);
+  margin-inline: auto;
+  padding: var(--route-block-start) var(--route-inline) var(--route-block-end);
 }
 .task-flow *,
 .task-flow *::before,
@@ -283,7 +286,7 @@
 .task-flow-timeline__empty { padding: 8px 13px 13px; }
 
 @media (max-width: 600px) {
-  .task-flow { padding: 20px 14px 40px; }
+  .task-flow { padding: var(--route-block-start) var(--route-inline) var(--route-block-end); }
   .task-flow-board__grid { grid-template-columns: 1fr; }
   .task-flow-summary dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .task-flow-summary > header,

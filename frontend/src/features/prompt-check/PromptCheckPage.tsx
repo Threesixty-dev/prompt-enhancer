@@ -205,8 +205,13 @@ export function PromptCheckPage({
   if (historyState === "unavailable") {
     return (
       <section aria-labelledby="prompt-check-title" className="prompt-check">
-        <h1 id="prompt-check-title">Check a prompt</h1>
-        <p className="prompt-check__note">Prompt checks are not available in this runtime.</p>
+        <header className="prompt-check__head route-header">
+          <div>
+            <p className="eyebrow">Prompt check</p>
+            <h1 id="prompt-check-title">Check a prompt</h1>
+            <p className="prompt-check__note">Prompt checks are not available in this runtime.</p>
+          </div>
+        </header>
         <p className="prompt-check__note">Open the local application with the prompt-check service enabled. A local model is optional for commentary; deterministic cues do not require one.</p>
         <button className="button button--ghost" onClick={() => navigate({ name: "overview" })} type="button">Back to overview</button>
       </section>
@@ -215,7 +220,7 @@ export function PromptCheckPage({
 
   return (
     <section aria-labelledby="prompt-check-title" className="prompt-check">
-      <header className="prompt-check__head">
+      <header className="prompt-check__head route-header">
         <div>
           <p className="eyebrow">Prompt check · before you send it</p>
           <h1 id="prompt-check-title">Check a prompt</h1>

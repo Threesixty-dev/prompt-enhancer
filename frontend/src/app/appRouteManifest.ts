@@ -40,7 +40,7 @@ export const APP_ROUTE_MANIFEST = {
   },
   local_sources: {
     navigationKey: "local-sources",
-    title: "Data source",
+    title: "Data sources",
     titleOwner: "shell",
     trail: "Personal workspace",
   },

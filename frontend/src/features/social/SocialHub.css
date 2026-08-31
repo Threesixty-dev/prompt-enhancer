@@ -4,7 +4,7 @@
  * summary strip, empty states, and offer cards reserve height so async loads
  * and simulated transfers never shift the layout.
  */
-.social-hub { min-width: 0; padding: 34px clamp(18px, 3vw, 36px) 56px; }
+.social-hub { width: 100%; max-width: var(--route-content-max); min-width: 0; margin-inline: auto; padding: var(--route-block-start) var(--route-inline) var(--route-block-end); }
 .social-hub__header > div:first-child { max-width: 760px; }
 .social-hub__summary { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; margin: 16px 0 14px; }
 .social-hub__summary .status-pill { text-transform: none; }
@@ -158,7 +158,7 @@ button.social-list__row[aria-current="true"] { border-color: var(--p-bfdfd8); ba
   .social-hub__details { grid-column: 1 / -1; }
 }
 @media (max-width: 860px) {
-  .social-hub { padding: 22px 16px 40px; }
+  .social-hub { padding: var(--route-block-start) var(--route-inline) var(--route-block-end); }
   .social-hub__layout { grid-template-columns: 1fr; }
   .social-rail, .social-conversation { min-height: 0; }
   .social-offer-form__grid { grid-template-columns: 1fr; }

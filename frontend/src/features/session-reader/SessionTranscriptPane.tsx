@@ -127,7 +127,7 @@ export function SessionTranscriptPane({
           Reading is switched off. Start the local server with <code>PROMPT_ENHANCER_SESSION_READER=enabled</code> to read your own sessions here.
         </p>
       )}
-      {state === "consent" && <p className="session-reader__state" role="alert">Grant this source&apos;s local-history access on the Data source page first.</p>}
+      {state === "consent" && <p className="session-reader__state" role="alert">Grant this source&apos;s local-history access on the Data sources page first.</p>}
       {state === "missing" && <p className="session-reader__state" role="alert">The provider no longer has this session, or its transcript is not on this machine.</p>}
       {state === "error" && <p className="session-reader__state" role="alert">The session could not be read. Nothing was stored.</p>}
 

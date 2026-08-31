@@ -467,10 +467,10 @@ export function LocalSources({
 
   return (
     <section className="local-sources-page">
-      <header className="page-header">
+      <header className="page-header route-header">
         <div>
           <p className="eyebrow">Private local workflow</p>
-          <h1>Local sources</h1>
+          <h1>Data sources</h1>
           <p>Choose exactly which Codex projects or sessions receive local indexing and operational-event analysis, and whether Claude Code sessions are captured through hooks.</p>
         </div>
         <div className="page-header__meta">

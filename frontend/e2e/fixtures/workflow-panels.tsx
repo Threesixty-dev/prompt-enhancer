@@ -14,7 +14,7 @@ import { exampleCalibrationReview } from "../../src/features/calibration/calibra
 import { ModelJobStatusFixture } from "./model-job-status";
 import "../../src/features/calibration/CalibrationPage.css";
 import type {
-  AgentArtifact, AgentArtifactCapturePreview, AgentArtifactDetail, AgentArtifactExport, AgentAttachment, AgentCatalogSession, AgentEvent, AgentHardeningSnapshot, AgentHistoryExport, AgentMcpClientSetup, AgentMcpConnectionList, AgentMessageAttachment, AgentProject, AgentSessionContextStatus, AgentSessionForkReceipt, AgentSessionView, AgentWorkspaceFile, LocalModelCompatibilityCatalog, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, McpRegistryCatalog, McpRegistryServerReview, SessionTimeline,
+  AgentArtifact, AgentArtifactCapturePreview, AgentArtifactDetail, AgentArtifactExport, AgentAttachment, AgentCatalogSession, AgentEvent, AgentHardeningSnapshot, AgentHistoryExport, AgentMcpClientSetup, AgentMcpConnectionList, AgentMessageAttachment, AgentProject, AgentSessionContextStatus, AgentSessionForkReceipt, AgentSessionView, AgentWorkspaceFile, LocalModelCompatibilityCatalog, LocalModelPlacementAdmission, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, McpRegistryCatalog, McpRegistryServerReview, SessionTimeline,
   PeerLink, PromptCheckRecord, PromptCheckResult, PromptEnhancerTransport, SessionJudgments, SharedFolder, CalibrationReview,
 } from "../../src/shared/api/contracts";
 import { TransportError } from "../../src/shared/api/httpTransport";
@@ -563,6 +563,21 @@ function artifactLineageExport(
     sensitivity: "sensitive_local_metadata",
   };
 }
+function placementAdmission(alias: string, contextSize: number): LocalModelPlacementAdmission {
+  return {
+    contract_version: "local-model-placement.v1",
+    alias,
+    context_size: contextSize,
+    gpu_memory_free_mb: 12000,
+    actual_offload_verified: false,
+    options: [
+      { device: "gpu", state: "available", reason_code: "gpu_estimate_fits", recommended_gpu_layers: 8, estimated_vram_required_mb: 6000 },
+      { device: "split", state: "available", reason_code: "split_estimate_available", recommended_gpu_layers: 6, estimated_vram_required_mb: 5000 },
+      { device: "cpu", state: "available", reason_code: "cpu_available", recommended_gpu_layers: 0, estimated_vram_required_mb: 0 },
+    ],
+  };
+}
+
 let model: LocalModelStatus = {
   record: {
     alias: modelAlias, display_name: "Example Small CPU", format: "gguf",
@@ -571,6 +586,7 @@ let model: LocalModelStatus = {
   },
   runtime: { state: panel === "agent" || closingFixture || modelRaceFixture ? "stopped" : "running", device: "cpu" },
   endpoint_path: `/v1/local-models/${modelAlias}/chat/completions`,
+  placement: placementAdmission(modelAlias, 4096),
 };
 let runtimeAlias: string | null = modelAlias;
 let runtimeDevice: "cpu" | "gpu" | "split" = "cpu";
@@ -642,14 +658,17 @@ function overview(): LocalModelsOverview {
     },
     runtime: { state: runtimeAlias === alternateModelAlias ? "running" : "stopped", device: runtimeAlias === alternateModelAlias ? runtimeDevice : null },
     endpoint_path: `/v1/local-models/${alternateModelAlias}/chat/completions`,
+    placement: placementAdmission(alternateModelAlias, 8192),
   };
   return {
     contract_version: "local-models.v1", runtime_available: true,
-    storage_root: "D:/example/models", models: agentShellFixture
+    storage_root: "D:/example/models", storage_free_bytes: 64 * 1024 ** 3,
+    download_reserve_bytes: 512 * 1024 ** 2, download_ledger_error_code: null,
+    models: agentShellFixture
       ? [{ ...model, runtime: { state: runtimeAlias === modelAlias ? "running" : "stopped", device: runtimeAlias === modelAlias ? runtimeDevice : null } }, alternate]
       : [model], downloads: [],
-    hardware: { gpu_name: null, gpu_memory_mb: null, gpu_memory_free_mb: null,
-      ram_mb: 8192, llama_server_path: "D:/example/runtime/llama-server.exe", llama_server_version: "example-v1" },
+    hardware: { gpu_name: "Synthetic GPU", gpu_memory_mb: 16000, gpu_memory_free_mb: 12000,
+      ram_mb: 32000, llama_server_path: "D:/example/runtime/llama-server.exe", llama_server_version: "example-v1" },
   };
 }
 

@@ -575,7 +575,7 @@ export function CalibrationPage({
 
   return (
     <section aria-labelledby="calibration-title" className="calibration">
-      <header className="calibration__head">
+      <header className="calibration__head route-header">
         <div>
           <p className="eyebrow">Calibration · your own sessions, rated blind</p>
           <h1 id="calibration-title">Rate sessions</h1>

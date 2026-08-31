@@ -1,6 +1,6 @@
 # Checkpoint Sweep-01b entry
 
-Status: active; slices 01b.1 and 01b.2 complete, 01b.3 next
+Status: active; slices 01b.1 through 01b.3 complete, 01b.4 next
 Entered: 2026-08-31
 Parent goal: [Prompt Enhancer finish goal](prompt-enhancer-finish-goal-2026-08-29.md)
 Prerequisite: [Sweep-01a handoff](checkpoint-sweep-01a-handoff.md)
@@ -53,9 +53,18 @@ The slice used retained synthetic project metadata already present in the local
 test application. It did not start a model, invoke a protected action, inspect
 provider transcripts, install an MCP server or transmit content.
 
+## 01b.3 result
+
+The whole application now shares semantic route headers, bounded route gutters,
+12 px caption and 44 px action floors, consistent status and action language,
+distinct primary-navigation icons and one primary action owner per local
+surface. Twenty-three direct and parameterized route shapes passed exact
+settled geometry at 360 px and 1440 px. See the
+[01b.3 handoff](checkpoint-sweep-01b-3-handoff.md).
+
 ## Next slice
 
-Sweep-01b.3 reconciles route headers, cards, status language, icons, spacing
-and primary-action ownership across every non-Agent route family inventoried
-by Sweep-01a. See the [01b.2 handoff](checkpoint-sweep-01b-2-handoff.md) for
-the completed secondary Agent surface evidence.
+Sweep-01b.4 closes the 320/360/768/1440 px, both-theme, keyboard, focus,
+screen-reader, contrast, forced-colors and reduced-motion matrix. See the
+[01b.2 handoff](checkpoint-sweep-01b-2-handoff.md) for the completed secondary
+Agent surface evidence.

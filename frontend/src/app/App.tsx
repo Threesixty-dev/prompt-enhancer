@@ -653,7 +653,7 @@ export function App({
               active: activeNavigationKey === "local-sources",
               icon: PRIMARY_NAV_ICONS.localSources,
               key: "local-sources",
-              label: "Data source",
+              label: "Data sources",
               onSelect: () => navigate({ name: "local_sources" }),
             } satisfies PrimaryNavigationItem]
           : []),
@@ -661,7 +661,7 @@ export function App({
           active: activeNavigationKey === "analysis-jobs",
           icon: PRIMARY_NAV_ICONS.analysisJobs,
           key: "analysis-jobs",
-          label: "Job centre",
+          label: "Analysis jobs",
           onSelect: () => navigate({ name: "analysis_jobs" }),
         },
         {
@@ -854,7 +854,14 @@ export function App({
               ) : route.name === "agent" ? (
                 <AgentScreen sessionId={route.sessionId} transport={transport} />
               ) : route.name === "not_found" ? (
-                <section className="not-found-page" aria-label="Page not found">
+                <section className="not-found-page" aria-labelledby="not-found-title">
+                  <header className="page-header route-header">
+                    <div>
+                      <p className="eyebrow">Navigation</p>
+                      <h1 id="not-found-title">Page not found</h1>
+                      <p>The requested address is not a Prompt Enhancer screen.</p>
+                    </div>
+                  </header>
                   <EmptyState
                     action={(
                       <div className="route-error__actions">
@@ -876,7 +883,7 @@ export function App({
                     )}
                     description="This address is not a Prompt Enhancer screen. The invalid path is not retained or displayed."
                     icon="search"
-                    title="Page not found"
+                    title="Choose a destination"
                     tone="closed"
                   />
                 </section>
@@ -905,7 +912,14 @@ export function App({
                 runtime.mode === "local_real" ? (
                   <LocalSourcesScreen navigate={navigate} transport={transport} />
                 ) : (
-                  <section className="local-sources-page">
+                  <section aria-labelledby="local-sources-title" className="local-sources-page">
+                    <header className="page-header route-header">
+                      <div>
+                        <p className="eyebrow">Private local workflow</p>
+                        <h1 id="local-sources-title">Data sources</h1>
+                        <p>Choose which local providers and projects may contribute bounded metadata.</p>
+                      </div>
+                    </header>
                     <EmptyState
                       action={(
                         <button
@@ -917,7 +931,7 @@ export function App({
                         </button>
                       )}
                       description="Run the integrated loopback build to grant and inspect local-source access."
-                      title="Local sources are disabled in synthetic preview"
+                      title="Data sources are disabled in synthetic preview"
                       tone="closed"
                     />
                   </section>

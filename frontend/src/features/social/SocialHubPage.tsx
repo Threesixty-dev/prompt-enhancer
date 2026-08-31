@@ -281,7 +281,7 @@ export function SocialHubPage({
 
   return (
     <section aria-labelledby="social-hub-title" className="social-hub" data-runtime={runtimeMode} data-load={current.kind}>
-      <header className="page-header social-hub__header">
+      <header className="page-header route-header social-hub__header">
         <div>
           <p className="eyebrow">Social</p>
           <h1 id="social-hub-title">Social hub</h1>

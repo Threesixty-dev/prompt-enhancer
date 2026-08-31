@@ -176,11 +176,11 @@ export function TeamAnalyticsPage({
 
   return (
     <section aria-labelledby="team-analytics-title" className="team-analytics" data-runtime={runtimeMode}>
-      <header className="page-header team-analytics__header">
+      <header className="page-header route-header team-analytics__header">
         <div>
           <p className="eyebrow">Analytics scopes</p>
-          <h1 id="team-analytics-title">Me · Team · Organization</h1>
-          <p>Aggregate evidence per scope with cohort size, missingness, comparability, freshness, and uncertainty. No rankings and no universal score exist here.</p>
+          <h1 id="team-analytics-title">Team analytics</h1>
+          <p>Compare me, team, and organization scopes through aggregate evidence with cohort size, missingness, comparability, freshness, and uncertainty. No rankings and no universal score exist here.</p>
         </div>
         <div className="page-header__meta">
           <span className="privacy-chip"><Icon name="lock" /> {originLabel}</span>

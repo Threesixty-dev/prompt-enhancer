@@ -546,7 +546,7 @@ export function ProjectAutomationSettings({
   if (runtimeMode === "synthetic_demo") {
     return (
       <section aria-labelledby="automation-settings-title" className="automation-settings">
-        <header className="automation-settings__header">
+        <header className="automation-settings__header route-header">
           <div>
             <p className="eyebrow">Synthetic demo · fictional fixtures only</p>
             <h1 id="automation-settings-title">Project automation</h1>
@@ -566,7 +566,7 @@ export function ProjectAutomationSettings({
   if (serviceState !== "available") {
     return (
       <section aria-labelledby="automation-settings-title" className="automation-settings">
-        <header className="automation-settings__header">
+        <header className="automation-settings__header route-header">
           <div>
             <p className="eyebrow">Local real · project-scoped settings</p>
             <h1 id="automation-settings-title">Project automation</h1>
@@ -588,7 +588,7 @@ export function ProjectAutomationSettings({
   const jobDestination: AppRoute = { name: "analysis_jobs" };
   return (
     <section aria-labelledby="automation-settings-title" className="automation-settings">
-      <header className="automation-settings__header">
+      <header className="automation-settings__header route-header">
         <div>
           <p className="eyebrow">
             Local real · {provider === "claude_code" ? "Claude Code" : "Codex"} · project {shortId(projectId)}
