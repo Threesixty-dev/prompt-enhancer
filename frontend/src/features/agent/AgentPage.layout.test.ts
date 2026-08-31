@@ -15,6 +15,21 @@ import mcpStoreCss from "./AgentMcpStorePanel.css?raw";
 import mcpProjectToolsCss from "./AgentMcpProjectToolsPanel.css?raw";
 
 describe("AgentPage layout contract", () => {
+  it("uses one legible caption floor and shared touch target in the core Agent workspace", () => {
+    expect(appCss).toMatch(/--type-caption:\s*0\.75rem;/);
+    expect(appCss).toMatch(/--touch-target:\s*2\.75rem;/);
+
+    for (const css of [agentPageCss, catalogRailCss, runtimeControlCss, readinessCss]) {
+      const hardCodedRemSizes = [...css.matchAll(/font-size:\s*(0?\.\d+)rem/g)].map((match) => Number(match[1]));
+      expect(hardCodedRemSizes.filter((size) => size < 0.75)).toEqual([]);
+    }
+
+    expect(agentPageCss).toMatch(/\.agent__settings-tabs button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(agentPageCss).toMatch(/\.agent \.button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(catalogRailCss).toMatch(/\.agent-rail__menu-trigger\s*\{[^}]*width:\s*var\(--touch-target\);[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(runtimeControlCss).toMatch(/\.agent-runtime__actions \.button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+  });
+
   it("removes the redundant global rail while preserving compact navigation at medium widths", () => {
     expect(appCss).toMatch(/@media \(min-width:\s*861px\) and \(max-width:\s*1180px\)[\s\S]*?\.app-shell--agent-focus\s*\{[^}]*display:\s*block;/);
     expect(appCss).toMatch(/\.app-shell--agent-focus > \.sidebar,[\s\S]*?\.app-shell--agent-focus > \.workspace > \.topbar\s*\{\s*display:\s*none;/);
@@ -63,7 +78,7 @@ describe("AgentPage layout contract", () => {
 
   it("keeps drawer controls touch-sized and fits health facts to the card rather than the viewport", () => {
     expect(agentPageCss).toMatch(/\.agent__drawer-head \.button\s*\{[^}]*min-height:\s*2\.75rem;/);
-    expect(agentPageCss).toMatch(/\.agent__settings-tabs button\s*\{[^}]*min-height:\s*2\.75rem;/);
+    expect(agentPageCss).toMatch(/\.agent__settings-tabs button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
     expect(agentPageCss).toMatch(/\.button\.agent__settings-trigger\s*\{[^}]*min-height:\s*3\.35rem;/);
     expect(agentPageCss).toMatch(/\.agent__run-actions \.button, \.agent__model-actions \.button\s*\{\s*min-height:\s*2\.75rem;/);
     expect(reviewDrawerCss).toMatch(/\.agent-review__head > \.button\s*\{[^}]*min-height:\s*2\.75rem;/);
@@ -76,8 +91,8 @@ describe("AgentPage layout contract", () => {
     expect(catalogRailCss).toMatch(/\.agent-rail__search input\s*\{[^}]*min-height:\s*2\.75rem;/);
     expect(catalogRailCss).toMatch(/\.agent-rail__project-pick,[\s\S]*?min-height:\s*3rem;/);
     expect(runtimeControlCss).toMatch(/\.agent-runtime select\s*\{[^}]*min-height:\s*2\.75rem;/);
-    expect(runtimeControlCss).toMatch(/\.agent-runtime__details > summary\s*\{[^}]*min-height:\s*2\.75rem;/);
-    expect(runtimeControlCss).toMatch(/\.agent-runtime__actions \.button\s*\{[^}]*min-height:\s*2\.75rem;/);
+    expect(runtimeControlCss).toMatch(/\.agent-runtime__details > summary\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(runtimeControlCss).toMatch(/\.agent-runtime__actions \.button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
     expect(agentPageCss).toMatch(/\.agent__reasoning summary\s*\{[^}]*min-height:\s*2\.75rem;/);
     expect(agentPageCss).toMatch(/\.agent__result summary\s*\{[^}]*min-height:\s*2\.75rem;/);
     expect(agentPageCss).toMatch(/\.agent__jump-latest\s*\{[^}]*position:\s*sticky;[^}]*min-height:\s*2\.75rem;/);

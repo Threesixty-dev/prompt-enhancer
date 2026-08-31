@@ -1,6 +1,6 @@
 # Prompt Enhancer finish goal
 
-Status: active implementation program; Sweep-01a is automated complete and Sweep-01b is next while Acceptance-01 owner evidence remains queued
+Status: active implementation program; Sweep-01b is active with foundation slice 01b.1 complete while Acceptance-01 owner evidence remains queued
 Established: 2026-08-29
 Expanded and reconciled: 2026-08-31
 Scope owner: local user
@@ -236,7 +236,7 @@ may not absorb unrelated work merely to keep implementation moving.
 | Store-07e | **Complete.** Secret and scope hostility: value/log leakage, stale vault references, cross-project/cross-chat access and concurrent clients. | Database/log/API/UI canaries, project/chat/client isolation, restart reconciliation, complete backend/frontend gates and a hidden live reload pass. See [handoff](checkpoint-mcp-store-07e-handoff.md). |
 | Acceptance-01 | Collect only physical evidence automation cannot supply: retained-chat restart, native dialogs, real model placement/switch/unload/VRAM, workspace action and trusted MCP click-through. | Owner-observed receipts recorded without using private transcript content. |
 | Sweep-01a | **Automated complete.** Twenty-two typed route families, 27 direct shapes, shared rendered/source control contracts, complete regressions and the rebuilt loopback-browser pass are green. | Route/control/state ledger, synthetic and local-real traversal, zero unexplained disabled controls or console errors, and a clean listener/process/VRAM census. See [handoff](checkpoint-sweep-01a-handoff.md) and [state recovery ledger](sweep-01a-state-recovery-ledger.md). |
-| Sweep-01b | Unify hierarchy, typography, spacing, icons, focus, states and responsive behavior without erasing feature depth. | 320/360/768/1440 px, forced-colors, reduced-motion, contrast, screen-reader and keyboard matrix. |
+| Sweep-01b | **Active; 01b.1 complete.** Unify hierarchy, typography, spacing, icons, focus, states and responsive behavior without erasing feature depth. The central Agent rail, runtime/readiness and conversation frame now share a 12 px legibility floor and 44 px core target with rebuilt 350/1440 px evidence. | 320/360/768/1440 px, forced-colors, reduced-motion, contrast, screen-reader and keyboard matrix. See [entry](checkpoint-sweep-01b-entry.md) and [01b.1 handoff](checkpoint-sweep-01b-1-handoff.md). |
 | Sweep-01c | Keep large chats, catalogs, file trees, artifacts and event streams fast and truthful. | Bounded stress fixtures, cancellation, pagination/virtualization, stale-response and layout-shift budgets. |
 | Release-01a | Prove migrations, recovery, privacy, API compatibility, retention and process ownership across failure/restart. | Full backend/frontend/OpenAPI/privacy/build suites plus listener/model/command/MCP census. |
 | Release-01b | Prove the installed Windows application matches the validated stack and complete the north-star journey. | Packaged install/start/reload/shutdown smoke and explicit owner sign-off with no undocumented workaround. |
