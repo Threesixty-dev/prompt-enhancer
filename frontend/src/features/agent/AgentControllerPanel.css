@@ -22,7 +22,7 @@
 .agent-controller__head > span:first-child { display: grid; gap: 0.05rem; }
 .agent-controller__head small {
   color: var(--ink-500);
-  font-size: 0.6rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -34,7 +34,7 @@
   border-radius: 999px;
   background: var(--surface);
   color: var(--ink-650);
-  font-size: 0.62rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 .agent-controller[data-state="ready"] .agent-controller__state {
@@ -48,7 +48,7 @@
 .agent-controller__details p {
   margin: 0;
   color: var(--ink-650);
-  font-size: 0.68rem;
+  font-size: var(--type-caption);
   line-height: 1.45;
 }
 
@@ -67,7 +67,7 @@
 }
 .agent-controller__facts dt {
   color: var(--ink-500);
-  font-size: 0.56rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -75,7 +75,7 @@
 .agent-controller__facts dd {
   margin: 0.08rem 0 0;
   color: var(--ink-800);
-  font-size: 0.7rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -85,7 +85,7 @@
   max-width: 100%;
   overflow-wrap: anywhere;
   color: var(--ink-650);
-  font-size: 0.65rem;
+  font-size: var(--type-caption);
 }
 .agent-controller__endpoint {
   padding: 0.42rem 0.48rem;
@@ -115,7 +115,7 @@
   padding: 0.4rem 0.48rem;
   color: var(--ink-650);
   cursor: pointer;
-  font-size: 0.64rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 .agent-controller__advanced[open] > summary { border-bottom: 1px solid var(--line); }
@@ -139,7 +139,7 @@
 .agent-controller__command > span {
   grid-column: 1 / -1;
   color: var(--ink-500);
-  font-size: 0.56rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -152,10 +152,10 @@
 .agent-controller__command .button {
   min-height: 2.75rem;
   padding: 0.25rem 0.45rem;
-  font-size: 0.62rem;
+  font-size: var(--type-caption);
 }
 .agent-controller__failure { display: grid; justify-items: start; gap: 0.45rem; }
-.agent-controller__failure .button { min-height: 2rem; padding: 0.3rem 0.55rem; font-size: 0.66rem; }
+.agent-controller__failure .button { min-height: var(--touch-target); padding: 0.3rem 0.55rem; font-size: var(--type-caption); }
 
 .agent-controller__health {
   display: grid;
@@ -174,18 +174,18 @@
 .agent-controller__health > header > span:first-child { display: grid; gap: 0.05rem; }
 .agent-controller__health > header small {
   color: var(--ink-500);
-  font-size: 0.55rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.agent-controller__health > header strong { color: var(--ink-800); font-size: 0.72rem; }
+.agent-controller__health > header strong { color: var(--ink-800); font-size: var(--type-caption); }
 .agent-controller__health > header > span:last-child {
   padding: 0.12rem 0.34rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--ink-650);
-  font-size: 0.58rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   white-space: nowrap;
 }
@@ -201,7 +201,7 @@
   justify-self: start;
   min-height: 2.75rem;
   padding: 0.3rem 0.55rem;
-  font-size: 0.66rem;
+  font-size: var(--type-caption);
 }
 .agent-controller__health-result {
   display: grid;
@@ -215,14 +215,14 @@
 .agent-controller__health-result ul {
   margin: 0;
   color: var(--ink-650);
-  font-size: 0.63rem;
+  font-size: var(--type-caption);
   line-height: 1.45;
 }
 .agent-controller__health-result ul { padding-left: 1rem; }
 .agent-controller__health-actions { display: grid; gap: 0.25rem; }
 .agent-controller__health-actions > strong {
   color: var(--ink-800);
-  font-size: 0.64rem;
+  font-size: var(--type-caption);
 }
 .agent-controller__health-facts {
   display: grid;
@@ -238,13 +238,13 @@
 }
 .agent-controller__health-facts dt {
   color: var(--ink-500);
-  font-size: 0.52rem;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 .agent-controller__health-facts dd {
   margin: 0.06rem 0 0;
   color: var(--ink-800);
-  font-size: 0.68rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 

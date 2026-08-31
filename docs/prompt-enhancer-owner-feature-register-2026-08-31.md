@@ -123,8 +123,8 @@ No status means “probably works.” Unknown evidence remains pending.
 | ID | Required owner-visible behavior | Acceptance boundary | Owner checkpoint | Current state |
 | --- | --- | --- | --- | --- |
 | UX-01 | Every route, card, button, checkbox, picker, dialog and drawer maps to a real contract or explains why it is unavailable. | Route/control/state inventory; click and keyboard traversal; zero unexplained dead controls. | Sweep-01a | Automated complete; owner click-later review queued |
-| UX-02 | One coherent hierarchy keeps primary work prominent and moves advanced controls into purposeful drawers, details or settings. | Owner visual review plus 320/360/768/1440 px layout matrix. | Sweep-01b | Active; central Agent foundation complete, secondary surfaces and route matrix pending |
-| UX-03 | One icon, typography, spacing, focus and status system replaces repeated or misleading visual language. | Token/component audit, contrast and state snapshot tests. | Sweep-01b | Active; shared Agent type/control tokens landed in 01b.1, whole-app reconciliation pending |
+| UX-02 | One coherent hierarchy keeps primary work prominent and moves advanced controls into purposeful drawers, details or settings. | Owner visual review plus 320/360/768/1440 px layout matrix. | Sweep-01b | Active; central and secondary Agent surfaces complete through 01b.2, whole-app route matrix pending |
+| UX-03 | One icon, typography, spacing, focus and status system replaces repeated or misleading visual language. | Token/component audit, contrast and state snapshot tests. | Sweep-01b | Active; shared Agent type/control tokens cover central and secondary surfaces through 01b.2, whole-app reconciliation pending |
 | UX-04 | Keyboard, screen-reader, forced-colors, contrast and reduced-motion behavior are first-class correctness requirements. | Automated accessibility plus manual keyboard matrix on every primary journey. | Sweep-01b | Active; existing guards preserved, complete journey matrix pending |
 | UX-05 | Loading, empty, offline, unavailable, approval, retry, stale, error and cleanup-uncertain states are explicit and recoverable. | State inventory and failure-injection browser tests. | Sweep-01a/01b | Sweep-01a automated complete; Sweep-01b visual/accessibility review remains |
 | UX-06 | Long chats, catalogs, file trees, artifacts and event streams stay responsive and do not reorder or lose selection. | Bounded stress, pagination/virtualization, cancellation, stale-response and layout-shift budgets. | Sweep-01c | Pending |
@@ -147,7 +147,7 @@ The remaining dependency-ordered trajectory is:
    stale-vault and project/chat/client isolation gates.
 2. **Acceptance-01 — owner queue:** collect only the physical/native evidence
    automation cannot honestly replace, including real model/VRAM and trusted MCP checks.
-3. **Sweep-01a–01c — 01a automated complete, 01b next:** preserve the route/control/state gate, then unify responsive accessible UI behavior and stress large synthetic state.
+3. **Sweep-01a–01c — 01a and Agent slices 01b.1–01b.2 automated complete, 01b.3 next:** preserve the route/control/state gate, then unify responsive accessible UI behavior across the remaining route families and stress large synthetic state.
 4. **Release-01a–01b:** migrations, recovery, privacy, process cleanup, packaged
    Windows parity and the connected owner journey.
 

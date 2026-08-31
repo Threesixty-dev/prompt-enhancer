@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import appCss from "../../styles.css?raw";
 import controllerCss from "./AgentControllerPanel.css?raw";
+import mcpConnectionsCss from "./AgentMcpConnectionsPanel.css?raw";
 import agentPageCss from "./AgentPage.css?raw";
 import catalogRailCss from "./AgentCatalogRail.css?raw";
 import discoveryCss from "./AgentWorkspaceDiscoveryPanel.css?raw";
@@ -13,6 +14,15 @@ import attachmentsCss from "./AgentComposerAttachments.css?raw";
 import diffViewerCss from "./AgentDiffViewer.css?raw";
 import mcpStoreCss from "./AgentMcpStorePanel.css?raw";
 import mcpProjectToolsCss from "./AgentMcpProjectToolsPanel.css?raw";
+import teamFoldersCss from "./TeamFoldersPanel.css?raw";
+import copyButtonCss from "./AgentCopyButton.css?raw";
+import changeSetCss from "./AgentChangeSetPanel.css?raw";
+import artifactCaptureCss from "./AgentArtifactCaptureDialog.css?raw";
+import documentPreviewCss from "./AgentDocumentPreview.css?raw";
+import mcpToolActivityCss from "./AgentMcpToolActivity.css?raw";
+import messageContentCss from "./AgentMessageContent.css?raw";
+import sessionEffectsCss from "./AgentSessionEffects.css?raw";
+import pdfPreviewCss from "./AgentPdfPreview.css?raw";
 
 describe("AgentPage layout contract", () => {
   it("uses one legible caption floor and shared touch target in the core Agent workspace", () => {
@@ -28,6 +38,51 @@ describe("AgentPage layout contract", () => {
     expect(agentPageCss).toMatch(/\.agent \.button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
     expect(catalogRailCss).toMatch(/\.agent-rail__menu-trigger\s*\{[^}]*width:\s*var\(--touch-target\);[^}]*min-height:\s*var\(--touch-target\);/);
     expect(runtimeControlCss).toMatch(/\.agent-runtime__actions \.button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+  });
+
+  it("extends the legibility floor and touch target across Agent secondary surfaces", () => {
+    const secondaryCss = [
+      controllerCss,
+      mcpConnectionsCss,
+      mcpStoreCss,
+      teamFoldersCss,
+      artifactsCss,
+      attachmentsCss,
+      reviewDrawerCss,
+      discoveryCss,
+      diffViewerCss,
+      copyButtonCss,
+      changeSetCss,
+      artifactCaptureCss,
+      documentPreviewCss,
+      mcpProjectToolsCss,
+      mcpToolActivityCss,
+      messageContentCss,
+      sessionEffectsCss,
+      pdfPreviewCss,
+    ];
+
+    for (const css of secondaryCss) {
+      const remSizes = [...css.matchAll(/font-size:\s*(0?\.\d+)rem/g)].map((match) => Number(match[1]));
+      const pixelSizes = [...css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1]));
+      const shorthandRemSizes = [...css.matchAll(/font:\s*[^;\n]*?(0?\.\d+)rem\//g)].map((match) => Number(match[1]));
+      expect(remSizes.filter((size) => size < 0.75)).toEqual([]);
+      expect(pixelSizes.filter((size) => size < 12)).toEqual([]);
+      expect(shorthandRemSizes.filter((size) => size < 0.75)).toEqual([]);
+    }
+
+    expect(teamFoldersCss).toMatch(/\.team-folders__form input\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(mcpConnectionsCss).toMatch(/\.agent-mcp-connections__client-tabs \.button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(mcpStoreCss).toMatch(/\.agent-mcp-store__tabs button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(mcpStoreCss).toMatch(/\.agent-mcp-store__filters span\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(mcpStoreCss).toMatch(/\.agent-mcp-managed__runtime-preview summary\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(reviewDrawerCss).toMatch(/\.agent-review__tabs button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(attachmentsCss).toMatch(/\.agent-attachments__document-preview summary\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(copyButtonCss).toMatch(/\.agent-copy-button\s*\{[^}]*min-width:\s*var\(--touch-target\);[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(mcpToolActivityCss).toMatch(/\.agent-mcp-call__details > summary\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(sessionEffectsCss).toMatch(/\.agent-session-effects > summary\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(documentPreviewCss).toMatch(/\.agent-document-preview__section-button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(pdfPreviewCss).toMatch(/\.agent-pdf-preview__toolbar \[role="group"\] \.button\s*\{[^}]*min-width:\s*var\(--touch-target\);[^}]*min-height:\s*var\(--touch-target\);/);
   });
 
   it("removes the redundant global rail while preserving compact navigation at medium widths", () => {
@@ -82,7 +137,7 @@ describe("AgentPage layout contract", () => {
     expect(agentPageCss).toMatch(/\.button\.agent__settings-trigger\s*\{[^}]*min-height:\s*3\.35rem;/);
     expect(agentPageCss).toMatch(/\.agent__run-actions \.button, \.agent__model-actions \.button\s*\{\s*min-height:\s*2\.75rem;/);
     expect(reviewDrawerCss).toMatch(/\.agent-review__head > \.button\s*\{[^}]*min-height:\s*2\.75rem;/);
-    expect(reviewDrawerCss).toMatch(/\.agent-review__tabs button\s*\{[^}]*min-height:\s*2\.35rem;/);
+    expect(reviewDrawerCss).toMatch(/\.agent-review__tabs button\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
     expect(controllerCss).toMatch(/\.agent-controller__advanced > summary\s*\{[^}]*min-height:\s*2\.75rem;/);
     expect(controllerCss).toMatch(/\.agent-controller__health-facts\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit,/);
     expect(controllerCss).toMatch(/\.agent-controller__health > \.button\s*\{[^}]*min-height:\s*2\.75rem;/);

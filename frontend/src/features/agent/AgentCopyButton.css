@@ -1,12 +1,13 @@
 .agent-copy-button {
-  min-height: 1.75rem;
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
   padding: 0.2rem 0.46rem;
   border: 1px solid var(--line);
   border-radius: 0.4rem;
   background: var(--surface);
   color: var(--ink-650);
   font: inherit;
-  font-size: 0.68rem;
+  font-size: var(--type-caption);
   font-weight: 700;
   line-height: 1.2;
   cursor: pointer;

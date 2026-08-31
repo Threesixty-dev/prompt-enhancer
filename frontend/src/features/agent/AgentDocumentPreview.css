@@ -30,7 +30,7 @@
 .agent-document-preview__header small {
   overflow: hidden;
   color: var(--ink-500);
-  font-size: 0.68rem;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -41,7 +41,7 @@
   border: 1px solid color-mix(in srgb, var(--accent-primary) 44%, var(--line));
   border-radius: 999px;
   color: var(--accent-primary-strong);
-  font: 700 0.68rem/1 var(--font-mono, ui-monospace, monospace);
+  font: 700 var(--type-caption)/1 var(--font-mono, ui-monospace, monospace);
   text-transform: uppercase;
 }
 
@@ -56,7 +56,7 @@
 .agent-document-preview__notices p {
   margin: 0;
   color: var(--ink-800);
-  font-size: 0.72rem;
+  font-size: var(--type-caption);
 }
 
 .agent-document-preview__body {
@@ -83,6 +83,7 @@
 
 .agent-document-preview__section-button {
   width: 100%;
+  min-height: var(--touch-target);
   display: grid;
   gap: 3px;
   padding: 9px 10px;
@@ -106,7 +107,7 @@
 
 .agent-document-preview__section-button span {
   color: var(--ink-500);
-  font-size: 0.64rem;
+  font-size: var(--type-caption);
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
@@ -144,7 +145,7 @@
 
 .agent-document-preview__page > header small {
   color: var(--ink-500);
-  font-size: 0.66rem;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }

@@ -26,20 +26,20 @@
 .agent-mcp-connections > header small,
 .agent-mcp-connections__list small {
   color: var(--ink-500);
-  font-size: 0.54rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
-.agent-mcp-connections > header strong { color: var(--ink-800); font-size: 0.74rem; }
+.agent-mcp-connections > header strong { color: var(--ink-800); font-size: var(--type-caption); }
 .agent-mcp-connections > header > span:last-child,
 .agent-mcp-connections__list article > header > span:last-child {
   padding: 0.12rem 0.34rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--ink-650);
-  font-size: 0.57rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   text-transform: capitalize;
 }
@@ -47,7 +47,7 @@
 .agent-mcp-connections p {
   margin: 0;
   color: var(--ink-650);
-  font-size: 0.63rem;
+  font-size: var(--type-caption);
   line-height: 1.45;
 }
 
@@ -73,7 +73,7 @@
 
 .agent-mcp-connections__endpoint small {
   color: var(--ink-500);
-  font-size: 0.54rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -83,14 +83,14 @@
 .agent-mcp-connections__private-endpoint code {
   color: var(--ink-800);
   overflow-wrap: anywhere;
-  font-size: 0.62rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__endpoint .button,
 .agent-mcp-connections__list-head .button {
   min-height: 2.75rem;
   padding: 0.3rem 0.5rem;
-  font-size: 0.61rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__preview {
@@ -118,7 +118,7 @@
 
 .agent-mcp-connections__preview > header small {
   color: var(--ink-500);
-  font-size: 0.54rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -126,7 +126,7 @@
 
 .agent-mcp-connections__preview > header strong {
   color: var(--ink-800);
-  font-size: 0.7rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__preview > header > span:last-child {
@@ -134,7 +134,7 @@
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--ink-650);
-  font-size: 0.56rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -151,7 +151,7 @@
 .agent-mcp-connections__preview-endpoint .button {
   min-height: 2.75rem;
   padding: 0.3rem 0.5rem;
-  font-size: 0.61rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__preview-clients .button[aria-pressed="true"] {
@@ -179,7 +179,7 @@
 .agent-mcp-connections__preview-endpoint > span,
 .agent-mcp-connections__preview-command > span {
   color: var(--ink-500);
-  font-size: 0.55rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.035em;
   text-transform: uppercase;
@@ -191,7 +191,7 @@
 .agent-mcp-connections__preview-note code {
   color: var(--ink-800);
   overflow-wrap: anywhere;
-  font-size: 0.59rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__preview-config {
@@ -207,7 +207,7 @@
   padding: 0.62rem;
   cursor: pointer;
   color: var(--ink-700);
-  font-size: 0.61rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -223,7 +223,7 @@
 .agent-mcp-connections__preview-config code {
   color: var(--ink-750);
   overflow-wrap: anywhere;
-  font-size: 0.56rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__preview > footer span {
@@ -231,7 +231,7 @@
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--ink-600);
-  font-size: 0.54rem;
+  font-size: var(--type-caption);
   font-weight: 700;
 }
 
@@ -248,7 +248,7 @@
   padding: 0.62rem 0.68rem;
   cursor: pointer;
   color: var(--ink-750);
-  font-size: 0.65rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -259,7 +259,7 @@
   padding: 0.55rem 0.72rem 0.55rem 1.75rem;
   border-top: 1px solid var(--line);
   color: var(--ink-650);
-  font-size: 0.62rem;
+  font-size: var(--type-caption);
   line-height: 1.45;
 }
 
@@ -281,7 +281,7 @@
   padding: 0.62rem 0.68rem;
   cursor: pointer;
   color: var(--ink-750);
-  font-size: 0.65rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -302,7 +302,7 @@
 
 .agent-mcp-connections__capabilities dt {
   color: var(--ink-650);
-  font-size: 0.61rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -319,7 +319,7 @@
   border-radius: 0.25rem;
   background: var(--surface-soft);
   overflow-wrap: anywhere;
-  font-size: 0.58rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__capabilities > p {
@@ -343,7 +343,7 @@
   gap: 0.24rem;
   min-width: 0;
   color: var(--ink-650);
-  font-size: 0.6rem;
+  font-size: var(--type-caption);
   font-weight: 700;
 }
 
@@ -394,7 +394,7 @@
 
 .agent-mcp-connections__private > header small {
   color: var(--ink-500);
-  font-size: 0.54rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -402,7 +402,7 @@
 
 .agent-mcp-connections__private > header strong {
   color: var(--ink-800);
-  font-size: 0.68rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__private > header > span:last-child {
@@ -410,7 +410,7 @@
   border: 1px solid var(--status-positive, var(--accent-primary));
   border-radius: 999px;
   color: var(--ink-650);
-  font-size: 0.56rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -425,7 +425,7 @@
 }
 
 .agent-mcp-connections__client-tabs .button {
-  min-height: 2.4rem;
+  min-height: var(--touch-target);
   border-color: transparent;
 }
 
@@ -455,7 +455,7 @@
   border: 1px solid var(--line);
   border-radius: 0.36rem;
   color: var(--ink-600);
-  font-size: 0.56rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__preflight > span[data-state="ready"] {
@@ -472,7 +472,7 @@
 
 .agent-mcp-connections__preflight strong {
   color: var(--ink-750);
-  font-size: 0.58rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__setup-steps {
@@ -515,18 +515,18 @@
   background: color-mix(in srgb, var(--accent-primary) 18%, var(--surface));
   color: var(--ink-800);
   content: counter(setup-step);
-  font-size: 0.58rem;
+  font-size: var(--type-caption);
   font-weight: 800;
 }
 
 .agent-mcp-connections__setup-steps strong {
   color: var(--ink-750);
-  font-size: 0.62rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__setup-steps small {
   color: var(--ink-600);
-  font-size: 0.57rem;
+  font-size: var(--type-caption);
   line-height: 1.4;
 }
 
@@ -566,12 +566,12 @@
 
 .agent-mcp-connections__self-test strong {
   color: var(--ink-750);
-  font-size: 0.62rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__self-test small {
   color: var(--ink-600);
-  font-size: 0.57rem;
+  font-size: var(--type-caption);
   line-height: 1.4;
 }
 
@@ -591,7 +591,7 @@
 .agent-mcp-connections__private-endpoint > span {
   grid-column: 1 / -1;
   color: var(--ink-500);
-  font-size: 0.56rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   text-transform: uppercase;
 }
@@ -618,7 +618,7 @@
 .agent-mcp-connections__error .button {
   min-height: 2.75rem;
   padding: 0.3rem 0.5rem;
-  font-size: 0.61rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__message {
@@ -661,7 +661,7 @@
 
 .agent-mcp-connections__acceptance > header small {
   color: var(--ink-500);
-  font-size: 0.54rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -669,7 +669,7 @@
 
 .agent-mcp-connections__acceptance > header strong {
   color: var(--ink-800);
-  font-size: 0.68rem;
+  font-size: var(--type-caption);
   overflow-wrap: anywhere;
 }
 
@@ -678,7 +678,7 @@
   border: 1px solid currentColor;
   border-radius: 999px;
   color: var(--ink-650);
-  font-size: 0.56rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -715,18 +715,18 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent-primary) 18%, var(--surface));
   color: var(--ink-800);
-  font-size: 0.58rem;
+  font-size: var(--type-caption);
   font-weight: 800;
 }
 
 .agent-mcp-connections__acceptance > ol strong {
   color: var(--ink-750);
-  font-size: 0.59rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__acceptance > ol small {
   color: var(--ink-600);
-  font-size: 0.55rem;
+  font-size: var(--type-caption);
   line-height: 1.4;
 }
 
@@ -739,11 +739,11 @@
 .agent-mcp-connections__acceptance .button {
   min-height: 2.75rem;
   padding: 0.3rem 0.5rem;
-  font-size: 0.61rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-connections__error { display: grid; justify-items: start; gap: 0.35rem; }
-.agent-mcp-connections__list-head > strong { color: var(--ink-750); font-size: 0.64rem; }
+.agent-mcp-connections__list-head > strong { color: var(--ink-750); font-size: var(--type-caption); }
 .agent-mcp-connections__list { display: grid; gap: 0.4rem; }
 .agent-mcp-connections__list > p { padding: 0.45rem; border: 1px dashed var(--line); border-radius: 0.4rem; }
 .agent-mcp-connections__list article {
@@ -758,7 +758,7 @@
 .agent-mcp-connections__list article[data-state="active"] { border-color: var(--status-positive, var(--accent-primary)); }
 .agent-mcp-connections__list article[data-state="expired"] { border-color: var(--status-caution); }
 .agent-mcp-connections__list article[data-state="revoked"] { opacity: 0.72; }
-.agent-mcp-connections__list article strong { color: var(--ink-800); font-size: 0.67rem; overflow-wrap: anywhere; }
+.agent-mcp-connections__list article strong { color: var(--ink-800); font-size: var(--type-caption); overflow-wrap: anywhere; }
 .agent-mcp-connections__activity {
   padding-left: 0.42rem;
   border-left: 3px solid var(--line);
@@ -839,14 +839,14 @@
 .agent-mcp-connections__ownership > header small,
 .agent-mcp-connections__ownership > footer small {
   color: var(--ink-550);
-  font-size: 0.54rem;
+  font-size: var(--type-caption);
 }
 .agent-mcp-connections__ownership > header > span:last-child {
   padding: 0.13rem 0.36rem;
   border: 1px solid currentColor;
   border-radius: 999px;
   color: var(--ink-700);
-  font-size: 0.56rem;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 .agent-mcp-connections__ownership dl {
@@ -866,7 +866,7 @@
 }
 .agent-mcp-connections__ownership dt {
   color: var(--ink-500);
-  font-size: 0.52rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   text-transform: uppercase;
 }
@@ -874,7 +874,7 @@
   min-width: 0;
   margin: 0;
   color: var(--ink-750);
-  font-size: 0.58rem;
+  font-size: var(--type-caption);
   overflow-wrap: anywhere;
 }
 .agent-mcp-connections__handoff,
@@ -886,7 +886,7 @@
   overflow-wrap: anywhere;
 }
 .agent-mcp-connections__incoming-handoff > strong {
-  font-size: 0.62rem;
+  font-size: var(--type-caption);
 }
 
 @media (max-width: 520px) {

@@ -1,6 +1,6 @@
 # Checkpoint Sweep-01b entry
 
-Status: active; foundation slice 01b.1 complete, 01b.2 next
+Status: active; slices 01b.1 and 01b.2 complete, 01b.3 next
 Entered: 2026-08-31
 Parent goal: [Prompt Enhancer finish goal](prompt-enhancer-finish-goal-2026-08-29.md)
 Prerequisite: [Sweep-01a handoff](checkpoint-sweep-01a-handoff.md)
@@ -55,5 +55,7 @@ provider transcripts, install an MCP server or transmit content.
 
 ## Next slice
 
-Sweep-01b.2 begins with a rendered density and legibility audit of the Agent
-settings drawer, MCP Store, artifacts, workspace review and attachment flows.
+Sweep-01b.3 reconciles route headers, cards, status language, icons, spacing
+and primary-action ownership across every non-Agent route family inventoried
+by Sweep-01a. See the [01b.2 handoff](checkpoint-sweep-01b-2-handoff.md) for
+the completed secondary Agent surface evidence.

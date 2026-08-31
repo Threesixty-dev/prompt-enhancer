@@ -29,7 +29,7 @@
   border: 1px solid color-mix(in srgb, var(--accent-secondary) 55%, var(--line));
   border-radius: 0.42rem;
   color: var(--accent-secondary);
-  font-size: 0.67rem;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0.08em;
 }
@@ -44,7 +44,7 @@
   border-radius: 999px;
   color: var(--ink-600);
   background: var(--surface-raised, var(--surface));
-  font-size: 0.7rem;
+  font-size: var(--type-caption);
   font-weight: 650;
   white-space: nowrap;
 }
@@ -74,11 +74,19 @@
   border-radius: 999px;
   color: var(--ink-500);
   background: var(--surface-raised, var(--surface));
-  font-size: 0.7rem;
+  font-size: var(--type-caption);
 }
 
 .agent-mcp-call__details { border-top: 1px solid var(--line); padding-top: 0.35rem; }
-.agent-mcp-call__details > summary { width: fit-content; cursor: pointer; color: var(--ink-600); font-weight: 650; }
+.agent-mcp-call__details > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  width: fit-content;
+  cursor: pointer;
+  color: var(--ink-600);
+  font-weight: 650;
+}
 .agent-mcp-call__details dl { display: grid; gap: 0.35rem; margin: 0.65rem 0; }
 .agent-mcp-call__details dl > div { display: grid; grid-template-columns: minmax(7rem, 0.32fr) minmax(0, 1fr); gap: 0.55rem; }
 .agent-mcp-call__details dt { color: var(--ink-400); }

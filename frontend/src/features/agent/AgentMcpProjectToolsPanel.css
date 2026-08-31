@@ -17,26 +17,26 @@
 }
 .agent-mcp-project-tools > summary::-webkit-details-marker { display: none; }
 .agent-mcp-project-tools > summary > span:first-child { display: grid; gap: 0.04rem; min-width: 0; }
-.agent-mcp-project-tools > summary small { color: var(--ink-500); font-size: 0.54rem; letter-spacing: 0.06em; text-transform: uppercase; }
-.agent-mcp-project-tools > summary strong { overflow: hidden; color: var(--ink-750); font-size: 0.64rem; text-overflow: ellipsis; white-space: nowrap; }
+.agent-mcp-project-tools > summary small { color: var(--ink-500); font-size: var(--type-caption); letter-spacing: 0.06em; text-transform: uppercase; }
+.agent-mcp-project-tools > summary strong { overflow: hidden; color: var(--ink-750); font-size: var(--type-caption); text-overflow: ellipsis; white-space: nowrap; }
 .agent-mcp-project-tools > summary > span:last-child { color: var(--ink-500); transition: transform 140ms ease; }
 .agent-mcp-project-tools[open] > summary > span:last-child { transform: rotate(180deg); }
 .agent-mcp-project-tools__body { display: grid; gap: 0.48rem; padding: 0 0.62rem 0.62rem; border-top: 1px solid var(--line); }
-.agent-mcp-project-tools__body > p { margin: 0.5rem 0 0; color: var(--ink-650); font-size: 0.56rem; line-height: 1.5; }
+.agent-mcp-project-tools__body > p { margin: 0.5rem 0 0; color: var(--ink-650); font-size: var(--type-caption); line-height: 1.5; }
 .agent-mcp-project-tools__boundary { color: var(--ink-500) !important; }
 .agent-mcp-project-tools dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.34rem; margin: 0; }
 .agent-mcp-project-tools dl > div { display: grid; gap: 0.06rem; padding: 0.38rem; border: 1px solid var(--line); border-radius: 0.42rem; background: var(--surface); }
-.agent-mcp-project-tools dt { color: var(--ink-500); font-size: 0.5rem; }
-.agent-mcp-project-tools dd { margin: 0; color: var(--ink-750); font-size: 0.62rem; font-weight: 760; }
+.agent-mcp-project-tools dt { color: var(--ink-500); font-size: var(--type-caption); }
+.agent-mcp-project-tools dd { margin: 0; color: var(--ink-750); font-size: var(--type-caption); font-weight: 760; }
 .agent-mcp-project-tools ul { display: grid; gap: 0.28rem; margin: 0; padding: 0; list-style: none; }
 .agent-mcp-project-tools li { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.38rem 0.44rem; border: 1px solid var(--line); border-radius: 0.42rem; background: var(--surface); }
 .agent-mcp-project-tools li > span { display: grid; gap: 0.04rem; min-width: 0; }
-.agent-mcp-project-tools li strong { font-size: 0.57rem; }
+.agent-mcp-project-tools li strong { font-size: var(--type-caption); }
 .agent-mcp-project-tools li small,
-.agent-mcp-project-tools__body > small { color: var(--ink-500); font-size: 0.5rem; }
-.agent-mcp-project-tools li code { overflow-wrap: anywhere; color: var(--ink-500); font-size: 0.5rem; }
+.agent-mcp-project-tools__body > small { color: var(--ink-500); font-size: var(--type-caption); }
+.agent-mcp-project-tools li code { overflow-wrap: anywhere; color: var(--ink-500); font-size: var(--type-caption); }
 .agent-mcp-project-tools__actions { display: flex; flex-wrap: wrap; gap: 0.36rem; }
-.agent-mcp-project-tools__actions .button { min-height: 2.55rem; }
+.agent-mcp-project-tools__actions .button { min-height: var(--touch-target); }
 
 @media (max-width: 520px) {
   .agent-mcp-project-tools dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }

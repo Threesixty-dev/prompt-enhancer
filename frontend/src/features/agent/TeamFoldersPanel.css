@@ -52,6 +52,14 @@
 
 .team-folders__form input {
   width: 100%;
+  box-sizing: border-box;
+  min-height: var(--touch-target);
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+}
+
+.team-folders .button {
+  min-height: var(--touch-target);
 }
 
 .team-folders__token {
@@ -80,7 +88,7 @@
 
 .team-folders__list code {
   word-break: break-all;
-  font-size: 0.75em;
+  font-size: var(--type-caption);
 }
 
 .team-folders__actions {

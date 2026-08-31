@@ -532,7 +532,7 @@ for (const width of [360, 1440]) {
       await expect(controller).toBeVisible();
       await expect(controller.getByText("Ready", { exact: true })).toBeVisible();
       const controllerFacts = controller.locator(".agent-controller__facts");
-      await expect(controllerFacts.getByText("Agent routes", { exact: true }).locator("..")).toContainText("67");
+      await expect(controllerFacts.getByText("Agent routes", { exact: true }).locator("..")).toContainText("68");
       await expect(controllerFacts.getByText("Runtime routes", { exact: true }).locator("..")).toContainText("5");
       await expect(controllerFacts.getByText("Native review gates", { exact: true }).locator("..")).toContainText("12");
       await expect(controller).toContainText("GET /v1/agent/orchestration");
@@ -1304,6 +1304,7 @@ for (const width of [360, 1440]) {
 
     test("workspace content search is bounded, responsive and opens an editable match", async ({ page }) => {
       await page.goto("/e2e/fixtures/workflow-panels.html?panel=editor");
+      await page.getByText("Workspace tools & safety", { exact: true }).click();
       await expect(page.getByText("Complete application-readable inventory", { exact: true })).toBeVisible();
       await page.getByRole("searchbox", { name: "Search workspace contents", exact: true }).fill("value");
       await page.getByRole("textbox", { name: "Workspace search file pattern", exact: true }).fill("**/*.ts");

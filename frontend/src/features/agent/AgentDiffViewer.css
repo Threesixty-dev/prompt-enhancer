@@ -32,7 +32,7 @@
   border-radius: 999px;
   color: var(--ink-650);
   background: var(--surface);
-  font-size: 0.67rem;
+  font-size: var(--type-caption);
   line-height: 1.35;
 }
 
@@ -47,7 +47,7 @@
   background: var(--surface);
   color: var(--ink-650);
   font: inherit;
-  font-size: 0.68rem;
+  font-size: var(--type-caption);
   font-weight: 700;
   cursor: pointer;
 }
@@ -66,7 +66,7 @@
   border-left: 3px solid var(--status-caution);
   background: var(--amber-50);
   color: var(--ink-750) !important;
-  font-size: 0.72rem !important;
+  font-size: var(--type-caption) !important;
 }
 
 .agent-diff-viewer__render-limit {
@@ -75,7 +75,7 @@
   border-bottom: 1px solid var(--line);
   color: var(--ink-650) !important;
   background: var(--surface-soft);
-  font-size: 0.7rem !important;
+  font-size: var(--type-caption) !important;
 }
 
 .agent-diff-viewer__viewport {
@@ -85,9 +85,9 @@
 }
 
 .agent-diff-viewer[data-compact="true"] .agent-diff-viewer__viewport { max-height: 14rem; }
-.agent-diff-viewer__raw { margin: 0; min-width: max-content; padding: 0.5rem 0.6rem; color: var(--ink-850); font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 0.72rem; line-height: 1.45; white-space: pre; }
+.agent-diff-viewer__raw { margin: 0; min-width: max-content; padding: 0.5rem 0.6rem; color: var(--ink-850); font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: var(--type-caption); line-height: 1.45; white-space: pre; }
 .agent-diff-viewer[data-wrap="true"] .agent-diff-viewer__raw { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.agent-diff-viewer table { width: max-content; min-width: 100%; border-spacing: 0; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 0.72rem; line-height: 1.45; }
+.agent-diff-viewer table { width: max-content; min-width: 100%; border-spacing: 0; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: var(--type-caption); line-height: 1.45; }
 .agent-diff-viewer td { padding: 0; vertical-align: top; }
 .agent-diff-viewer tbody tr[data-kind="metadata"] { color: var(--ink-650); background: var(--surface-soft); }
 .agent-diff-viewer tbody tr[data-kind="hunk"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
