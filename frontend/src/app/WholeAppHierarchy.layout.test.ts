@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import appCss from "../styles.css?raw";
 import primitivesCss from "../shared/ui/primitives.css?raw";
+import themeCss from "./theme.css?raw";
 import appSource from "./App.tsx?raw";
 import { APP_ROUTE_MANIFEST } from "./appRouteManifest";
 import discoverySource from "../features/discovery-inbox/DiscoveryInbox.tsx?raw";
@@ -29,6 +30,7 @@ import sessionsCss from "../features/session-catalog/Sessions.css?raw";
 import taskFlowCss from "../features/task-flow/TaskFlow.css?raw";
 import teamCss from "../features/team-analytics/TeamAnalytics.css?raw";
 import socialCss from "../features/social/SocialHub.css?raw";
+import metricOperabilityCss from "../features/research-lab/MetricOperabilityPanel.css?raw";
 
 const ROUTE_HEADER_SOURCES = {
   appSource,
@@ -107,6 +109,31 @@ describe("whole-application hierarchy contract", () => {
     expect(appCss).toMatch(/\.button\s*\{[^}]*min-height:\s*var\(--touch-target\);[^}]*font-size:\s*var\(--type-label\);/);
     expect(primitivesCss).toMatch(/\.ui-tabs__tab\s*\{[^}]*min-height:\s*var\(--touch-target\);[^}]*font-size:\s*var\(--type-label\);/);
     expect(primitivesCss).toMatch(/\.ui-disclosure__trigger\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+  });
+
+  it("keeps audited legacy metadata and shell actions on the shared accessibility floors", () => {
+    for (const selector of [
+      "candidate-card__open",
+      "coverage__label",
+      "coverage__caption",
+      "count-badge",
+      "evidence-item__code",
+      "evidence-item__meta",
+      "project-catalog-card__select",
+      "project-catalog__boundary",
+      "snapshot-boundary p",
+      "metric-card__eyebrow",
+      "metric-card__question",
+      "metric-card__detail",
+    ]) {
+      expect(appCss, selector).toMatch(new RegExp(`\\.${selector.replace(" ", "\\s+")}[^}]*font-size:\\s*var\\(--type-caption\\);`));
+    }
+
+    expect(sessionsCss).toMatch(/\.sessions-count\s*\{[^}]*font-size:\s*var\(--type-caption\);/);
+    expect(sessionsCss).toMatch(/\.session-row__meta\s*\{[^}]*font-size:\s*var\(--type-caption\);/);
+    expect(metricOperabilityCss).toMatch(/\.metric-operability__group li > span\s*\{[^}]*font-size:\s*var\(--type-caption\);/);
+    expect(taskFlowCss).toMatch(/\.task-flow-card footer \.button\s*\{[^}]*min-width:\s*var\(--touch-target\);[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(themeCss).toMatch(/\.theme-toggle\s*\{[^}]*min-width:\s*var\(--touch-target\);[^}]*height:\s*var\(--touch-target\);[^}]*font-size:\s*var\(--type-caption\);/);
   });
 
   it("keeps shell, navigation, and route headings on one vocabulary", () => {

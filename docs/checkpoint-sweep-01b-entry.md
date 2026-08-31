@@ -1,6 +1,6 @@
 # Checkpoint Sweep-01b entry
 
-Status: active; slices 01b.1 through 01b.3 complete, 01b.4 next
+Status: automated complete through 01b.4; owner visual review queued; Sweep-01c next
 Entered: 2026-08-31
 Parent goal: [Prompt Enhancer finish goal](prompt-enhancer-finish-goal-2026-08-29.md)
 Prerequisite: [Sweep-01a handoff](checkpoint-sweep-01a-handoff.md)
@@ -62,9 +62,18 @@ surface. Twenty-three direct and parameterized route shapes passed exact
 settled geometry at 360 px and 1440 px. See the
 [01b.3 handoff](checkpoint-sweep-01b-3-handoff.md).
 
-## Next slice
+## 01b.4 result
 
-Sweep-01b.4 closes the 320/360/768/1440 px, both-theme, keyboard, focus,
-screen-reader, contrast, forced-colors and reduced-motion matrix. See the
-[01b.2 handoff](checkpoint-sweep-01b-2-handoff.md) for the completed secondary
-Agent surface evidence.
+Twenty-six direct and parameterized route shapes now pass 208 settled route
+audits across 320/360/768/1440 px and both themes. The same checkpoint proves
+keyboard entry and focus behavior at all eight width/theme combinations plus
+forced colors and reduced motion at every width. The complete frontend and
+Playwright regressions are green. See the
+[01b.4 handoff](checkpoint-sweep-01b-4-handoff.md).
+
+## Next checkpoint
+
+Sweep-01b is automated complete. Sweep-01c now tests long synthetic chats,
+catalogs, file trees, artifacts and event streams for bounded rendering,
+pagination or virtualization, cancellation, stale-response safety and layout
+stability. The owner click-later list remains queued as Acceptance-01 evidence.

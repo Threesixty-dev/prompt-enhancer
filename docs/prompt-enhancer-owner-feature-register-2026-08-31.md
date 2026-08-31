@@ -35,7 +35,7 @@ No status means “probably works.” Unknown evidence remains pending.
 | APP-02 | Model, command, MCP and helper processes never flash terminal windows. | Hidden-process integration tests plus a real Windows process/window census. | Store-07c, Acceptance-01, Release-01b | Pending final proof |
 | APP-03 | Shutdown stops every owned listener, model, command and MCP descendant or reports cleanup uncertainty truthfully. | Normal, crash, timeout and forced-stop census; zero silently orphaned owned processes. | Store-07c, Release-01a | Pending |
 | APP-04 | Reload restores durable state without pretending interrupted operations completed. | Supported-schema migrations and restart reconciliation for projects, chats, downloads, artifacts and MCP operations. | Release-01a | Pending |
-| APP-05 | Navigation, page titles and back/forward behavior preserve the exact selected project and chat. | Route-state, stale-response and direct-link tests at narrow and desktop widths. | Sweep-01a/01b | Route hierarchy automated complete through Sweep-01b.3; complete accessibility matrix remains |
+| APP-05 | Navigation, page titles and back/forward behavior preserve the exact selected project and chat. | Route-state, stale-response and direct-link tests at narrow and desktop widths. | Sweep-01a/01b | Automated route and accessibility matrices complete; owner route review pending |
 
 ## B. Agent projects, sessions and conversation
 
@@ -47,11 +47,11 @@ No status means “probably works.” Unknown evidence remains pending.
 | AGT-04 | Fork or branch retained work and export the exact visible history without altering the source chat. | Lineage, idempotency, exact-head and cross-scope tests. | Agent-11 | Automated complete; owner review pending |
 | AGT-05 | A visible composer accepts text, supports keyboard send/newline behavior and retains a failed draft. | Empty, disabled, send failure, navigation and accessibility tests. | Agent-12 | Automated complete; owner review pending |
 | AGT-06 | Streaming, Stop, retry, edit and regenerate are deterministic and never duplicate or rewind turns. | Late, duplicate, out-of-order, reconnect, Stop-race and unexpected-EOF tests. | Agent-12 | Automated complete; owner review pending |
-| AGT-07 | Markdown, code blocks, copy actions, diffs, citations and long responses render legibly. | Safe renderer fixtures, overflow, keyboard and narrow-width tests. | Agent-12, Workspace-01, Sweep-01b | Automated core complete; final sweep pending |
+| AGT-07 | Markdown, code blocks, copy actions, diffs, citations and long responses render legibly. | Safe renderer fixtures, overflow, keyboard and narrow-width tests. | Agent-12, Workspace-01, Sweep-01b | Automated responsive/accessibility core complete; owner review and Sweep-01c stress remain |
 | AGT-08 | The chat shows ready, thinking, waiting, running, streaming, stopping, failed, cleanup-uncertain and complete states. | Event-order state matrix with screen-reader labels and no silent success state. | Agent-12, Store-06e.4 | Automated complete; owner review pending |
 | AGT-09 | Reasoning display is limited to model-provided summaries, plans and progress; hidden chain of thought is never claimed. | Contract provenance, truthful labels, absent-data and unsafe-content tests. | Agent-12 | Automated complete; owner review pending |
 | AGT-10 | Context usage is exact when evidenced and visibly unknown or stale otherwise. | Model/chat/turn identity, compaction, refusal and stale-evidence tests. | Agent-12 | Automated complete; owner review pending |
-| AGT-11 | Retained metadata, resumable history and a currently live model session are visually distinct. | Restart, unavailable-runtime, resume/fork and metadata-only route tests. | Agent-11/12, Sweep-01a | Automated core complete; final sweep pending |
+| AGT-11 | Retained metadata, resumable history and a currently live model session are visually distinct. | Restart, unavailable-runtime, resume/fork and metadata-only route tests. | Agent-11/12, Sweep-01a | Automated route/accessibility core complete; owner restart review pending |
 
 ## C. Local model acquisition and runtime
 
@@ -123,10 +123,10 @@ No status means “probably works.” Unknown evidence remains pending.
 | ID | Required owner-visible behavior | Acceptance boundary | Owner checkpoint | Current state |
 | --- | --- | --- | --- | --- |
 | UX-01 | Every route, card, button, checkbox, picker, dialog and drawer maps to a real contract or explains why it is unavailable. | Route/control/state inventory; click and keyboard traversal; zero unexplained dead controls. | Sweep-01a | Automated complete; owner click-later review queued |
-| UX-02 | One coherent hierarchy keeps primary work prominent and moves advanced controls into purposeful drawers, details or settings. | Owner visual review plus 320/360/768/1440 px layout matrix. | Sweep-01b | Automated hierarchy complete through 01b.3; owner and 01b.4 matrix review pending |
-| UX-03 | One icon, typography, spacing, focus and status system replaces repeated or misleading visual language. | Token/component audit, contrast and state snapshot tests. | Sweep-01b | Automated type, spacing, icon, status and action reconciliation complete through 01b.3; 01b.4 contrast matrix pending |
-| UX-04 | Keyboard, screen-reader, forced-colors, contrast and reduced-motion behavior are first-class correctness requirements. | Automated accessibility plus manual keyboard matrix on every primary journey. | Sweep-01b | Active; existing guards preserved, Sweep-01b.4 complete journey matrix next |
-| UX-05 | Loading, empty, offline, unavailable, approval, retry, stale, error and cleanup-uncertain states are explicit and recoverable. | State inventory and failure-injection browser tests. | Sweep-01a/01b | State inventory and hierarchy automated complete through 01b.3; 01b.4 accessibility review remains |
+| UX-02 | One coherent hierarchy keeps primary work prominent and moves advanced controls into purposeful drawers, details or settings. | Owner visual review plus 320/360/768/1440 px layout matrix. | Sweep-01b | Automated hierarchy and four-width/two-theme matrix complete; owner visual review pending |
+| UX-03 | One icon, typography, spacing, focus and status system replaces repeated or misleading visual language. | Token/component audit, contrast and state snapshot tests. | Sweep-01b | Automated type, spacing, icon, status, action and settled-contrast matrices complete; owner review pending |
+| UX-04 | Keyboard, screen-reader, forced-colors, contrast and reduced-motion behavior are first-class correctness requirements. | Automated accessibility plus manual keyboard matrix on every primary journey. | Sweep-01b | Automated matrix complete at four widths and both themes; owner manual keyboard review pending |
+| UX-05 | Loading, empty, offline, unavailable, approval, retry, stale, error and cleanup-uncertain states are explicit and recoverable. | State inventory and failure-injection browser tests. | Sweep-01a/01b | Automated state, recovery, hierarchy and accessibility review complete; owner review pending |
 | UX-06 | Long chats, catalogs, file trees, artifacts and event streams stay responsive and do not reorder or lose selection. | Bounded stress, pagination/virtualization, cancellation, stale-response and layout-shift budgets. | Sweep-01c | Pending |
 
 ## I. Privacy, packaging and release
@@ -147,7 +147,7 @@ The remaining dependency-ordered trajectory is:
    stale-vault and project/chat/client isolation gates.
 2. **Acceptance-01 — owner queue:** collect only the physical/native evidence
    automation cannot honestly replace, including real model/VRAM and trusted MCP checks.
-3. **Sweep-01a–01c — 01a and 01b.1–01b.3 automated complete, 01b.4 next:** preserve the route/control/state and whole-app hierarchy gates, then close responsive accessibility before stressing large synthetic state.
+3. **Sweep-01a–01c — 01a and 01b automated complete; 01c next:** preserve the route/control/state, whole-app hierarchy and accessibility gates while stressing large synthetic state.
 4. **Release-01a–01b:** migrations, recovery, privacy, process cleanup, packaged
    Windows parity and the connected owner journey.
 

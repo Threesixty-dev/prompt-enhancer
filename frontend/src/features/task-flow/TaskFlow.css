@@ -192,7 +192,7 @@
 .task-flow-card__detail { display: block; margin-top: 3px; }
 .task-flow-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
 .task-flow-card footer > span { color: var(--ink-500, var(--ink-500)); font-size: 0.68rem; }
-.task-flow-card footer .button { min-height: 32px; }
+.task-flow-card footer .button { min-width: var(--touch-target); min-height: var(--touch-target); }
 
 /* Two-step explicit lifecycle commands. */
 .task-lifecycle-controls {
