@@ -46,6 +46,7 @@ const CATALOG_REASON_LABELS: Record<CatalogReason, string> = {
   catalog_path_invalid: "The configured local catalog path is invalid.",
   catalog_path_unsafe: "The configured local catalog path is outside the allowed boundary.",
   catalog_schema_newer: "The local catalog was created by a newer application version.",
+  catalog_migration_invalid: "The local catalog migration history is inconsistent. No data was changed.",
   catalog_storage_unavailable: "The local catalog storage could not be inspected.",
   catalog_quick_check_failed: "The local catalog integrity check did not pass.",
   catalog_foreign_key_violation: "The local catalog has relationship inconsistencies.",

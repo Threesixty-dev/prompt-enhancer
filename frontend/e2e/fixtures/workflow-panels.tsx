@@ -219,7 +219,7 @@ const hardeningSnapshot: AgentHardeningSnapshot = {
   catalog: {
     state: "ready",
     reason_code: null,
-    schema_version: 5,
+    schema_version: 30,
     quick_check_passed: true,
     foreign_key_violations_observed: 0,
     foreign_key_scan_truncated: false,

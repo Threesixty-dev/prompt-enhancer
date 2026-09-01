@@ -3165,6 +3165,7 @@
           "catalog_path_invalid",
           "catalog_path_unsafe",
           "catalog_schema_newer",
+          "catalog_migration_invalid",
           "catalog_storage_unavailable",
           "catalog_quick_check_failed",
           "catalog_foreign_key_violation",

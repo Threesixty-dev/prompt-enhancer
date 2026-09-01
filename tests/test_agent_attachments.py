@@ -1004,6 +1004,7 @@ def test_agent_catalog_v7_migration_preserves_existing_attachment_bytes_and_guar
         connection.execute(
             "ALTER TABLE agent_mcp_connections DROP COLUMN last_tool_at"
         )
+        connection.execute("DROP TABLE IF EXISTS agent_catalog_migration_checksums")
         connection.execute(
             "DELETE FROM agent_catalog_schema_migrations WHERE version>=7"
         )

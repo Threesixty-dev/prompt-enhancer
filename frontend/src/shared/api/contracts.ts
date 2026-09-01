@@ -174,13 +174,14 @@ export interface AgentCatalogHardeningStatus {
     | "catalog_path_invalid"
     | "catalog_path_unsafe"
     | "catalog_schema_newer"
+    | "catalog_migration_invalid"
     | "catalog_storage_unavailable"
     | "catalog_quick_check_failed"
     | "catalog_foreign_key_violation"
     | "catalog_projection_mismatch"
     | "catalog_diagnostic_unavailable"
     | null;
-  schema_version: 6 | null;
+  schema_version: number | null;
   quick_check_passed: boolean | null;
   foreign_key_violations_observed: number | null;
   foreign_key_scan_truncated: boolean;

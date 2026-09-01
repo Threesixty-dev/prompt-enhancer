@@ -5803,6 +5803,7 @@ def test_schema_eleven_migrates_without_changing_existing_projects(
             "mcp_managed_servers",
         ):
             connection.execute(f"DROP TABLE {table}")
+        connection.execute("DROP TABLE IF EXISTS agent_catalog_migration_checksums")
         connection.execute(
             "DELETE FROM agent_catalog_schema_migrations WHERE version>=12"
         )
@@ -5837,6 +5838,7 @@ def test_schema_thirteen_backfills_existing_plans_as_uninstalled(
         connection.execute("DROP TABLE mcp_managed_local_packages")
         connection.execute("DROP TABLE mcp_managed_lifecycle_receipts")
         connection.execute("DROP TABLE mcp_managed_lifecycle_state")
+        connection.execute("DROP TABLE IF EXISTS agent_catalog_migration_checksums")
         connection.execute(
             "DELETE FROM agent_catalog_schema_migrations WHERE version>=14"
         )
@@ -5889,6 +5891,7 @@ def test_schema_eighteen_expands_the_bounded_update_evidence_journal(
             ) STRICT
             """
         )
+        connection.execute("DROP TABLE IF EXISTS agent_catalog_migration_checksums")
         connection.execute(
             "DELETE FROM agent_catalog_schema_migrations WHERE version>=19"
         )
@@ -5949,6 +5952,7 @@ def test_schema_nineteen_backfills_current_and_retained_snapshot_manifests(
             "ALTER TABLE mcp_managed_tool_snapshots "
             "DROP COLUMN source_manifest_digest"
         )
+        connection.execute("DROP TABLE IF EXISTS agent_catalog_migration_checksums")
         connection.execute(
             "DELETE FROM agent_catalog_schema_migrations WHERE version>=20"
         )

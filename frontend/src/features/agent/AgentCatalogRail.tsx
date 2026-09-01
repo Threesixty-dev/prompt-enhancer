@@ -167,6 +167,10 @@ function failureCopy(error: unknown): string {
     case "agent_catalog_storage_unavailable":
     case "agent_catalog_unavailable":
       return "The private Agent catalog is unavailable. Live chats remain separate.";
+    case "agent_catalog_migration_history_incomplete":
+    case "agent_catalog_migration_checksum_mismatch":
+    case "agent_catalog_schema_version_mismatch":
+      return "The private Agent catalog migration history is inconsistent. No data was changed.";
     default:
       return "The Agent catalog could not be updated.";
   }

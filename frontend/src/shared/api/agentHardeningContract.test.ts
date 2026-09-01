@@ -15,7 +15,7 @@ function exampleSnapshot() {
     catalog: {
       state: "ready",
       reason_code: null,
-      schema_version: 6,
+      schema_version: 30,
       quick_check_passed: true,
       foreign_key_violations_observed: 0,
       foreign_key_scan_truncated: false,
@@ -58,8 +58,29 @@ describe("parseAgentHardeningSnapshot", () => {
     const parsed = parseAgentHardeningSnapshot(exampleSnapshot());
 
     expect(parsed.catalog.counts?.sessions).toBe(2);
+    expect(parsed.catalog.schema_version).toBe(30);
     expect(parsed.recovery_actions).toEqual(["resume_interrupted_read_only"]);
     expect(JSON.stringify(parsed)).not.toContain("workspace");
+  });
+
+  it("accepts the fixed content-free migration-invalid diagnostic", () => {
+    const value: any = exampleSnapshot();
+    value.recovery_state = "unknown";
+    value.recovery_actions = [];
+    value.catalog = {
+      state: "unavailable",
+      reason_code: "catalog_migration_invalid",
+      schema_version: null,
+      quick_check_passed: null,
+      foreign_key_violations_observed: null,
+      foreign_key_scan_truncated: false,
+      projection_violations: null,
+      counts: null,
+    };
+
+    const parsed = parseAgentHardeningSnapshot(value);
+    expect(parsed.catalog.reason_code).toBe("catalog_migration_invalid");
+    expect(JSON.stringify(parsed)).not.toContain("checksum");
   });
 
   it.each([
@@ -68,6 +89,7 @@ describe("parseAgentHardeningSnapshot", () => {
     ["a ready integrity mismatch", (value: any) => { value.catalog.projection_violations = 1; }],
     ["a live subcount larger than sessions", (value: any) => { value.live.counts.running_turns = 1; }],
     ["a duplicate recovery action", (value: any) => { value.recovery_actions.push("resume_interrupted_read_only"); }],
+    ["an invalid schema head", (value: any) => { value.catalog.schema_version = 0; }],
   ])("rejects %s", (_label, mutate) => {
     const value = exampleSnapshot();
     mutate(value);

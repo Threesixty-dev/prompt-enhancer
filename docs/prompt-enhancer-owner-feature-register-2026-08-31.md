@@ -31,10 +31,10 @@ No status means “probably works.” Unknown evidence remains pending.
 
 | ID | Required owner-visible behavior | Acceptance boundary | Owner checkpoint | Current state |
 | --- | --- | --- | --- | --- |
-| APP-01 | Starting Prompt Enhancer opens one application instance and exactly one loopback listener. | Repeated launch, reload, shutdown and listener-collision tests; no recursive window creation. | Release-01a/01b | Pending |
+| APP-01 | Starting Prompt Enhancer opens one application instance and exactly one loopback listener. | Repeated launch, reload, shutdown and listener-collision tests; no recursive window creation. | Release-01a/01b | One hidden Release-01a.1 reload is green; repeated and packaged proof pending |
 | APP-02 | Model, command, MCP and helper processes never flash terminal windows. | Hidden-process integration tests plus a real Windows process/window census. | Store-07c, Acceptance-01, Release-01b | Pending final proof |
 | APP-03 | Shutdown stops every owned listener, model, command and MCP descendant or reports cleanup uncertainty truthfully. | Normal, crash, timeout and forced-stop census; zero silently orphaned owned processes. | Store-07c, Release-01a | Pending |
-| APP-04 | Reload restores durable state without pretending interrupted operations completed. | Supported-schema migrations and restart reconciliation for projects, chats, downloads, artifacts and MCP operations. | Release-01a | Pending |
+| APP-04 | Reload restores durable state without pretending interrupted operations completed. | Supported-schema migrations and restart reconciliation for projects, chats, downloads, artifacts and MCP operations. | Release-01a | Agent catalog schemas 1–29 to checksummed schema 30 are proven; remaining stores and operation reconciliation pending |
 | APP-05 | Navigation, page titles and back/forward behavior preserve the exact selected project and chat. | Route-state, stale-response and direct-link tests at narrow and desktop widths. | Sweep-01a/01b | Automated route and accessibility matrices complete; owner route review pending |
 
 ## B. Agent projects, sessions and conversation
@@ -133,9 +133,9 @@ No status means “probably works.” Unknown evidence remains pending.
 
 | ID | Required owner-visible behavior | Acceptance boundary | Owner checkpoint | Current state |
 | --- | --- | --- | --- | --- |
-| REL-01 | Private prompts, transcripts, tool payloads, credentials and derived data remain local and are absent from diagnostics and synthetic fixtures. | Privacy scanner, canaries, API/database/log review and network-denial tests. | Store-07e, Release-01a | Release gate |
-| REL-02 | Every durable record carries the required schema/provenance/version identity; missing metrics remain unknown. | Migration, contract, metric and retention tests from every supported version. | Release-01a | Release gate |
-| REL-03 | Backend, frontend, strict API contracts, privacy checks and production build are green together after the final coherent change. | One recorded final gate with exact pass/fail counts and no waived safety test. | Release-01a | Release gate |
+| REL-01 | Private prompts, transcripts, tool payloads, credentials and derived data remain local and are absent from diagnostics and synthetic fixtures. | Privacy scanner, canaries, API/database/log review and network-denial tests. | Store-07e, Release-01a | Release-01a.1 privacy gate green; final release gate remains |
+| REL-02 | Every durable record carries the required schema/provenance/version identity; missing metrics remain unknown. | Migration, contract, metric and retention tests from every supported version. | Release-01a | Agent catalog migration provenance complete through schema 30; whole-store proof remains |
+| REL-03 | Backend, frontend, strict API contracts, privacy checks and production build are green together after the final coherent change. | One recorded final gate with exact pass/fail counts and no waived safety test. | Release-01a | Release-01a.1 coherent gate green; final release gate remains |
 | REL-04 | The packaged Windows application matches the validated development behavior for pickers, confirmations, hidden processes, listener and cleanup. | Install/start/reload/shutdown package smoke on the owner machine. | Release-01b | Pending |
 | REL-05 | The complete north-star Agent + model + workspace + artifact + MCP + orchestration journey works without an undocumented workaround. | Explicit owner walkthrough and signed release checklist. | Release-01b | Pending |
 
@@ -148,8 +148,11 @@ The remaining dependency-ordered trajectory is:
 2. **Acceptance-01 — owner queue:** collect only the physical/native evidence
    automation cannot honestly replace, including real model/VRAM and trusted MCP checks.
 3. **Sweep-01a–01c — automated complete; owner review queued:** preserve the route/control/state, whole-app hierarchy, accessibility, durable paging, cancellation, maximum-history, latency and layout-shift gates while release work proceeds.
-4. **Release-01a–01b:** migrations, recovery, privacy, process cleanup, packaged
-   Windows parity and the connected owner journey.
+4. **Release-01a.1 — automated complete:** Agent catalog schemas 1 through 29
+   upgrade transactionally to checksummed schema 30; corruption fails closed.
+5. **Release-01a.2–01b:** remaining durable-store recovery, interrupted-operation
+   reconciliation, process cleanup, packaged Windows parity and the connected
+   owner journey.
 
 Completed checkpoints remain regression obligations throughout this sequence.
 A failing current test reopens the owning behavior; it is never dismissed merely

@@ -55,6 +55,7 @@ const CATALOG_REASONS = new Set([
   "catalog_path_invalid",
   "catalog_path_unsafe",
   "catalog_schema_newer",
+  "catalog_migration_invalid",
   "catalog_storage_unavailable",
   "catalog_quick_check_failed",
   "catalog_foreign_key_violation",
@@ -119,7 +120,10 @@ function catalogStatus(value: unknown): AgentCatalogHardeningStatus {
     !exactKeys(value, CATALOG_KEYS) ||
     !["ready", "degraded", "unavailable"].includes(String(value.state)) ||
     !(value.reason_code === null || CATALOG_REASONS.has(String(value.reason_code))) ||
-    !(value.schema_version === null || value.schema_version === 6) ||
+    !(
+      value.schema_version === null ||
+      (count(value.schema_version) && value.schema_version >= 1)
+    ) ||
     !(value.quick_check_passed === null || typeof value.quick_check_passed === "boolean") ||
     !nullableCount(value.foreign_key_violations_observed) ||
     typeof value.foreign_key_scan_truncated !== "boolean" ||

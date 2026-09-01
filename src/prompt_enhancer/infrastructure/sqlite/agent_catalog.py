@@ -52,7 +52,7 @@ from ...config import lexical_absolute_path, path_has_symlink_component
 
 
 AGENT_CATALOG_DATABASE_FILENAME = "agent-catalog.sqlite3"
-AGENT_CATALOG_SCHEMA_VERSION = 29
+AGENT_CATALOG_SCHEMA_VERSION = 30
 
 _SCHEMA_V1 = r"""
 CREATE TABLE IF NOT EXISTS agent_projects (
@@ -2046,6 +2046,83 @@ _SCHEMA_V29 = (
 )
 
 
+_SCHEMA_V30 = (
+    """
+    CREATE TABLE agent_catalog_migration_checksums (
+        version INTEGER PRIMARY KEY
+            REFERENCES agent_catalog_schema_migrations(version) ON DELETE RESTRICT
+            CHECK(version > 0),
+        checksum TEXT NOT NULL CHECK(
+            length(checksum)=64 AND checksum NOT GLOB '*[^0-9a-f]*'
+        )
+    ) STRICT
+    """,
+)
+
+
+_AGENT_CATALOG_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
+    (
+        1,
+        tuple(
+            statement.strip()
+            for statement in _SCHEMA_V1.split(";")
+            if statement.strip()
+        ),
+    ),
+    (2, _SCHEMA_V2),
+    (3, _SCHEMA_V3),
+    (4, _SCHEMA_V4),
+    (5, _SCHEMA_V5),
+    (6, _SCHEMA_V6),
+    (7, _SCHEMA_V7),
+    (8, _SCHEMA_V8),
+    (9, _SCHEMA_V9),
+    (10, _SCHEMA_V10),
+    (11, _SCHEMA_V11),
+    (12, _SCHEMA_V12),
+    (13, _SCHEMA_V13),
+    (14, _SCHEMA_V14),
+    (15, _SCHEMA_V15),
+    (16, _SCHEMA_V16),
+    (17, _SCHEMA_V17),
+    (18, _SCHEMA_V18),
+    (19, _SCHEMA_V19),
+    (20, _SCHEMA_V20),
+    (21, _SCHEMA_V21),
+    (22, _SCHEMA_V22),
+    (23, _SCHEMA_V23),
+    (24, _SCHEMA_V24),
+    (25, _SCHEMA_V25),
+    (26, _SCHEMA_V26),
+    (27, _SCHEMA_V27),
+    (28, _SCHEMA_V28),
+    (29, _SCHEMA_V29),
+    (30, _SCHEMA_V30),
+)
+
+if tuple(version for version, _statements in _AGENT_CATALOG_MIGRATIONS) != tuple(
+    range(1, AGENT_CATALOG_SCHEMA_VERSION + 1)
+):
+    raise RuntimeError("agent_catalog_migration_registry_invalid")
+
+
+def _agent_catalog_migration_checksum(statements: tuple[str, ...]) -> str:
+    """Hash the canonical statement list without depending on host newlines."""
+
+    canonical = json.dumps(
+        tuple(statement.strip() for statement in statements),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+_AGENT_CATALOG_MIGRATION_CHECKSUMS = {
+    version: _agent_catalog_migration_checksum(statements)
+    for version, statements in _AGENT_CATALOG_MIGRATIONS
+}
+
+
 def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="microseconds")
 
@@ -2101,6 +2178,77 @@ class AgentCatalogSqliteDatabase:
             raise AgentCatalogError("agent_catalog_path_unsafe")
         return candidate
 
+    @staticmethod
+    def _migration_table_exists(
+        connection: sqlite3.Connection,
+        table: str,
+    ) -> bool:
+        return connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone() is not None
+
+    @classmethod
+    def _validate_migration_state(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        database_version: int,
+    ) -> int:
+        rows = connection.execute(
+            "SELECT version FROM agent_catalog_schema_migrations ORDER BY version"
+        ).fetchall()
+        versions = tuple(int(row[0]) for row in rows)
+        current = versions[-1] if versions else 0
+        if current > AGENT_CATALOG_SCHEMA_VERSION:
+            raise AgentCatalogError("agent_catalog_schema_newer")
+        if versions != tuple(range(1, current + 1)):
+            raise AgentCatalogError("agent_catalog_migration_history_incomplete")
+        if database_version != current:
+            raise AgentCatalogError("agent_catalog_schema_version_mismatch")
+
+        checksum_table_exists = cls._migration_table_exists(
+            connection,
+            "agent_catalog_migration_checksums",
+        )
+        if current == 0:
+            application_table = connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type='table'
+                  AND name != 'agent_catalog_schema_migrations'
+                  AND (name LIKE 'agent_%' OR name LIKE 'mcp_managed_%')
+                LIMIT 1
+                """
+            ).fetchone()
+            if checksum_table_exists or application_table is not None:
+                raise AgentCatalogError("agent_catalog_migration_history_incomplete")
+            return current
+
+        if current < 30:
+            if checksum_table_exists:
+                raise AgentCatalogError("agent_catalog_migration_history_incomplete")
+            return current
+        if not checksum_table_exists:
+            raise AgentCatalogError("agent_catalog_migration_checksum_mismatch")
+
+        checksum_rows = connection.execute(
+            """
+            SELECT version, checksum
+            FROM agent_catalog_migration_checksums
+            ORDER BY version
+            """
+        ).fetchall()
+        observed = {int(row[0]): str(row[1]) for row in checksum_rows}
+        expected = {
+            version: _AGENT_CATALOG_MIGRATION_CHECKSUMS[version]
+            for version in range(1, current + 1)
+        }
+        if observed != expected:
+            raise AgentCatalogError("agent_catalog_migration_checksum_mismatch")
+        return current
+
     def initialize(self) -> int:
         path = self._validated_path()
         with self._initialize_lock:
@@ -2121,6 +2269,17 @@ class AgentCatalogSqliteDatabase:
                     connection.execute("PRAGMA journal_mode = WAL")
                     connection.execute("PRAGMA synchronous = FULL")
                     connection.execute("BEGIN IMMEDIATE")
+                    database_version = int(
+                        connection.execute("PRAGMA user_version").fetchone()[0]
+                    )
+                    if database_version > AGENT_CATALOG_SCHEMA_VERSION:
+                        raise AgentCatalogError("agent_catalog_schema_newer")
+                    migration_table_exists = self._migration_table_exists(
+                        connection,
+                        "agent_catalog_schema_migrations",
+                    )
+                    if not migration_table_exists and database_version != 0:
+                        raise AgentCatalogError("agent_catalog_schema_version_mismatch")
                     connection.execute(
                         """
                         CREATE TABLE IF NOT EXISTS agent_catalog_schema_migrations (
@@ -2129,247 +2288,59 @@ class AgentCatalogSqliteDatabase:
                         ) STRICT
                         """
                     )
-                    row = connection.execute(
-                        "SELECT COALESCE(MAX(version), 0) FROM agent_catalog_schema_migrations"
-                    ).fetchone()
-                    current = int(row[0]) if row is not None else 0
-                    if current > AGENT_CATALOG_SCHEMA_VERSION:
-                        raise AgentCatalogError("agent_catalog_schema_newer")
-                    if current < 1:
-                        for statement in _SCHEMA_V1.split(";"):
-                            if statement.strip():
-                                connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (1, _iso(datetime.now(UTC))),
-                        )
-                        current = 1
-                    if current < 2:
-                        for statement in _SCHEMA_V2:
+                    current = self._validate_migration_state(
+                        connection,
+                        database_version=database_version,
+                    )
+                    for version, statements in _AGENT_CATALOG_MIGRATIONS:
+                        if version <= current:
+                            continue
+                        for statement in statements:
                             connection.execute(statement)
                         connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (2, _iso(datetime.now(UTC))),
+                            """
+                            INSERT INTO agent_catalog_schema_migrations(
+                                version, applied_at
+                            ) VALUES (?, ?)
+                            """,
+                            (version, _iso(datetime.now(UTC))),
                         )
-                        current = 2
-                    if current < 3:
-                        for statement in _SCHEMA_V3:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (3, _iso(datetime.now(UTC))),
-                        )
-                        current = 3
-                    if current < 4:
-                        for statement in _SCHEMA_V4:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (4, _iso(datetime.now(UTC))),
-                        )
-                        current = 4
-                    if current < 5:
-                        for statement in _SCHEMA_V5:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (5, _iso(datetime.now(UTC))),
-                        )
-                        current = 5
-                    if current < 6:
-                        for statement in _SCHEMA_V6:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (6, _iso(datetime.now(UTC))),
-                        )
-                        current = 6
-                    if current < 7:
-                        for statement in _SCHEMA_V7:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (7, _iso(datetime.now(UTC))),
-                        )
-                        current = 7
-                    if current < 8:
-                        for statement in _SCHEMA_V8:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (8, _iso(datetime.now(UTC))),
-                        )
-                        current = 8
-                    if current < 9:
-                        for statement in _SCHEMA_V9:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (9, _iso(datetime.now(UTC))),
-                        )
-                        current = 9
-                    if current < 10:
-                        for statement in _SCHEMA_V10:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (10, _iso(datetime.now(UTC))),
-                        )
-                        current = 10
-                    if current < 11:
-                        for statement in _SCHEMA_V11:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (11, _iso(datetime.now(UTC))),
-                        )
-                        current = 11
-                    if current < 12:
-                        for statement in _SCHEMA_V12:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (12, _iso(datetime.now(UTC))),
-                        )
-                        current = 12
-                    if current < 13:
-                        for statement in _SCHEMA_V13:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (13, _iso(datetime.now(UTC))),
-                        )
-                        current = 13
-                    if current < 14:
-                        for statement in _SCHEMA_V14:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (14, _iso(datetime.now(UTC))),
-                        )
-                        current = 14
-                    if current < 15:
-                        for statement in _SCHEMA_V15:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (15, _iso(datetime.now(UTC))),
-                        )
-                        current = 15
-                    if current < 16:
-                        for statement in _SCHEMA_V16:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (16, _iso(datetime.now(UTC))),
-                        )
-                        current = 16
-                    if current < 17:
-                        for statement in _SCHEMA_V17:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (17, _iso(datetime.now(UTC))),
-                        )
-                        current = 17
-                    if current < 18:
-                        for statement in _SCHEMA_V18:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (18, _iso(datetime.now(UTC))),
-                        )
-                        current = 18
-                    if current < 19:
-                        for statement in _SCHEMA_V19:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (19, _iso(datetime.now(UTC))),
-                        )
-                        current = 19
-                    if current < 20:
-                        for statement in _SCHEMA_V20:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (20, _iso(datetime.now(UTC))),
-                        )
-                        current = 20
-                    if current < 21:
-                        for statement in _SCHEMA_V21:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (21, _iso(datetime.now(UTC))),
-                        )
-                        current = 21
-                    if current < 22:
-                        for statement in _SCHEMA_V22:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (22, _iso(datetime.now(UTC))),
-                        )
-                        current = 22
-                    if current < 23:
-                        for statement in _SCHEMA_V23:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (23, _iso(datetime.now(UTC))),
-                        )
-                        current = 23
-                    if current < 24:
-                        for statement in _SCHEMA_V24:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (24, _iso(datetime.now(UTC))),
-                        )
-                        current = 24
-                    if current < 25:
-                        for statement in _SCHEMA_V25:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (25, _iso(datetime.now(UTC))),
-                        )
-                        current = 25
-                    if current < 26:
-                        for statement in _SCHEMA_V26:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (26, _iso(datetime.now(UTC))),
-                        )
-                        current = 26
-                    if current < 27:
-                        for statement in _SCHEMA_V27:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (27, _iso(datetime.now(UTC))),
-                        )
-                        current = 27
-                    if current < 28:
-                        for statement in _SCHEMA_V28:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (28, _iso(datetime.now(UTC))),
-                        )
-                        current = 28
-                    if current < 29:
-                        for statement in _SCHEMA_V29:
-                            connection.execute(statement)
-                        connection.execute(
-                            "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
-                            (29, _iso(datetime.now(UTC))),
-                        )
-                        current = 29
+                        if version == 30:
+                            connection.executemany(
+                                """
+                                INSERT INTO agent_catalog_migration_checksums(
+                                    version, checksum
+                                ) VALUES (?, ?)
+                                """,
+                                tuple(
+                                    (
+                                        migration_version,
+                                        _AGENT_CATALOG_MIGRATION_CHECKSUMS[
+                                            migration_version
+                                        ],
+                                    )
+                                    for migration_version in range(1, version + 1)
+                                ),
+                            )
+                        elif version > 30:
+                            connection.execute(
+                                """
+                                INSERT INTO agent_catalog_migration_checksums(
+                                    version, checksum
+                                ) VALUES (?, ?)
+                                """,
+                                (
+                                    version,
+                                    _AGENT_CATALOG_MIGRATION_CHECKSUMS[version],
+                                ),
+                            )
+                        current = version
                     connection.execute(
                         f"PRAGMA user_version = {AGENT_CATALOG_SCHEMA_VERSION}"
+                    )
+                    self._validate_migration_state(
+                        connection,
+                        database_version=AGENT_CATALOG_SCHEMA_VERSION,
                     )
                     connection.execute("COMMIT")
                 except Exception:

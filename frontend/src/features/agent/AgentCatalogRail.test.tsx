@@ -756,7 +756,11 @@ describe("AgentCatalogRail", () => {
   it("purges an owning-window draft only after permanent chat deletion succeeds", async () => {
     const api = transport();
     api.deleteAgentCatalogSession
-      .mockRejectedValueOnce(new Error("synthetic storage failure"))
+      .mockRejectedValueOnce(new TransportError(
+        "Synthetic migration refusal",
+        503,
+        "agent_catalog_migration_checksum_mismatch",
+      ))
       .mockResolvedValueOnce(undefined);
     const onSessionDeleted = vi.fn();
     render(
@@ -787,7 +791,9 @@ describe("AgentCatalogRail", () => {
       { expected_catalog_revision: 2, expected_history_revision: 0 },
       expect.any(AbortSignal),
     );
-    await screen.findByText("The Agent catalog could not be updated.");
+    await screen.findByText(
+      "The private Agent catalog migration history is inconsistent. No data was changed.",
+    );
     expect(onSessionDeleted).not.toHaveBeenCalled();
 
     fireEvent.click(within(deleteDialog).getByRole("button", { name: "Delete" }));

@@ -408,6 +408,7 @@ def test_schema_twenty_three_migrates_without_inventing_ownership(
         connection.execute("DROP TABLE mcp_managed_host_action_receipts")
         connection.execute("DROP TABLE mcp_managed_tool_call_receipts")
         connection.execute("DROP TABLE agent_controller_ownerships")
+        connection.execute("DROP TABLE IF EXISTS agent_catalog_migration_checksums")
         connection.execute(
             "DELETE FROM agent_catalog_schema_migrations WHERE version>=24"
         )

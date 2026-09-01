@@ -65,8 +65,11 @@ class _UnavailableLiveSource:
 
 
 class _UnavailableProbe:
+    def __init__(self, code: str = "agent_catalog_storage_unavailable") -> None:
+        self._code = code
+
     def inspect(self):
-        raise AgentCatalogError("agent_catalog_storage_unavailable")
+        raise AgentCatalogError(self._code)
 
 
 def _catalog(tmp_path: Path):
@@ -198,6 +201,26 @@ def test_unavailable_sources_fail_closed_and_keep_diagnostic_private() -> None:
     assert snapshot.recovery_state == "unknown"
     assert snapshot.recovery_actions == ("verify_live_state",)
     assert "synthetic live-state failure" not in snapshot.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    "code",
+    (
+        "agent_catalog_migration_history_incomplete",
+        "agent_catalog_migration_checksum_mismatch",
+        "agent_catalog_schema_version_mismatch",
+    ),
+)
+def test_migration_corruption_has_one_fixed_content_free_diagnostic(code: str) -> None:
+    snapshot = AgentHardeningService(
+        _UnavailableProbe(code),
+        _LiveSource(),
+    ).snapshot()
+
+    assert snapshot.catalog.state == "unavailable"
+    assert snapshot.catalog.reason_code == "catalog_migration_invalid"
+    assert snapshot.catalog.schema_version is None
+    assert code not in snapshot.model_dump_json()
 
 
 def test_live_hardening_facts_do_not_probe_or_start_a_model(tmp_path: Path) -> None:

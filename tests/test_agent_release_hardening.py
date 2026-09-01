@@ -592,6 +592,7 @@ def test_interrupted_schema_migration_rolls_back_every_partial_alter(
             "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES(1, ?)",
             (T0.isoformat(),),
         )
+        connection.execute("PRAGMA user_version=1")
         # The v2 migration performs several ALTERs before creating this table.
         # This incompatible synthetic table forces that late statement to fail.
         connection.execute("CREATE TABLE agent_conversation_events(dummy TEXT)")

@@ -31,6 +31,7 @@ from prompt_enhancer.application.local_agent import (
 )
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
+from prompt_enhancer.infrastructure.sqlite import agent_catalog as agent_catalog_sqlite
 from prompt_enhancer.infrastructure.sqlite.agent_catalog import (
     AGENT_CATALOG_DATABASE_FILENAME,
     AGENT_CATALOG_SCHEMA_VERSION,
@@ -48,6 +49,72 @@ def _catalog(tmp_path: Path, ids: list[str] | None = None) -> AgentCatalogServic
         AgentCatalogSqliteDatabase(tmp_path / AGENT_CATALOG_DATABASE_FILENAME)
     )
     return AgentCatalogService(repository, clock=lambda: T0, id_factory=values.__next__)
+
+
+def _write_supported_agent_schema(path: Path, source_version: int) -> None:
+    """Build one exact historical schema from the frozen synthetic migrations."""
+
+    assert 1 <= source_version < AGENT_CATALOG_SCHEMA_VERSION
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stamp = T0.isoformat()
+    with sqlite3.connect(path, isolation_level=None) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            """
+            CREATE TABLE agent_catalog_schema_migrations (
+                version INTEGER PRIMARY KEY CHECK(version > 0),
+                applied_at TEXT NOT NULL
+            ) STRICT
+            """
+        )
+        for version, statements in agent_catalog_sqlite._AGENT_CATALOG_MIGRATIONS:
+            if version > source_version:
+                break
+            for statement in statements:
+                connection.execute(statement)
+            connection.execute(
+                """
+                INSERT INTO agent_catalog_schema_migrations(version, applied_at)
+                VALUES (?, ?)
+                """,
+                (version, stamp),
+            )
+            if version == 1:
+                connection.execute(
+                    """
+                    INSERT INTO agent_projects(
+                        project_id,name,created_at,updated_at,revision,pinned,
+                        archived_at,is_default
+                    ) VALUES(?,?,?,?,?,?,?,?)
+                    """,
+                    ("1" * 32, "Synthetic migration project", stamp, stamp, 1, 1, None, 1),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO agent_catalog_sessions(
+                        session_id,project_id,title,workspace,model_alias,
+                        created_at,updated_at,last_opened_at,revision,pinned,
+                        archived_at,history_state
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        "2" * 32,
+                        "1" * 32,
+                        "Synthetic migration chat",
+                        "D:/example/synthetic-workspace",
+                        None,
+                        stamp,
+                        stamp,
+                        stamp,
+                        1,
+                        0,
+                        None,
+                        "memory_only",
+                    ),
+                )
+        connection.execute(f"PRAGMA user_version={source_version}")
+        connection.execute("COMMIT")
 
 
 def test_project_and_session_catalog_supports_search_revisions_and_safe_deletion(
@@ -600,6 +667,154 @@ def test_catalog_refuses_a_newer_schema_without_mutating_it(tmp_path: Path) -> N
         ).fetchone() is None
 
 
+@pytest.mark.parametrize(
+    "source_version",
+    range(1, AGENT_CATALOG_SCHEMA_VERSION),
+)
+def test_every_supported_agent_catalog_schema_upgrades_with_exact_provenance(
+    tmp_path: Path,
+    source_version: int,
+) -> None:
+    path = tmp_path / f"schema-{source_version}" / AGENT_CATALOG_DATABASE_FILENAME
+    _write_supported_agent_schema(path, source_version)
+
+    database = AgentCatalogSqliteDatabase(path)
+    assert database.initialize() == AGENT_CATALOG_SCHEMA_VERSION
+    record = AgentCatalogService(
+        SqliteAgentCatalogRepository(database),
+        clock=lambda: T0,
+        id_factory=lambda: "3" * 32,
+    ).get_session("2" * 32)
+    assert record.project_id == "1" * 32
+    assert record.title == "Synthetic migration chat"
+    assert record.history_state is AgentHistoryState.MEMORY_ONLY
+
+    with sqlite3.connect(path) as connection:
+        versions = tuple(
+            int(row[0])
+            for row in connection.execute(
+                "SELECT version FROM agent_catalog_schema_migrations ORDER BY version"
+            ).fetchall()
+        )
+        checksums = {
+            int(row[0]): str(row[1])
+            for row in connection.execute(
+                """
+                SELECT version, checksum
+                FROM agent_catalog_migration_checksums
+                ORDER BY version
+                """
+            ).fetchall()
+        }
+        assert versions == tuple(range(1, AGENT_CATALOG_SCHEMA_VERSION + 1))
+        assert checksums == agent_catalog_sqlite._AGENT_CATALOG_MIGRATION_CHECKSUMS
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == (
+            AGENT_CATALOG_SCHEMA_VERSION
+        )
+        assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_catalog_refuses_gapped_or_checksums_changed_migration_history(
+    tmp_path: Path,
+) -> None:
+    gap_path = tmp_path / "gap" / AGENT_CATALOG_DATABASE_FILENAME
+    AgentCatalogSqliteDatabase(gap_path).initialize()
+    with sqlite3.connect(gap_path) as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute(
+            "DELETE FROM agent_catalog_schema_migrations WHERE version=15"
+        )
+    with pytest.raises(AgentCatalogError) as gap:
+        AgentCatalogSqliteDatabase(gap_path).initialize()
+    assert gap.value.code == "agent_catalog_migration_history_incomplete"
+    with sqlite3.connect(gap_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM agent_catalog_schema_migrations WHERE version=15"
+        ).fetchone() == (0,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (
+            AGENT_CATALOG_SCHEMA_VERSION,
+        )
+
+    checksum_path = tmp_path / "checksum" / AGENT_CATALOG_DATABASE_FILENAME
+    AgentCatalogSqliteDatabase(checksum_path).initialize()
+    with sqlite3.connect(checksum_path) as connection:
+        connection.execute(
+            """
+            UPDATE agent_catalog_migration_checksums
+            SET checksum=?
+            WHERE version=29
+            """,
+            ("0" * 64,),
+        )
+    with pytest.raises(AgentCatalogError) as checksum:
+        AgentCatalogSqliteDatabase(checksum_path).initialize()
+    assert checksum.value.code == "agent_catalog_migration_checksum_mismatch"
+    with sqlite3.connect(checksum_path) as connection:
+        assert connection.execute(
+            "SELECT checksum FROM agent_catalog_migration_checksums WHERE version=29"
+        ).fetchone() == ("0" * 64,)
+
+
+def test_catalog_refuses_schema_head_disagreement_and_unledgered_tables(
+    tmp_path: Path,
+) -> None:
+    mismatch_path = tmp_path / "mismatch" / AGENT_CATALOG_DATABASE_FILENAME
+    AgentCatalogSqliteDatabase(mismatch_path).initialize()
+    with sqlite3.connect(mismatch_path) as connection:
+        connection.execute("PRAGMA user_version=29")
+    with pytest.raises(AgentCatalogError) as mismatch:
+        AgentCatalogSqliteDatabase(mismatch_path).initialize()
+    assert mismatch.value.code == "agent_catalog_schema_version_mismatch"
+    with sqlite3.connect(mismatch_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (29,)
+
+    stray_path = tmp_path / "stray" / AGENT_CATALOG_DATABASE_FILENAME
+    stray_path.parent.mkdir(parents=True)
+    with sqlite3.connect(stray_path) as connection:
+        connection.execute("CREATE TABLE agent_projects(dummy TEXT) STRICT")
+    with pytest.raises(AgentCatalogError) as stray:
+        AgentCatalogSqliteDatabase(stray_path).initialize()
+    assert stray.value.code == "agent_catalog_migration_history_incomplete"
+    with sqlite3.connect(stray_path) as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE name='agent_projects'"
+        ).fetchone() == ("agent_projects",)
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE name='agent_catalog_schema_migrations'"
+        ).fetchone() is None
+
+
+def test_schema_30_checksum_migration_rolls_back_as_one_unit(tmp_path: Path) -> None:
+    path = tmp_path / AGENT_CATALOG_DATABASE_FILENAME
+    _write_supported_agent_schema(path, 29)
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_schema_30
+            BEFORE INSERT ON agent_catalog_schema_migrations
+            WHEN NEW.version=30
+            BEGIN
+                SELECT RAISE(ABORT, 'synthetic schema 30 interruption');
+            END
+            """
+        )
+
+    with pytest.raises(AgentCatalogError) as interrupted:
+        AgentCatalogSqliteDatabase(path).initialize()
+    assert interrupted.value.code == "agent_catalog_storage_unavailable"
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (29,)
+        assert connection.execute(
+            "SELECT MAX(version) FROM agent_catalog_schema_migrations"
+        ).fetchone() == (29,)
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE name='agent_catalog_migration_checksums'"
+        ).fetchone() is None
+
+
 def test_catalog_v4_migrates_to_lineage_schema_without_changing_existing_chats(
     tmp_path: Path,
     downgrade_agent_catalog_post_v20,
@@ -642,6 +857,7 @@ def test_catalog_v4_migrates_to_lineage_schema_without_changing_existing_chats(
         connection.execute("DROP TABLE agent_session_lineage")
         connection.execute("DROP TABLE agent_mcp_connection_rotations")
         connection.execute("DROP TABLE agent_mcp_connections")
+        connection.execute("DROP TABLE IF EXISTS agent_catalog_migration_checksums")
         connection.execute(
             "DELETE FROM agent_catalog_schema_migrations WHERE version>=5"
         )

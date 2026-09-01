@@ -69,6 +69,7 @@ class AgentHardeningReason(StrEnum):
     CATALOG_PATH_INVALID = "catalog_path_invalid"
     CATALOG_PATH_UNSAFE = "catalog_path_unsafe"
     CATALOG_SCHEMA_NEWER = "catalog_schema_newer"
+    CATALOG_MIGRATION_INVALID = "catalog_migration_invalid"
     CATALOG_STORAGE_UNAVAILABLE = "catalog_storage_unavailable"
     CATALOG_QUICK_CHECK_FAILED = "catalog_quick_check_failed"
     CATALOG_FOREIGN_KEY_VIOLATION = "catalog_foreign_key_violation"
@@ -288,6 +289,15 @@ class AgentHardeningService:
         "agent_catalog_path_invalid": AgentHardeningReason.CATALOG_PATH_INVALID,
         "agent_catalog_path_unsafe": AgentHardeningReason.CATALOG_PATH_UNSAFE,
         "agent_catalog_schema_newer": AgentHardeningReason.CATALOG_SCHEMA_NEWER,
+        "agent_catalog_migration_history_incomplete": (
+            AgentHardeningReason.CATALOG_MIGRATION_INVALID
+        ),
+        "agent_catalog_migration_checksum_mismatch": (
+            AgentHardeningReason.CATALOG_MIGRATION_INVALID
+        ),
+        "agent_catalog_schema_version_mismatch": (
+            AgentHardeningReason.CATALOG_MIGRATION_INVALID
+        ),
         "agent_catalog_storage_unavailable": AgentHardeningReason.CATALOG_STORAGE_UNAVAILABLE,
     }
 

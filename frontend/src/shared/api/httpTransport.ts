@@ -986,6 +986,9 @@ export type SafeTransportReasonCode =
   | "agent_catalog_path_unsafe"
   | "agent_catalog_storage_unavailable"
   | "agent_catalog_schema_newer"
+  | "agent_catalog_migration_history_incomplete"
+  | "agent_catalog_migration_checksum_mismatch"
+  | "agent_catalog_schema_version_mismatch"
   | "agent_project_not_found"
   | "agent_project_archived"
   | "agent_project_conflict"
@@ -1270,6 +1273,9 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "agent_catalog_path_unsafe",
   "agent_catalog_storage_unavailable",
   "agent_catalog_schema_newer",
+  "agent_catalog_migration_history_incomplete",
+  "agent_catalog_migration_checksum_mismatch",
+  "agent_catalog_schema_version_mismatch",
   "agent_project_not_found",
   "agent_project_archived",
   "agent_project_conflict",

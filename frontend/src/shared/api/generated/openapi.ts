@@ -5770,7 +5770,7 @@ export interface components {
          * AgentHardeningReason
          * @enum {string}
          */
-        AgentHardeningReason: "catalog_path_invalid" | "catalog_path_unsafe" | "catalog_schema_newer" | "catalog_storage_unavailable" | "catalog_quick_check_failed" | "catalog_foreign_key_violation" | "catalog_projection_mismatch" | "catalog_diagnostic_unavailable";
+        AgentHardeningReason: "catalog_path_invalid" | "catalog_path_unsafe" | "catalog_schema_newer" | "catalog_migration_invalid" | "catalog_storage_unavailable" | "catalog_quick_check_failed" | "catalog_foreign_key_violation" | "catalog_projection_mismatch" | "catalog_diagnostic_unavailable";
         /**
          * AgentHardeningSnapshot
          * @description Owner-invoked diagnostic snapshot with no sensitive Agent content.

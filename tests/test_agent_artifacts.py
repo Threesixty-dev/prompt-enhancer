@@ -2009,6 +2009,7 @@ def test_catalog_v7_artifact_lineage_migrates_to_document_preview_without_rewrit
             ALTER TABLE agent_mcp_connections DROP COLUMN last_tool_outcome;
             ALTER TABLE agent_mcp_connections DROP COLUMN last_tool_name;
             ALTER TABLE agent_mcp_connections DROP COLUMN last_tool_at;
+            DROP TABLE IF EXISTS agent_catalog_migration_checksums;
             DELETE FROM agent_catalog_schema_migrations WHERE version>=8;
             PRAGMA user_version = 7;
             COMMIT;

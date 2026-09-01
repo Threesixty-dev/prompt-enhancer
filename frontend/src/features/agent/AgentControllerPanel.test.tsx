@@ -14,7 +14,7 @@ const cleanHardeningSnapshot: AgentHardeningSnapshot = {
   catalog: {
     state: "ready",
     reason_code: null,
-    schema_version: 6,
+    schema_version: 30,
     quick_check_passed: true,
     foreign_key_violations_observed: 0,
     foreign_key_scan_truncated: false,
@@ -149,10 +149,47 @@ describe("AgentControllerPanel", () => {
 
     expect(await screen.findByText("Healthy")).toBeInTheDocument();
     expect(screen.getByText("Saved histories")).toBeInTheDocument();
-    expect(screen.getByText("Catalog: ready · schema 6 · 0 projection issues")).toBeInTheDocument();
+    expect(screen.getByText("Catalog: ready · schema 30 · 0 projection issues")).toBeInTheDocument();
     expect(screen.getByText("Project and chat health check complete: Healthy. 0 safe actions reported.")).toBeInTheDocument();
     expect(getAgentHardening).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("SYNTHETIC_PRIVATE_PROMPT_CANARY")).not.toBeInTheDocument();
+  });
+
+  it("explains migration inconsistency without exposing database detail", async () => {
+    const getAgentHardening = vi.fn().mockResolvedValue({
+      ...cleanHardeningSnapshot,
+      recovery_state: "unknown",
+      recovery_actions: [],
+      catalog: {
+        state: "unavailable",
+        reason_code: "catalog_migration_invalid",
+        schema_version: null,
+        quick_check_passed: null,
+        foreign_key_violations_observed: null,
+        foreign_key_scan_truncated: false,
+        projection_violations: null,
+        counts: null,
+      },
+    } satisfies AgentHardeningSnapshot);
+    render(
+      <AgentControllerPanel
+        transport={{
+          getAgentOrchestration: vi.fn().mockResolvedValue(
+            exampleAgentOrchestrationManifest(),
+          ),
+          getAgentHardening,
+        }}
+        userPresenceAvailable={false}
+      />,
+    );
+
+    expect(await screen.findByText("Ready")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run health check" }));
+
+    expect(await screen.findByText(
+      "The local catalog migration history is inconsistent. No data was changed.",
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/checksum mismatch/u)).not.toBeInTheDocument();
   });
 
   it("announces checking and keeps catalog facts useful when live state is unavailable", async () => {
