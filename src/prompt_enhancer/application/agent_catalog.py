@@ -37,6 +37,7 @@ from .local_agent_receipts import (
 
 
 AGENT_CATALOG_CONTRACT_VERSION = "agent-catalog.v2"
+AGENT_CATALOG_PAGE_CONTRACT_VERSION = "agent-catalog-page.v1"
 AGENT_HISTORY_CONTRACT_VERSION = "agent-history.v1"
 AGENT_SESSION_FORK_CONTRACT_VERSION = "agent-session-fork.v1"
 AGENT_SESSION_LINEAGE_CONTRACT_VERSION = "agent-session-lineage.v1"
@@ -45,6 +46,7 @@ AGENT_CATALOG_SESSION_ID_PATTERN = r"^[0-9a-f]{32}$"
 MAX_AGENT_PROJECTS = 200
 MAX_AGENT_CATALOG_SESSIONS = 2_000
 MAX_AGENT_CATALOG_RESULTS = 200
+MAX_AGENT_CATALOG_PAGE_SIZE = 100
 MAX_AGENT_HISTORY_EVENTS = 4_000
 MAX_AGENT_HISTORY_PAGE = 500
 MAX_AGENT_HISTORY_EVENT_CHARS = 250_000
@@ -393,6 +395,88 @@ class AgentCatalogSessionList(StrictModel):
     sessions: tuple[AgentCatalogSessionRecord, ...]
 
 
+def _validate_page_shape(
+    *,
+    limit: int,
+    offset: int,
+    total: int,
+    next_offset: int | None,
+    complete: bool,
+    item_count: int,
+) -> None:
+    if offset > total:
+        raise ValueError("page offset exceeds total")
+    expected_count = min(limit, total - offset)
+    if item_count != expected_count:
+        raise ValueError("page does not contain the exact requested slice")
+    expected_next = offset + item_count if offset + item_count < total else None
+    if next_offset != expected_next or complete != (expected_next is None):
+        raise ValueError("page continuation metadata is incoherent")
+
+
+class AgentProjectPage(StrictModel):
+    contract_version: Literal["agent-catalog-page.v1"] = (
+        AGENT_CATALOG_PAGE_CONTRACT_VERSION
+    )
+    snapshot: str = Field(pattern=r"^[0-9a-f]{64}$")
+    limit: int = Field(strict=True, ge=1, le=MAX_AGENT_CATALOG_PAGE_SIZE)
+    offset: int = Field(strict=True, ge=0, le=MAX_AGENT_PROJECTS)
+    total: int = Field(strict=True, ge=0, le=MAX_AGENT_PROJECTS)
+    next_offset: int | None = Field(default=None, strict=True, ge=1, le=MAX_AGENT_PROJECTS)
+    complete: bool
+    projects: tuple[AgentProjectRecord, ...] = Field(
+        max_length=MAX_AGENT_CATALOG_PAGE_SIZE
+    )
+
+    @model_validator(mode="after")
+    def coherent_page(self) -> "AgentProjectPage":
+        _validate_page_shape(
+            limit=self.limit,
+            offset=self.offset,
+            total=self.total,
+            next_offset=self.next_offset,
+            complete=self.complete,
+            item_count=len(self.projects),
+        )
+        if len({project.project_id for project in self.projects}) != len(self.projects):
+            raise ValueError("project page contains duplicate identifiers")
+        return self
+
+
+class AgentCatalogSessionPage(StrictModel):
+    contract_version: Literal["agent-catalog-page.v1"] = (
+        AGENT_CATALOG_PAGE_CONTRACT_VERSION
+    )
+    snapshot: str = Field(pattern=r"^[0-9a-f]{64}$")
+    limit: int = Field(strict=True, ge=1, le=MAX_AGENT_CATALOG_PAGE_SIZE)
+    offset: int = Field(strict=True, ge=0, le=MAX_AGENT_CATALOG_SESSIONS)
+    total: int = Field(strict=True, ge=0, le=MAX_AGENT_CATALOG_SESSIONS)
+    next_offset: int | None = Field(
+        default=None,
+        strict=True,
+        ge=1,
+        le=MAX_AGENT_CATALOG_SESSIONS,
+    )
+    complete: bool
+    sessions: tuple[AgentCatalogSessionRecord, ...] = Field(
+        max_length=MAX_AGENT_CATALOG_PAGE_SIZE
+    )
+
+    @model_validator(mode="after")
+    def coherent_page(self) -> "AgentCatalogSessionPage":
+        _validate_page_shape(
+            limit=self.limit,
+            offset=self.offset,
+            total=self.total,
+            next_offset=self.next_offset,
+            complete=self.complete,
+            item_count=len(self.sessions),
+        )
+        if len({session.session_id for session in self.sessions}) != len(self.sessions):
+            raise ValueError("session page contains duplicate identifiers")
+        return self
+
+
 class AgentCatalogRepository(Protocol):
     def create_project(
         self,
@@ -420,6 +504,16 @@ class AgentCatalogRepository(Protocol):
         include_archived: bool,
         limit: int,
     ) -> tuple[AgentProjectRecord, ...]: ...
+
+    def page_projects(
+        self,
+        *,
+        search: str | None,
+        include_archived: bool,
+        limit: int,
+        offset: int,
+        snapshot: str | None,
+    ) -> tuple[tuple[AgentProjectRecord, ...], int, str]: ...
 
     def update_project(
         self,
@@ -463,6 +557,17 @@ class AgentCatalogRepository(Protocol):
         include_archived: bool,
         limit: int,
     ) -> tuple[AgentCatalogSessionRecord, ...]: ...
+
+    def page_sessions(
+        self,
+        *,
+        project_id: str | None,
+        search: str | None,
+        include_archived: bool,
+        limit: int,
+        offset: int,
+        snapshot: str | None,
+    ) -> tuple[tuple[AgentCatalogSessionRecord, ...], int, str]: ...
 
     def update_session(
         self,
@@ -533,6 +638,39 @@ class AgentCatalogService:
                 include_archived=include_archived,
                 limit=min(MAX_AGENT_CATALOG_RESULTS, max(1, limit)),
             )
+        )
+
+    def page_projects(
+        self,
+        *,
+        search: str | None = None,
+        include_archived: bool = False,
+        limit: int = MAX_AGENT_CATALOG_PAGE_SIZE,
+        offset: int = 0,
+        snapshot: str | None = None,
+    ) -> AgentProjectPage:
+        if limit < 1 or limit > MAX_AGENT_CATALOG_PAGE_SIZE:
+            raise AgentCatalogError("agent_catalog_page_invalid")
+        if offset < 0 or offset > MAX_AGENT_PROJECTS:
+            raise AgentCatalogError("agent_catalog_page_out_of_range")
+        if offset > 0 and snapshot is None:
+            raise AgentCatalogError("agent_catalog_page_snapshot_required")
+        projects, total, current_snapshot = self._repository.page_projects(
+            search=self._search(search),
+            include_archived=include_archived,
+            limit=limit,
+            offset=offset,
+            snapshot=snapshot,
+        )
+        next_offset = offset + len(projects) if offset + len(projects) < total else None
+        return AgentProjectPage(
+            snapshot=current_snapshot,
+            limit=limit,
+            offset=offset,
+            total=total,
+            next_offset=next_offset,
+            complete=next_offset is None,
+            projects=projects,
         )
 
     def get_project(self, project_id: str) -> AgentProjectRecord:
@@ -627,6 +765,43 @@ class AgentCatalogService:
                 include_archived=include_archived,
                 limit=min(MAX_AGENT_CATALOG_RESULTS, max(1, limit)),
             )
+        )
+
+    def page_sessions(
+        self,
+        *,
+        project_id: str | None = None,
+        search: str | None = None,
+        include_archived: bool = False,
+        limit: int = MAX_AGENT_CATALOG_PAGE_SIZE,
+        offset: int = 0,
+        snapshot: str | None = None,
+    ) -> AgentCatalogSessionPage:
+        if project_id is not None:
+            self.get_project(project_id)
+        if limit < 1 or limit > MAX_AGENT_CATALOG_PAGE_SIZE:
+            raise AgentCatalogError("agent_catalog_page_invalid")
+        if offset < 0 or offset > MAX_AGENT_CATALOG_SESSIONS:
+            raise AgentCatalogError("agent_catalog_page_out_of_range")
+        if offset > 0 and snapshot is None:
+            raise AgentCatalogError("agent_catalog_page_snapshot_required")
+        sessions, total, current_snapshot = self._repository.page_sessions(
+            project_id=project_id,
+            search=self._search(search),
+            include_archived=include_archived,
+            limit=limit,
+            offset=offset,
+            snapshot=snapshot,
+        )
+        next_offset = offset + len(sessions) if offset + len(sessions) < total else None
+        return AgentCatalogSessionPage(
+            snapshot=current_snapshot,
+            limit=limit,
+            offset=offset,
+            total=total,
+            next_offset=next_offset,
+            complete=next_offset is None,
+            sessions=sessions,
         )
 
     def update_session(
@@ -757,6 +932,7 @@ class AgentCatalogService:
 
 __all__ = (
     "AGENT_CATALOG_CONTRACT_VERSION",
+    "AGENT_CATALOG_PAGE_CONTRACT_VERSION",
     "AGENT_HISTORY_CONTRACT_VERSION",
     "AGENT_SESSION_FORK_CONTRACT_VERSION",
     "AGENT_SESSION_LINEAGE_CONTRACT_VERSION",
@@ -766,6 +942,7 @@ __all__ = (
     "AgentCatalogRepository",
     "AgentCatalogService",
     "AgentCatalogSessionList",
+    "AgentCatalogSessionPage",
     "AgentCatalogSessionRecord",
     "AgentHistoryState",
     "AgentHistorySnapshot",
@@ -777,6 +954,7 @@ __all__ = (
     "ResumeAgentSession",
     "ForkAgentSession",
     "AgentProjectList",
+    "AgentProjectPage",
     "AgentProjectRecord",
     "CreateAgentProject",
     "UpdateAgentCatalogSession",

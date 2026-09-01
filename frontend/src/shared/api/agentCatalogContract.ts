@@ -1,13 +1,16 @@
 import type {
   AgentCatalogSession,
   AgentCatalogSessionList,
+  AgentCatalogSessionPage,
   AgentProject,
   AgentProjectList,
+  AgentProjectPage,
   AgentSessionForkReceipt,
   AgentSessionLineage,
 } from "./contracts";
 
 const ID = /^[0-9a-f]{32}$/u;
+const SHA256 = /^[0-9a-f]{64}$/u;
 const UTC_TIMESTAMP = /(?:Z|\+00:00)$/u;
 const PROJECT_KEYS = new Set([
   "contract_version", "project_id", "name", "created_at", "updated_at",
@@ -30,6 +33,14 @@ const FORK_RECEIPT_KEYS = new Set([
   "contract_version", "request_id", "idempotent_replay", "session",
   "source_tail_omitted", "approvals_copied", "mutation_authority_copied",
   "pending_tool_state_copied", "staged_attachments_copied", "artifacts_copied",
+]);
+const PROJECT_PAGE_KEYS = new Set([
+  "contract_version", "snapshot", "limit", "offset", "total",
+  "next_offset", "complete", "projects",
+]);
+const SESSION_PAGE_KEYS = new Set([
+  "contract_version", "snapshot", "limit", "offset", "total",
+  "next_offset", "complete", "sessions",
 ]);
 
 export class AgentCatalogPayloadError extends Error {
@@ -130,6 +141,59 @@ export function parseAgentProjectList(value: unknown): AgentProjectList {
   return { contract_version: "agent-catalog.v2", projects };
 }
 
+function validatePageShape(
+  value: Record<string, unknown>,
+  expectedLimit: number,
+  expectedOffset: number,
+  expectedSnapshot: string | undefined,
+  itemCount: number,
+  maximumTotal: number,
+): void {
+  if (
+    value.contract_version !== "agent-catalog-page.v1"
+    || typeof value.snapshot !== "string" || !SHA256.test(value.snapshot)
+    || (expectedSnapshot !== undefined && value.snapshot !== expectedSnapshot)
+    || value.limit !== expectedLimit
+    || value.offset !== expectedOffset
+    || !boundedInteger(value.total, 0) || (value.total as number) > maximumTotal
+    || expectedOffset > (value.total as number)
+    || itemCount !== Math.min(expectedLimit, (value.total as number) - expectedOffset)
+    || typeof value.complete !== "boolean"
+  ) throw new AgentCatalogPayloadError();
+  const expectedNext = expectedOffset + itemCount < (value.total as number)
+    ? expectedOffset + itemCount
+    : null;
+  if (value.next_offset !== expectedNext || value.complete !== (expectedNext === null)) {
+    throw new AgentCatalogPayloadError();
+  }
+}
+
+export function parseAgentProjectPage(
+  value: unknown,
+  expectedLimit: number,
+  expectedOffset: number,
+  expectedSnapshot?: string,
+): AgentProjectPage {
+  if (
+    !record(value) || !exact(value, PROJECT_PAGE_KEYS)
+    || !Array.isArray(value.projects)
+    || value.projects.length > 100
+  ) throw new AgentCatalogPayloadError();
+  const projects = value.projects.map(parseAgentProject);
+  validatePageShape(
+    value,
+    expectedLimit,
+    expectedOffset,
+    expectedSnapshot,
+    projects.length,
+    200,
+  );
+  if (new Set(projects.map((project) => project.project_id)).size !== projects.length) {
+    throw new AgentCatalogPayloadError();
+  }
+  return { ...value, projects } as AgentProjectPage;
+}
+
 export function parseAgentCatalogSession(
   value: unknown,
   expectedSessionId?: string,
@@ -197,6 +261,35 @@ export function parseAgentCatalogSessionList(
     throw new AgentCatalogPayloadError();
   }
   return { contract_version: "agent-catalog.v2", sessions };
+}
+
+export function parseAgentCatalogSessionPage(
+  value: unknown,
+  expectedLimit: number,
+  expectedOffset: number,
+  expectedSnapshot?: string,
+  expectedProjectId?: string,
+): AgentCatalogSessionPage {
+  if (
+    !record(value) || !exact(value, SESSION_PAGE_KEYS)
+    || !Array.isArray(value.sessions)
+    || value.sessions.length > 100
+  ) throw new AgentCatalogPayloadError();
+  const sessions = value.sessions.map((session) => (
+    parseAgentCatalogSession(session, undefined, expectedProjectId)
+  ));
+  validatePageShape(
+    value,
+    expectedLimit,
+    expectedOffset,
+    expectedSnapshot,
+    sessions.length,
+    2_000,
+  );
+  if (new Set(sessions.map((session) => session.session_id)).size !== sessions.length) {
+    throw new AgentCatalogPayloadError();
+  }
+  return { ...value, sessions } as AgentCatalogSessionPage;
 }
 
 export function parseAgentSessionForkReceipt(value: unknown): AgentSessionForkReceipt {

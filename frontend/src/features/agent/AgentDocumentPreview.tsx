@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import type { AgentDocumentPreview as DocumentPreview } from "../../shared/api/contracts";
 import "./AgentDocumentPreview.css";
@@ -29,7 +29,6 @@ export function AgentDocumentPreview({
   versionNumber: number;
 }) {
   const [activeIndex, setActiveIndex] = useState(1);
-  useEffect(() => setActiveIndex(1), [preview.version_id]);
 
   const active = useMemo(
     () => preview.sections.find((section) => section.index === activeIndex) ?? preview.sections[0],

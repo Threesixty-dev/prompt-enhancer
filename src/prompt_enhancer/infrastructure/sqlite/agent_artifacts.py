@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime
+import hashlib
+import json
 import sqlite3
 import threading
 from typing import Iterator
 
 from ...application.agent_artifacts import (
+    MAX_AGENT_ARTIFACT_PAGE_SIZE,
     MAX_AGENT_ARTIFACTS_PER_SESSION,
     MAX_AGENT_ARTIFACT_VERSIONS_PER_SESSION,
     AgentArtifact,
@@ -30,6 +33,32 @@ def _iso(value: datetime) -> str:
 
 def _time(value: str) -> datetime:
     return datetime.fromisoformat(value).astimezone(UTC)
+
+
+def _artifact_page_snapshot(
+    *,
+    project_id: str,
+    session_id: str,
+    view: AgentArtifactListView,
+    counts: AgentArtifactLifecycleCounts,
+    artifacts: tuple[AgentArtifact, ...],
+) -> str:
+    payload = json.dumps(
+        {
+            "contract_version": "agent-artifact-page.v1",
+            "project_id": project_id,
+            "session_id": session_id,
+            "view": view,
+            "counts": counts.model_dump(mode="json"),
+            "artifacts": [
+                artifact.model_dump(mode="json") for artifact in artifacts
+            ],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 _HEAD_SELECT = """
@@ -393,6 +422,86 @@ class SqliteAgentArtifactRepository:
             total=int(count_row[3] or 0),
         )
         return tuple(self._artifact(row) for row in rows), counts
+
+    def page_artifacts(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        view: AgentArtifactListView,
+        limit: int,
+        offset: int,
+        snapshot: str | None,
+    ) -> tuple[
+        tuple[AgentArtifact, ...],
+        AgentArtifactLifecycleCounts,
+        int,
+        str,
+    ]:
+        if limit < 1 or limit > MAX_AGENT_ARTIFACT_PAGE_SIZE:
+            raise AgentArtifactError("agent_artifact_page_invalid")
+        if offset < 0 or offset > MAX_AGENT_ARTIFACTS_PER_SESSION:
+            raise AgentArtifactError("agent_artifact_page_out_of_range")
+        if offset > 0 and snapshot is None:
+            raise AgentArtifactError("agent_artifact_page_snapshot_required")
+        predicates = {
+            "active": "artifact.archived_at IS NULL AND artifact.removed_at IS NULL",
+            "archived": "artifact.archived_at IS NOT NULL AND artifact.removed_at IS NULL",
+            "removed": "artifact.removed_at IS NOT NULL",
+            "all": "1=1",
+        }
+        with self._connection() as connection:
+            connection.execute("BEGIN")
+            try:
+                self._session(connection, project_id, session_id)
+                count_row = connection.execute(
+                    """
+                    SELECT
+                        SUM(CASE WHEN archived_at IS NULL AND removed_at IS NULL THEN 1 ELSE 0 END),
+                        SUM(CASE WHEN archived_at IS NOT NULL AND removed_at IS NULL THEN 1 ELSE 0 END),
+                        SUM(CASE WHEN removed_at IS NOT NULL THEN 1 ELSE 0 END),
+                        COUNT(*)
+                    FROM agent_artifacts WHERE session_id=?
+                    """,
+                    (session_id,),
+                ).fetchone()
+                counts = AgentArtifactLifecycleCounts(
+                    active=int(count_row[0] or 0),
+                    archived=int(count_row[1] or 0),
+                    removed=int(count_row[2] or 0),
+                    total=int(count_row[3] or 0),
+                )
+                rows = connection.execute(
+                    _HEAD_SELECT
+                    + f"""
+                      WHERE artifact.session_id=? AND session.project_id=?
+                        AND {predicates[view]}
+                      ORDER BY artifact.updated_at DESC, artifact.artifact_id ASC
+                    """,
+                    (session_id, project_id),
+                ).fetchall()
+                all_artifacts = tuple(self._artifact(row) for row in rows)
+                total = counts.total if view == "all" else getattr(counts, view)
+                if total != len(all_artifacts):
+                    raise AgentArtifactError("agent_artifact_storage_unavailable")
+                current_snapshot = _artifact_page_snapshot(
+                    project_id=project_id,
+                    session_id=session_id,
+                    view=view,
+                    counts=counts,
+                    artifacts=all_artifacts,
+                )
+                if snapshot is not None and snapshot != current_snapshot:
+                    raise AgentArtifactError("agent_artifact_page_snapshot_conflict")
+                if offset > total:
+                    raise AgentArtifactError("agent_artifact_page_out_of_range")
+                page = all_artifacts[offset : offset + limit]
+                connection.execute("COMMIT")
+                return page, counts, total, current_snapshot
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
 
     def get_artifact_by_path(
         self,

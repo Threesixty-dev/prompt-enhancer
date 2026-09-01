@@ -37,6 +37,7 @@ from .local_workspace_io import WorkspaceIO
 
 
 AGENT_ARTIFACT_CONTRACT_VERSION = "agent-artifact.v3"
+AGENT_ARTIFACT_PAGE_CONTRACT_VERSION = "agent-artifact-page.v1"
 AGENT_ARTIFACT_CAPTURE_PREVIEW_CONTRACT_VERSION = (
     "agent-artifact-capture-preview.v1"
 )
@@ -45,6 +46,7 @@ MAX_AGENT_ARTIFACTS_PER_SESSION = 500
 MAX_AGENT_ARTIFACT_VERSIONS_PER_SESSION = 2_000
 MAX_AGENT_ARTIFACT_BYTES = 24 * 1024 * 1024
 MAX_AGENT_ARTIFACT_LIST = 200
+MAX_AGENT_ARTIFACT_PAGE_SIZE = 100
 MAX_IMAGE_DIMENSION = 8_192
 MAX_IMAGE_PIXELS = 33_554_432
 
@@ -383,6 +385,59 @@ class AgentArtifactList(StrictModel):
         return self
 
 
+class AgentArtifactPage(StrictModel):
+    contract_version: Literal["agent-artifact-page.v1"] = (
+        AGENT_ARTIFACT_PAGE_CONTRACT_VERSION
+    )
+    project_id: str = Field(pattern=_ID_PATTERN)
+    session_id: str = Field(pattern=_ID_PATTERN)
+    view: AgentArtifactListView = "active"
+    snapshot: str = Field(pattern=_SHA_PATTERN)
+    limit: int = Field(strict=True, ge=1, le=MAX_AGENT_ARTIFACT_PAGE_SIZE)
+    offset: int = Field(strict=True, ge=0, le=MAX_AGENT_ARTIFACTS_PER_SESSION)
+    total: int = Field(strict=True, ge=0, le=MAX_AGENT_ARTIFACTS_PER_SESSION)
+    next_offset: int | None = Field(
+        default=None,
+        strict=True,
+        ge=1,
+        le=MAX_AGENT_ARTIFACTS_PER_SESSION,
+    )
+    complete: bool
+    counts: AgentArtifactLifecycleCounts
+    artifacts: tuple[AgentArtifact, ...] = Field(
+        max_length=MAX_AGENT_ARTIFACT_PAGE_SIZE
+    )
+
+    @model_validator(mode="after")
+    def coherent_page(self) -> "AgentArtifactPage":
+        expected_total = (
+            self.counts.total
+            if self.view == "all"
+            else getattr(self.counts, self.view)
+        )
+        if self.total != expected_total or self.offset > self.total:
+            raise ValueError("artifact page total is incoherent")
+        expected_count = min(self.limit, self.total - self.offset)
+        if len(self.artifacts) != expected_count:
+            raise ValueError("artifact page does not contain the exact requested slice")
+        expected_next = (
+            self.offset + len(self.artifacts)
+            if self.offset + len(self.artifacts) < self.total
+            else None
+        )
+        if self.next_offset != expected_next or self.complete != (expected_next is None):
+            raise ValueError("artifact page continuation metadata is incoherent")
+        if self.view != "all" and any(
+            artifact.lifecycle_state != self.view for artifact in self.artifacts
+        ):
+            raise ValueError("artifact page contains an item outside its lifecycle view")
+        if len({artifact.artifact_id for artifact in self.artifacts}) != len(
+            self.artifacts
+        ):
+            raise ValueError("artifact page contains duplicate identifiers")
+        return self
+
+
 @dataclass(frozen=True, slots=True)
 class AgentArtifactContent:
     version: AgentArtifactVersion
@@ -412,6 +467,22 @@ class AgentArtifactRepository(Protocol):
         view: AgentArtifactListView,
         limit: int,
     ) -> tuple[tuple[AgentArtifact, ...], AgentArtifactLifecycleCounts]: ...
+
+    def page_artifacts(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        view: AgentArtifactListView,
+        limit: int,
+        offset: int,
+        snapshot: str | None,
+    ) -> tuple[
+        tuple[AgentArtifact, ...],
+        AgentArtifactLifecycleCounts,
+        int,
+        str,
+    ]: ...
 
     def get_artifact_by_path(
         self,
@@ -814,6 +885,46 @@ class AgentArtifactService:
             artifacts=artifacts,
         )
 
+    def page_artifacts(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        view: AgentArtifactListView = "active",
+        limit: int = MAX_AGENT_ARTIFACT_PAGE_SIZE,
+        offset: int = 0,
+        snapshot: str | None = None,
+    ) -> AgentArtifactPage:
+        if limit < 1 or limit > MAX_AGENT_ARTIFACT_PAGE_SIZE:
+            raise AgentArtifactError("agent_artifact_page_invalid")
+        if offset < 0 or offset > MAX_AGENT_ARTIFACTS_PER_SESSION:
+            raise AgentArtifactError("agent_artifact_page_out_of_range")
+        if offset > 0 and snapshot is None:
+            raise AgentArtifactError("agent_artifact_page_snapshot_required")
+        self.sync_reviewed_writes(project_id=project_id, session_id=session_id)
+        artifacts, counts, total, current_snapshot = self._repository.page_artifacts(
+            project_id=project_id,
+            session_id=session_id,
+            view=view,
+            limit=limit,
+            offset=offset,
+            snapshot=snapshot,
+        )
+        next_offset = offset + len(artifacts) if offset + len(artifacts) < total else None
+        return AgentArtifactPage(
+            project_id=project_id,
+            session_id=session_id,
+            view=view,
+            snapshot=current_snapshot,
+            limit=limit,
+            offset=offset,
+            total=total,
+            next_offset=next_offset,
+            complete=next_offset is None,
+            counts=counts,
+            artifacts=artifacts,
+        )
+
     def update_artifact(
         self,
         *,
@@ -1165,11 +1276,13 @@ class AgentArtifactService:
 
 __all__ = (
     "AGENT_ARTIFACT_CONTRACT_VERSION",
+    "AGENT_ARTIFACT_PAGE_CONTRACT_VERSION",
     "AGENT_ARTIFACT_CAPTURE_PREVIEW_CONTRACT_VERSION",
     "AGENT_ARTIFACT_EXPORT_CONTRACT_VERSION",
     "MAX_AGENT_ARTIFACTS_PER_SESSION",
     "MAX_AGENT_ARTIFACT_VERSIONS_PER_SESSION",
     "MAX_AGENT_ARTIFACT_BYTES",
+    "MAX_AGENT_ARTIFACT_PAGE_SIZE",
     "AgentArtifact",
     "AgentArtifactAvailability",
     "AgentArtifactCapturePreview",
@@ -1183,6 +1296,7 @@ __all__ = (
     "AgentArtifactLifecycleState",
     "AgentArtifactList",
     "AgentArtifactListView",
+    "AgentArtifactPage",
     "AgentArtifactPreviewKind",
     "AgentArtifactProvenance",
     "AgentArtifactRepository",

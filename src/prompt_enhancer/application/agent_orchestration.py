@@ -125,8 +125,8 @@ class AgentOrchestrationProtocol(StrictModel):
 
 
 class AgentOrchestrationManifest(StrictModel):
-    contract_version: Literal["local-agent-orchestration.v21"] = (
-        "local-agent-orchestration.v21"
+    contract_version: Literal["local-agent-orchestration.v22"] = (
+        "local-agent-orchestration.v22"
     )
     transport: Literal["loopback_http"] = "loopback_http"
     route_coverage: Literal[
@@ -145,16 +145,16 @@ class AgentOrchestrationManifest(StrictModel):
     endpoints: tuple[AgentOrchestrationEndpoint, ...]
 
     @model_validator(mode="after")
-    def validate_complete_v21_surface(self) -> "AgentOrchestrationManifest":
+    def validate_complete_v22_surface(self) -> "AgentOrchestrationManifest":
         """Reject a downgraded or internally inconsistent discovery document.
 
         The same strict model is used by the bundled controller client, so a
-        process cannot silently replace the complete v21 contract with a small
+        process cannot silently replace the complete v22 contract with a small
         allowlist or relabel native-only operations as bearer-authorized.
         """
 
-        if len(self.endpoints) != 73:
-            raise ValueError("the v21 controller surface must declare 73 routes")
+        if len(self.endpoints) != 77:
+            raise ValueError("the v22 controller surface must declare 77 routes")
         operations = [item.operation for item in self.endpoints]
         if len(operations) != len(set(operations)):
             raise ValueError("controller operation names must be unique")
@@ -188,8 +188,8 @@ class AgentOrchestrationManifest(StrictModel):
                 runtime_routes += 1
             else:
                 raise ValueError("controller routes must stay on the declared local API")
-        if agent_routes != 68 or runtime_routes != 5:
-            raise ValueError("the v21 controller route groups are incomplete")
+        if agent_routes != 72 or runtime_routes != 5:
+            raise ValueError("the v22 controller route groups are incomplete")
 
         native_operations = {
             item.operation
@@ -215,7 +215,11 @@ class AgentOrchestrationManifest(StrictModel):
         required = {
             "discover",
             "create_project",
+            "list_projects_page",
             "get_managed_mcp_project_runtime",
+            "list_project_sessions_page",
+            "list_catalog_sessions_page",
+            "list_artifacts_page",
             "create_live_session",
             "get_live_session",
             "get_session_context",
@@ -245,12 +249,12 @@ class AgentOrchestrationManifest(StrictModel):
             "stop_local_runtime",
         }
         if not required.issubset(operations):
-            raise ValueError("the v21 controller lifecycle is incomplete")
+            raise ValueError("the v22 controller lifecycle is incomplete")
         return self
 
 
 def agent_orchestration_manifest() -> AgentOrchestrationManifest:
-    """Return the content-free v21 controller discovery document."""
+    """Return the content-free v22 controller discovery document."""
 
     endpoint = AgentOrchestrationEndpoint
     return AgentOrchestrationManifest(
@@ -275,6 +279,12 @@ def agent_orchestration_manifest() -> AgentOrchestrationManifest:
                 method="GET",
                 path_template="/v1/agent/projects",
                 purpose="List durable Agent project metadata.",
+            ),
+            endpoint(
+                operation="list_projects_page",
+                method="GET",
+                path_template="/v1/agent/projects/page",
+                purpose="Page durable Agent project metadata through one exact snapshot.",
             ),
             endpoint(
                 operation="create_project",
@@ -311,10 +321,22 @@ def agent_orchestration_manifest() -> AgentOrchestrationManifest:
                 purpose="List durable chat metadata for one project.",
             ),
             endpoint(
+                operation="list_project_sessions_page",
+                method="GET",
+                path_template="/v1/agent/projects/{project_id}/sessions/page",
+                purpose="Page one project's durable chat metadata through one exact snapshot.",
+            ),
+            endpoint(
                 operation="list_catalog_sessions",
                 method="GET",
                 path_template="/v1/agent/catalog/sessions",
                 purpose="Search durable chat metadata across projects.",
+            ),
+            endpoint(
+                operation="list_catalog_sessions_page",
+                method="GET",
+                path_template="/v1/agent/catalog/sessions/page",
+                purpose="Page searched durable chat metadata through one exact snapshot.",
             ),
             endpoint(
                 operation="get_catalog_session",
@@ -374,6 +396,12 @@ def agent_orchestration_manifest() -> AgentOrchestrationManifest:
                 method="GET",
                 path_template="/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts",
                 purpose="List immutable artifact lineage projected from reviewed writes and native captures.",
+            ),
+            endpoint(
+                operation="list_artifacts_page",
+                method="GET",
+                path_template="/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/page",
+                purpose="Page immutable artifact lineage through one exact chat snapshot.",
             ),
             endpoint(
                 operation="preview_artifact_capture",

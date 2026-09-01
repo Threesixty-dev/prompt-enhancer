@@ -1,6 +1,6 @@
 # Checkpoint Sweep-01c entry
 
-Status: active; slice 01c.1 automated complete, slice 01c.2 durable paging next
+Status: active; slices 01c.1 and 01c.2 automated complete, slice 01c.3 stress closure next
 Entered: 2026-09-01
 Parent goal: [Prompt Enhancer finish goal](prompt-enhancer-finish-goal-2026-08-29.md)
 Prerequisite: [Sweep-01b.4 handoff](checkpoint-sweep-01b-4-handoff.md)
@@ -70,3 +70,14 @@ No private project, transcript, workspace path or provider cache was read.
   reload pass.
 
 Closed by: [Sweep-01c.1 handoff](checkpoint-sweep-01c-1-handoff.md)
+
+## 01c.2 exit gate
+
+- Agent projects, chats and artifacts expose exact snapshot-bound server pages
+  beyond the first bounded response.
+- Mutation, cross-scope replay, duplicate/reordered pages and stale responses
+  fail closed without discarding the loaded prefix or moving selection.
+- Full backend/frontend/browser/build/API/privacy gates and a rebuilt live
+  360/1440 px reload pass.
+
+Closed by: [Sweep-01c.2 handoff](checkpoint-sweep-01c-2-handoff.md)

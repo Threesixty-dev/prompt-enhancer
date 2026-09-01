@@ -402,11 +402,11 @@ def _manifest_response() -> AgentControllerHttpResponse:
     return _json_response(agent_orchestration_manifest().model_dump(mode="json"))
 
 
-def test_discovery_accepts_only_the_complete_v21_native_boundary() -> None:
+def test_discovery_accepts_only_the_complete_v22_native_boundary() -> None:
     valid = _ScriptedTransport(lambda *_args: _manifest_response())
     manifest = AgentControllerClient(valid).discover()
-    assert manifest.contract_version == "local-agent-orchestration.v21"
-    assert len(manifest.endpoints) == 73
+    assert manifest.contract_version == "local-agent-orchestration.v22"
+    assert len(manifest.endpoints) == 77
 
     downgraded = manifest.model_dump(mode="json")
     downgraded["endpoints"] = downgraded["endpoints"][:-1]

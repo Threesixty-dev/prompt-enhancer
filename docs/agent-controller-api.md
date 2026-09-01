@@ -13,7 +13,7 @@ The machine-readable discovery document is:
 GET /v1/agent/orchestration
 ```
 
-It currently reports `local-agent-orchestration.v21`. The document contains no
+It currently reports `local-agent-orchestration.v22`. The document contains no
 token, workspace path, prompt, transcript, or account data. The full request
 and response schemas are available from `GET /openapi.json`.
 
@@ -696,7 +696,7 @@ return INCOMPLETE
 
 ## Project, chat, and model lifecycle
 
-The v21 manifest enumerates all 68 Agent routes plus five controller-relevant
+The v22 manifest enumerates all 72 Agent routes plus five controller-relevant
 model-runtime routes. Its groups cover:
 
 - project create/read/update/delete and project-scoped chat browsing;

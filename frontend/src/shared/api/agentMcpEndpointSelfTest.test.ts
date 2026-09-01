@@ -73,7 +73,7 @@ function discoveryResponse(): Response {
       structuredContent: {
         contract_version: "prompt-enhancer-agent-mcp.v24",
         tool: "agent_discover",
-        result: { contract_version: "local-agent-orchestration.v21" },
+        result: { contract_version: "local-agent-orchestration.v22" },
       },
     },
   });
@@ -101,7 +101,7 @@ describe("Agent MCP endpoint self-test", () => {
     expect(result).toEqual({
       contractVersion: "agent-mcp-endpoint-self-test.v1",
       coreToolCount: 19,
-      discoveryContractVersion: "local-agent-orchestration.v21",
+      discoveryContractVersion: "local-agent-orchestration.v22",
       modelLifecycleAdvertised: false,
       protocolVersion: "2025-06-18",
       serverName: "prompt-enhancer-agent",

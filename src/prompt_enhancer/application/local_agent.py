@@ -40,6 +40,7 @@ from .agent_artifacts import (
     AgentArtifactExport,
     AgentArtifactList,
     AgentArtifactListView,
+    AgentArtifactPage,
     AgentArtifactService,
     AgentDocumentPreview,
     CaptureAgentArtifact,
@@ -1250,6 +1251,28 @@ class LocalAgentService:
             session_id=session_id,
             view=view,
             limit=limit,
+        )
+
+    def page_artifacts(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        view: AgentArtifactListView,
+        limit: int,
+        offset: int,
+        snapshot: str | None,
+    ) -> AgentArtifactPage:
+        artifacts = self._artifacts
+        if artifacts is None:
+            raise LocalAgentError("agent_artifact_unavailable")
+        return artifacts.page_artifacts(
+            project_id=project_id,
+            session_id=session_id,
+            view=view,
+            limit=limit,
+            offset=offset,
+            snapshot=snapshot,
         )
 
     def update_artifact(

@@ -12,8 +12,8 @@ describe("agent controller manifest contract", () => {
 
     const parsed = parseAgentOrchestrationManifest(fixture);
 
-    expect(parsed.contract_version).toBe("local-agent-orchestration.v21");
-    expect(parsed.endpoints).toHaveLength(73);
+    expect(parsed.contract_version).toBe("local-agent-orchestration.v22");
+    expect(parsed.endpoints).toHaveLength(77);
     expect(parsed.endpoints.filter((item) => item.access === "native_user_presence_only"))
       .toHaveLength(12);
   });

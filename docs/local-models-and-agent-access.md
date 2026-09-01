@@ -130,7 +130,7 @@ provider-neutral Agent contract at:
 GET /v1/agent/orchestration
 ```
 
-The route currently returns `local-agent-orchestration.v21` and uses the same
+The route currently returns `local-agent-orchestration.v22` and uses the same
 Bearer or `X-Prompt-Enhancer-Token` authentication as
 local-model chat. It returns paths and safety boundaries only: never the token,
 a workspace path, a transcript, or provider credentials. The published schemas

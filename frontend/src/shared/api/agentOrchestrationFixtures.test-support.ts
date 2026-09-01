@@ -23,6 +23,7 @@ export function exampleAgentOrchestrationManifest(): AgentOrchestrationManifest 
     endpoint("discover", "GET", "/v1/agent/orchestration"),
     endpoint("get_managed_mcp_project_runtime", "GET", "/v1/agent/mcp/projects/{project_id}/runtime"),
     endpoint("list_projects", "GET", "/v1/agent/projects"),
+    endpoint("list_projects_page", "GET", "/v1/agent/projects/page"),
     endpoint("create_project", "POST", "/v1/agent/projects"),
     endpoint(
       "delete_project",
@@ -31,6 +32,8 @@ export function exampleAgentOrchestrationManifest(): AgentOrchestrationManifest 
       { response: "no_content" },
     ),
     endpoint("list_project_sessions", "GET", "/v1/agent/projects/{project_id}/sessions"),
+    endpoint("list_project_sessions_page", "GET", "/v1/agent/projects/{project_id}/sessions/page"),
+    endpoint("list_catalog_sessions_page", "GET", "/v1/agent/catalog/sessions/page"),
     endpoint("fork_retained_session", "POST", "/v1/agent/projects/{project_id}/sessions/{session_id}/forks"),
     endpoint("create_live_session", "POST", "/v1/agent/sessions"),
     endpoint("get_session_context", "GET", "/v1/agent/sessions/{session_id}/context"),
@@ -50,6 +53,7 @@ export function exampleAgentOrchestrationManifest(): AgentOrchestrationManifest 
     endpoint("preview_workspace_transaction", "POST", "/v1/agent/sessions/{session_id}/workspace/transactions"),
     endpoint("apply_workspace_transaction", "POST", "/v1/agent/sessions/{session_id}/workspace/transactions/{plan_id}/apply", { access: "native_user_presence_only" }),
     endpoint("list_artifacts", "GET", "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts"),
+    endpoint("list_artifacts_page", "GET", "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/page"),
     endpoint("preview_artifact_capture", "POST", "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/capture-preview"),
     endpoint("update_artifact", "PATCH", "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/{artifact_id}"),
     endpoint("remove_artifact", "POST", "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/{artifact_id}/remove", { access: "native_user_presence_only" }),
@@ -68,7 +72,7 @@ export function exampleAgentOrchestrationManifest(): AgentOrchestrationManifest 
       { access: "native_user_presence_only" },
     ));
   }
-  while (agentEndpoints.length < 68) {
+  while (agentEndpoints.length < 72) {
     const index = agentEndpoints.length;
     agentEndpoints.push(endpoint(
       `agent_route_${index}`,
@@ -86,7 +90,7 @@ export function exampleAgentOrchestrationManifest(): AgentOrchestrationManifest 
   ];
 
   return {
-    contract_version: "local-agent-orchestration.v21",
+    contract_version: "local-agent-orchestration.v22",
     transport: "loopback_http",
     route_coverage: "all_agent_routes_plus_controller_runtime_routes",
     authentication: {

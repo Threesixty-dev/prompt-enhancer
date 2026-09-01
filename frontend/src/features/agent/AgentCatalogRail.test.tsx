@@ -2,19 +2,25 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
+  AgentCatalogPageQuery,
   AgentCatalogQuery,
   AgentCatalogSession,
+  AgentCatalogSessionPage,
+  AgentCatalogSessionPageQuery,
   AgentProject,
+  AgentProjectPage,
   AgentSessionView,
   CreateAgentProject,
   UpdateAgentCatalogSession,
   UpdateAgentProject,
 } from "../../shared/api/contracts";
+import { TransportError } from "../../shared/api/httpTransport";
 import { AgentCatalogRail } from "./AgentCatalogRail";
 
 const PROJECT_ID = "1".repeat(32);
 const SESSION_ID = "2".repeat(32);
 const SECOND_PROJECT_ID = "3".repeat(32);
+const SNAPSHOT = "a".repeat(64);
 
 const project = (overrides: Partial<AgentProject> = {}): AgentProject => ({
   contract_version: "agent-catalog.v2",
@@ -135,12 +141,256 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
+function projectPage(
+  projects: AgentProject[],
+  total = projects.length,
+  offset = 0,
+): AgentProjectPage {
+  const nextOffset = offset + projects.length < total ? offset + projects.length : null;
+  return {
+    contract_version: "agent-catalog-page.v1",
+    snapshot: SNAPSHOT,
+    limit: 100,
+    offset,
+    total,
+    next_offset: nextOffset,
+    complete: nextOffset === null,
+    projects,
+  };
+}
+
+function sessionPage(
+  sessions: AgentCatalogSession[],
+  total = sessions.length,
+  offset = 0,
+): AgentCatalogSessionPage {
+  const nextOffset = offset + sessions.length < total ? offset + sessions.length : null;
+  return {
+    contract_version: "agent-catalog-page.v1",
+    snapshot: SNAPSHOT,
+    limit: 100,
+    offset,
+    total,
+    next_offset: nextOffset,
+    complete: nextOffset === null,
+    sessions,
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
 
 describe("AgentCatalogRail", () => {
+  it("loads snapshot-bound project and chat continuations without unbounding rendered rows", async () => {
+    const projects = Array.from({ length: 120 }, (_, index) => project({
+      project_id: (index + 1).toString(16).padStart(32, "0"),
+      name: `Paged project ${index.toString().padStart(3, "0")}`,
+      session_count: 130,
+    }));
+    const sessions = Array.from({ length: 130 }, (_, index) => catalogSession({
+      session_id: (index + 1000).toString(16).padStart(32, "0"),
+      title: `Paged chat ${index.toString().padStart(3, "0")}`,
+    }));
+    const pageAgentProjects = vi.fn(async (query: AgentCatalogPageQuery) => (
+      query.offset === 0 ? projectPage(projects.slice(0, 100), 120) : projectPage(projects.slice(100), 120, 100)
+    ));
+    const pageAgentCatalogSessions = vi.fn(async (query: AgentCatalogSessionPageQuery) => (
+      query.offset === 0 ? sessionPage(sessions.slice(0, 100), 130) : sessionPage(sessions.slice(100), 130, 100)
+    ));
+    const api = { ...transport(), pageAgentProjects, pageAgentCatalogSessions };
+    render(<AgentCatalogRail
+      liveSessions={[]}
+      onCloseLiveSession={vi.fn()}
+      onNewChat={vi.fn()}
+      onOpenLiveSession={vi.fn()}
+      onOpenUnavailableSession={vi.fn()}
+      onProjectChange={vi.fn()}
+      selectedProjectId={PROJECT_ID}
+      transport={api}
+    />);
+
+    expect(await screen.findByText("100 of 120 projects available")).toBeVisible();
+    expect(await screen.findByText("100 of 130 chats available")).toBeVisible();
+    const rail = screen.getByRole("navigation", { name: "Agent projects and chats" });
+    expect(rail.querySelectorAll(".agent-rail__project")).toHaveLength(40);
+    expect(rail.querySelectorAll(".agent-rail__sessions > li")).toHaveLength(40);
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load more chats" }));
+    expect(await screen.findByText("120 of 120 projects available")).toBeVisible();
+    expect(await screen.findByText("130 of 130 chats available")).toBeVisible();
+    expect(pageAgentProjects).toHaveBeenLastCalledWith({
+      includeArchived: false,
+      limit: 100,
+      offset: 100,
+      snapshot: SNAPSHOT,
+    }, expect.any(AbortSignal));
+    expect(pageAgentCatalogSessions).toHaveBeenLastCalledWith({
+      projectId: PROJECT_ID,
+      includeArchived: false,
+      limit: 100,
+      offset: 100,
+      snapshot: SNAPSHOT,
+    }, expect.any(AbortSignal));
+    expect(rail.querySelectorAll(".agent-rail__project")).toHaveLength(40);
+    expect(rail.querySelectorAll(".agent-rail__sessions > li")).toHaveLength(40);
+  });
+
+  it("keeps exact selected project and chat records visible outside the loaded prefix", async () => {
+    const selectedProjectId = "f".repeat(32);
+    const selectedSessionId = "e".repeat(32);
+    const projects = Array.from({ length: 100 }, (_, index) => project({
+      project_id: (index + 1).toString(16).padStart(32, "0"),
+      name: `Prefix project ${index.toString().padStart(3, "0")}`,
+    }));
+    const sessions = Array.from({ length: 100 }, (_, index) => catalogSession({
+      session_id: (index + 1000).toString(16).padStart(32, "0"),
+      project_id: selectedProjectId,
+      title: `Prefix chat ${index.toString().padStart(3, "0")}`,
+    }));
+    const selectedProject = project({
+      project_id: selectedProjectId,
+      name: "Selected project outside prefix",
+      session_count: 150,
+    });
+    const selectedSession = catalogSession({
+      session_id: selectedSessionId,
+      project_id: selectedProjectId,
+      title: "Selected chat outside prefix",
+    });
+    const getAgentProject = vi.fn(async () => selectedProject);
+    const getAgentCatalogSession = vi.fn(async () => selectedSession);
+    const api = {
+      ...transport(),
+      pageAgentProjects: vi.fn(async () => projectPage(projects, 150)),
+      pageAgentCatalogSessions: vi.fn(async () => sessionPage(sessions, 150)),
+      getAgentProject,
+      getAgentCatalogSession,
+    };
+    render(<AgentCatalogRail
+      currentSessionId={selectedSessionId}
+      liveSessions={[]}
+      onCloseLiveSession={vi.fn()}
+      onNewChat={vi.fn()}
+      onOpenLiveSession={vi.fn()}
+      onOpenUnavailableSession={vi.fn()}
+      onProjectChange={vi.fn()}
+      selectedProjectId={selectedProjectId}
+      transport={api}
+    />);
+
+    expect(await screen.findByText("Selected project outside prefix")).toBeVisible();
+    expect(await screen.findByRole("button", { name: /^Selected chat outside prefix ·/u })).toBeVisible();
+    expect(screen.getByText("101 of 150 projects available")).toBeVisible();
+    expect(screen.getByText("101 of 150 chats available")).toBeVisible();
+    expect(getAgentProject).toHaveBeenCalledWith(selectedProjectId, expect.any(AbortSignal));
+    expect(getAgentCatalogSession).toHaveBeenCalledWith(selectedSessionId, expect.any(AbortSignal));
+  });
+
+  it("refuses a repeated continuation and preserves the already loaded project prefix", async () => {
+    const projects = Array.from({ length: 100 }, (_, index) => project({
+      project_id: (index + 1).toString(16).padStart(32, "0"),
+      name: `Stable project ${index.toString().padStart(3, "0")}`,
+    }));
+    const pageAgentProjects = vi.fn(async (query: AgentCatalogPageQuery) => (
+      query.offset === 0
+        ? projectPage(projects, 101)
+        : projectPage([projects[0]], 101, 100)
+    ));
+    const api = {
+      ...transport(),
+      pageAgentProjects,
+      pageAgentCatalogSessions: vi.fn(async () => sessionPage([catalogSession()])),
+    };
+    render(<AgentCatalogRail
+      liveSessions={[]}
+      onCloseLiveSession={vi.fn()}
+      onNewChat={vi.fn()}
+      onOpenLiveSession={vi.fn()}
+      onOpenUnavailableSession={vi.fn()}
+      onProjectChange={vi.fn()}
+      selectedProjectId={PROJECT_ID}
+      transport={api}
+    />);
+
+    await screen.findByText("100 of 101 projects available");
+    fireEvent.click(screen.getByRole("button", { name: "Load more projects" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A repeated project page was refused",
+    );
+    expect(screen.getByText("100 of 101 projects available")).toBeVisible();
+    expect(screen.getByText("Stable project 000")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Reload projects" })).toBeVisible();
+  });
+
+  it("keeps a loaded chat prefix when a stale snapshot continuation is refused", async () => {
+    const pageAgentCatalogSessions = vi.fn()
+      .mockResolvedValueOnce(sessionPage([catalogSession()], 2))
+      .mockRejectedValueOnce(new TransportError(
+        "Synthetic snapshot conflict",
+        409,
+        "agent_catalog_page_snapshot_conflict",
+      ));
+    const api = {
+      ...transport(),
+      pageAgentProjects: vi.fn(async () => projectPage([project()])),
+      pageAgentCatalogSessions,
+    };
+    render(<AgentCatalogRail
+      liveSessions={[]}
+      onCloseLiveSession={vi.fn()}
+      onNewChat={vi.fn()}
+      onOpenLiveSession={vi.fn()}
+      onOpenUnavailableSession={vi.fn()}
+      onProjectChange={vi.fn()}
+      selectedProjectId={PROJECT_ID}
+      transport={api}
+    />);
+
+    await screen.findByText("1 of 2 chats available");
+    fireEvent.click(screen.getByRole("button", { name: "Load more chats" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The chats changed while another page was loading",
+    );
+    expect(screen.getByRole("button", { name: /^Example chat ·/u })).toBeVisible();
+    expect(screen.getByText("1 of 2 chats available")).toBeVisible();
+  });
+
+  it("ignores an initial project page that resolves after its search scope was replaced", async () => {
+    const pending = deferred<AgentProjectPage>();
+    const fresh = project({ name: "Fresh scoped project" });
+    const pageAgentProjects = vi.fn()
+      .mockImplementationOnce((_query: AgentCatalogPageQuery, _signal?: AbortSignal) => pending.promise)
+      .mockResolvedValueOnce(projectPage([fresh]));
+    const api = {
+      ...transport(),
+      pageAgentProjects,
+      pageAgentCatalogSessions: vi.fn(async () => sessionPage([])),
+    };
+    render(<AgentCatalogRail
+      liveSessions={[]}
+      onCloseLiveSession={vi.fn()}
+      onNewChat={vi.fn()}
+      onOpenLiveSession={vi.fn()}
+      onOpenUnavailableSession={vi.fn()}
+      onProjectChange={vi.fn()}
+      selectedProjectId={PROJECT_ID}
+      transport={api}
+    />);
+
+    await waitFor(() => expect(pageAgentProjects).toHaveBeenCalledTimes(1));
+    const firstSignal = pageAgentProjects.mock.calls[0][1];
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "fresh" } });
+    expect(await screen.findByText("Fresh scoped project")).toBeVisible();
+    expect(firstSignal?.aborted).toBe(true);
+    pending.resolve(projectPage([project({ name: "Stale initial project" })]));
+    await Promise.resolve();
+    expect(screen.queryByText("Stale initial project")).not.toBeInTheDocument();
+    expect(screen.getByText("Fresh scoped project")).toBeVisible();
+  });
+
   it("bounds maximum returned project and chat collections while keeping current selections visible", async () => {
     const projects = Array.from({ length: 120 }, (_, index) => project({
       project_id: (index + 10).toString(16).padStart(32, "0"),

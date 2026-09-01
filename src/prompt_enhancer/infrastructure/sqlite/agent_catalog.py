@@ -13,6 +13,7 @@ import threading
 from typing import Iterator, Literal, cast
 
 from ...application.agent_catalog import (
+    MAX_AGENT_CATALOG_PAGE_SIZE,
     MAX_AGENT_CATALOG_SESSIONS,
     MAX_AGENT_HISTORY_EVENT_CHARS,
     MAX_AGENT_HISTORY_EVENTS,
@@ -2058,6 +2059,28 @@ def _like(value: str) -> str:
     return f"%{escaped}%"
 
 
+def _catalog_page_snapshot(
+    *,
+    collection: Literal["projects", "sessions"],
+    scope: dict[str, object],
+    records: list[dict[str, object]],
+) -> str:
+    """Bind one bounded ordered metadata result to its exact query scope."""
+
+    payload = json.dumps(
+        {
+            "contract_version": "agent-catalog-page.v1",
+            "collection": collection,
+            "scope": scope,
+            "records": records,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 class AgentCatalogSqliteDatabase:
     """Fixed-name, symlink-refusing Agent catalog database."""
 
@@ -2624,6 +2647,86 @@ class SqliteAgentCatalogRepository:
                 tuple(values),
             ).fetchall()
             return tuple(self._project_record(row) for row in rows)
+
+    def page_projects(
+        self,
+        *,
+        search: str | None,
+        include_archived: bool,
+        limit: int,
+        offset: int,
+        snapshot: str | None,
+    ) -> tuple[tuple[AgentProjectRecord, ...], int, str]:
+        if limit < 1 or limit > MAX_AGENT_CATALOG_PAGE_SIZE:
+            raise AgentCatalogError("agent_catalog_page_invalid")
+        if offset < 0 or offset > MAX_AGENT_PROJECTS:
+            raise AgentCatalogError("agent_catalog_page_out_of_range")
+        if offset > 0 and snapshot is None:
+            raise AgentCatalogError("agent_catalog_page_snapshot_required")
+        clauses: list[str] = []
+        values: list[object] = []
+        if not include_archived:
+            clauses.append("project.archived_at IS NULL")
+        if search:
+            session_archive_filter = (
+                "" if include_archived else "AND matched.archived_at IS NULL"
+            )
+            clauses.append(
+                "("
+                "lower(project.name) LIKE ? ESCAPE '\\' "
+                "OR EXISTS ("
+                "SELECT 1 FROM agent_catalog_sessions matched "
+                "WHERE matched.project_id=project.project_id "
+                f"{session_archive_filter} "
+                "AND lower(matched.title) LIKE ? ESCAPE '\\'"
+                ")"
+                ")"
+            )
+            escaped = _like(search)
+            values.extend((escaped, escaped))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._database.connect() as connection:
+            connection.execute("BEGIN")
+            try:
+                rows = connection.execute(
+                    f"""
+                    SELECT project.project_id, project.name, project.created_at,
+                           project.updated_at, project.revision, project.pinned,
+                           project.archived_at, project.is_default,
+                           COUNT(session.session_id) AS session_count
+                    FROM agent_projects project
+                    LEFT JOIN agent_catalog_sessions session
+                      ON session.project_id=project.project_id
+                    {where}
+                    GROUP BY project.project_id
+                    ORDER BY project.pinned DESC,
+                             CASE WHEN project.archived_at IS NULL THEN 0 ELSE 1 END,
+                             project.updated_at DESC, project.project_id
+                    """,
+                    tuple(values),
+                ).fetchall()
+                records = tuple(self._project_record(row) for row in rows)
+                current_snapshot = _catalog_page_snapshot(
+                    collection="projects",
+                    scope={
+                        "include_archived": include_archived,
+                        "search": search,
+                    },
+                    records=[
+                        record.model_dump(mode="json") for record in records
+                    ],
+                )
+                if snapshot is not None and snapshot != current_snapshot:
+                    raise AgentCatalogError("agent_catalog_page_snapshot_conflict")
+                if offset > len(records):
+                    raise AgentCatalogError("agent_catalog_page_out_of_range")
+                page = records[offset : offset + limit]
+                connection.execute("COMMIT")
+                return page, len(records), current_snapshot
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
 
     def update_project(
         self,
@@ -3261,6 +3364,70 @@ class SqliteAgentCatalogRepository:
                 tuple(values),
             ).fetchall()
             return tuple(self._session_record(row) for row in rows)
+
+    def page_sessions(
+        self,
+        *,
+        project_id: str | None,
+        search: str | None,
+        include_archived: bool,
+        limit: int,
+        offset: int,
+        snapshot: str | None,
+    ) -> tuple[tuple[AgentCatalogSessionRecord, ...], int, str]:
+        if limit < 1 or limit > MAX_AGENT_CATALOG_PAGE_SIZE:
+            raise AgentCatalogError("agent_catalog_page_invalid")
+        if offset < 0 or offset > MAX_AGENT_CATALOG_SESSIONS:
+            raise AgentCatalogError("agent_catalog_page_out_of_range")
+        if offset > 0 and snapshot is None:
+            raise AgentCatalogError("agent_catalog_page_snapshot_required")
+        clauses: list[str] = []
+        values: list[object] = []
+        if project_id is not None:
+            clauses.append("session.project_id=?")
+            values.append(project_id)
+        if not include_archived:
+            clauses.append("session.archived_at IS NULL")
+        if search:
+            clauses.append("lower(session.title) LIKE ? ESCAPE '\\'")
+            values.append(_like(search))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._database.connect() as connection:
+            connection.execute("BEGIN")
+            try:
+                rows = connection.execute(
+                    f"""
+                    {self._session_select()}
+                    {where}
+                    ORDER BY session.pinned DESC,
+                             CASE WHEN session.archived_at IS NULL THEN 0 ELSE 1 END,
+                             session.last_opened_at DESC, session.session_id
+                    """,
+                    tuple(values),
+                ).fetchall()
+                records = tuple(self._session_record(row) for row in rows)
+                current_snapshot = _catalog_page_snapshot(
+                    collection="sessions",
+                    scope={
+                        "include_archived": include_archived,
+                        "project_id": project_id,
+                        "search": search,
+                    },
+                    records=[
+                        record.model_dump(mode="json") for record in records
+                    ],
+                )
+                if snapshot is not None and snapshot != current_snapshot:
+                    raise AgentCatalogError("agent_catalog_page_snapshot_conflict")
+                if offset > len(records):
+                    raise AgentCatalogError("agent_catalog_page_out_of_range")
+                page = records[offset : offset + limit]
+                connection.execute("COMMIT")
+                return page, len(records), current_snapshot
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
 
     def update_session(
         self,

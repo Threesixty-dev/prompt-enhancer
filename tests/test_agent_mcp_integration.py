@@ -745,7 +745,7 @@ def test_installed_shape_stdio_bridge_reaches_real_loopback_and_persists_catalog
         ]
         assert replies[2]["result"]["structuredContent"]["result"][
             "contract_version"
-        ] == "local-agent-orchestration.v21"
+        ] == "local-agent-orchestration.v22"
         assert replies[3]["result"]["structuredContent"]["result"][
             "response"
         ]["projects"] == []
@@ -1051,7 +1051,7 @@ def test_direct_http_mcp_reenters_the_same_real_listener_without_a_process(
         )
         assert discovered["result"]["structuredContent"]["result"][
             "contract_version"
-        ] == "local-agent-orchestration.v21"
+        ] == "local-agent-orchestration.v22"
 
         opened = _http_mcp(
             private.endpoint_url,

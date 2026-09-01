@@ -687,6 +687,152 @@ def test_concurrent_default_project_resolution_creates_exactly_one_default(
         assert len(listed) == 1 and listed[0].is_default is True
 
 
+def test_catalog_pages_cover_bounded_capacity_and_reject_stale_or_cross_scope_tokens(
+    tmp_path: Path,
+) -> None:
+    project_ids = [f"{index:032x}" for index in range(1, 130)]
+    catalog = _catalog(tmp_path, project_ids)
+    projects = tuple(
+        catalog.create_project(CreateAgentProject(name=f"Synthetic project {index:03d}"))
+        for index in range(125)
+    )
+
+    first_projects = catalog.page_projects(limit=60)
+    assert first_projects.total == 125
+    assert first_projects.offset == 0
+    assert first_projects.next_offset == 60
+    assert first_projects.complete is False
+    second_projects = catalog.page_projects(
+        limit=60,
+        offset=first_projects.next_offset,
+        snapshot=first_projects.snapshot,
+    )
+    last_projects = catalog.page_projects(
+        limit=60,
+        offset=second_projects.next_offset,
+        snapshot=first_projects.snapshot,
+    )
+    project_page_ids = tuple(
+        project.project_id
+        for page in (first_projects, second_projects, last_projects)
+        for project in page.projects
+    )
+    assert project_page_ids == tuple(project.project_id for project in projects)
+    assert len(set(project_page_ids)) == 125
+    assert last_projects.next_offset is None and last_projects.complete is True
+
+    restarted = _catalog(tmp_path, ["f" * 32])
+    restarted_first = restarted.page_projects(limit=60)
+    assert restarted_first.snapshot == first_projects.snapshot
+    with pytest.raises(AgentCatalogError) as cross_scope:
+        restarted.page_projects(
+            include_archived=True,
+            limit=60,
+            offset=60,
+            snapshot=first_projects.snapshot,
+        )
+    assert cross_scope.value.code == "agent_catalog_page_snapshot_conflict"
+    with pytest.raises(AgentCatalogError) as missing_snapshot:
+        restarted.page_projects(limit=60, offset=60)
+    assert missing_snapshot.value.code == "agent_catalog_page_snapshot_required"
+    with pytest.raises(AgentCatalogError) as out_of_range:
+        restarted.page_projects(
+            limit=60,
+            offset=126,
+            snapshot=first_projects.snapshot,
+        )
+    assert out_of_range.value.code == "agent_catalog_page_out_of_range"
+
+    changed = restarted.update_project(
+        projects[-1].project_id,
+        UpdateAgentProject(
+            expected_revision=projects[-1].revision,
+            name="Synthetic changed project",
+        ),
+    )
+    assert changed.revision == projects[-1].revision + 1
+    with pytest.raises(AgentCatalogError) as stale:
+        restarted.page_projects(
+            limit=60,
+            offset=60,
+            snapshot=first_projects.snapshot,
+        )
+    assert stale.value.code == "agent_catalog_page_snapshot_conflict"
+
+
+def test_session_pages_browse_past_two_hundred_and_bind_project_and_restart(
+    tmp_path: Path,
+) -> None:
+    catalog = _catalog(tmp_path, ["1" * 32, "2" * 32])
+    project = catalog.create_project(CreateAgentProject(name="Synthetic session project"))
+    other_project = catalog.create_project(CreateAgentProject(name="Synthetic other project"))
+    sessions = tuple(
+        catalog.register_live_session(
+            session_id=f"{index + 1_000:032x}",
+            project_id=project.project_id,
+            title=f"Synthetic chat {index:03d}",
+            workspace=tmp_path / "synthetic-workspace",
+            model_alias=None,
+            created_at=T0,
+        )
+        for index in range(245)
+    )
+
+    first = catalog.page_sessions(project_id=project.project_id, limit=100)
+    second = catalog.page_sessions(
+        project_id=project.project_id,
+        limit=100,
+        offset=first.next_offset,
+        snapshot=first.snapshot,
+    )
+    third = catalog.page_sessions(
+        project_id=project.project_id,
+        limit=100,
+        offset=second.next_offset,
+        snapshot=first.snapshot,
+    )
+    loaded = tuple(
+        session.session_id
+        for page in (first, second, third)
+        for session in page.sessions
+    )
+    assert first.total == 245
+    assert loaded == tuple(session.session_id for session in sessions)
+    assert len(set(loaded)) == 245
+    assert third.complete is True and third.next_offset is None
+
+    restarted = _catalog(tmp_path, ["3" * 32])
+    assert (
+        restarted.page_sessions(project_id=project.project_id, limit=100).snapshot
+        == first.snapshot
+    )
+    with pytest.raises(AgentCatalogError) as cross_project:
+        restarted.page_sessions(
+            project_id=other_project.project_id,
+            limit=100,
+            offset=1,
+            snapshot=first.snapshot,
+        )
+    assert cross_project.value.code == "agent_catalog_page_snapshot_conflict"
+
+    changed = restarted.update_session(
+        sessions[-1].session_id,
+        UpdateAgentCatalogSession(
+            expected_revision=sessions[-1].revision,
+            title="Synthetic changed chat",
+        ),
+    )
+    assert changed.revision == sessions[-1].revision + 1
+    with pytest.raises(AgentCatalogError) as stale:
+        restarted.page_sessions(
+            project_id=project.project_id,
+            limit=100,
+            offset=100,
+            snapshot=first.snapshot,
+        )
+    assert stale.value.code == "agent_catalog_page_snapshot_conflict"
+
+
 def test_agent_catalog_http_hierarchy_survives_restart_and_live_state_is_truthful(
     tmp_path: Path,
     monkeypatch,
@@ -728,6 +874,39 @@ def test_agent_catalog_http_hierarchy_survives_restart_and_live_state_is_truthfu
         assert created_session.status_code == 201, created_session.text
         live = created_session.json()
         assert live["settings"]["project_id"] == project["project_id"]
+
+        project_page_response = client.get(
+            "/v1/agent/projects/page?limit=1",
+            headers=headers,
+        )
+        assert project_page_response.status_code == 200
+        assert project_page_response.headers["cache-control"] == "no-store, private"
+        assert project_page_response.json()["contract_version"] == (
+            "agent-catalog-page.v1"
+        )
+        assert project_page_response.json()["total"] == 1
+
+        session_page_response = client.get(
+            f"/v1/agent/projects/{project['project_id']}/sessions/page?limit=1",
+            headers=headers,
+        )
+        assert session_page_response.status_code == 200
+        assert session_page_response.headers["cache-control"] == "no-store, private"
+        assert session_page_response.json()["sessions"][0]["conversation_available"] is True
+        global_page_response = client.get(
+            "/v1/agent/catalog/sessions/page?limit=1",
+            headers=headers,
+        )
+        assert global_page_response.status_code == 200
+        assert global_page_response.json()["sessions"][0]["session_id"] == live["session_id"]
+        missing_page_snapshot = client.get(
+            "/v1/agent/catalog/sessions/page?limit=1&offset=1",
+            headers=headers,
+        )
+        assert missing_page_snapshot.status_code == 422
+        assert missing_page_snapshot.json()["detail"]["code"] == (
+            "agent_catalog_page_snapshot_required"
+        )
 
         catalog_session = client.get(
             f"/v1/agent/catalog/sessions/{live['session_id']}", headers=headers

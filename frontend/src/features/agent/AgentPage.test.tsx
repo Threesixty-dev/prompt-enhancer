@@ -1,6 +1,6 @@
 import { act, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentHistoryExport, AgentMessageAttachment, AgentProject, AgentSessionView, AgentSettings, AgentWorkspaceTree, ForkAgentSession, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckRequest, PromptCheckResult, UpdateAgentCatalogSession } from "../../shared/api/contracts";
+import type { AgentArtifact, AgentArtifactPage, AgentArtifactPageQuery, AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentHistoryExport, AgentMessageAttachment, AgentProject, AgentSessionView, AgentSettings, AgentWorkspaceTree, ForkAgentSession, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckRequest, PromptCheckResult, UpdateAgentCatalogSession } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { syntheticMcpManagedProjectRuntime } from "../../shared/api/mcpManagedRuntime.test-support";
 import {
@@ -382,6 +382,86 @@ function catalogSessionFixture(
     conversation_available: false,
     lineage: null,
     ...overrides,
+  };
+}
+
+function artifactFixture(
+  index: number,
+  projectId: string,
+  sessionId: string,
+  lifecycleState: "active" | "archived" = "active",
+): AgentArtifact {
+  const artifactId = (index + 100).toString(16).padStart(32, "0");
+  const path = `outputs/synthetic-${index.toString().padStart(3, "0")}.md`;
+  const createdAt = "2040-01-01T10:00:00Z";
+  const updatedAt = lifecycleState === "archived" ? "2040-01-01T10:01:00Z" : createdAt;
+  return {
+    contract_version: "agent-artifact.v3",
+    artifact_id: artifactId,
+    project_id: projectId,
+    session_id: sessionId,
+    title: `Synthetic artifact ${index.toString().padStart(3, "0")}`,
+    kind: "markdown",
+    path,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    revision: lifecycleState === "archived" ? 2 : 1,
+    version_count: 1,
+    availability: "available",
+    lifecycle_state: lifecycleState,
+    archived_at: lifecycleState === "archived" ? updatedAt : null,
+    removed_at: null,
+    latest_version: {
+      contract_version: "agent-artifact.v3",
+      version_id: (index + 1000).toString(16).padStart(32, "0"),
+      artifact_id: artifactId,
+      version_number: 1,
+      created_at: createdAt,
+      path,
+      media_type: "text/markdown; charset=utf-8",
+      preview_kind: "text",
+      provenance: "verified_output",
+      sha256: (index % 16).toString(16).repeat(64),
+      byte_size: 100 + index,
+      source_turn_id: null,
+      source_event_seq: null,
+    },
+  };
+}
+
+function artifactPageFixture(
+  artifacts: AgentArtifact[],
+  total: number,
+  projectId: string,
+  sessionId: string,
+  offset = 0,
+  view: "active" | "archived" = "active",
+): AgentArtifactPage {
+  const nextOffset = offset + artifacts.length < total ? offset + artifacts.length : null;
+  return {
+    contract_version: "agent-artifact-page.v1",
+    project_id: projectId,
+    session_id: sessionId,
+    view,
+    snapshot: "a".repeat(64),
+    limit: 100,
+    offset,
+    total,
+    next_offset: nextOffset,
+    complete: nextOffset === null,
+    counts: view === "active"
+      ? { active: total, archived: 0, removed: 0, total }
+      : { active: 0, archived: total, removed: 0, total },
+    artifacts,
+  };
+}
+
+function artifactViewerMethods() {
+  return {
+    getAgentArtifact: vi.fn(),
+    getAgentArtifactContent: vi.fn(),
+    updateAgentArtifact: vi.fn(),
+    removeAgentArtifact: vi.fn(),
   };
 }
 
@@ -1289,6 +1369,145 @@ describe("AgentPage", () => {
       expect.any(AbortSignal),
     );
     expect(screen.getByRole("button", { name: "Manage Archived review" })).toBeEnabled();
+  });
+
+  it("loads an exact snapshot-bound artifact continuation while keeping rendering bounded", async () => {
+    const projectId = "1".repeat(32);
+    const records = Array.from({ length: 105 }, (_, index) => (
+      artifactFixture(index, projectId, SESSION)
+    ));
+    const session = view({
+      settings: {
+        ...view().settings,
+        project_id: projectId,
+        retention_policy: "local_history",
+      },
+    });
+    const pageAgentArtifacts = vi.fn(async (
+      _projectId: string,
+      _sessionId: string,
+      query: AgentArtifactPageQuery,
+    ) => query.offset === 0
+      ? artifactPageFixture(records.slice(0, 100), 105, projectId, SESSION)
+      : artifactPageFixture(records.slice(100), 105, projectId, SESSION, 100));
+    const transport = {
+      ...sessionTransport(session),
+      ...artifactViewerMethods(),
+      pageAgentArtifacts,
+    };
+
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByText("100 of 105 active artifacts loaded")).toBeVisible();
+    expect(document.querySelectorAll(".agent-artifacts__card")).toHaveLength(50);
+    fireEvent.click(screen.getByRole("button", { name: "Load more artifacts" }));
+    expect(await screen.findByText("105 of 105 active artifacts loaded")).toBeVisible();
+    expect(pageAgentArtifacts).toHaveBeenLastCalledWith(
+      projectId,
+      SESSION,
+      {
+        view: "active",
+        limit: 100,
+        offset: 100,
+        snapshot: "a".repeat(64),
+      },
+      expect.any(AbortSignal),
+    );
+    expect(document.querySelectorAll(".agent-artifacts__card")).toHaveLength(50);
+  });
+
+  it.each(["duplicate", "snapshot conflict"] as const)(
+    "preserves the loaded artifact prefix after a %s continuation",
+    async (failure) => {
+      const projectId = "1".repeat(32);
+      const records = Array.from({ length: 100 }, (_, index) => (
+        artifactFixture(index, projectId, SESSION)
+      ));
+      const session = view({
+        settings: {
+          ...view().settings,
+          project_id: projectId,
+          retention_policy: "local_history",
+        },
+      });
+      const pageAgentArtifacts = vi.fn()
+        .mockResolvedValueOnce(artifactPageFixture(records, 101, projectId, SESSION));
+      if (failure === "duplicate") {
+        pageAgentArtifacts.mockResolvedValueOnce(
+          artifactPageFixture([records[0]], 101, projectId, SESSION, 100),
+        );
+      } else {
+        pageAgentArtifacts.mockRejectedValueOnce(new TransportError(
+          "Synthetic snapshot conflict",
+          409,
+          "agent_artifact_page_snapshot_conflict",
+        ));
+      }
+      const transport = {
+        ...sessionTransport(session),
+        ...artifactViewerMethods(),
+        pageAgentArtifacts,
+      };
+
+      render(<AgentPage transport={transport} />);
+      await screen.findByText("100 of 101 active artifacts loaded");
+      fireEvent.click(screen.getByRole("button", { name: "Load more artifacts" }));
+
+      expect(await screen.findByText(
+        failure === "duplicate"
+          ? "A repeated artifact page was refused. Reload from the first page."
+          : "Artifacts changed while another page was loading. Reload from the first page.",
+      )).toHaveAttribute("role", "alert");
+      expect(screen.getByText("100 of 101 active artifacts loaded")).toBeVisible();
+      expect(screen.getByText("Synthetic artifact 000")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Reload artifacts" })).toBeVisible();
+    },
+  );
+
+  it("ignores an artifact page that resolves after the lifecycle scope is replaced", async () => {
+    const projectId = "1".repeat(32);
+    const active = artifactFixture(0, projectId, SESSION);
+    const archived = artifactFixture(1, projectId, SESSION, "archived");
+    const pending = deferred<AgentArtifactPage>();
+    const session = view({
+      settings: {
+        ...view().settings,
+        project_id: projectId,
+        retention_policy: "local_history",
+      },
+    });
+    const pageAgentArtifacts = vi.fn()
+      .mockImplementationOnce((
+        _projectId: string,
+        _sessionId: string,
+        _query: AgentArtifactPageQuery,
+        _signal?: AbortSignal,
+      ) => pending.promise)
+      .mockResolvedValueOnce(artifactPageFixture(
+        [archived],
+        1,
+        projectId,
+        SESSION,
+        0,
+        "archived",
+      ));
+    const transport = {
+      ...sessionTransport(session),
+      ...artifactViewerMethods(),
+      pageAgentArtifacts,
+    };
+
+    render(<AgentPage transport={transport} />);
+    await waitFor(() => expect(pageAgentArtifacts).toHaveBeenCalledTimes(1));
+    const firstSignal = pageAgentArtifacts.mock.calls[0][3];
+    fireEvent.click(await screen.findByRole("tab", { name: /^Archived/u }));
+
+    expect(await screen.findByText("Synthetic artifact 001")).toBeVisible();
+    expect(firstSignal?.aborted).toBe(true);
+    pending.resolve(artifactPageFixture([active], 1, projectId, SESSION));
+    await Promise.resolve();
+    expect(screen.queryByText("Synthetic artifact 000")).not.toBeInTheDocument();
+    expect(screen.getByText("Synthetic artifact 001")).toBeVisible();
   });
 
   it("shows absent turn receipts as unknown and separates denied tools from failed tools", async () => {
@@ -4458,10 +4677,10 @@ describe("AgentPage", () => {
       level: 2,
       name: "Original retained title",
     }, { timeout: 5_000 })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Chat actions for Original retained title" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Chat actions for Original retained title" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Chat actions for Original retained title" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Chat actions for Original retained title" }))
       .getByRole("button", { name: "Rename" }));
-    const renameDialog = screen.getByRole("dialog", { name: "Rename chat" });
+    const renameDialog = await screen.findByRole("dialog", { name: "Rename chat" });
     fireEvent.change(within(renameDialog).getByLabelText("Chat name"), {
       target: { value: "Canonical retained title" },
     });
@@ -4591,10 +4810,10 @@ describe("AgentPage", () => {
 
     render(<AgentPage transport={transport} />);
     expect(await screen.findByText("Saved locally · 0 turns", {}, { timeout: 5_000 })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Chat actions for Delete selected retained chat" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Chat actions for Delete selected retained chat" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Chat actions for Delete selected retained chat" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Chat actions for Delete selected retained chat" }))
       .getByRole("button", { name: "Delete" }));
-    const deleteDialog = screen.getByRole("dialog", { name: "Delete chat" });
+    const deleteDialog = await screen.findByRole("dialog", { name: "Delete chat" });
     fireEvent.click(within(deleteDialog).getByRole("button", { name: "Delete" }));
 
     expect(await screen.findByRole("heading", { level: 1, name: "Agent workspace" })).toBeVisible();

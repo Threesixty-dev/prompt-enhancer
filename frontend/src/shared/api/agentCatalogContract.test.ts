@@ -4,14 +4,17 @@ import {
   AgentCatalogPayloadError,
   parseAgentCatalogSession,
   parseAgentCatalogSessionList,
+  parseAgentCatalogSessionPage,
   parseAgentProject,
   parseAgentProjectList,
+  parseAgentProjectPage,
   parseAgentSessionForkReceipt,
   parseAgentSessionLineage,
 } from "./agentCatalogContract";
 
 const PROJECT_ID = "1".repeat(32);
 const SESSION_ID = "2".repeat(32);
+const SNAPSHOT = "a".repeat(64);
 
 function project(overrides: Record<string, unknown> = {}) {
   return {
@@ -141,6 +144,83 @@ describe("Agent catalog response contracts", () => {
         project_id: index.toString(16).padStart(32, "0"),
       })),
     })).toThrow(AgentCatalogPayloadError);
+  });
+
+  it("accepts exact snapshot-bound project and chat pages", () => {
+    const secondProject = project({
+      project_id: "3".repeat(32),
+      name: "Second project",
+    });
+    expect(parseAgentProjectPage({
+      contract_version: "agent-catalog-page.v1",
+      snapshot: SNAPSHOT,
+      limit: 2,
+      offset: 0,
+      total: 2,
+      next_offset: null,
+      complete: true,
+      projects: [project(), secondProject],
+    }, 2, 0).projects).toHaveLength(2);
+
+    const secondSession = session({
+      session_id: "4".repeat(32),
+      title: "Second chat",
+    });
+    expect(parseAgentCatalogSessionPage({
+      contract_version: "agent-catalog-page.v1",
+      snapshot: SNAPSHOT,
+      limit: 1,
+      offset: 1,
+      total: 2,
+      next_offset: null,
+      complete: true,
+      sessions: [secondSession],
+    }, 1, 1, SNAPSHOT, PROJECT_ID).sessions[0].session_id).toBe("4".repeat(32));
+  });
+
+  it.each([
+    ["unknown key", { private_canary: "SYNTHETIC-PRIVATE-CANARY" }],
+    ["wrong request limit", { limit: 3 }],
+    ["wrong request offset", { offset: 1, total: 2, next_offset: null, complete: true }],
+    ["wrong replay snapshot", { snapshot: "b".repeat(64) }],
+    ["contradictory continuation", { total: 2, next_offset: null, complete: true }],
+    ["short non-terminal page", { total: 2, next_offset: 0, complete: false, projects: [] }],
+  ])("rejects a project page with %s", (_label, overrides) => {
+    expect(() => parseAgentProjectPage({
+      contract_version: "agent-catalog-page.v1",
+      snapshot: SNAPSHOT,
+      limit: 1,
+      offset: 0,
+      total: 1,
+      next_offset: null,
+      complete: true,
+      projects: [project()],
+      ...overrides,
+    }, 1, 0, SNAPSHOT)).toThrow(AgentCatalogPayloadError);
+  });
+
+  it("rejects duplicate page identities and cross-project chat pages", () => {
+    expect(() => parseAgentProjectPage({
+      contract_version: "agent-catalog-page.v1",
+      snapshot: SNAPSHOT,
+      limit: 2,
+      offset: 0,
+      total: 2,
+      next_offset: null,
+      complete: true,
+      projects: [project(), project()],
+    }, 2, 0, SNAPSHOT)).toThrow(AgentCatalogPayloadError);
+
+    expect(() => parseAgentCatalogSessionPage({
+      contract_version: "agent-catalog-page.v1",
+      snapshot: SNAPSHOT,
+      limit: 1,
+      offset: 0,
+      total: 1,
+      next_offset: null,
+      complete: true,
+      sessions: [session({ project_id: "5".repeat(32) })],
+    }, 1, 0, undefined, PROJECT_ID)).toThrow(AgentCatalogPayloadError);
   });
 
   it("accepts exact branch lineage and an authority-free fork receipt", () => {

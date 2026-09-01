@@ -20,8 +20,9 @@ import { connectAgentCatalogSync, type AgentCatalogSync } from "./agentWindowCha
 import "./AgentCatalogRail.css";
 
 const CATALOG_RENDER_PAGE = 40;
+const CATALOG_SERVER_PAGE = 100;
 
-type CatalogTransport = Pick<
+type CoreCatalogTransport = Pick<
   PromptEnhancerTransport,
   | "listAgentProjects"
   | "createAgentProject"
@@ -31,6 +32,21 @@ type CatalogTransport = Pick<
   | "updateAgentCatalogSession"
   | "deleteAgentCatalogSession"
 >;
+
+type CatalogTransport = CoreCatalogTransport & Partial<Pick<
+  PromptEnhancerTransport,
+  | "pageAgentProjects"
+  | "pageAgentCatalogSessions"
+  | "getAgentProject"
+  | "getAgentCatalogSession"
+>>;
+
+interface CatalogPageCoverage {
+  snapshot: string | null;
+  nextOffset: number | null;
+  total: number;
+  complete: boolean;
+}
 
 type CatalogDialog =
   | { kind: "create-project" }
@@ -115,6 +131,16 @@ function catalogAvailable(transport: Partial<CatalogTransport>): transport is Ca
     && typeof transport.listAgentCatalogSessions === "function"
     && typeof transport.updateAgentCatalogSession === "function"
     && typeof transport.deleteAgentCatalogSession === "function";
+}
+
+function pagingFailureCopy(error: unknown, noun: "projects" | "chats"): string {
+  if (error instanceof TransportError && (
+    error.reasonCode === "agent_catalog_page_snapshot_conflict"
+    || error.reasonCode === "agent_catalog_page_out_of_range"
+  )) {
+    return `The ${noun} changed while another page was loading. Reload from the first page.`;
+  }
+  return `More ${noun} could not be loaded. The records already shown are unchanged.`;
 }
 
 function failureCopy(error: unknown): string {
@@ -204,6 +230,14 @@ export function AgentCatalogRail({
   const [catalogSessions, setCatalogSessions] = useState<AgentCatalogSession[] | null>(
     supported ? null : [],
   );
+  const [selectedProjectExtra, setSelectedProjectExtra] = useState<AgentProject | null>(null);
+  const [selectedSessionExtra, setSelectedSessionExtra] = useState<AgentCatalogSession | null>(null);
+  const [projectCoverage, setProjectCoverage] = useState<CatalogPageCoverage | null>(null);
+  const [sessionCoverage, setSessionCoverage] = useState<CatalogPageCoverage | null>(null);
+  const [projectPageBusy, setProjectPageBusy] = useState(false);
+  const [sessionPageBusy, setSessionPageBusy] = useState(false);
+  const [projectPageError, setProjectPageError] = useState("");
+  const [sessionPageError, setSessionPageError] = useState("");
   const [search, setSearch] = useState("");
   const [includeArchived, setIncludeArchived] = useState(false);
   const [error, setError] = useState("");
@@ -226,17 +260,30 @@ export function AgentCatalogRail({
     key: string;
     owner: number;
   } | null>(null);
+  const projectReadOwnerRef = useRef(0);
+  const sessionReadOwnerRef = useRef(0);
+  const projectPageControllerRef = useRef<AbortController | null>(null);
+  const sessionPageControllerRef = useRef<AbortController | null>(null);
+  const projectServerIdsRef = useRef(new Set<string>());
+  const sessionServerIdsRef = useRef(new Set<string>());
 
   const liveById = useMemo(
     () => new Map((liveSessions ?? []).map((session) => [session.session_id, session])),
     [liveSessions],
   );
-  const projectNameById = useMemo(
-    () => new Map((projects ?? []).map((project) => [project.project_id, project.name])),
-    [projects],
-  );
   const normalizedSearch = search.trim();
-  const projectItems = projects ?? [];
+  const projectItems = useMemo(() => {
+    const loaded = projects ?? [];
+    if (
+      selectedProjectExtra === null
+      || loaded.some((project) => project.project_id === selectedProjectExtra.project_id)
+    ) return loaded;
+    return [...loaded, selectedProjectExtra];
+  }, [projects, selectedProjectExtra]);
+  const projectNameById = useMemo(
+    () => new Map(projectItems.map((project) => [project.project_id, project.name])),
+    [projectItems],
+  );
   const selectedProjectIndex = selectedProjectId === null
     ? null
     : projectItems.findIndex((project) => project.project_id === selectedProjectId);
@@ -246,7 +293,14 @@ export function AgentCatalogRail({
     preferredIndex: selectedProjectIndex !== null && selectedProjectIndex >= 0 ? selectedProjectIndex : null,
     resetKey: `${normalizedSearch}:${String(includeArchived)}:${refreshKey}:${refreshNonce}:projects`,
   });
-  const sessionItems = catalogSessions ?? [];
+  const sessionItems = useMemo(() => {
+    const loaded = catalogSessions ?? [];
+    if (
+      selectedSessionExtra === null
+      || loaded.some((session) => session.session_id === selectedSessionExtra.session_id)
+    ) return loaded;
+    return [...loaded, selectedSessionExtra];
+  }, [catalogSessions, selectedSessionExtra]);
   const selectedSessionIndex = currentSessionId === undefined
     ? null
     : sessionItems.findIndex((session) => session.session_id === currentSessionId);
@@ -272,6 +326,22 @@ export function AgentCatalogRail({
   useEffect(() => {
     initialCatalogReported.current = false;
     selectedProjectSnapshotRef.current = null;
+    projectReadOwnerRef.current += 1;
+    sessionReadOwnerRef.current += 1;
+    projectPageControllerRef.current?.abort();
+    sessionPageControllerRef.current?.abort();
+    projectPageControllerRef.current = null;
+    sessionPageControllerRef.current = null;
+    projectServerIdsRef.current = new Set();
+    sessionServerIdsRef.current = new Set();
+    setSelectedProjectExtra(null);
+    setSelectedSessionExtra(null);
+    setProjectCoverage(null);
+    setSessionCoverage(null);
+    setProjectPageBusy(false);
+    setSessionPageBusy(false);
+    setProjectPageError("");
+    setSessionPageError("");
     mutationOwnerRef.current += 1;
     mutationRef.current?.controller.abort();
     mutationRef.current = null;
@@ -279,6 +349,10 @@ export function AgentCatalogRail({
     setMoveDestinations(null);
     setMoveDestinationError("");
     return () => {
+      projectReadOwnerRef.current += 1;
+      sessionReadOwnerRef.current += 1;
+      projectPageControllerRef.current?.abort();
+      sessionPageControllerRef.current?.abort();
       mutationOwnerRef.current += 1;
       mutationRef.current?.controller.abort();
       mutationRef.current = null;
@@ -364,85 +438,355 @@ export function AgentCatalogRail({
 
   useEffect(() => {
     if (!supported) return;
+    const owner = projectReadOwnerRef.current + 1;
+    projectReadOwnerRef.current = owner;
     const controller = new AbortController();
+    projectPageControllerRef.current?.abort();
+    projectPageControllerRef.current = null;
+    projectServerIdsRef.current = new Set();
+    setProjects(null);
+    setSelectedProjectExtra(null);
+    setProjectCoverage(null);
+    setProjectPageBusy(false);
+    setProjectPageError("");
     const handle = window.setTimeout(() => {
-      transport.listAgentProjects({
-        search: search.trim() || undefined,
-        includeArchived,
-        limit: 200,
-      }, controller.signal).then((result) => {
-        if (controller.signal.aborted) return;
-        const selectedProject = result.projects.find(
-          (project) => project.project_id === selectedProjectId,
-        );
-        if (selectedProject !== undefined) {
-          selectedProjectSnapshotRef.current = selectedProject;
+      void (async () => {
+        try {
+          const query = {
+            search: normalizedSearch || undefined,
+            includeArchived,
+          };
+          const pageProjects = transport.pageAgentProjects;
+          let paged = false;
+          let firstProjects: AgentProject[];
+          let initialComplete = true;
+          let nextCoverage: CatalogPageCoverage;
+          if (typeof pageProjects === "function") {
+            const result = await pageProjects({
+                ...query,
+                limit: CATALOG_SERVER_PAGE,
+                offset: 0,
+              }, controller.signal);
+            paged = true;
+            firstProjects = result.projects;
+            initialComplete = result.complete;
+            nextCoverage = {
+              snapshot: result.snapshot,
+              nextOffset: result.next_offset ?? null,
+              total: result.total,
+              complete: result.complete,
+            };
+          } else {
+            const result = await transport.listAgentProjects({
+                ...query,
+                limit: 200,
+              }, controller.signal);
+            firstProjects = result.projects;
+            nextCoverage = {
+              snapshot: null,
+              nextOffset: null,
+              total: firstProjects.length,
+              complete: true,
+            };
+          }
+          if (controller.signal.aborted || projectReadOwnerRef.current !== owner) return;
+          projectServerIdsRef.current = new Set(
+            firstProjects.map((project) => project.project_id),
+          );
+          setProjects(firstProjects);
+          setProjectCoverage(nextCoverage);
+          setError("");
+          const selectedProject = firstProjects.find(
+            (project) => project.project_id === selectedProjectId,
+          );
+          if (selectedProject !== undefined) {
+            selectedProjectSnapshotRef.current = selectedProject;
+          } else if (
+            selectedProjectId !== null
+            && normalizedSearch === ""
+            && typeof transport.getAgentProject === "function"
+          ) {
+            try {
+              const selected = await transport.getAgentProject(
+                selectedProjectId,
+                controller.signal,
+              );
+              if (controller.signal.aborted || projectReadOwnerRef.current !== owner) return;
+              if (includeArchived || selected.archived_at === null) {
+                selectedProjectSnapshotRef.current = selected;
+                setSelectedProjectExtra(selected);
+              } else {
+                const preferredProject = firstProjects.find((project) => (
+                  project.archived_at === null && project.session_count > 0
+                )) ?? firstProjects[0];
+                onProjectChange(preferredProject?.project_id ?? null);
+              }
+            } catch {
+              if (
+                !controller.signal.aborted
+                && projectReadOwnerRef.current === owner
+                && (!paged || initialComplete)
+              ) {
+                const preferredProject = firstProjects.find((project) => (
+                  project.archived_at === null && project.session_count > 0
+                )) ?? firstProjects[0];
+                onProjectChange(preferredProject?.project_id ?? null);
+              }
+            }
+          } else if (selectedProjectId === null && normalizedSearch === "") {
+            const preferredProject = firstProjects.find((project) => (
+              project.archived_at === null && project.session_count > 0
+            )) ?? firstProjects[0];
+            onProjectChange(preferredProject?.project_id ?? null);
+          }
+          if (
+            firstProjects.length === 0
+            && normalizedSearch === ""
+            && !initialCatalogReported.current
+          ) {
+            initialCatalogReported.current = true;
+            onInitialCatalogLoad?.(null);
+          }
+        } catch (caught: unknown) {
+          if (controller.signal.aborted || projectReadOwnerRef.current !== owner) return;
+          setProjects((previous) => previous ?? []);
+          setProjectCoverage(null);
+          setError(failureCopy(caught));
         }
-        setProjects(result.projects);
-        setError("");
-        const filtering = search.trim() !== "";
-        if (selectedProject === undefined && !filtering) {
-          const preferredProject = result.projects.find((project) => (
-            project.archived_at === null && project.session_count > 0
-          )) ?? result.projects[0];
-          onProjectChange(preferredProject?.project_id ?? null);
-        }
-        if (
-          result.projects.length === 0
-          && !filtering
-          && !initialCatalogReported.current
-        ) {
-          initialCatalogReported.current = true;
-          onInitialCatalogLoad?.(null);
-        }
-      }).catch((caught: unknown) => {
-        if (controller.signal.aborted) return;
-        setProjects((previous) => previous ?? []);
-        setError(failureCopy(caught));
-      });
+      })();
     }, search.trim() ? 140 : 0);
     return () => {
       controller.abort();
       window.clearTimeout(handle);
     };
-  }, [includeArchived, onInitialCatalogLoad, onProjectChange, refreshKey, refreshNonce, search, selectedProjectId, supported, transport]);
+  }, [includeArchived, normalizedSearch, onInitialCatalogLoad, onProjectChange, refreshKey, refreshNonce, search, selectedProjectId, supported, transport]);
 
   useEffect(() => {
     const searchingAllProjects = normalizedSearch !== "";
     if (!supported || (selectedProjectId === null && !searchingAllProjects)) {
+      sessionReadOwnerRef.current += 1;
+      sessionPageControllerRef.current?.abort();
+      sessionPageControllerRef.current = null;
+      sessionServerIdsRef.current = new Set();
       setCatalogSessions([]);
+      setSelectedSessionExtra(null);
+      setSessionCoverage(null);
+      setSessionPageBusy(false);
+      setSessionPageError("");
       return;
     }
+    const owner = sessionReadOwnerRef.current + 1;
+    sessionReadOwnerRef.current = owner;
     const controller = new AbortController();
+    sessionPageControllerRef.current?.abort();
+    sessionPageControllerRef.current = null;
+    sessionServerIdsRef.current = new Set();
+    setCatalogSessions(null);
+    setSelectedSessionExtra(null);
+    setSessionCoverage(null);
+    setSessionPageBusy(false);
+    setSessionPageError("");
     const handle = window.setTimeout(() => {
-      transport.listAgentCatalogSessions({
-        projectId: searchingAllProjects ? undefined : selectedProjectId ?? undefined,
-        search: normalizedSearch || undefined,
-        includeArchived,
-        limit: 200,
-      }, controller.signal).then((result) => {
-        if (controller.signal.aborted) return;
-        setCatalogSessions(result.sessions);
-        setError("");
-        if (
-          !initialCatalogReported.current
-          && search.trim() === ""
-          && !includeArchived
-        ) {
-          initialCatalogReported.current = true;
-          onInitialCatalogLoad?.(result.sessions[0] ?? null);
+      void (async () => {
+        try {
+          const query = {
+            projectId: searchingAllProjects ? undefined : selectedProjectId ?? undefined,
+            search: normalizedSearch || undefined,
+            includeArchived,
+          };
+          const pageSessions = transport.pageAgentCatalogSessions;
+          let firstSessions: AgentCatalogSession[];
+          let nextCoverage: CatalogPageCoverage;
+          if (typeof pageSessions === "function") {
+            const result = await pageSessions({
+                ...query,
+                limit: CATALOG_SERVER_PAGE,
+                offset: 0,
+              }, controller.signal);
+            firstSessions = result.sessions;
+            nextCoverage = {
+              snapshot: result.snapshot,
+              nextOffset: result.next_offset ?? null,
+              total: result.total,
+              complete: result.complete,
+            };
+          } else {
+            const result = await transport.listAgentCatalogSessions({
+                ...query,
+                limit: 200,
+              }, controller.signal);
+            firstSessions = result.sessions;
+            nextCoverage = {
+              snapshot: null,
+              nextOffset: null,
+              total: firstSessions.length,
+              complete: true,
+            };
+          }
+          if (controller.signal.aborted || sessionReadOwnerRef.current !== owner) return;
+          sessionServerIdsRef.current = new Set(
+            firstSessions.map((session) => session.session_id),
+          );
+          setCatalogSessions(firstSessions);
+          setSessionCoverage(nextCoverage);
+          setError("");
+          if (
+            !initialCatalogReported.current
+            && normalizedSearch === ""
+            && !includeArchived
+          ) {
+            initialCatalogReported.current = true;
+            onInitialCatalogLoad?.(firstSessions[0] ?? null);
+          }
+        } catch (caught: unknown) {
+          if (controller.signal.aborted || sessionReadOwnerRef.current !== owner) return;
+          setCatalogSessions((previous) => previous ?? []);
+          setSessionCoverage(null);
+          setError(failureCopy(caught));
         }
-      }).catch((caught: unknown) => {
-        if (controller.signal.aborted) return;
-        setCatalogSessions((previous) => previous ?? []);
-        setError(failureCopy(caught));
-      });
+      })();
     }, search.trim() ? 140 : 0);
     return () => {
       controller.abort();
       window.clearTimeout(handle);
     };
-  }, [includeArchived, normalizedSearch, onInitialCatalogLoad, refreshKey, refreshNonce, selectedProjectId, supported, transport]);
+  }, [includeArchived, normalizedSearch, onInitialCatalogLoad, refreshKey, refreshNonce, search, selectedProjectId, supported, transport]);
+
+  useEffect(() => {
+    if (
+      !supported
+      || currentSessionId === undefined
+      || normalizedSearch !== ""
+      || catalogSessions === null
+      || catalogSessions.some((session) => session.session_id === currentSessionId)
+      || typeof transport.getAgentCatalogSession !== "function"
+    ) {
+      if (catalogSessions !== null) setSelectedSessionExtra(null);
+      return;
+    }
+    setSelectedSessionExtra(null);
+    const owner = sessionReadOwnerRef.current;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const selected = await transport.getAgentCatalogSession!(
+          currentSessionId,
+          controller.signal,
+        );
+        if (controller.signal.aborted || sessionReadOwnerRef.current !== owner) return;
+        if (
+          selected.project_id === selectedProjectId
+          && (includeArchived || selected.archived_at === null)
+        ) setSelectedSessionExtra(selected);
+      } catch {
+        // The loaded prefix remains truthful; a missing selected record is not invented.
+      }
+    })();
+    return () => controller.abort();
+  }, [
+    catalogSessions,
+    currentSessionId,
+    includeArchived,
+    normalizedSearch,
+    selectedProjectId,
+    supported,
+    transport,
+  ]);
+
+  async function loadMoreProjects(): Promise<void> {
+    if (
+      typeof transport.pageAgentProjects !== "function"
+      || projectCoverage === null
+      || projectCoverage.nextOffset === null
+      || projectCoverage.snapshot === null
+      || projectPageBusy
+    ) return;
+    const owner = projectReadOwnerRef.current;
+    const controller = new AbortController();
+    projectPageControllerRef.current?.abort();
+    projectPageControllerRef.current = controller;
+    setProjectPageBusy(true);
+    setProjectPageError("");
+    try {
+      const page = await transport.pageAgentProjects({
+        search: normalizedSearch || undefined,
+        includeArchived,
+        limit: CATALOG_SERVER_PAGE,
+        offset: projectCoverage.nextOffset,
+        snapshot: projectCoverage.snapshot,
+      }, controller.signal);
+      if (controller.signal.aborted || projectReadOwnerRef.current !== owner) return;
+      if (page.projects.some((project) => projectServerIdsRef.current.has(project.project_id))) {
+        setProjectPageError("A repeated project page was refused. Reload from the first page.");
+        return;
+      }
+      page.projects.forEach((project) => projectServerIdsRef.current.add(project.project_id));
+      setProjects((previous) => [...(previous ?? []), ...page.projects]);
+      setProjectCoverage({
+        snapshot: page.snapshot,
+        nextOffset: page.next_offset ?? null,
+        total: page.total,
+        complete: page.complete,
+      });
+    } catch (caught) {
+      if (!controller.signal.aborted && projectReadOwnerRef.current === owner) {
+        setProjectPageError(pagingFailureCopy(caught, "projects"));
+      }
+    } finally {
+      if (projectPageControllerRef.current === controller) {
+        projectPageControllerRef.current = null;
+        setProjectPageBusy(false);
+      }
+    }
+  }
+
+  async function loadMoreSessions(): Promise<void> {
+    if (
+      typeof transport.pageAgentCatalogSessions !== "function"
+      || sessionCoverage === null
+      || sessionCoverage.nextOffset === null
+      || sessionCoverage.snapshot === null
+      || sessionPageBusy
+    ) return;
+    const owner = sessionReadOwnerRef.current;
+    const controller = new AbortController();
+    sessionPageControllerRef.current?.abort();
+    sessionPageControllerRef.current = controller;
+    setSessionPageBusy(true);
+    setSessionPageError("");
+    try {
+      const page = await transport.pageAgentCatalogSessions({
+        projectId: normalizedSearch ? undefined : selectedProjectId ?? undefined,
+        search: normalizedSearch || undefined,
+        includeArchived,
+        limit: CATALOG_SERVER_PAGE,
+        offset: sessionCoverage.nextOffset,
+        snapshot: sessionCoverage.snapshot,
+      }, controller.signal);
+      if (controller.signal.aborted || sessionReadOwnerRef.current !== owner) return;
+      if (page.sessions.some((session) => sessionServerIdsRef.current.has(session.session_id))) {
+        setSessionPageError("A repeated chat page was refused. Reload from the first page.");
+        return;
+      }
+      page.sessions.forEach((session) => sessionServerIdsRef.current.add(session.session_id));
+      setCatalogSessions((previous) => [...(previous ?? []), ...page.sessions]);
+      setSessionCoverage({
+        snapshot: page.snapshot,
+        nextOffset: page.next_offset ?? null,
+        total: page.total,
+        complete: page.complete,
+      });
+    } catch (caught) {
+      if (!controller.signal.aborted && sessionReadOwnerRef.current === owner) {
+        setSessionPageError(pagingFailureCopy(caught, "chats"));
+      }
+    } finally {
+      if (sessionPageControllerRef.current === controller) {
+        sessionPageControllerRef.current = null;
+        setSessionPageBusy(false);
+      }
+    }
+  }
 
   function openCatalogSession(
     session: AgentCatalogSession,
@@ -642,8 +986,8 @@ export function AgentCatalogRail({
           className="agent-rail__project-mark"
           title={selectedProject?.name ?? "No project selected"}
         >{selectedProject?.name.trim().charAt(0).toLocaleUpperCase() || "—"}</span>
-        <span aria-label={`${catalogSessions?.length ?? liveSessions?.length ?? 0} chats`} className="agent-rail__collapsed-count">
-          {catalogSessions?.length ?? liveSessions?.length ?? 0}
+        <span aria-label={`${sessionCoverage?.total ?? catalogSessions?.length ?? liveSessions?.length ?? 0} chats`} className="agent-rail__collapsed-count">
+          {sessionCoverage?.total ?? catalogSessions?.length ?? liveSessions?.length ?? 0}
         </span>
       </nav>
     );
@@ -754,11 +1098,27 @@ export function AgentCatalogRail({
         ))}
       </div>
       <BoundedListPager label="Agent project pages" page={projectPage} />
+      {projectCoverage !== null && typeof transport.pageAgentProjects === "function" && (
+        <div className="agent-rail__server-page" aria-live="polite">
+          <span>{projectItems.length} of {projectCoverage.total} projects available</span>
+          {projectPageError && (
+            <span className="agent-rail__server-page-error" role="alert">{projectPageError}</span>
+          )}
+          {projectCoverage.nextOffset !== null && !projectPageError && (
+            <button
+              disabled={projectPageBusy}
+              onClick={() => void loadMoreProjects()}
+              type="button"
+            >{projectPageBusy ? "Loading…" : "Load more projects"}</button>
+          )}
+          {projectPageError && <button onClick={refresh} type="button">Reload projects</button>}
+        </div>
+      )}
 
       <section aria-labelledby="agent-rail-chats" className="agent-rail__chat-section">
         <div className="agent-rail__section-head">
           <h2 id="agent-rail-chats">{normalizedSearch ? "Matching chats" : "Chats"}</h2>
-          <span>{catalogSessions?.length ?? 0}</span>
+          <span>{sessionItems.length}{sessionCoverage ? ` / ${sessionCoverage.total}` : ""}</span>
         </div>
         {selectedProjectId === null && !normalizedSearch ? <p>Select or create a project.</p>
           : catalogSessions === null ? <p role="status">Loading chats…</p>
@@ -805,6 +1165,22 @@ export function AgentCatalogRail({
                 </ul>
               )}
         <BoundedListPager label="Agent chat pages" page={sessionPage} />
+        {sessionCoverage !== null && typeof transport.pageAgentCatalogSessions === "function" && (
+          <div className="agent-rail__server-page" aria-live="polite">
+            <span>{sessionItems.length} of {sessionCoverage.total} chats available</span>
+            {sessionPageError && (
+              <span className="agent-rail__server-page-error" role="alert">{sessionPageError}</span>
+            )}
+            {sessionCoverage.nextOffset !== null && !sessionPageError && (
+              <button
+                disabled={sessionPageBusy}
+                onClick={() => void loadMoreSessions()}
+                type="button"
+              >{sessionPageBusy ? "Loading…" : "Load more chats"}</button>
+            )}
+            {sessionPageError && <button onClick={refresh} type="button">Reload chats</button>}
+          </div>
+        )}
       </section>
 
       <label className="agent-rail__archived">

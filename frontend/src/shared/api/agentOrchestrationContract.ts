@@ -30,6 +30,7 @@ const RESPONSES = new Set(["json", "binary", "sse", "no_content"]);
 const OPERATION = /^[a-z][a-z0-9_]{0,63}$/u;
 const REQUIRED_OPERATIONS = new Set([
   "discover", "list_projects", "create_project", "delete_project",
+  "list_projects_page", "list_project_sessions_page", "list_catalog_sessions_page",
   "get_managed_mcp_project_runtime",
   "list_project_sessions", "fork_retained_session", "create_live_session", "send_message", "poll_events",
   "propose_file_transaction", "propose_file_write", "propose_workspace_lifecycle",
@@ -38,7 +39,7 @@ const REQUIRED_OPERATIONS = new Set([
   "stream_events", "stop_turn", "list_workspace_tree", "read_workspace_file",
   "search_workspace_text",
   "preview_file_edit", "apply_file_edit", "preview_workspace_transaction",
-  "apply_workspace_transaction", "list_artifacts", "preview_artifact_capture", "read_artifact_content",
+  "apply_workspace_transaction", "list_artifacts", "list_artifacts_page", "preview_artifact_capture", "read_artifact_content",
   "preview_artifact_document", "export_artifact_lineage", "update_artifact", "remove_artifact",
   "preview_attachment_document",
   "preview_change_restore", "apply_change_restore",
@@ -157,7 +158,7 @@ function validEndpoint(value: unknown): value is Record<string, unknown> {
 export function parseAgentOrchestrationManifest(value: unknown): AgentOrchestrationManifest {
   if (
     !record(value) || !exact(value, ROOT_KEYS)
-    || value.contract_version !== "local-agent-orchestration.v21"
+    || value.contract_version !== "local-agent-orchestration.v22"
     || value.transport !== "loopback_http"
     || value.route_coverage !== "all_agent_routes_plus_controller_runtime_routes"
     || value.openapi_path !== "/openapi.json"
@@ -165,7 +166,7 @@ export function parseAgentOrchestrationManifest(value: unknown): AgentOrchestrat
     || !validBoundaries(value.boundaries)
     || !validProtocol(value.protocol)
     || !Array.isArray(value.endpoints)
-    || value.endpoints.length !== 73
+    || value.endpoints.length !== 77
     || !value.endpoints.every(validEndpoint)
   ) throw new AgentOrchestrationPayloadError();
 
@@ -183,7 +184,7 @@ export function parseAgentOrchestrationManifest(value: unknown): AgentOrchestrat
   if (
     operations.size !== endpoints.length
     || routes.size !== endpoints.length
-    || agentRoutes.length !== 68
+    || agentRoutes.length !== 72
     || nativeRoutes.length !== 12
     || [...REQUIRED_OPERATIONS].some((operation) => !operations.has(operation))
   ) throw new AgentOrchestrationPayloadError();

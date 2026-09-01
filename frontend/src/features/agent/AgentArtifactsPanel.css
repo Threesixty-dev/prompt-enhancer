@@ -87,6 +87,19 @@
 
 .agent-artifacts__message--success { color: var(--status-positive); }
 
+.agent-artifacts__server-page {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 10px 12px;
+  color: var(--ink-500);
+  font-size: var(--type-caption);
+}
+
+.agent-artifacts__server-page > span[role="alert"] { color: var(--status-negative); }
+.agent-artifacts__server-page .button { margin-left: auto; }
+
 .agent-artifacts__list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));

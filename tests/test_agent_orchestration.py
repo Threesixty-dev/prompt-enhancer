@@ -22,7 +22,7 @@ def test_orchestration_manifest_is_content_free_and_marks_native_boundaries() ->
     payload = manifest.model_dump(mode="json")
     serialized = json.dumps(payload, sort_keys=True)
 
-    assert payload["contract_version"] == "local-agent-orchestration.v21"
+    assert payload["contract_version"] == "local-agent-orchestration.v22"
     assert payload["transport"] == "loopback_http"
     assert payload["route_coverage"] == (
         "all_agent_routes_plus_controller_runtime_routes"
@@ -89,6 +89,10 @@ def test_orchestration_manifest_is_content_free_and_marks_native_boundaries() ->
     assert len(operations) == len(set(operations))
     assert {
         "get_local_runtime",
+        "list_projects_page",
+        "list_project_sessions_page",
+        "list_catalog_sessions_page",
+        "list_artifacts_page",
         "switch_local_runtime",
         "stop_local_runtime",
         "switch_session_model",
@@ -233,7 +237,7 @@ def test_orchestration_manifest_covers_every_agent_route_and_only_real_routes(
         for endpoint in manifest.endpoints
         if endpoint.path_template.startswith("/v1/agent")
     }
-    assert len(actual_agent_routes) == 68
+    assert len(actual_agent_routes) == 72
     assert declared_agent_routes == actual_agent_routes
 
     actual_routes = {
@@ -246,7 +250,7 @@ def test_orchestration_manifest_covers_every_agent_route_and_only_real_routes(
         (endpoint.method, endpoint.path_template.split("?", 1)[0])
         for endpoint in manifest.endpoints
     }
-    assert len(declared_routes) == len(manifest.endpoints) == 73
+    assert len(declared_routes) == len(manifest.endpoints) == 77
     assert declared_routes <= actual_routes
 
     native_routes = {

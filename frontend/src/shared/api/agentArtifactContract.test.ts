@@ -5,6 +5,7 @@ import {
   parseAgentArtifactCapturePreview,
   parseAgentArtifactDetail,
   parseAgentArtifactExport,
+  parseAgentArtifactPage,
   parseAgentDocumentPreview,
   parseAgentArtifactList,
 } from "./agentArtifactContract";
@@ -12,6 +13,7 @@ import {
 const PROJECT_ID = "1".repeat(32);
 const SESSION_ID = "2".repeat(32);
 const ARTIFACT_ID = "3".repeat(32);
+const SNAPSHOT = "a".repeat(64);
 
 function version(number = 1, overrides: Record<string, unknown> = {}) {
   return {
@@ -128,6 +130,96 @@ describe("Agent artifact response contracts", () => {
       SESSION_ID,
       ARTIFACT_ID,
     ).versions).toHaveLength(2);
+  });
+
+  it("accepts an exact snapshot-bound artifact page", () => {
+    const parsed = parseAgentArtifactPage({
+      contract_version: "agent-artifact-page.v1",
+      project_id: PROJECT_ID,
+      session_id: SESSION_ID,
+      view: "active",
+      snapshot: SNAPSHOT,
+      limit: 1,
+      offset: 0,
+      total: 1,
+      next_offset: null,
+      complete: true,
+      counts: { active: 1, archived: 0, removed: 0, total: 1 },
+      artifacts: [artifact()],
+    }, PROJECT_ID, SESSION_ID, "active", 1, 0);
+
+    expect(parsed).toMatchObject({
+      snapshot: SNAPSHOT,
+      total: 1,
+      complete: true,
+    });
+  });
+
+  it.each([
+    ["unknown key", { raw_content: "SYNTHETIC-PRIVATE-CANARY" }],
+    ["wrong request scope", { session_id: "8".repeat(32) }],
+    ["wrong lifecycle view", { view: "archived" }],
+    ["wrong replay snapshot", { snapshot: "b".repeat(64) }],
+    ["wrong request limit", { limit: 2 }],
+    ["contradictory total", { total: 2, next_offset: null, complete: true }],
+    ["contradictory counts", { counts: { active: 1, archived: 1, removed: 0, total: 1 } }],
+  ])("rejects an artifact page with %s", (_label, overrides) => {
+    expect(() => parseAgentArtifactPage({
+      contract_version: "agent-artifact-page.v1",
+      project_id: PROJECT_ID,
+      session_id: SESSION_ID,
+      view: "active",
+      snapshot: SNAPSHOT,
+      limit: 1,
+      offset: 0,
+      total: 1,
+      next_offset: null,
+      complete: true,
+      counts: { active: 1, archived: 0, removed: 0, total: 1 },
+      artifacts: [artifact()],
+      ...overrides,
+    }, PROJECT_ID, SESSION_ID, "active", 1, 0, SNAPSHOT)).toThrow(AgentArtifactPayloadError);
+  });
+
+  it("rejects duplicate artifact identities and paths within a page", () => {
+    const secondId = "5".repeat(32);
+    const second = artifact({
+      artifact_id: secondId,
+      title: "second.md",
+      path: "docs/second.md",
+      latest_version: {
+        ...version(),
+        artifact_id: secondId,
+        version_id: "6".repeat(32),
+        path: "docs/second.md",
+      },
+    });
+    const base = {
+      contract_version: "agent-artifact-page.v1",
+      project_id: PROJECT_ID,
+      session_id: SESSION_ID,
+      view: "active",
+      snapshot: SNAPSHOT,
+      limit: 2,
+      offset: 0,
+      total: 2,
+      next_offset: null,
+      complete: true,
+      counts: { active: 2, archived: 0, removed: 0, total: 2 },
+    };
+
+    expect(() => parseAgentArtifactPage({
+      ...base,
+      artifacts: [artifact(), artifact()],
+    }, PROJECT_ID, SESSION_ID, "active", 2, 0)).toThrow(AgentArtifactPayloadError);
+    expect(() => parseAgentArtifactPage({
+      ...base,
+      artifacts: [artifact(), {
+        ...second,
+        path: "docs/example.md",
+        latest_version: { ...second.latest_version, path: "docs/example.md" },
+      }],
+    }, PROJECT_ID, SESSION_ID, "active", 2, 0)).toThrow(AgentArtifactPayloadError);
   });
 
   it("accepts lifecycle revisions without treating them as new immutable versions", () => {

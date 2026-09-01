@@ -1294,8 +1294,10 @@ export type AgentSessionView = Schemas["AgentSessionView"];
 export type AgentSessionContextStatus = Schemas["AgentSessionContextStatus"];
 export type AgentProject = Schemas["AgentProjectRecord"];
 export type AgentProjectList = Schemas["AgentProjectList"];
+export type AgentProjectPage = Schemas["AgentProjectPage"];
 export type AgentCatalogSession = Schemas["AgentCatalogSessionRecord"];
 export type AgentCatalogSessionList = Schemas["AgentCatalogSessionList"];
+export type AgentCatalogSessionPage = Schemas["AgentCatalogSessionPage"];
 export type CreateAgentProject = Schemas["CreateAgentProject"];
 export type UpdateAgentProject = Schemas["UpdateAgentProject"];
 export type UpdateAgentCatalogSession = Schemas["UpdateAgentCatalogSession"];
@@ -1318,6 +1320,7 @@ export type AgentArtifactCapturePreview = Schemas["AgentArtifactCapturePreview"]
 export type AgentArtifactDetail = Schemas["AgentArtifactDetail"];
 export type AgentArtifactExport = Schemas["AgentArtifactExport"];
 export type AgentArtifactList = Schemas["AgentArtifactList"];
+export type AgentArtifactPage = Schemas["AgentArtifactPage"];
 export type AgentArtifactLifecycleCounts = Schemas["AgentArtifactLifecycleCounts"];
 export type AgentArtifactListView = AgentArtifactList["view"];
 export type AgentArtifactVersion = Schemas["AgentArtifactVersion"];
@@ -1355,6 +1358,19 @@ export interface AgentCatalogQuery {
 }
 export interface AgentCatalogSessionQuery extends AgentCatalogQuery {
   projectId?: string;
+}
+export interface AgentCatalogPageQuery extends AgentCatalogQuery {
+  offset?: number;
+  snapshot?: string;
+}
+export interface AgentCatalogSessionPageQuery extends AgentCatalogPageQuery {
+  projectId?: string;
+}
+export interface AgentArtifactPageQuery {
+  view?: AgentArtifactListView;
+  limit?: number;
+  offset?: number;
+  snapshot?: string;
 }
 export interface AgentHistoryExportRequest {
   expected_catalog_revision: number;
@@ -2823,11 +2839,13 @@ export interface PromptEnhancerTransport {
     signal?: AbortSignal,
   ): Promise<AgentNativeAcceptanceStartReceipt>;
   listAgentProjects(query?: AgentCatalogQuery, signal?: AbortSignal): Promise<AgentProjectList>;
+  pageAgentProjects?(query?: AgentCatalogPageQuery, signal?: AbortSignal): Promise<AgentProjectPage>;
   createAgentProject(request: CreateAgentProject, signal?: AbortSignal): Promise<AgentProject>;
   getAgentProject(projectId: string, signal?: AbortSignal): Promise<AgentProject>;
   updateAgentProject(projectId: string, request: UpdateAgentProject, signal?: AbortSignal): Promise<AgentProject>;
   deleteAgentProject(projectId: string, request: DeleteAgentProject, signal?: AbortSignal): Promise<void>;
   listAgentCatalogSessions(query?: AgentCatalogSessionQuery, signal?: AbortSignal): Promise<AgentCatalogSessionList>;
+  pageAgentCatalogSessions?(query?: AgentCatalogSessionPageQuery, signal?: AbortSignal): Promise<AgentCatalogSessionPage>;
   getAgentCatalogSession(sessionId: string, signal?: AbortSignal): Promise<AgentCatalogSession>;
   updateAgentCatalogSession(sessionId: string, request: UpdateAgentCatalogSession, signal?: AbortSignal): Promise<AgentCatalogSession>;
   deleteAgentCatalogSession(sessionId: string, request: DeleteAgentCatalogSession, signal?: AbortSignal): Promise<void>;
@@ -2841,6 +2859,7 @@ export interface PromptEnhancerTransport {
     signal?: AbortSignal,
   ): Promise<AgentHistoryExport>;
   listAgentArtifacts(projectId: string, sessionId: string, view?: AgentArtifactListView, signal?: AbortSignal): Promise<AgentArtifactList>;
+  pageAgentArtifacts?(projectId: string, sessionId: string, query?: AgentArtifactPageQuery, signal?: AbortSignal): Promise<AgentArtifactPage>;
   getAgentArtifact(projectId: string, sessionId: string, artifactId: string, signal?: AbortSignal): Promise<AgentArtifactDetail>;
   exportAgentArtifact(projectId: string, sessionId: string, artifactId: string, request: ExportAgentArtifact, signal?: AbortSignal): Promise<AgentArtifactExport>;
   updateAgentArtifact(projectId: string, sessionId: string, artifactId: string, request: UpdateAgentArtifact, signal?: AbortSignal): Promise<AgentArtifact>;

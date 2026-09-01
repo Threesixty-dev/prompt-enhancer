@@ -25,7 +25,7 @@ ENDPOINT_ENV = "PROMPT_ENHANCER_AGENT_MCP_URL"
 DEFAULT_ENDPOINT = "http://127.0.0.1:8765/mcp/agent"
 PROTOCOL_VERSION = "2025-06-18"
 EXPECTED_SERVER = "prompt-enhancer-agent"
-EXPECTED_DISCOVERY_CONTRACT = "local-agent-orchestration.v21"
+EXPECTED_DISCOVERY_CONTRACT = "local-agent-orchestration.v22"
 EXPECTED_TOOLS = frozenset(
     {
         "agent_artifacts",

@@ -2,7 +2,7 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 const AGENT_MCP_SERVER_NAME = "prompt-enhancer-agent";
 const AGENT_MCP_ENDPOINT_PATH = "/mcp/agent";
 const AGENT_MCP_CONTRACT_VERSION = "prompt-enhancer-agent-mcp.v24";
-const AGENT_ORCHESTRATION_CONTRACT_VERSION = "local-agent-orchestration.v21";
+const AGENT_ORCHESTRATION_CONTRACT_VERSION = "local-agent-orchestration.v22";
 const TOKEN_PATTERN = /^pemcp2\.[0-9a-f]{32}\.[1-9][0-9]{0,8}\.[A-Za-z0-9_-]{43}$/u;
 const AGENT_MCP_SELF_TEST_HEADER = "X-Prompt-Enhancer-MCP-Probe";
 const AGENT_MCP_SELF_TEST_HEADER_VALUE = "native-endpoint-self-test.v1";
@@ -45,7 +45,7 @@ export type AgentMcpEndpointSelfTestFailure =
 export type AgentMcpEndpointSelfTestResult = {
   contractVersion: "agent-mcp-endpoint-self-test.v1";
   coreToolCount: number;
-  discoveryContractVersion: "local-agent-orchestration.v21";
+  discoveryContractVersion: "local-agent-orchestration.v22";
   modelLifecycleAdvertised: boolean;
   protocolVersion: "2025-06-18";
   serverName: "prompt-enhancer-agent";

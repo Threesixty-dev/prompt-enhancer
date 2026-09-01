@@ -720,7 +720,7 @@ def test_build_time_schema_contains_bounded_queries_and_review_commands() -> Non
         "AgentOrchestrationManifest"
     ]
     assert orchestration_schema["properties"]["contract_version"]["const"] == (
-            "local-agent-orchestration.v21"
+            "local-agent-orchestration.v22"
     )
     fork_path = (
         "/v1/agent/projects/{project_id}/sessions/{session_id}/forks"

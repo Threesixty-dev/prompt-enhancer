@@ -532,7 +532,7 @@ for (const width of [360, 1440]) {
       await expect(controller).toBeVisible();
       await expect(controller.getByText("Ready", { exact: true })).toBeVisible();
       const controllerFacts = controller.locator(".agent-controller__facts");
-      await expect(controllerFacts.getByText("Agent routes", { exact: true }).locator("..")).toContainText("68");
+      await expect(controllerFacts.getByText("Agent routes", { exact: true }).locator("..")).toContainText("72");
       await expect(controllerFacts.getByText("Runtime routes", { exact: true }).locator("..")).toContainText("5");
       await expect(controllerFacts.getByText("Native review gates", { exact: true }).locator("..")).toContainText("12");
       await expect(controller).toContainText("GET /v1/agent/orchestration");
@@ -618,7 +618,7 @@ for (const width of [360, 1440]) {
       await expect(controller).toContainText("prompt-enhancer agent-controller turn");
       await expect(controller).toContainText("prompt-enhancer agent-controller wait");
       await expect(controller).toContainText("prompt-enhancer agent-controller close");
-      await expect(controller).toContainText("local-agent-orchestration.v21");
+      await expect(controller).toContainText("local-agent-orchestration.v22");
       await expect(controller).toContainText("task authorization and a completed redaction preview");
       await expect(controller).toContainText("never retried after ambiguity");
       await expect(controller).toContainText("runtime and live-close mutate at most once");

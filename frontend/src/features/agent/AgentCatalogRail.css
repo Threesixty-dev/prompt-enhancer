@@ -47,6 +47,10 @@
 .agent-rail__section-head span { color: var(--ink-500); font-size: var(--type-caption); }
 .agent-rail__sessions { display: grid; align-content: start; gap: 0.2rem; min-height: 0; max-height: 18rem; margin: 0; padding: 0; overflow: auto; list-style: none; }
 .agent-rail__sessions > li > button:last-child:not(.agent-rail__session-pick) { min-width: 2.75rem; min-height: 2.75rem; margin-right: 0.25rem; border: 0; background: transparent; color: var(--ink-500); cursor: pointer; }
+.agent-rail__server-page { display: grid; gap: 0.35rem; padding: 0.35rem; color: var(--ink-500); font-size: var(--type-caption); line-height: 1.4; }
+.agent-rail__server-page button { justify-self: stretch; min-height: var(--touch-target); padding: 0.45rem 0.6rem; border: 1px solid var(--line-strong); border-radius: 0.5rem; background: var(--surface-soft); color: inherit; font: inherit; font-weight: 750; cursor: pointer; }
+.agent-rail__server-page button:disabled { cursor: wait; opacity: 0.62; }
+.agent-rail__server-page-error { color: var(--status-negative); }
 .agent-rail__archived { min-height: var(--touch-target); display: flex; align-items: center; gap: 0.42rem; color: var(--ink-650); font-size: var(--type-caption); }
 .agent-rail__truth { margin: 0; padding-top: 0.55rem; border-top: 1px solid var(--line); color: var(--ink-500); font-size: var(--type-caption); line-height: 1.45; }
 .agent-rail__dialog-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(0 0 0 / 52%); }

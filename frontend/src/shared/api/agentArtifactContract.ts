@@ -6,6 +6,7 @@ import type {
   AgentArtifactLifecycleCounts,
   AgentArtifactList,
   AgentArtifactListView,
+  AgentArtifactPage,
   AgentArtifactVersion,
   AgentDocumentPreview,
 } from "./contracts";
@@ -27,6 +28,11 @@ const ARTIFACT_KEYS = new Set([
 const DETAIL_KEYS = new Set([...ARTIFACT_KEYS, "versions"]);
 const LIST_KEYS = new Set([
   "contract_version", "project_id", "session_id", "view", "counts", "artifacts",
+]);
+const PAGE_KEYS = new Set([
+  "contract_version", "project_id", "session_id", "view", "snapshot",
+  "limit", "offset", "total", "next_offset", "complete", "counts",
+  "artifacts",
 ]);
 const COUNT_KEYS = new Set(["active", "archived", "removed", "total"]);
 const EXPORT_KEYS = new Set([
@@ -449,4 +455,66 @@ export function parseAgentArtifactList(
     counts: counts as unknown as AgentArtifactLifecycleCounts,
     artifacts,
   };
+}
+
+export function parseAgentArtifactPage(
+  value: unknown,
+  expectedProjectId: string,
+  expectedSessionId: string,
+  expectedView: AgentArtifactListView,
+  expectedLimit: number,
+  expectedOffset: number,
+  expectedSnapshot?: string,
+): AgentArtifactPage {
+  if (
+    !record(value) || !exact(value, PAGE_KEYS)
+    || value.contract_version !== "agent-artifact-page.v1"
+    || value.project_id !== expectedProjectId
+    || value.session_id !== expectedSessionId
+    || value.view !== expectedView
+    || typeof value.snapshot !== "string" || !SHA256.test(value.snapshot)
+    || (expectedSnapshot !== undefined && value.snapshot !== expectedSnapshot)
+    || value.limit !== expectedLimit
+    || value.offset !== expectedOffset
+    || !integer(value.total, 0, 500)
+    || expectedOffset > (value.total as number)
+    || typeof value.complete !== "boolean"
+    || !record(value.counts) || !exact(value.counts, COUNT_KEYS)
+    || !Array.isArray(value.artifacts)
+    || value.artifacts.length > 100
+  ) throw new AgentArtifactPayloadError();
+  const counts = value.counts;
+  if (
+    !integer(counts.active, 0, 500)
+    || !integer(counts.archived, 0, 500)
+    || !integer(counts.removed, 0, 500)
+    || !integer(counts.total, 0, 500)
+    || counts.total !== counts.active + counts.archived + counts.removed
+  ) throw new AgentArtifactPayloadError();
+  const expectedTotal = (expectedView === "all"
+    ? counts.total
+    : counts[expectedView]) as number;
+  const artifacts = value.artifacts.map((artifact) => (
+    parseAgentArtifact(artifact, expectedProjectId, expectedSessionId)
+  ));
+  const expectedCount = Math.min(expectedLimit, expectedTotal - expectedOffset);
+  const expectedNext = expectedOffset + artifacts.length < expectedTotal
+    ? expectedOffset + artifacts.length
+    : null;
+  if (
+    value.total !== expectedTotal
+    || artifacts.length !== expectedCount
+    || value.next_offset !== expectedNext
+    || value.complete !== (expectedNext === null)
+    || new Set(artifacts.map((artifact) => artifact.artifact_id)).size !== artifacts.length
+    || new Set(artifacts.map((artifact) => artifact.path)).size !== artifacts.length
+    || (expectedView !== "all" && artifacts.some((artifact) => (
+      artifact.lifecycle_state !== expectedView
+    )))
+  ) throw new AgentArtifactPayloadError();
+  return {
+    ...value,
+    counts: counts as unknown as AgentArtifactLifecycleCounts,
+    artifacts,
+  } as unknown as AgentArtifactPage;
 }

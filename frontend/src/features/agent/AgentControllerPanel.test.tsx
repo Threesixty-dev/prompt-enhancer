@@ -61,9 +61,9 @@ describe("AgentControllerPanel", () => {
 
     expect(screen.getByText("Checking")).toBeInTheDocument();
     expect(await screen.findByText("Ready")).toBeInTheDocument();
-    expect(screen.getByText("68")).toBeInTheDocument();
+    expect(screen.getByText("72")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
-    expect(screen.getByText("local-agent-orchestration.v21")).toBeInTheDocument();
+    expect(screen.getByText("local-agent-orchestration.v22")).toBeInTheDocument();
     expect(screen.getByText("GET /v1/agent/orchestration")).toBeInTheDocument();
     expect(screen.getByText(/Applying workspace changes/)).toBeInTheDocument();
     expect(screen.queryByText("synthetic-secret")).not.toBeInTheDocument();

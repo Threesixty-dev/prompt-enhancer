@@ -2803,7 +2803,7 @@ describe("local agent model-readiness transport", () => {
     });
 
     await expect(transport.getAgentOrchestration()).resolves.toMatchObject({
-      contract_version: "local-agent-orchestration.v21",
+      contract_version: "local-agent-orchestration.v22",
       route_coverage: "all_agent_routes_plus_controller_runtime_routes",
     });
     await expect(transport.getAgentOrchestration()).rejects.toMatchObject({ status: 200 });
@@ -3095,6 +3095,100 @@ describe("local agent model-readiness transport", () => {
     for (const call of fetchMock.mock.calls.slice(1)) {
       expect(call[1]).toEqual(expect.objectContaining({ cache: "no-store" }));
     }
+  });
+
+  it("uses strict private snapshot-bound pages for Agent projects, chats, and artifacts", async () => {
+    const snapshot = "a".repeat(64);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-catalog-page.v1",
+        snapshot,
+        limit: 100,
+        offset: 0,
+        total: 1,
+        next_offset: null,
+        complete: true,
+        projects: [agentProject()],
+      }))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-catalog-page.v1",
+        snapshot,
+        limit: 100,
+        offset: 100,
+        total: 100,
+        next_offset: null,
+        complete: true,
+        sessions: [],
+      }))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-artifact-page.v1",
+        project_id: AGENT_PROJECT_ID,
+        session_id: AGENT_CATALOG_SESSION_ID,
+        view: "active",
+        snapshot,
+        limit: 100,
+        offset: 100,
+        total: 100,
+        next_offset: null,
+        complete: true,
+        counts: { active: 100, archived: 0, removed: 0, total: 100 },
+        artifacts: [],
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.pageAgentProjects!({
+      search: "Example name",
+      includeArchived: true,
+      limit: 100,
+      offset: 0,
+    })).resolves.toMatchObject({ total: 1, complete: true });
+    await expect(transport.pageAgentCatalogSessions!({
+      projectId: AGENT_PROJECT_ID,
+      includeArchived: false,
+      limit: 100,
+      offset: 100,
+      snapshot,
+    })).resolves.toMatchObject({ total: 100, complete: true });
+    await expect(transport.pageAgentArtifacts!(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      { view: "active", limit: 100, offset: 100, snapshot },
+    )).resolves.toMatchObject({ total: 100, counts: { active: 100 } });
+
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      "/v1/agent/projects/page?limit=100&offset=0&search=Example+name&include_archived=true",
+      `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions/page?limit=100&offset=100&include_archived=false&snapshot=${snapshot}`,
+      `/v1/agent/projects/${AGENT_PROJECT_ID}/sessions/${AGENT_CATALOG_SESSION_ID}/artifacts/page?view=active&limit=100&offset=100&snapshot=${snapshot}`,
+    ]);
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect(call[1]).toEqual(expect.objectContaining({
+        method: "GET",
+        cache: "no-store",
+      }));
+    }
+  });
+
+  it("rejects invalid Agent page continuations before bootstrap or network access", async () => {
+    const fetchMock = vi.fn();
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.pageAgentProjects!({ offset: 1 }))
+      .rejects.toMatchObject({ status: 422 });
+    await expect(transport.pageAgentCatalogSessions!({ limit: 101 }))
+      .rejects.toMatchObject({ status: 422 });
+    await expect(transport.pageAgentArtifacts!(
+      AGENT_PROJECT_ID,
+      AGENT_CATALOG_SESSION_ID,
+      { offset: 1, snapshot: "not-a-snapshot" },
+    )).rejects.toMatchObject({ status: 422 });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("forks retained Agent history through the exact private idempotent endpoint", async () => {

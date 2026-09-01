@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from ...application.agent_artifacts import (
     MAX_AGENT_ARTIFACT_LIST,
+    MAX_AGENT_ARTIFACT_PAGE_SIZE,
     AgentArtifact,
     AgentArtifactCapturePreview,
     AgentArtifactContent,
@@ -19,6 +20,7 @@ from ...application.agent_artifacts import (
     AgentArtifactExport,
     AgentArtifactList,
     AgentArtifactListView,
+    AgentArtifactPage,
     AgentDocumentPreview,
     CaptureAgentArtifact,
     ExportAgentArtifact,
@@ -28,13 +30,16 @@ from ...application.agent_artifacts import (
 )
 from ...application.agent_catalog import (
     AGENT_PROJECT_ID_PATTERN,
+    MAX_AGENT_CATALOG_PAGE_SIZE,
     AgentCatalogError,
     AgentCatalogService,
+    AgentCatalogSessionPage,
     AgentCatalogSessionList,
     AgentCatalogSessionRecord,
     AgentHistoryExport,
     AgentSessionForkReceipt,
     AgentProjectList,
+    AgentProjectPage,
     AgentProjectRecord,
     CreateAgentProject,
     ForkAgentSession,
@@ -227,6 +232,10 @@ _STATUS = {
     "agent_catalog_session_revision_conflict": 409,
     "agent_catalog_session_live": 409,
     "too_many_agent_catalog_sessions": 409,
+    "agent_catalog_page_invalid": 422,
+    "agent_catalog_page_snapshot_required": 422,
+    "agent_catalog_page_snapshot_conflict": 409,
+    "agent_catalog_page_out_of_range": 409,
     "agent_catalog_session_archived": 409,
     "agent_history_not_retained": 409,
     "agent_history_revision_conflict": 409,
@@ -260,6 +269,10 @@ _STATUS = {
     "agent_artifact_no_change": 409,
     "agent_artifact_archive_required": 409,
     "agent_artifact_removed": 410,
+    "agent_artifact_page_invalid": 422,
+    "agent_artifact_page_snapshot_required": 422,
+    "agent_artifact_page_snapshot_conflict": 409,
+    "agent_artifact_page_out_of_range": 409,
     "agent_attachment_unavailable": 503,
     "agent_attachment_capabilities_unavailable": 503,
     "agent_attachment_id_invalid": 500,
@@ -484,6 +497,33 @@ def create_local_agent_router(
         except AgentCatalogError as error:
             raise _catalog_failure(error) from None
 
+    @router.get("/projects/page", response_model=AgentProjectPage)
+    def page_projects(
+        response: Response,
+        search: Annotated[str | None, Query(max_length=120)] = None,
+        include_archived: bool = False,
+        limit: Annotated[
+            int,
+            Query(ge=1, le=MAX_AGENT_CATALOG_PAGE_SIZE),
+        ] = MAX_AGENT_CATALOG_PAGE_SIZE,
+        offset: Annotated[int, Query(ge=0, le=200)] = 0,
+        snapshot: Annotated[
+            str | None,
+            Query(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"),
+        ] = None,
+    ) -> AgentProjectPage:
+        _private(response)
+        try:
+            return _catalog(service).page_projects(
+                search=search,
+                include_archived=include_archived,
+                limit=limit,
+                offset=offset,
+                snapshot=snapshot,
+            )
+        except AgentCatalogError as error:
+            raise _catalog_failure(error) from None
+
     @router.post("/projects", response_model=AgentProjectRecord, status_code=201)
     def create_project(payload: CreateAgentProject) -> AgentProjectRecord:
         try:
@@ -540,6 +580,46 @@ def create_local_agent_router(
                 search=search,
                 include_archived=include_archived,
                 limit=limit,
+            )
+        except AgentCatalogError as error:
+            raise _catalog_failure(error) from None
+        return result.model_copy(
+            update={
+                "sessions": tuple(
+                    service.catalog_session_availability(session)
+                    for session in result.sessions
+                )
+            }
+        )
+
+    @router.get(
+        "/projects/{project_id}/sessions/page",
+        response_model=AgentCatalogSessionPage,
+    )
+    def page_project_sessions(
+        response: Response,
+        project_id: Annotated[str, Path(pattern=_PROJECT_ID)],
+        search: Annotated[str | None, Query(max_length=120)] = None,
+        include_archived: bool = False,
+        limit: Annotated[
+            int,
+            Query(ge=1, le=MAX_AGENT_CATALOG_PAGE_SIZE),
+        ] = MAX_AGENT_CATALOG_PAGE_SIZE,
+        offset: Annotated[int, Query(ge=0, le=2_000)] = 0,
+        snapshot: Annotated[
+            str | None,
+            Query(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"),
+        ] = None,
+    ) -> AgentCatalogSessionPage:
+        _private(response)
+        try:
+            result = _catalog(service).page_sessions(
+                project_id=project_id,
+                search=search,
+                include_archived=include_archived,
+                limit=limit,
+                offset=offset,
+                snapshot=snapshot,
             )
         except AgentCatalogError as error:
             raise _catalog_failure(error) from None
@@ -618,6 +698,40 @@ def create_local_agent_router(
                 session_id=session_id,
                 view=view,
                 limit=limit,
+            )
+        except AgentArtifactError as error:
+            raise _artifact_failure(error) from None
+        except LocalAgentError as error:
+            raise _failure(error) from None
+
+    @router.get(
+        "/projects/{project_id}/sessions/{session_id}/artifacts/page",
+        response_model=AgentArtifactPage,
+    )
+    def page_session_artifacts(
+        response: Response,
+        project_id: Annotated[str, Path(pattern=_PROJECT_ID)],
+        session_id: Annotated[str, Path(pattern=_SESSION_ID)],
+        view: Annotated[AgentArtifactListView, Query()] = "active",
+        limit: Annotated[
+            int,
+            Query(ge=1, le=MAX_AGENT_ARTIFACT_PAGE_SIZE),
+        ] = MAX_AGENT_ARTIFACT_PAGE_SIZE,
+        offset: Annotated[int, Query(ge=0, le=500)] = 0,
+        snapshot: Annotated[
+            str | None,
+            Query(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"),
+        ] = None,
+    ) -> AgentArtifactPage:
+        _private(response)
+        try:
+            return service.page_artifacts(
+                project_id=project_id,
+                session_id=session_id,
+                view=view,
+                limit=limit,
+                offset=offset,
+                snapshot=snapshot,
             )
         except AgentArtifactError as error:
             raise _artifact_failure(error) from None
@@ -877,6 +991,41 @@ def create_local_agent_router(
                 search=search,
                 include_archived=include_archived,
                 limit=limit,
+            )
+        except AgentCatalogError as error:
+            raise _catalog_failure(error) from None
+        return result.model_copy(
+            update={
+                "sessions": tuple(
+                    service.catalog_session_availability(session)
+                    for session in result.sessions
+                )
+            }
+        )
+
+    @router.get("/catalog/sessions/page", response_model=AgentCatalogSessionPage)
+    def page_catalog_sessions(
+        response: Response,
+        search: Annotated[str | None, Query(max_length=120)] = None,
+        include_archived: bool = False,
+        limit: Annotated[
+            int,
+            Query(ge=1, le=MAX_AGENT_CATALOG_PAGE_SIZE),
+        ] = MAX_AGENT_CATALOG_PAGE_SIZE,
+        offset: Annotated[int, Query(ge=0, le=2_000)] = 0,
+        snapshot: Annotated[
+            str | None,
+            Query(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"),
+        ] = None,
+    ) -> AgentCatalogSessionPage:
+        _private(response)
+        try:
+            result = _catalog(service).page_sessions(
+                search=search,
+                include_archived=include_archived,
+                limit=limit,
+                offset=offset,
+                snapshot=snapshot,
             )
         except AgentCatalogError as error:
             raise _catalog_failure(error) from None

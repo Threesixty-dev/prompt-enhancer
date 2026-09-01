@@ -60,6 +60,7 @@ const CONNECTION_POLL_MS = 3000;
 const REVIEW_DRAWER_MIN_PX = 352;
 const REVIEW_DRAWER_MAX_PX = 760;
 const TRANSCRIPT_EVENT_BATCH = 200;
+const ARTIFACT_SERVER_PAGE = 100;
 const CLOSING_SESSION_MESSAGE = "This session is closing and cannot accept new messages. Retry closing after its active action stops, or open a new session.";
 const COMMAND_CLEANUP_MESSAGE = "Command processes may still be running. Agent work is paused; inspect those processes before restarting the app. Copy your draft before restarting; it is not saved. Earlier command effects were not undone.";
 const EMPTY_DRAFT_ATTACHMENTS: AgentAttachment[] = [];
@@ -186,7 +187,7 @@ type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
 > & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getAgentChangeSet" | "getAgentChangeDiff" | "previewAgentChangeRestore" | "applyAgentChangeRestore" | "getAgentWorkspaceSearch" | "previewAgentWorkspaceTransaction" | "applyAgentWorkspaceTransaction" | "previewAgentWorkspaceCreate" | "applyAgentWorkspaceCreate" | "previewAgentWorkspaceDirectoryCreate" | "applyAgentWorkspaceDirectoryCreate" | "previewAgentWorkspaceDirectoryMove" | "applyAgentWorkspaceDirectoryMove" | "previewAgentWorkspaceMove" | "applyAgentWorkspaceMove" | "previewAgentWorkspaceFileTrash" | "applyAgentWorkspaceFileTrash" | "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "getLocalRuntime" | "switchLocalRuntime" | "stopLocalRuntime" | "getAgentSessionContext" | "checkPrompt" | "getUserPresenceCapability" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>
-  & Partial<Pick<PromptEnhancerTransport, "getAgentOrchestration" | "getAgentHardening" | "listAgentMcpConnections" | "getAgentMcpClientSetup" | "listMcpRegistryCatalog" | "getMcpRegistryServerReview" | "listMcpManagedServers" | "getMcpManagedServer" | "getMcpManagedToolSnapshot" | "getMcpManagedHostStatus" | "getMcpManagedHostStartPreview" | "startMcpManagedHost" | "stopMcpManagedHost" | "getMcpManagedProjectRuntime" | "createMcpManagedServer" | "probeMcpManagedServer" | "getMcpManagedLifecyclePreview" | "getMcpManagedLocalConfigurationInspectionPreview" | "inspectMcpManagedLocalConfiguration" | "applyMcpManagedLifecycle" | "getMcpManagedLocalCleanupPreview" | "getMcpManagedLocalUpdatePreview" | "applyMcpManagedLocalUpdate" | "getMcpManagedLocalRollbackPreview" | "applyMcpManagedLocalRollback" | "getMcpManagedLocalRollbackCleanupPreview" | "cleanupMcpManagedLocalRollback" | "getMcpManagedLocalOperationRecoveryPreview" | "recoverMcpManagedLocalOperation" | "completeMcpManagedLocalCleanup" | "setMcpManagedProjectBinding" | "storeMcpManagedSecret" | "removeMcpManagedSecret" | "storeMcpManagedConfiguration" | "removeMcpManagedConfiguration" | "createAgentMcpConnection" | "rotateAgentMcpConnection" | "revokeAgentMcpConnection" | "releaseAgentControllerOwnership" | "beginAgentNativeAcceptance" | "listAgentProjects" | "createAgentProject" | "updateAgentProject" | "deleteAgentProject" | "listAgentCatalogSessions" | "getAgentCatalogSession" | "updateAgentCatalogSession" | "deleteAgentCatalogSession" | "switchAgentSessionModel" | "getAgentPersistedEvents" | "forkAgentSession" | "resumeAgentSession" | "exportAgentHistory" | "revalidateAgentAuthority" | "listAgentArtifacts" | "getAgentArtifact" | "exportAgentArtifact" | "updateAgentArtifact" | "removeAgentArtifact" | "previewAgentArtifactCapture" | "getAgentArtifactDocumentPreview" | "getAgentArtifactContent" | "captureAgentArtifact">>
+  & Partial<Pick<PromptEnhancerTransport, "getAgentOrchestration" | "getAgentHardening" | "listAgentMcpConnections" | "getAgentMcpClientSetup" | "listMcpRegistryCatalog" | "getMcpRegistryServerReview" | "listMcpManagedServers" | "getMcpManagedServer" | "getMcpManagedToolSnapshot" | "getMcpManagedHostStatus" | "getMcpManagedHostStartPreview" | "startMcpManagedHost" | "stopMcpManagedHost" | "getMcpManagedProjectRuntime" | "createMcpManagedServer" | "probeMcpManagedServer" | "getMcpManagedLifecyclePreview" | "getMcpManagedLocalConfigurationInspectionPreview" | "inspectMcpManagedLocalConfiguration" | "applyMcpManagedLifecycle" | "getMcpManagedLocalCleanupPreview" | "getMcpManagedLocalUpdatePreview" | "applyMcpManagedLocalUpdate" | "getMcpManagedLocalRollbackPreview" | "applyMcpManagedLocalRollback" | "getMcpManagedLocalRollbackCleanupPreview" | "cleanupMcpManagedLocalRollback" | "getMcpManagedLocalOperationRecoveryPreview" | "recoverMcpManagedLocalOperation" | "completeMcpManagedLocalCleanup" | "setMcpManagedProjectBinding" | "storeMcpManagedSecret" | "removeMcpManagedSecret" | "storeMcpManagedConfiguration" | "removeMcpManagedConfiguration" | "createAgentMcpConnection" | "rotateAgentMcpConnection" | "revokeAgentMcpConnection" | "releaseAgentControllerOwnership" | "beginAgentNativeAcceptance" | "listAgentProjects" | "pageAgentProjects" | "getAgentProject" | "createAgentProject" | "updateAgentProject" | "deleteAgentProject" | "listAgentCatalogSessions" | "pageAgentCatalogSessions" | "getAgentCatalogSession" | "updateAgentCatalogSession" | "deleteAgentCatalogSession" | "switchAgentSessionModel" | "getAgentPersistedEvents" | "forkAgentSession" | "resumeAgentSession" | "exportAgentHistory" | "revalidateAgentAuthority" | "listAgentArtifacts" | "pageAgentArtifacts" | "getAgentArtifact" | "exportAgentArtifact" | "updateAgentArtifact" | "removeAgentArtifact" | "previewAgentArtifactCapture" | "getAgentArtifactDocumentPreview" | "getAgentArtifactContent" | "captureAgentArtifact">>
   & Partial<Pick<PromptEnhancerTransport, "listAgentAttachments" | "stageAgentAttachment" | "deleteAgentAttachment" | "getAgentAttachmentContent">>
   & Partial<Pick<LocalRuntimeTransport, "getRuntimeHealth">>;
 
@@ -297,14 +298,22 @@ export function AgentPage({
   const [turnRevisionBusy, setTurnRevisionBusy] = useState<TurnRevisionBusy | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [artifacts, setArtifacts] = useState<AgentArtifact[]>([]);
+  const [selectedArtifactExtra, setSelectedArtifactExtra] = useState<AgentArtifact | null>(null);
   const [artifactCounts, setArtifactCounts] = useState<AgentArtifactLifecycleCounts | null>(null);
   const [artifactView, setArtifactView] = useState<ArtifactLifecycleView>("active");
   const [artifactsLoading, setArtifactsLoading] = useState(false);
   const [artifactsError, setArtifactsError] = useState("");
+  const [artifactPageError, setArtifactPageError] = useState("");
+  const [artifactPageLoading, setArtifactPageLoading] = useState(false);
+  const [artifactSnapshot, setArtifactSnapshot] = useState<string | null>(null);
+  const [artifactNextOffset, setArtifactNextOffset] = useState<number | null>(null);
   const [artifactsRefreshKey, setArtifactsRefreshKey] = useState(0);
   const [artifactOpenRequest, setArtifactOpenRequest] = useState<AgentArtifactOpenRequest | null>(null);
   const [artifactTurnFocus, setArtifactTurnFocus] = useState<{ requestId: number; turnId: string } | null>(null);
   const artifactTurnFocusSequence = useRef(0);
+  const artifactReadOwnerRef = useRef(0);
+  const artifactPageControllerRef = useRef<AbortController | null>(null);
+  const artifactServerIdsRef = useRef(new Set<string>());
   const artifactViewerTransport = useMemo(() => (
     transport.getAgentArtifact !== undefined
       && transport.getAgentArtifactContent !== undefined
@@ -1080,14 +1089,21 @@ export function AgentPage({
     : selectedCatalogSession?.retention_policy === "local_history"
       ? selectedCatalogSession.session_id
       : null;
+  const artifactItems = useMemo(() => {
+    if (
+      selectedArtifactExtra === null
+      || artifacts.some((artifact) => artifact.artifact_id === selectedArtifactExtra.artifact_id)
+    ) return artifacts;
+    return [...artifacts, selectedArtifactExtra];
+  }, [artifacts, selectedArtifactExtra]);
   const artifactPathSet = useMemo(() => new Set(
-    artifacts
+    artifactItems
       .filter((artifact) => (
         artifact.project_id === artifactProjectId
         && artifact.session_id === artifactSessionId
       ))
       .map((artifact) => artifact.path),
-  ), [artifactProjectId, artifactSessionId, artifacts]);
+  ), [artifactItems, artifactProjectId, artifactSessionId]);
   const artifactDoneSequence = [...events].reverse().find((event) => (
     event.kind === "done"
     || event.kind === "tool_result" && event.write_receipt?.state === "verified"
@@ -1097,45 +1113,214 @@ export function AgentPage({
     if (
       artifactProjectId === null
       || artifactSessionId === null
-      || transport.listAgentArtifacts === undefined
+      || (
+        transport.pageAgentArtifacts === undefined
+        && transport.listAgentArtifacts === undefined
+      )
     ) {
+      artifactReadOwnerRef.current += 1;
+      artifactPageControllerRef.current?.abort();
+      artifactPageControllerRef.current = null;
+      artifactServerIdsRef.current = new Set();
       setArtifacts([]);
+      setSelectedArtifactExtra(null);
       setArtifactCounts(null);
       setArtifactsLoading(false);
       setArtifactsError("");
+      setArtifactPageError("");
+      setArtifactPageLoading(false);
+      setArtifactSnapshot(null);
+      setArtifactNextOffset(null);
       return;
     }
+    const owner = artifactReadOwnerRef.current + 1;
+    artifactReadOwnerRef.current = owner;
     const controller = new AbortController();
+    artifactPageControllerRef.current?.abort();
+    artifactPageControllerRef.current = null;
+    artifactServerIdsRef.current = new Set();
     setArtifacts([]);
+    setSelectedArtifactExtra(null);
     setArtifactCounts(null);
     setArtifactsLoading(true);
     setArtifactsError("");
-    void transport.listAgentArtifacts(
-      artifactProjectId,
-      artifactSessionId,
-      artifactView,
-      controller.signal,
-    ).then((result) => {
-      if (!controller.signal.aborted) {
-        setArtifacts([...result.artifacts]);
-        setArtifactCounts(result.counts);
+    setArtifactPageError("");
+    setArtifactPageLoading(false);
+    setArtifactSnapshot(null);
+    setArtifactNextOffset(null);
+    void (async () => {
+      try {
+        const pageArtifacts = transport.pageAgentArtifacts;
+        if (typeof pageArtifacts === "function") {
+          const result = await pageArtifacts(
+            artifactProjectId,
+            artifactSessionId,
+            {
+              view: artifactView,
+              limit: ARTIFACT_SERVER_PAGE,
+              offset: 0,
+            },
+            controller.signal,
+          );
+          if (controller.signal.aborted || artifactReadOwnerRef.current !== owner) return;
+          artifactServerIdsRef.current = new Set(
+            result.artifacts.map((artifact) => artifact.artifact_id),
+          );
+          setArtifacts([...result.artifacts]);
+          setArtifactCounts(result.counts);
+          setArtifactSnapshot(result.snapshot);
+          setArtifactNextOffset(result.next_offset ?? null);
+        } else {
+          const listArtifacts = transport.listAgentArtifacts;
+          if (listArtifacts === undefined) return;
+          const result = await listArtifacts(
+            artifactProjectId,
+            artifactSessionId,
+            artifactView,
+            controller.signal,
+          );
+          if (controller.signal.aborted || artifactReadOwnerRef.current !== owner) return;
+          artifactServerIdsRef.current = new Set(
+            result.artifacts.map((artifact) => artifact.artifact_id),
+          );
+          setArtifacts([...result.artifacts]);
+          setArtifactCounts(result.counts);
+        }
+      } catch {
+        if (!controller.signal.aborted && artifactReadOwnerRef.current === owner) {
+          artifactServerIdsRef.current = new Set();
+          setArtifacts([]);
+          setSelectedArtifactExtra(null);
+          setArtifactCounts(null);
+          setArtifactSnapshot(null);
+          setArtifactNextOffset(null);
+          setArtifactsError("Artifacts could not be read. The conversation and workspace were not changed.");
+        }
+      } finally {
+        if (!controller.signal.aborted && artifactReadOwnerRef.current === owner) {
+          setArtifactsLoading(false);
+        }
       }
-    }).catch(() => {
-      if (!controller.signal.aborted) {
-        setArtifacts([]);
-        setArtifactCounts(null);
-        setArtifactsError("Artifacts could not be read. The conversation and workspace were not changed.");
-      }
-    }).finally(() => {
-      if (!controller.signal.aborted) setArtifactsLoading(false);
-    });
-    return () => controller.abort();
+    })();
+    return () => {
+      controller.abort();
+      artifactPageControllerRef.current?.abort();
+    };
   }, [
     artifactProjectId,
     artifactSessionId,
     artifactDoneSequence,
     artifactView,
     artifactsRefreshKey,
+    transport,
+  ]);
+
+  async function loadMoreArtifacts(): Promise<void> {
+    const pageArtifacts = transport.pageAgentArtifacts;
+    if (
+      typeof pageArtifacts !== "function"
+      || artifactProjectId === null
+      || artifactSessionId === null
+      || artifactSnapshot === null
+      || artifactNextOffset === null
+      || artifactPageLoading
+    ) return;
+    const owner = artifactReadOwnerRef.current;
+    const controller = new AbortController();
+    artifactPageControllerRef.current?.abort();
+    artifactPageControllerRef.current = controller;
+    setArtifactPageLoading(true);
+    setArtifactPageError("");
+    try {
+      const page = await pageArtifacts(
+        artifactProjectId,
+        artifactSessionId,
+        {
+          view: artifactView,
+          limit: ARTIFACT_SERVER_PAGE,
+          offset: artifactNextOffset,
+          snapshot: artifactSnapshot,
+        },
+        controller.signal,
+      );
+      if (controller.signal.aborted || artifactReadOwnerRef.current !== owner) return;
+      if (page.artifacts.some((artifact) => (
+        artifactServerIdsRef.current.has(artifact.artifact_id)
+      ))) {
+        setArtifactPageError("A repeated artifact page was refused. Reload from the first page.");
+        return;
+      }
+      page.artifacts.forEach((artifact) => (
+        artifactServerIdsRef.current.add(artifact.artifact_id)
+      ));
+      setArtifacts((previous) => [...previous, ...page.artifacts]);
+      setArtifactCounts(page.counts);
+      setArtifactSnapshot(page.snapshot);
+      setArtifactNextOffset(page.next_offset ?? null);
+    } catch (caught) {
+      if (!controller.signal.aborted && artifactReadOwnerRef.current === owner) {
+        const changed = caught instanceof TransportError && (
+          caught.reasonCode === "agent_artifact_page_snapshot_conflict"
+          || caught.reasonCode === "agent_artifact_page_out_of_range"
+        );
+        setArtifactPageError(changed
+          ? "Artifacts changed while another page was loading. Reload from the first page."
+          : "More artifacts could not be loaded. The records already shown are unchanged.");
+      }
+    } finally {
+      if (artifactPageControllerRef.current === controller) {
+        artifactPageControllerRef.current = null;
+        setArtifactPageLoading(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    const request = artifactOpenRequest;
+    const getArtifact = transport.getAgentArtifact;
+    if (
+      request === null
+      || artifactProjectId === null
+      || artifactSessionId === null
+      || request.projectId !== artifactProjectId
+      || request.sessionId !== artifactSessionId
+      || artifactItems.some((artifact) => artifact.artifact_id === request.artifactId)
+      || artifactsLoading
+      || artifactsError !== ""
+      || typeof getArtifact !== "function"
+    ) return;
+    const controller = new AbortController();
+    void getArtifact(
+      artifactProjectId,
+      artifactSessionId,
+      request.artifactId,
+      controller.signal,
+    ).then((artifact) => {
+      if (
+        controller.signal.aborted
+        || artifact.path !== request.path
+        || artifact.project_id !== artifactProjectId
+        || artifact.session_id !== artifactSessionId
+      ) return;
+      if (artifact.lifecycle_state !== artifactView) {
+        setArtifactView(artifact.lifecycle_state);
+        return;
+      }
+      setSelectedArtifactExtra(artifact);
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setArtifactPageError("The requested artifact is no longer available in this chat.");
+      }
+    });
+    return () => controller.abort();
+  }, [
+    artifactItems,
+    artifactOpenRequest,
+    artifactProjectId,
+    artifactSessionId,
+    artifactView,
+    artifactsError,
+    artifactsLoading,
     transport,
   ]);
 
@@ -3261,16 +3446,20 @@ export function AgentPage({
                 artifactsPanel={artifactViewerTransport !== null
                   && artifactProjectId === selectedCatalogSession.project_id
                   && artifactSessionId === selectedCatalogSession.session_id
-                  && (artifactsLoading || artifactsError !== "" || artifacts.length > 0 || (artifactCounts?.total ?? 0) > 0 || selectedCatalogSession.turn_count > 0)
+                  && (artifactsLoading || artifactsError !== "" || artifactItems.length > 0 || (artifactCounts?.total ?? 0) > 0 || selectedCatalogSession.turn_count > 0)
                   ? (
                     <AgentArtifactsPanel
-                      artifacts={artifacts}
+                      artifacts={artifactItems}
+                      canLoadMore={artifactNextOffset !== null}
                       counts={artifactCounts}
                       error={artifactsError}
                       loading={artifactsLoading}
+                      onLoadMore={() => { void loadMoreArtifacts(); }}
                       onOpenSourceTurn={openArtifactSourceTurn}
                       onRefresh={() => setArtifactsRefreshKey((value) => value + 1)}
                       onViewChange={setArtifactView}
+                      pageError={artifactPageError}
+                      pageLoading={artifactPageLoading}
                       projectId={artifactProjectId}
                       sessionId={artifactSessionId}
                       transport={artifactViewerTransport}
@@ -3567,14 +3756,16 @@ export function AgentPage({
                   {artifactViewerTransport !== null
                     && artifactProjectId !== null
                     && artifactSessionId === current.session_id
-                    && (artifactsLoading || artifactsError !== "" || artifacts.length > 0 || (artifactCounts?.total ?? 0) > 0 || current.turns > 0)
+                    && (artifactsLoading || artifactsError !== "" || artifactItems.length > 0 || (artifactCounts?.total ?? 0) > 0 || current.turns > 0)
                     && (
                       <AgentArtifactsPanel
-                        artifacts={artifacts}
+                        artifacts={artifactItems}
+                        canLoadMore={artifactNextOffset !== null}
                         counts={artifactCounts}
                         error={artifactsError}
                         loading={artifactsLoading}
                         onCaptureCurrent={addChangeArtifact}
+                        onLoadMore={() => { void loadMoreArtifacts(); }}
                         onOpenFile={openReceiptFile}
                         onOpenSourceTurn={openArtifactSourceTurn}
                         onRevealFile={revealArtifactFile}
@@ -3582,6 +3773,8 @@ export function AgentPage({
                         onReviewChanges={reviewArtifactChanges}
                         onViewChange={setArtifactView}
                         openRequest={artifactOpenRequest}
+                        pageError={artifactPageError}
+                        pageLoading={artifactPageLoading}
                         projectId={artifactProjectId}
                         sessionId={artifactSessionId}
                         transport={artifactViewerTransport}

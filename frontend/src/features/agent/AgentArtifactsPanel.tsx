@@ -279,17 +279,21 @@ function assertArtifactExportMatches(
 
 export function AgentArtifactsPanel({
   artifacts,
+  canLoadMore = false,
   counts,
   error,
   loading,
   onCaptureCurrent,
   onOpenFile,
   onOpenSourceTurn,
+  onLoadMore,
   onRevealFile,
   onRefresh,
   onReviewChanges,
   onViewChange,
   openRequest,
+  pageError = "",
+  pageLoading = false,
   projectId,
   sessionId,
   transport,
@@ -297,17 +301,21 @@ export function AgentArtifactsPanel({
   view,
 }: {
   artifacts: AgentArtifact[];
+  canLoadMore?: boolean;
   counts: AgentArtifactLifecycleCounts | null;
   error: string;
   loading: boolean;
   onCaptureCurrent?: (path: string) => void;
   onOpenFile?: (path: string) => void;
   onOpenSourceTurn?: (turnId: string) => boolean;
+  onLoadMore?: () => void;
   onRevealFile?: (path: string) => void;
   onRefresh: () => void;
   onReviewChanges?: (path: string) => void;
   onViewChange: (view: Exclude<AgentArtifactListView, "all">) => void;
   openRequest?: AgentArtifactOpenRequest | null;
+  pageError?: string;
+  pageLoading?: boolean;
   projectId: string;
   sessionId: string;
   transport: ArtifactTransport;
@@ -1097,6 +1105,25 @@ export function AgentArtifactsPanel({
           </div>
         )}
         <BoundedListPager label="Artifact pages" page={artifactPage} />
+        {counts !== null && (
+          <div className="agent-artifacts__server-page" aria-live="polite">
+            <span>{artifacts.length} of {counts[view]} {view} artifacts loaded</span>
+            {pageError && <span role="alert">{pageError}</span>}
+            {canLoadMore && !pageError && onLoadMore !== undefined && (
+              <button
+                className="button button--ghost"
+                disabled={pageLoading}
+                onClick={onLoadMore}
+                type="button"
+              >{pageLoading ? "Loading…" : "Load more artifacts"}</button>
+            )}
+            {pageError && (
+              <button className="button button--ghost" onClick={onRefresh} type="button">
+                Reload artifacts
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {sourceTurnNotice && <p className="agent-artifacts__message" role="status">{sourceTurnNotice}</p>}
       {lifecycleNotice && <p className="agent-artifacts__message agent-artifacts__message--success" role="status">{lifecycleNotice}</p>}
@@ -1422,6 +1449,7 @@ export function AgentArtifactsPanel({
               )}
               {viewer.phase === "ready" && preview.phase === "ready" && preview.document !== null && preview.version.preview_kind === "document" && (
                 <AgentDocumentPreview
+                  key={preview.document.version_id}
                   preview={preview.document}
                   title={viewer.artifact.title}
                   versionNumber={preview.version.version_number}

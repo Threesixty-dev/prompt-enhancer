@@ -73,6 +73,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/catalog/sessions/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page Catalog Sessions */
+        get: operations["page_catalog_sessions_v1_agent_catalog_sessions_page_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/catalog/sessions/{session_id}": {
         parameters: {
             query?: never;
@@ -127,6 +144,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/projects/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page Projects */
+        get: operations["page_projects_v1_agent_projects_page_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -155,6 +189,23 @@ export interface paths {
         };
         /** List Project Sessions */
         get: operations["list_project_sessions_v1_agent_projects__project_id__sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page Project Sessions */
+        get: operations["page_project_sessions_v1_agent_projects__project_id__sessions_page_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -192,6 +243,23 @@ export interface paths {
         put?: never;
         /** Preview Session Artifact Capture */
         post: operations["preview_session_artifact_capture_v1_agent_projects__project_id__sessions__session_id__artifacts_capture_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/projects/{project_id}/sessions/{session_id}/artifacts/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page Session Artifacts */
+        get: operations["page_session_artifacts_v1_agent_projects__project_id__sessions__session_id__artifacts_page_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4815,6 +4883,40 @@ export interface components {
              */
             view: "active" | "archived" | "removed" | "all";
         };
+        /** AgentArtifactPage */
+        AgentArtifactPage: {
+            /** Artifacts */
+            artifacts: components["schemas"]["AgentArtifact"][];
+            /** Complete */
+            complete: boolean;
+            /**
+             * Contract Version
+             * @default agent-artifact-page.v1
+             * @constant
+             */
+            contract_version: "agent-artifact-page.v1";
+            counts: components["schemas"]["AgentArtifactLifecycleCounts"];
+            /** Limit */
+            limit: number;
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Project Id */
+            project_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Snapshot */
+            snapshot: string;
+            /** Total */
+            total: number;
+            /**
+             * View
+             * @default active
+             * @enum {string}
+             */
+            view: "active" | "archived" | "removed" | "all";
+        };
         /** AgentArtifactVersion */
         AgentArtifactVersion: {
             /** Artifact Id */
@@ -5035,6 +5137,29 @@ export interface components {
             contract_version: "agent-catalog.v2";
             /** Sessions */
             sessions: components["schemas"]["AgentCatalogSessionRecord"][];
+        };
+        /** AgentCatalogSessionPage */
+        AgentCatalogSessionPage: {
+            /** Complete */
+            complete: boolean;
+            /**
+             * Contract Version
+             * @default agent-catalog-page.v1
+             * @constant
+             */
+            contract_version: "agent-catalog-page.v1";
+            /** Limit */
+            limit: number;
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Sessions */
+            sessions: components["schemas"]["AgentCatalogSessionRecord"][];
+            /** Snapshot */
+            snapshot: string;
+            /** Total */
+            total: number;
         };
         /** AgentCatalogSessionRecord */
         AgentCatalogSessionRecord: {
@@ -6656,10 +6781,10 @@ export interface components {
             boundaries?: components["schemas"]["AgentOrchestrationBoundary"];
             /**
              * Contract Version
-             * @default local-agent-orchestration.v21
+             * @default local-agent-orchestration.v22
              * @constant
              */
-            contract_version: "local-agent-orchestration.v21";
+            contract_version: "local-agent-orchestration.v22";
             /** Endpoints */
             endpoints: components["schemas"]["AgentOrchestrationEndpoint"][];
             /**
@@ -6839,6 +6964,29 @@ export interface components {
             contract_version: "agent-catalog.v2";
             /** Projects */
             projects: components["schemas"]["AgentProjectRecord"][];
+        };
+        /** AgentProjectPage */
+        AgentProjectPage: {
+            /** Complete */
+            complete: boolean;
+            /**
+             * Contract Version
+             * @default agent-catalog-page.v1
+             * @constant
+             */
+            contract_version: "agent-catalog-page.v1";
+            /** Limit */
+            limit: number;
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Projects */
+            projects: components["schemas"]["AgentProjectRecord"][];
+            /** Snapshot */
+            snapshot: string;
+            /** Total */
+            total: number;
         };
         /** AgentProjectRecord */
         AgentProjectRecord: {
@@ -20946,6 +21094,44 @@ export interface operations {
             };
         };
     };
+    page_catalog_sessions_v1_agent_catalog_sessions_page_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                include_archived?: boolean;
+                limit?: number;
+                offset?: number;
+                snapshot?: string | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCatalogSessionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_catalog_session_v1_agent_catalog_sessions__session_id__get: {
         parameters: {
             query?: never;
@@ -21157,6 +21343,44 @@ export interface operations {
             };
         };
     };
+    page_projects_v1_agent_projects_page_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                include_archived?: boolean;
+                limit?: number;
+                offset?: number;
+                snapshot?: string | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProjectPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_project_v1_agent_projects__project_id__get: {
         parameters: {
             query?: never;
@@ -21301,6 +21525,46 @@ export interface operations {
             };
         };
     };
+    page_project_sessions_v1_agent_projects__project_id__sessions_page_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                include_archived?: boolean;
+                limit?: number;
+                offset?: number;
+                snapshot?: string | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCatalogSessionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_session_artifacts_v1_agent_projects__project_id__sessions__session_id__artifacts_get: {
         parameters: {
             query?: {
@@ -21405,6 +21669,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentArtifactCapturePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    page_session_artifacts_v1_agent_projects__project_id__sessions__session_id__artifacts_page_get: {
+        parameters: {
+            query?: {
+                view?: "active" | "archived" | "removed" | "all";
+                limit?: number;
+                offset?: number;
+                snapshot?: string | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifactPage"];
                 };
             };
             /** @description Validation Error */

@@ -169,7 +169,7 @@ function endpointSelfTestFetch() {
         structuredContent: {
           contract_version: "prompt-enhancer-agent-mcp.v24",
           tool: "agent_discover",
-          result: { contract_version: "local-agent-orchestration.v21" },
+          result: { contract_version: "local-agent-orchestration.v22" },
         },
       },
     }));

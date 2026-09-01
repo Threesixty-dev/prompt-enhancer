@@ -119,11 +119,15 @@ import type {
   AgentSessionContextStatus,
   AgentEvents,
   AgentCatalogQuery,
+  AgentCatalogPageQuery,
   AgentCatalogSessionQuery,
+  AgentCatalogSessionPageQuery,
   AgentProject,
   AgentProjectList,
+  AgentProjectPage,
   AgentCatalogSession,
   AgentCatalogSessionList,
+  AgentCatalogSessionPage,
   AgentHistoryExportRequest,
   AgentSessionForkReceipt,
   CreateAgentProject,
@@ -139,6 +143,8 @@ import type {
   AgentArtifactExport,
   AgentArtifactList,
   AgentArtifactListView,
+  AgentArtifactPage,
+  AgentArtifactPageQuery,
   AgentArtifactVersion,
   AgentDocumentPreview,
   CaptureAgentArtifact,
@@ -224,8 +230,10 @@ import {
   AgentCatalogPayloadError,
   parseAgentCatalogSession,
   parseAgentCatalogSessionList,
+  parseAgentCatalogSessionPage,
   parseAgentProject,
   parseAgentProjectList,
+  parseAgentProjectPage,
   parseAgentSessionForkReceipt,
 } from "./agentCatalogContract";
 import {
@@ -354,6 +362,7 @@ import {
   parseAgentArtifactExport,
   parseAgentDocumentPreview,
   parseAgentArtifactList,
+  parseAgentArtifactPage,
 } from "./agentArtifactContract";
 import {
   AgentAttachmentPayloadError,
@@ -443,6 +452,22 @@ function agentProjectListResponse(value: unknown): AgentProjectList {
   }
 }
 
+function agentProjectPageResponse(
+  value: unknown,
+  limit: number,
+  offset: number,
+  snapshot?: string,
+): AgentProjectPage {
+  try {
+    return parseAgentProjectPage(value, limit, offset, snapshot);
+  } catch (error) {
+    if (error instanceof AgentCatalogPayloadError) {
+      throw new TransportError("Agent project page response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
 function agentCatalogSessionResponse(
   value: unknown,
   expectedSessionId?: string,
@@ -467,6 +492,29 @@ function agentCatalogSessionListResponse(
   } catch (error) {
     if (error instanceof AgentCatalogPayloadError) {
       throw new TransportError("Agent catalog session list response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentCatalogSessionPageResponse(
+  value: unknown,
+  limit: number,
+  offset: number,
+  snapshot?: string,
+  expectedProjectId?: string,
+): AgentCatalogSessionPage {
+  try {
+    return parseAgentCatalogSessionPage(
+      value,
+      limit,
+      offset,
+      snapshot,
+      expectedProjectId,
+    );
+  } catch (error) {
+    if (error instanceof AgentCatalogPayloadError) {
+      throw new TransportError("Agent catalog session page response was invalid", 200);
     }
     throw error;
   }
@@ -508,6 +556,31 @@ function agentArtifactListResponse(
   } catch (error) {
     if (error instanceof AgentArtifactPayloadError) {
       throw new TransportError("Agent artifact list response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentArtifactPageResponse(
+  value: unknown,
+  projectId: string,
+  sessionId: string,
+  query: Required<Pick<AgentArtifactPageQuery, "view" | "limit" | "offset">>
+    & Pick<AgentArtifactPageQuery, "snapshot">,
+): AgentArtifactPage {
+  try {
+    return parseAgentArtifactPage(
+      value,
+      projectId,
+      sessionId,
+      query.view,
+      query.limit,
+      query.offset,
+      query.snapshot,
+    );
+  } catch (error) {
+    if (error instanceof AgentArtifactPayloadError) {
+      throw new TransportError("Agent artifact page response was invalid", 200);
     }
     throw error;
   }
@@ -690,6 +763,73 @@ function agentCatalogQuery(query: AgentCatalogQuery = {}): string {
   return encoded.length === 0 ? "" : `?${encoded}`;
 }
 
+interface PreparedCatalogPageQuery {
+  encoded: string;
+  limit: number;
+  offset: number;
+  snapshot?: string;
+}
+
+function agentCatalogPageQuery(
+  query: AgentCatalogPageQuery = {},
+  maximumOffset: number,
+): PreparedCatalogPageQuery {
+  const limit = query.limit ?? 100;
+  const offset = query.offset ?? 0;
+  if (
+    (query.search !== undefined && Array.from(query.search).length > 120)
+    || !Number.isInteger(limit) || limit < 1 || limit > 100
+    || !Number.isInteger(offset) || offset < 0 || offset > maximumOffset
+    || (query.snapshot !== undefined && !/^[0-9a-f]{64}$/u.test(query.snapshot))
+    || (offset > 0 && query.snapshot === undefined)
+  ) throw new TransportError("Agent catalog page query was invalid", 422);
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (query.search !== undefined) params.set("search", query.search);
+  if (query.includeArchived !== undefined) {
+    params.set("include_archived", String(query.includeArchived));
+  }
+  if (query.snapshot !== undefined) params.set("snapshot", query.snapshot);
+  return {
+    encoded: `?${params.toString()}`,
+    limit,
+    offset,
+    snapshot: query.snapshot,
+  };
+}
+
+function agentArtifactPageQuery(
+  query: AgentArtifactPageQuery = {},
+): Required<Pick<AgentArtifactPageQuery, "view" | "limit" | "offset">>
+  & Pick<AgentArtifactPageQuery, "snapshot">
+  & { encoded: string } {
+  const view = query.view ?? "active";
+  const limit = query.limit ?? 100;
+  const offset = query.offset ?? 0;
+  if (
+    !["active", "archived", "removed", "all"].includes(view)
+    || !Number.isInteger(limit) || limit < 1 || limit > 100
+    || !Number.isInteger(offset) || offset < 0 || offset > 500
+    || (query.snapshot !== undefined && !/^[0-9a-f]{64}$/u.test(query.snapshot))
+    || (offset > 0 && query.snapshot === undefined)
+  ) throw new TransportError("Agent artifact page query was invalid", 422);
+  const params = new URLSearchParams({
+    view,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (query.snapshot !== undefined) params.set("snapshot", query.snapshot);
+  return {
+    encoded: `?${params.toString()}`,
+    view,
+    limit,
+    offset,
+    snapshot: query.snapshot,
+  };
+}
+
 export type SafeTransportReasonCode =
   | "redacted_content_consent_required"
   | "session_not_in_safe_index"
@@ -859,6 +999,10 @@ export type SafeTransportReasonCode =
   | "agent_catalog_session_live"
   | "too_many_agent_catalog_sessions"
   | "agent_catalog_session_archived"
+  | "agent_catalog_page_invalid"
+  | "agent_catalog_page_snapshot_required"
+  | "agent_catalog_page_snapshot_conflict"
+  | "agent_catalog_page_out_of_range"
   | "agent_history_not_retained"
   | "agent_history_revision_conflict"
   | "agent_history_sequence_conflict"
@@ -889,6 +1033,10 @@ export type SafeTransportReasonCode =
   | "agent_artifact_no_change"
   | "agent_artifact_archive_required"
   | "agent_artifact_removed"
+  | "agent_artifact_page_invalid"
+  | "agent_artifact_page_snapshot_required"
+  | "agent_artifact_page_snapshot_conflict"
+  | "agent_artifact_page_out_of_range"
   | "agent_attachment_unavailable"
   | "agent_attachment_capabilities_unavailable"
   | "agent_attachment_not_found"
@@ -1135,6 +1283,10 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "agent_catalog_session_live",
   "too_many_agent_catalog_sessions",
   "agent_catalog_session_archived",
+  "agent_catalog_page_invalid",
+  "agent_catalog_page_snapshot_required",
+  "agent_catalog_page_snapshot_conflict",
+  "agent_catalog_page_out_of_range",
   "agent_history_not_retained",
   "agent_history_revision_conflict",
   "agent_history_sequence_conflict",
@@ -1165,6 +1317,10 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "agent_artifact_no_change",
   "agent_artifact_archive_required",
   "agent_artifact_removed",
+  "agent_artifact_page_invalid",
+  "agent_artifact_page_snapshot_required",
+  "agent_artifact_page_snapshot_conflict",
+  "agent_artifact_page_out_of_range",
   "agent_attachment_unavailable",
   "agent_attachment_capabilities_unavailable",
   "agent_attachment_not_found",
@@ -4887,6 +5043,22 @@ export function createHttpTransport(options: {
       );
       return agentProjectListResponse(value);
     },
+    async pageAgentProjects(query, signal) {
+      const prepared = agentCatalogPageQuery(query, 200);
+      const value = await request<unknown>(
+        `/v1/agent/projects/page${prepared.encoded}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return agentProjectPageResponse(
+        value,
+        prepared.limit,
+        prepared.offset,
+        prepared.snapshot,
+      );
+    },
     async createAgentProject(project, signal) {
       const value = await request<unknown>(
         "/v1/agent/projects",
@@ -4952,6 +5124,30 @@ export function createHttpTransport(options: {
         true,
       );
       return agentCatalogSessionListResponse(value, projectId);
+    },
+    async pageAgentCatalogSessions(
+      query: AgentCatalogSessionPageQuery = {},
+      signal,
+    ) {
+      const { projectId, ...catalogQuery } = query;
+      const prepared = agentCatalogPageQuery(catalogQuery, 2_000);
+      const path = projectId === undefined
+        ? "/v1/agent/catalog/sessions/page"
+        : `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/page`;
+      const value = await request<unknown>(
+        `${path}${prepared.encoded}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return agentCatalogSessionPageResponse(
+        value,
+        prepared.limit,
+        prepared.offset,
+        prepared.snapshot,
+        projectId,
+      );
     },
     async getAgentCatalogSession(sessionId, signal) {
       const value = await request<unknown>(
@@ -5090,6 +5286,17 @@ export function createHttpTransport(options: {
         true,
       );
       return agentArtifactListResponse(value, projectId, sessionId, view);
+    },
+    async pageAgentArtifacts(projectId, sessionId, query, signal) {
+      const prepared = agentArtifactPageQuery(query);
+      const value = await request<unknown>(
+        `/v1/agent/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/artifacts/page${prepared.encoded}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return agentArtifactPageResponse(value, projectId, sessionId, prepared);
     },
     async getAgentArtifact(projectId, sessionId, artifactId, signal) {
       const value = await request<unknown>(

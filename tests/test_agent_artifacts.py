@@ -1504,6 +1504,114 @@ def test_artifact_path_contract_rejects_traversal_and_absolute_paths() -> None:
             PreviewAgentArtifactCapture(path="result.txt", title=title)
 
 
+def test_artifact_pages_cover_full_capacity_and_reject_mutation_and_scope_replay(
+    tmp_path: Path,
+) -> None:
+    database, catalog, artifacts, project, session, _workspace = _fixture(tmp_path)
+    for index in range(205):
+        payload = f"Synthetic artifact {index:03d}.\n".encode()
+        _append_write(
+            catalog,
+            project.project_id,
+            session.session_id,
+            seq=index + 1,
+            receipt=_receipt(path=f"generated/item-{index:03d}.md", payload=payload),
+        )
+
+    first = artifacts.page_artifacts(
+        project_id=project.project_id,
+        session_id=session.session_id,
+        limit=100,
+    )
+    second = artifacts.page_artifacts(
+        project_id=project.project_id,
+        session_id=session.session_id,
+        limit=100,
+        offset=first.next_offset,
+        snapshot=first.snapshot,
+    )
+    third = artifacts.page_artifacts(
+        project_id=project.project_id,
+        session_id=session.session_id,
+        limit=100,
+        offset=second.next_offset,
+        snapshot=first.snapshot,
+    )
+    loaded = tuple(
+        artifact.artifact_id
+        for page in (first, second, third)
+        for artifact in page.artifacts
+    )
+    assert first.total == 205
+    assert first.counts.active == 205
+    assert len(loaded) == len(set(loaded)) == 205
+    assert third.complete is True and third.next_offset is None
+
+    restarted_catalog = AgentCatalogService(
+        SqliteAgentCatalogRepository(database),
+        clock=lambda: T0,
+        id_factory=lambda: "f" * 32,
+    )
+    restarted = AgentArtifactService(
+        SqliteAgentArtifactRepository(database),
+        restarted_catalog,
+        clock=lambda: T0,
+        id_factory=_ids(10_000).__next__,
+    )
+    assert restarted.page_artifacts(
+        project_id=project.project_id,
+        session_id=session.session_id,
+        limit=100,
+    ).snapshot == first.snapshot
+    with pytest.raises(AgentArtifactError) as cross_view:
+        restarted.page_artifacts(
+            project_id=project.project_id,
+            session_id=session.session_id,
+            view="all",
+            limit=100,
+            offset=100,
+            snapshot=first.snapshot,
+        )
+    assert cross_view.value.code == "agent_artifact_page_snapshot_conflict"
+    with pytest.raises(AgentArtifactError) as missing_snapshot:
+        restarted.page_artifacts(
+            project_id=project.project_id,
+            session_id=session.session_id,
+            limit=100,
+            offset=100,
+        )
+    assert missing_snapshot.value.code == "agent_artifact_page_snapshot_required"
+    with pytest.raises(AgentArtifactError) as out_of_range:
+        restarted.page_artifacts(
+            project_id=project.project_id,
+            session_id=session.session_id,
+            limit=100,
+            offset=206,
+            snapshot=first.snapshot,
+        )
+    assert out_of_range.value.code == "agent_artifact_page_out_of_range"
+
+    changed = restarted.update_artifact(
+        project_id=project.project_id,
+        session_id=session.session_id,
+        artifact_id=first.artifacts[0].artifact_id,
+        command=UpdateAgentArtifact(
+            expected_revision=first.artifacts[0].revision,
+            operation="archive",
+        ),
+    )
+    assert changed.lifecycle_state == "archived"
+    with pytest.raises(AgentArtifactError) as stale:
+        restarted.page_artifacts(
+            project_id=project.project_id,
+            session_id=session.session_id,
+            limit=100,
+            offset=100,
+            snapshot=first.snapshot,
+        )
+    assert stale.value.code == "agent_artifact_page_snapshot_conflict"
+
+
 def test_artifact_http_surface_is_private_native_gated_range_bound_and_inert(
     tmp_path: Path,
 ) -> None:
@@ -1568,6 +1676,15 @@ def test_artifact_http_surface_is_private_native_gated_range_bound_and_inert(
         assert listed.status_code == 200
         assert listed.headers["cache-control"] == "no-store, private"
         assert len(listed.json()["artifacts"]) == 1
+
+        page_response = client.get(f"{path}/page?limit=1")
+        assert page_response.status_code == 200
+        assert page_response.headers["cache-control"] == "no-store, private"
+        page = page_response.json()
+        assert page["contract_version"] == "agent-artifact-page.v1"
+        assert page["total"] == 1
+        assert page["complete"] is True
+        assert page["artifacts"][0]["artifact_id"] == created["artifact_id"]
 
         detail_path = f"{path}/{created['artifact_id']}"
         detail = client.get(detail_path)
