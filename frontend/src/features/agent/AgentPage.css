@@ -62,6 +62,7 @@
 .agent__workspace-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.45rem; align-items: stretch; }
 .agent__workspace-entry input { min-width: 0; box-sizing: border-box; }
 .agent__workspace-entry .button { min-height: 2.5rem; }
+.agent__workspace-path-mode { display: inline-flex; align-items: center; min-height: 2.5rem; padding: 0 0.7rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--surface-soft); color: var(--ink-500); font-size: var(--type-caption); font-weight: 750; white-space: nowrap; }
 .agent__workspace-field [role="status"]:empty { display: none; }
 .agent__model-control { display: grid; gap: 0.4rem; }
 .agent__model-state { display: grid; gap: 0.4rem; justify-items: start; padding: 0.55rem 0.65rem; border: 1px solid var(--line); border-radius: 0.55rem; background: var(--surface-soft); }

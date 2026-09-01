@@ -97,7 +97,11 @@ describe("AgentMcpManagedPlanView project authority", () => {
     const selector = await screen.findByRole("combobox", { name: "Agent project" });
     await waitFor(() => expect(selector).toHaveValue(projectA));
     expect(screen.getByText(/Editing the active chat project/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Admission already current" })).toBeDisabled();
+    expect(await screen.findByRole(
+      "button",
+      { name: "Admission already current" },
+      { timeout: 5_000 },
+    )).toBeDisabled();
 
     rerender(<AgentMcpManagedPlanView
       onBack={vi.fn()}

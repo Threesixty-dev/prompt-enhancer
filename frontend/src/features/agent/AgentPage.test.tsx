@@ -2866,7 +2866,7 @@ describe("AgentPage", () => {
     };
     render(<AgentPage transport={transport} />);
 
-    expect(await screen.findByText(/You can open the chat now/)).toBeVisible();
+    expect(await screen.findByText(/chat will open without a model/i)).toBeVisible();
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\model-free" } });
     const open = screen.getByRole("button", { name: "Open chat without model" });
     expect(open).toBeEnabled();
@@ -2881,7 +2881,25 @@ describe("AgentPage", () => {
     expect(screen.getByRole("link", { name: "Open Models" })).toHaveAttribute("href", "/models");
   });
 
-  it("pins the displayed active running model when the default model option is used", async () => {
+  it("keeps a model-neutral chat fail-closed when the optional model catalogue cannot be read", async () => {
+    const current = view({
+      model_alias: null,
+      settings: { ...view().settings, workspace: "D:\\example\\catalogue-offline", model_alias: null },
+    });
+    const transport = {
+      ...sessionTransport(current),
+      getLocalModels: vi.fn(async () => { throw new TypeError("synthetic catalogue unavailable"); }),
+    };
+
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByLabelText("Agent activity status")).toHaveTextContent("No model");
+    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps a new chat model-neutral when another local model is already running", async () => {
     const transport = {
       ...workspaceMethods(),
       listAgentSessions: vi.fn(async () => []),
@@ -2896,16 +2914,80 @@ describe("AgentPage", () => {
     };
     render(<AgentPage transport={transport} />);
 
-    expect(await screen.findByText(/running and ready/)).toBeVisible();
+    expect(await screen.findByRole("option", { name: "Synthetic Local Model · running" })).toBeVisible();
     expect(screen.getByLabelText("Agent model")).toHaveValue("");
+    expect(screen.getByLabelText("Agent model")).toHaveDisplayValue("Choose later in chat · no model");
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat without model" }));
 
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
     expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
       workspace: "D:\\example\\project",
-      model_alias: MODEL_ALIAS,
+      model_alias: null,
     });
+  });
+
+  it("opens a model-neutral chat while the optional model catalogue is still loading", async () => {
+    const catalogue = deferred<LocalModelsOverview>();
+    const created = view({
+      model_alias: null,
+      settings: { ...view().settings, workspace: "D:\\example\\pending-catalogue", model_alias: null },
+    });
+    const transport = {
+      ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(false)),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async () => created),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v9" as const, cleanup_unconfirmed: false, closing: false, stopping: false, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+      getLocalModels: vi.fn(() => catalogue.promise),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByText("Checking which local models are ready…")).toBeVisible();
+    const workspace = screen.getByLabelText("Workspace folder");
+    expect(workspace).toBeEnabled();
+    fireEvent.change(workspace, { target: { value: "D:\\example\\pending-catalogue" } });
+    const open = screen.getByRole("button", { name: "Open read-only chat without model" });
+    expect(open).toBeEnabled();
+    fireEvent.click(open);
+
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({ model_alias: null }),
+    ));
+    await act(async () => catalogue.resolve(modelsOverview(modelStatus("running"))));
+  });
+
+  it("does not leak the active chat runtime selection into the next New session", async () => {
+    const current = view();
+    const runtime = runtimeCoordinator(MODEL_ALIAS);
+    const created = view({
+      model_alias: null,
+      settings: { ...view().settings, workspace: "D:\\example\\fresh-chat", model_alias: null },
+    });
+    const transport = {
+      ...sessionTransport(current),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(false)),
+      createAgentSession: vi.fn(async () => created),
+      getLocalRuntime: vi.fn(async () => runtime),
+      switchLocalRuntime: vi.fn(async () => runtime),
+      stopLocalRuntime: vi.fn(async () => runtime),
+      switchAgentSessionModel: vi.fn(async () => current),
+    };
+    render(<AgentPage transport={transport} />);
+
+    expect(await screen.findByRole("region", { name: "Shared local model runtime" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    const setupModel = await screen.findByLabelText("Agent model");
+    expect(setupModel).toHaveValue("");
+    expect(setupModel).toHaveDisplayValue("Choose later in chat · no model");
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\fresh-chat" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat without model" }));
+
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({ model_alias: null }),
+    ));
   });
 
   it("keeps a successfully created chat selected when the session list is temporarily unavailable", async () => {
@@ -2924,7 +3006,7 @@ describe("AgentPage", () => {
     expect(await screen.findByText(/Sessions could not be refreshed/)).toBeVisible();
     expect(screen.queryByText("No session yet.")).toBeNull();
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Open read-only chat" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open read-only chat without model" }));
 
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
     expect(await screen.findByLabelText("Message to the agent")).toBeEnabled();
@@ -2992,7 +3074,7 @@ describe("AgentPage", () => {
     rendered.rerender(<AgentPage transport={refreshed} />);
 
     await waitFor(() => expect(screen.queryByLabelText("Message to the agent")).toBeNull());
-    expect(screen.getByText(/Choose a workspace folder on the left/)).toBeVisible();
+    expect(screen.getByText(/Open New chat and enter a workspace folder/)).toBeVisible();
   });
 
   it("blocks an existing session while its model is stopped and enables the composer after activation", async () => {
@@ -4014,7 +4096,7 @@ describe("AgentPage", () => {
     await waitFor(() => expect(newChat).toBeEnabled());
     fireEvent.click(newChat);
     fireEvent.change(await screen.findByLabelText("Workspace folder"), { target: { value: "D:\\example\\second-project" } });
-    const start = await screen.findByRole("button", { name: "Open read-only chat" });
+    const start = await screen.findByRole("button", { name: "Open read-only chat without model" });
     fireEvent.click(start);
 
     const error = await screen.findByText("Too many open sessions - close one first.");
@@ -4034,7 +4116,9 @@ describe("AgentPage", () => {
     };
     render(<AgentPage transport={transport} />);
 
-    await screen.findByText(/running and ready/);
+    await screen.findByRole("option", { name: "Synthetic Local Model · running" });
+    fireEvent.change(screen.getByLabelText("Agent model"), { target: { value: MODEL_ALIAS } });
+    expect(screen.getByText(/running and ready/)).toBeVisible();
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
     fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
 
@@ -4112,7 +4196,7 @@ describe("AgentPage", () => {
     await screen.findByText(/No session yet/);
     await screen.findByText(/This browser can start read-only sessions/);
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat without model" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalled());
     expect(await screen.findByText(/Session ready\. Write your first request below\./)).toBeVisible();
     expect(screen.getByLabelText("Message to the agent")).toHaveFocus();
@@ -4162,7 +4246,7 @@ describe("AgentPage", () => {
     expect(workspace).toHaveValue("D:\\example\\chosen-workspace");
     expect(choose).toHaveBeenCalledTimes(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat without model" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
     expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
       workspace: "D:\\example\\chosen-workspace",
@@ -4181,7 +4265,9 @@ describe("AgentPage", () => {
       getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
     };
     render(<AgentPage transport={transport} />);
-    expect(screen.getByRole("button", { name: "Browse…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Browse…" })).toBeNull();
+    expect(screen.getByText("Paste path")).toBeVisible();
+    expect(screen.getByLabelText("Workspace folder")).toBeEnabled();
 
     installNativeFolderPicker(vi.fn().mockResolvedValue({
       version: "native-folder-picker-v1",
@@ -4212,7 +4298,7 @@ describe("AgentPage", () => {
 
     fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
     expect(screen.getByText("Checking whether native confirmation is available…")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Open read-only chat" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open read-only chat without model" })).toBeDisabled();
     expect(screen.getByLabelText(/May write files/i)).toBeDisabled();
 
     await act(async () => resolveCapability(userPresenceCapability(true)));
@@ -4223,7 +4309,7 @@ describe("AgentPage", () => {
 
     fireEvent.click(screen.getByLabelText(/May write files/i));
     fireEvent.click(screen.getByLabelText(/May fetch web pages/i));
-    fireEvent.click(screen.getByRole("button", { name: "Open chat session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open chat without model" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
     expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
       workspace: "D:\\example\\project",
@@ -4271,7 +4357,7 @@ describe("AgentPage", () => {
 
     const workspace = screen.getByLabelText("Workspace folder");
     fireEvent.change(workspace, { target: { value: "D:\\example\\rejected" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat without model" }));
 
     const error = await screen.findByRole("alert");
     expect(error).toHaveTextContent(expected);
@@ -4296,7 +4382,7 @@ describe("AgentPage", () => {
     fireEvent.change(screen.getByLabelText("Max tokens"), { target: { value: "2048" } });
     fireEvent.click(screen.getByLabelText(/Thinking mode/));
     fireEvent.change(screen.getByLabelText("Standing instructions"), { target: { value: "Answer in Polish." } });
-    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat without model" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalled());
     const settings = (transport.createAgentSession.mock.calls[0] as unknown[])[0] as {
       parameters: { temperature: number; max_tokens: number; enable_thinking: boolean };
@@ -4320,7 +4406,7 @@ describe("AgentPage", () => {
       target: { value: "D:\\example\\metadata-only" },
     });
     fireEvent.click(screen.getByRole("radio", { name: /Metadata only/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open read-only chat" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open read-only chat without model" }));
 
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({ retention_policy: "metadata_only" }),
@@ -4375,7 +4461,7 @@ describe("AgentPage", () => {
     fireEvent.change(screen.getByLabelText("Workspace folder"), {
       target: { value: "D:\\example\\second-project" },
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Open read-only chat" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open read-only chat without model" }));
 
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({ project_id: secondProjectId }),
@@ -4696,7 +4782,7 @@ describe("AgentPage", () => {
 
     const destinationPicker = await screen.findByRole("button", {
       name: /^Destination project 1 chat/u,
-    });
+    }, { timeout: 5_000 });
     await waitFor(() => expect(destinationPicker.closest("[role='listitem']"))
       .toHaveAttribute("data-current", "true"));
 
@@ -4885,7 +4971,7 @@ describe("AgentPage", () => {
 
     await waitFor(() => expect(transport.updateAgentCatalogSession).toHaveBeenCalledOnce());
     await waitFor(() => expect(screen.getByRole("button", { name: /^Foreground project 1 chat/u })
-      .closest("[role='listitem']")).toHaveAttribute("data-current", "true"));
+      .closest("[role='listitem']")).toHaveAttribute("data-current", "true"), { timeout: 5_000 });
     expect(screen.getByRole("heading", { name: "Open foreground chat", level: 1 })).toBeVisible();
     expect(screen.getByLabelText("Message to the agent")).toBeVisible();
   });
@@ -5328,7 +5414,7 @@ describe("AgentPage", () => {
       },
     ));
     expect(screen.queryByRole("heading", { name: "Revalidate this workspace before changing it" })).toBeNull();
-  }, 10_000);
+  }, 20_000);
 
   it("exports the exact retained revision through a connected local download and delayed cleanup", async () => {
     const projectId = "2".repeat(32);

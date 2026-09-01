@@ -382,7 +382,7 @@ export function AgentPage({
   );
   const [folderPickerBusy, setFolderPickerBusy] = useState(false);
   const [folderPickerNotice, setFolderPickerNotice] = useState("");
-  const [modelAlias, setModelAlias] = useState("");
+  const [newSessionModelAlias, setNewSessionModelAlias] = useState("");
   const [allowWrites, setAllowWrites] = useState(false);
   const [allowCommands, setAllowCommands] = useState(false);
   const [allowWeb, setAllowWeb] = useState(false);
@@ -714,9 +714,10 @@ export function AgentPage({
     if (windowMode) setWindowTargetSessionId(undefined);
   }, [discardComposerDraft, windowMode]);
 
-  const selectRuntimeModel = useCallback((alias: string) => {
-    setModelAlias(alias);
-    setModelFeedbackTarget("selection");
+  const noteRuntimeModelSelection = useCallback((_alias: string) => {
+    // Runtime selection belongs to the active chat. Do not leak it into the
+    // next New session, whose default is deliberately model-neutral.
+    setModelFeedbackTarget("session");
     setModelError("");
     setModelNotice("");
   }, []);
@@ -1506,34 +1507,35 @@ export function AgentPage({
     if (node && followOutput.current) node.scrollTop = node.scrollHeight;
   }, [events]);
 
-  const runningModels = useMemo(() => (models?.models ?? []).filter((m) => m.runtime.state === "running"), [models]);
   const selectedModel = useMemo(
-    () => modelAlias
-      ? (models?.models ?? []).find((model) => model.record.alias === modelAlias) ?? null
-      : runningModels[0] ?? null,
-    [modelAlias, models, runningModels],
+    () => newSessionModelAlias
+      ? (models?.models ?? []).find((model) => model.record.alias === newSessionModelAlias) ?? null
+      : null,
+    [models, newSessionModelAlias],
   );
   const currentModelAlias = current?.model_alias ?? current?.settings.model_alias ?? null;
   const currentModel = useMemo(() => {
     if (!current) return null;
     return currentModelAlias
       ? (models?.models ?? []).find((model) => model.record.alias === currentModelAlias) ?? null
-      : runningModels[0] ?? null;
-  }, [current, currentModelAlias, models, runningModels]);
+      : null;
+  }, [current, currentModelAlias, models]);
   const connectionDisconnected = connectionState === "disconnected";
   const selectedModelNeedsActivation = modelCatalogState === "ready"
     && selectedModel !== null
     && selectedModel.runtime.state !== "running";
   const selectedModelUnavailableForSession = connectionDisconnected
-    || Boolean(modelActionAlias)
-    || runtimeControlBusy
-    || modelCatalogState === "loading"
-    || (modelCatalogState === "ready" && Boolean(modelAlias) && selectedModel === null)
-    || (selectedModelNeedsActivation
-      && (selectedModel?.runtime.state === "starting" || transport.activateLocalModel === undefined));
+    || (Boolean(newSessionModelAlias) && (
+      Boolean(modelActionAlias)
+      || runtimeControlBusy
+      || modelCatalogState === "loading"
+      || (modelCatalogState === "ready" && selectedModel === null)
+      || (selectedModelNeedsActivation
+        && (selectedModel?.runtime.state === "starting" || transport.activateLocalModel === undefined))
+    ));
   const currentModelAction = modelActionAlias && modelActionAlias === (currentModel?.record.alias ?? currentModelAlias)
     ? modelActionKind : null;
-  const currentModelBlocked = commandCleanupBlocked || connectionDisconnected || currentModelAction !== null || modelCatalogState === "loading"
+  const currentModelBlocked = commandCleanupBlocked || connectionDisconnected || currentModelAlias === null || currentModelAction !== null || modelCatalogState === "loading"
     || runtimeControlBusy
     || (modelCatalogState === "ready" && currentModel?.runtime.state !== "running");
   const runtimeCoordinatorAvailable = transport.getLocalRuntime !== undefined
@@ -1595,6 +1597,8 @@ export function AgentPage({
         : liveStreams.size > 0
           ? { detail: "The response is streaming below.", label: "Responding", tone: "working" }
           : { detail: "Waiting for the next model or tool event.", label: "Working", tone: "working" }
+      : currentModelAlias === null
+        ? { detail: "Choose and start a model in Model & context before sending.", label: "No model", tone: "paused" }
       : modelCatalogState === "loading"
         ? { detail: "Verifying the exact session model runtime.", label: "Checking model", tone: "paused" }
         : modelCatalogState === "error" || modelCatalogState === "unavailable"
@@ -1811,6 +1815,7 @@ export function AgentPage({
   function beginNewChat(projectId: string | null, trigger: HTMLButtonElement): void {
     newChatTriggerRef.current = trigger;
     if (projectId !== null) setSelectedProjectId(projectId);
+    setNewSessionModelAlias("");
     setSelectedCatalogSession(null);
     setSavedHistoryState("idle");
     setSavedHistoryMessage("");
@@ -2613,7 +2618,7 @@ export function AgentPage({
       const settings: AgentSettings = {
         workspace: path,
         project_id: selectedProjectId,
-        model_alias: modelAlias || sessionModel?.record.alias || null,
+        model_alias: newSessionModelAlias || sessionModel?.record.alias || null,
         parameters: { temperature, top_p: topP, max_tokens: maxTokens, enable_thinking: thinking },
         instructions: instructions.trim() || null,
         allow_writes: protectedActionsAvailable && allowWrites,
@@ -2637,6 +2642,7 @@ export function AgentPage({
         setWindowTargetSessionId(created.session_id);
       }
       setCurrent(created);
+      setNewSessionModelAlias("");
       setSelectedCatalogSession(null);
       setSelectedProjectId(created.settings.project_id ?? selectedProjectId);
       refreshAgentCatalog();
@@ -3055,20 +3061,24 @@ export function AgentPage({
                     type="text"
                     value={workspace}
                   />
-                  <button
-                    className="button button--ghost"
-                    disabled={!folderPickerAvailable || folderPickerBusy || creatingSession}
-                    onClick={() => void browseForWorkspace()}
-                    title={folderPickerAvailable ? "Choose a local workspace folder" : "Available in the native desktop window"}
-                    type="button"
-                  >
-                    {folderPickerBusy ? "Choosing…" : "Browse…"}
-                  </button>
+                  {folderPickerAvailable ? (
+                    <button
+                      className="button button--ghost"
+                      disabled={folderPickerBusy || creatingSession}
+                      onClick={() => void browseForWorkspace()}
+                      title="Choose a local workspace folder"
+                      type="button"
+                    >
+                      {folderPickerBusy ? "Choosing…" : "Browse…"}
+                    </button>
+                  ) : (
+                    <span className="agent__workspace-path-mode">Paste path</span>
+                  )}
                 </div>
                 <p className="agent__note" id="agent-workspace-help">
                   {folderPickerAvailable
-                    ? "Choose a folder, or enter or paste its absolute path. The picker does not read its files."
-                    : "Folder browsing is unavailable in this browser. Enter or paste an absolute path."}
+                    ? "Choose a folder, or enter or paste its absolute path. No model is required, and the picker does not read files."
+                    : "No model is required. This browser cannot open the Windows folder chooser, so enter or paste an existing absolute path. Browse is available in the console-free Agent desktop app."}
                 </p>
                 <p className="agent__note" id="agent-workspace-picker-status" role="status">
                   {folderPickerNotice}
@@ -3077,25 +3087,19 @@ export function AgentPage({
               </div>
               <div className="agent__model-control">
                 <label>
-                  <span>Model</span>
+                  <span>Start with a model (optional)</span>
                   <select
                     aria-describedby="agent-model-status"
                     aria-label="Agent model"
                     onChange={(event) => {
-                      setModelAlias(event.currentTarget.value);
+                      setNewSessionModelAlias(event.currentTarget.value);
                       setModelFeedbackTarget("selection");
                       setModelError("");
                       setModelNotice("");
                     }}
-                    value={modelAlias}
+                    value={newSessionModelAlias}
                   >
-                    <option value="">
-                      {modelCatalogState === "loading"
-                        ? "Checking active model…"
-                        : runningModels.length > 0
-                          ? `Active model · ${runningModels[0].record.display_name} · running`
-                          : "No active model running"}
-                    </option>
+                    <option value="">Choose later in chat · no model</option>
                     {(models?.models ?? []).map((model) => (
                       <option key={model.record.alias} value={model.record.alias}>
                         {model.record.display_name} · {runtimeStateLabel(model.runtime.state)}
@@ -3111,14 +3115,14 @@ export function AgentPage({
                       ? "The local app is disconnected; cached model status is not usable."
                       : modelCatalogState === "loading"
                       ? "Checking which local models are ready…"
+                      : selectedModel === null && !newSessionModelAlias
+                        ? "The chat will open without a model. Choose and start one in Model & context beside the message box."
                       : modelCatalogState === "error"
                         ? "Model status could not be refreshed. The server will verify it before the first message."
-                        : modelCatalogState === "unavailable"
+                      : modelCatalogState === "unavailable"
                           ? "Model status will be verified when the session starts."
                             : selectedModel === null
-                            ? modelAlias
-                              ? "That model is not registered. Choose an installed model."
-                              : "No model is running. You can open the chat now, then choose and start one before sending."
+                            ? "That model is not registered. Choose an installed model."
                             : selectedModel.runtime.state === "running"
                               ? `${selectedModel.record.display_name} is running and ready.`
                               : selectedModel.runtime.state === "starting"
@@ -3212,7 +3216,7 @@ export function AgentPage({
               </div>
               <p className="agent__launch-note" role="status">
                 {commandCleanupBlocked ? current ? "New Agent sessions are paused until command cleanup is confirmed." : COMMAND_CLEANUP_MESSAGE
-                  : modelCatalogState === "ready" && selectedModel === null && !modelAlias
+                  : selectedModel === null && !newSessionModelAlias
                     ? "Opening chat creates the project session now. Choose and start a model before sending the first message."
                   : selectedModelNeedsActivation && transport.activateLocalModel
                   ? "One action will start the selected model, create the session, and focus the message box."
@@ -3230,11 +3234,11 @@ export function AgentPage({
                     ? "Local app disconnected"
                     : !workspace.trim()
                       ? "Choose workspace to open chat"
-                    : modelCatalogState === "loading"
+                    : modelCatalogState === "loading" && Boolean(newSessionModelAlias)
                       ? "Checking model…"
-                      : modelCatalogState === "ready" && selectedModel === null && modelAlias
+                      : modelCatalogState === "ready" && selectedModel === null && newSessionModelAlias
                         ? "Choose an installed model"
-                        : modelCatalogState === "ready" && selectedModel === null
+                        : selectedModel === null
                           ? userPresenceAvailable ? "Open chat without model" : "Open read-only chat without model"
                         : selectedModel?.runtime.state === "starting"
                           ? "Model is starting…"
@@ -3500,10 +3504,10 @@ export function AgentPage({
                         : sessionListError
                           ? "Existing live sessions could not be determined. Retry the session list before assuming there is no open chat."
                         : !workspace.trim()
-                          ? <><span>No session yet.</span>{" "}Choose a workspace folder on the left. Then open chat; the selected model will start automatically if needed.</>
+                          ? <><span>No session yet.</span>{" "}Open New chat and enter a workspace folder. No model is required; choose one beside the message box after the chat opens.</>
                           : selectedModelUnavailableForSession
-                            ? "Choose a ready local model on the left, then open chat."
-                            : "Open chat on the left. The message box will appear here and receive focus."}
+                            ? "The optional setup model is not ready. Clear it to open without a model, or wait for it to become ready."
+                            : "Open chat now. Model & context will appear beside the message box."}
               </p>
               {windowMode && (sessionLookupState === "missing" || sessionLookupState === "error") && (
                 <a className="button button--ghost" href="/agent">Return to Agent</a>
@@ -3759,7 +3763,11 @@ export function AgentPage({
                     )}
                   {current.turns === 0 && !current.closing && !current.running && !pending && !events.some((event) => event.kind === "user" || event.kind === "assistant" || event.kind === "assistant_delta") && (
                     <p className="agent__status">
-                      {modelCatalogState === "loading"
+                      {currentModelAlias === null
+                        ? inlineRuntimeRecoveryAvailable
+                          ? "Session created. Choose, start, or bind its model in Model & context to continue."
+                          : "Session created without a model. Open Models to install one, then choose it in Model & context."
+                        : modelCatalogState === "loading"
                         ? "Session created. Checking the model before your first message…"
                         : currentModelBlocked
                           ? inlineRuntimeRecoveryAvailable
@@ -3912,7 +3920,7 @@ export function AgentPage({
                     liveSessions={sessions}
                     models={models}
                     onBusyChange={setRuntimeControlBusy}
-                    onModelSelected={selectRuntimeModel}
+                    onModelSelected={noteRuntimeModelSelection}
                     onModelsRefresh={refreshModels}
                     onRuntimeStatus={setRuntimeCoordinator}
                     onSessionUpdated={acceptRuntimeSessionUpdate}

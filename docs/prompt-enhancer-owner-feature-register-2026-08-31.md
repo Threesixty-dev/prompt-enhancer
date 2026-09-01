@@ -156,9 +156,11 @@ The remaining dependency-ordered trajectory is:
 6. **Release-01a.2b — automated complete:** interrupted downloads, artifact
    projection, MCP work and controller ownership reconcile without invented
    success; full backend/frontend/privacy/build and hidden reload gates pass.
-7. **Owner-selected Agent composer checkpoint, then Release-01a.3–01b:** put
-   model/context/media/send controls inside the focused composer, then prove
-   process cleanup, packaged Windows parity and the connected owner journey.
+7. **Owner-selected Agent composer and entry checkpoints, then Release-01a.3–01b:**
+   model/context/media/send controls now live inside the focused composer, and
+   workspace chats open model-neutral before an explicit in-chat model choice;
+   next prove process cleanup, packaged Windows parity and the connected owner
+   journey.
 
 Completed checkpoints remain regression obligations throughout this sequence.
 A failing current test reopens the owning behavior; it is never dismissed merely
