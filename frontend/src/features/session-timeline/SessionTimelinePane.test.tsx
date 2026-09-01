@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionTimeline } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
-import { SessionTimelinePane, safeTimeline } from "./SessionTimelinePane";
+import { boundedTemporalSample, SessionTimelinePane, safeTimeline } from "./SessionTimelinePane";
 
 const SESSION = "a".repeat(64);
 
@@ -39,6 +39,48 @@ describe("SessionTimelinePane", () => {
   it("validates the contract", () => {
     expect(safeTimeline(timeline())).toBe(true);
     expect(safeTimeline({ ...timeline(), contract_version: "nope" })).toBe(false);
+    expect(boundedTemporalSample([0, 1, 2, 3, 4], 3)).toEqual([0, 2, 4]);
+    expect(boundedTemporalSample([0, 1], 0)).toEqual([]);
+  });
+
+  it("bounds every SVG lane at the maximum synthetic payload", async () => {
+    const base = Date.parse("2026-03-02T09:00:00Z");
+    const turns = Array.from({ length: 2_000 }, (_, index) => ({
+      ended_at: new Date(base + index * 1_000 + 500).toISOString(),
+      index,
+      started_at: new Date(base + index * 1_000).toISOString(),
+    }));
+    const tools = Array.from({ length: 2_000 }, (_, index) => ({
+      category: index % 2 === 0 ? "test" as const : "file_read" as const,
+      duration_ms: 500,
+      ended_at: new Date(base + index * 1_000 + 750).toISOString(),
+      started_at: new Date(base + index * 1_000 + 250).toISOString(),
+      success: true,
+      verification: index % 2 === 0,
+    }));
+    const markers = Array.from({ length: 2_000 }, (_, index) => ({
+      at: new Date(base + index * 1_000).toISOString(),
+      kind: "compaction" as const,
+    }));
+    const maximum = {
+      ...timeline(),
+      counts: { events: 6_000, turns: 2_000, tools: 2_000, verifications_passed: 1_000, verifications_failed: 0, verifications_unknown: 0, tool_errors: 0 },
+      ended_at: new Date(base + 2_000_000).toISOString(),
+      markers,
+      tools,
+      turns,
+    };
+    const { container } = render(<SessionTimelinePane sessionId={SESSION} transport={{
+      getSessionTimeline: vi.fn().mockResolvedValue(maximum),
+    }} />);
+
+    await screen.findByRole("heading", { name: "What happened, when" });
+    expect(container.querySelectorAll(".session-timeline__turn")).toHaveLength(300);
+    expect(container.querySelectorAll(".session-timeline__gap")).toHaveLength(300);
+    expect(container.querySelectorAll(".session-timeline__tool")).toHaveLength(500);
+    expect(container.querySelectorAll(".session-timeline__check")).toHaveLength(200);
+    expect(container.querySelectorAll(".session-timeline__marker")).toHaveLength(200);
+    expect(screen.getByText("Drawing 1,500 of 8,000 timeline items in this view. Zoom in to reveal more local detail.")).toBeVisible();
   });
 
   it("draws turns, tools, checks and markers with honest counts", async () => {

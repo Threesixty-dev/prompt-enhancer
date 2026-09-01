@@ -9,6 +9,7 @@ import { TeamFoldersPanel } from "../../src/features/agent/TeamFoldersPanel";
 import { LocalModelsPage } from "../../src/features/local-models/LocalModelsPage";
 import { PromptCheckPage } from "../../src/features/prompt-check/PromptCheckPage";
 import { ModelJudgePane } from "../../src/features/model-judge/ModelJudgePane";
+import { SessionTimelinePane } from "../../src/features/session-timeline/SessionTimelinePane";
 import { CalibrationCasePane } from "../../src/features/calibration/CalibrationCasePane";
 import { exampleCalibrationReview } from "../../src/features/calibration/calibrationFixtures.test-support";
 import { ModelJobStatusFixture } from "./model-job-status";
@@ -41,6 +42,7 @@ const agentTurnFixture = panel === "agent-turn";
 const agentShellFixture = panel === "agent-shell";
 const agentMcpStoreFixture = panel === "agent-mcp-store";
 const agentMcpStoreHostileFixture = agentMcpStoreFixture && parameters.get("state") === "hostile";
+const agentMcpStoreScaleFixture = agentMcpStoreFixture && parameters.get("state") === "scale";
 const agentMcpProjectToolsFixture = panel === "agent-mcp-project-tools";
 const agentMcpCallFixture = panel === "agent-mcp-call";
 const agentMcpCallCompletedFixture = agentMcpCallFixture && parameters.get("state") === "completed";
@@ -139,6 +141,20 @@ const mcpStoreHostileCatalog: McpRegistryCatalog = {
     icon: null,
   }],
   next_cursor: "hostile-cursor",
+};
+const mcpStoreScaleCatalog: McpRegistryCatalog = {
+  ...mcpStoreCatalog,
+  servers: Array.from({ length: 120 }, (_, index) => ({
+    ...mcpStoreCatalog.servers[0],
+    catalog_id: index.toString(16).padStart(32, "0"),
+    presentation_revision: index.toString(16).padStart(64, "0"),
+    name: `com.example/synthetic-scale-${index.toString().padStart(3, "0")}`,
+    title: `Synthetic scale server ${index.toString().padStart(3, "0")}`,
+    description: `Fictional bounded-rendering MCP server ${index}.`,
+    icon: null,
+    repository_url: null,
+    updated_at: new Date(Date.parse(at) + index * 1_000).toISOString(),
+  })),
 };
 const mcpStoreReview: McpRegistryServerReview = {
   ...mcpStoreBaseReview,
@@ -980,7 +996,7 @@ const transport = {
             ...mcpStoreHostileCatalog,
             next_cursor: query.cursor ?? mcpStoreHostileCatalog.next_cursor,
           }
-        : mcpStoreCatalog
+        : agentMcpStoreScaleFixture ? mcpStoreScaleCatalog : mcpStoreCatalog
     ),
     getMcpRegistryServerReview: async () => mcpStoreReview,
     listMcpManagedServers: async () => syntheticMcpManagedServerList([
@@ -1769,6 +1785,30 @@ const liveTimeline: SessionTimeline = {
   counts: { events: 4, turns: 1, tools: 1, verifications_passed: 0, verifications_failed: 0, verifications_unknown: 0, tool_errors: 0 },
 };
 const liveTransport = { ...createSyntheticTransport(), getSessionTimeline: async () => liveTimeline };
+const scaleTimelineBase = Date.parse(at);
+const scaleTimeline: SessionTimeline = {
+  ...liveTimeline,
+  counts: { events: 6_000, turns: 2_000, tools: 2_000, verifications_passed: 1_000, verifications_failed: 0, verifications_unknown: 0, tool_errors: 0 },
+  ended_at: new Date(scaleTimelineBase + 2_000_000).toISOString(),
+  markers: Array.from({ length: 2_000 }, (_, index) => ({
+    at: new Date(scaleTimelineBase + index * 1_000).toISOString(),
+    kind: "compaction" as const,
+  })),
+  tools: Array.from({ length: 2_000 }, (_, index) => ({
+    category: index % 2 === 0 ? "test" as const : "file_read" as const,
+    duration_ms: 500,
+    ended_at: new Date(scaleTimelineBase + index * 1_000 + 750).toISOString(),
+    started_at: new Date(scaleTimelineBase + index * 1_000 + 250).toISOString(),
+    success: true,
+    verification: index % 2 === 0,
+  })),
+  turns: Array.from({ length: 2_000 }, (_, index) => ({
+    ended_at: new Date(scaleTimelineBase + index * 1_000 + 500).toISOString(),
+    index,
+    started_at: new Date(scaleTimelineBase + index * 1_000).toISOString(),
+  })),
+};
+const scaleTimelineTransport = { getSessionTimeline: async () => scaleTimeline };
 
 const judgeSessionId = "e".repeat(64);
 const judgeProtocol = "judge-v4-complete-json-anchor-15k";
@@ -2317,6 +2357,7 @@ fixtureRoot.render(
     {panel === "editor-inspection" && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={inspectionEditorTransport} userPresenceAvailable />}
     {editorWriteFailure && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={writeFailureEditorTransport} userPresenceAvailable />}
     {panel === "live" && <LiveMiniWindow projectId={SYNTHETIC_QUALITY_PROJECT_ID} sessionId={SYNTHETIC_QUALITY_SESSION_ID} transport={liveTransport} />}
+    {panel === "scale-timeline" && <SessionTimelinePane sessionId={SYNTHETIC_QUALITY_SESSION_ID} transport={scaleTimelineTransport} />}
     {panel === "team-folders" && <TeamFoldersPanel transport={transport} />}
     {panel === "prompt-check" && <PromptCheckPage transport={transport} navigate={() => undefined} />}
     {panel === "judge-completion" && <ModelJudgePane sessionId={judgeSessionId} transport={judgeTransport} />}

@@ -316,6 +316,33 @@ afterEach(() => {
 });
 
 describe("AgentArtifactsPanel", () => {
+  it("keeps a maximum returned artifact collection on exact bounded pages", () => {
+    const artifacts = Array.from({ length: 120 }, (_, index) => {
+      const artifactId = (index + 10).toString(16).padStart(32, "0");
+      const versionId = (index + 500).toString(16).padStart(32, "0");
+      return artifact({
+        artifact_id: artifactId,
+        title: `Synthetic artifact ${index.toString().padStart(3, "0")}`,
+        path: `output/artifact-${index.toString().padStart(3, "0")}.md`,
+        latest_version: {
+          ...artifact().latest_version,
+          artifact_id: artifactId,
+          version_id: versionId,
+          path: `output/artifact-${index.toString().padStart(3, "0")}.md`,
+        },
+      });
+    });
+    renderPanel({ artifacts });
+
+    expect(screen.getAllByRole("article")).toHaveLength(50);
+    expect(screen.getByText("Showing 1–50 of 120")).toBeVisible();
+    expect(screen.getByText("Synthetic artifact 000")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    expect(screen.getByText("Showing 51–100 of 120")).toBeVisible();
+    expect(screen.queryByText("Synthetic artifact 000")).not.toBeInTheDocument();
+    expect(screen.getByText("Synthetic artifact 050")).toBeVisible();
+  });
+
   it("opens the exact producing turn and reports when retained history cannot supply it", () => {
     const onOpenSourceTurn = vi.fn<(turnId: string) => boolean>()
       .mockReturnValueOnce(true)

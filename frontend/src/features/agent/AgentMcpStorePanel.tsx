@@ -11,6 +11,7 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { TabList, tabId, tabPanelId, type TabDescriptor } from "../../shared/ui/Tabs";
 import { AgentMcpManagedPlanView } from "./AgentMcpManagedPlanView";
 import "./AgentMcpStorePanel.css";
@@ -68,6 +69,7 @@ type StoreFailure =
   | "request_failed";
 
 const MAX_CATALOG_PAGES = 32;
+const CATALOG_RENDER_PAGE_SIZE = 48;
 
 const MCP_STORE_VIEWS: readonly TabDescriptor<StoreView>[] = [
   { id: "browse", label: "Browse servers" },
@@ -893,6 +895,12 @@ export function AgentMcpStorePanel({
         || left.title.localeCompare(right.title, "en", { sensitivity: "base" });
     });
   }, [catalog, filter, managedByCatalog, sort]);
+  const visiblePage = useBoundedListPage({
+    itemCount: visible.length,
+    pageSize: CATALOG_RENDER_PAGE_SIZE,
+    resetKey: `${appliedSearch}\u0000${filter}\u0000${sort}\u0000${attempt}`,
+  });
+  const renderedServers = visible.slice(visiblePage.start, visiblePage.end);
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1055,17 +1063,20 @@ export function AgentMcpStorePanel({
                       {catalog.source.delivery === "cached" && <span>Offline fallback · {catalog.source.cache_age_seconds}s old · exact review may need the Registry</span>}
                     </div>
                     {visible.length > 0 ? (
-                      <div className="agent-mcp-store__grid">
-                        {visible.map((server) => (
-                          <McpServerCard
-                            key={server.catalog_id}
-                            managed={managedByCatalog.get(server.catalog_id) ?? null}
-                            onReview={openReview}
-                            reviewAvailable={transport.getMcpRegistryServerReview !== undefined}
-                            server={server}
-                          />
-                        ))}
-                      </div>
+                      <>
+                        <div className="agent-mcp-store__grid">
+                          {renderedServers.map((server) => (
+                            <McpServerCard
+                              key={server.catalog_id}
+                              managed={managedByCatalog.get(server.catalog_id) ?? null}
+                              onReview={openReview}
+                              reviewAvailable={transport.getMcpRegistryServerReview !== undefined}
+                              server={server}
+                            />
+                          ))}
+                        </div>
+                        <BoundedListPager label="Loaded MCP server pages" page={visiblePage} />
+                      </>
                     ) : catalog.servers.length === 0 ? (
                       <div className="agent-mcp-store__state">
                         <strong>{appliedSearch ? `No Registry servers matched “${appliedSearch}”.` : "The Registry returned no servers for this page."}</strong>

@@ -10,6 +10,7 @@ import { TransportError } from "../../shared/api/httpTransport";
 import type { AppRoute } from "../../shared/platform/platform";
 import { isPseudonym } from "../../shared/platform/platform";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
+import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { Icon } from "../../shared/ui/Icon";
 import { openLiveWindow } from "../live-window/LiveMiniWindow";
 import { MetricCoveragePanel } from "../metric-coverage";
@@ -20,6 +21,8 @@ import {
 } from "./ProjectComparison";
 
 type ProjectSort = "recent" | "name" | "sessions";
+
+const PROJECT_RENDER_PAGE = 30;
 
 interface ProjectCatalogItem {
   projectId: string;
@@ -335,6 +338,11 @@ export function ProjectCatalog({
       (projectId) => !visibleProjectIds.has(projectId),
     ).length;
   }, [projects, selectedProjectIds]);
+  const projectPage = useBoundedListPage({
+    itemCount: projects.length,
+    pageSize: PROJECT_RENDER_PAGE,
+    resetKey: `${query.trim().toLocaleLowerCase()}:${sort}:${retryKey}`,
+  });
 
   function toggleProject(projectId: string, checked: boolean) {
     if (comparisonLoading) return;
@@ -503,7 +511,7 @@ export function ProjectCatalog({
         </div>
       ) : (
         <div className="project-catalog__grid">
-          {projects.map((project) => (
+          {projects.slice(projectPage.start, projectPage.end).map((project) => (
             <article
               className={
                 selectedProjectIds.has(project.projectId)
@@ -570,6 +578,7 @@ export function ProjectCatalog({
           ))}
         </div>
       )}
+      <BoundedListPager label="Project catalog pages" page={projectPage} />
       {sessions !== null && (
         <p className="project-catalog__boundary" role="note">
           This view reads at most 100 sessions from Prompt Enhancer's stored index. It

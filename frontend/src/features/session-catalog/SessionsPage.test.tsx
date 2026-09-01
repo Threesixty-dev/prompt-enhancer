@@ -112,6 +112,29 @@ describe("SessionsPage", () => {
     expect(screen.queryByRole("button", { name: "Load next 100 sessions" })).not.toBeInTheDocument();
   });
 
+  it("keeps a thousand loaded sessions on fixed render pages", async () => {
+    const rows = Array.from({ length: 1000 }, (_, index) => ({
+      ...ROWS[0],
+      session_id: (index + 1).toString(16).padStart(64, "0"),
+      session_display_name: `Synthetic session ${index.toString().padStart(4, "0")}`,
+      started_at: new Date(Date.parse("2040-01-01T00:00:00Z") + index * 1000).toISOString(),
+    }));
+    const listCodexSessions = vi.fn(async (limit: number, offset: number) => ({
+      sessions: rows.slice(offset, offset + limit),
+      limit,
+      offset,
+    }));
+    render(<SessionsPage navigate={vi.fn()} transport={{ listCodexSessions }} />);
+
+    const pager = await screen.findByRole("navigation", { name: "Stored session pages" }, { timeout: 5_000 });
+    expect(within(pager).getByText("Showing 1–50 of 1,000")).toBeVisible();
+    expect(screen.getAllByRole("listitem")).toHaveLength(50);
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    expect(screen.getByText("Showing 51–100 of 1,000")).toBeVisible();
+    expect(screen.queryByText("Synthetic session 0999")).not.toBeInTheDocument();
+    expect(screen.getByText("Synthetic session 0949")).toBeVisible();
+  });
+
   it("does not point an empty synthetic preview at an unavailable source page", async () => {
     render(<SessionsPage navigate={vi.fn()} runtimeMode="synthetic_demo" transport={transportWith([])} />);
     expect(await screen.findByText(/This synthetic preview has no session fixtures/)).toBeVisible();

@@ -1241,6 +1241,40 @@ describe("AgentWorkspacePane", () => {
     expect(api.getAgentWorkspaceFile).not.toHaveBeenCalled();
   });
 
+  it("keeps a maximum folder page bounded while revealing a late requested path", async () => {
+    const api = transport();
+    api.getAgentWorkspaceTree.mockImplementation(async (sessionId: string, path: string) => ({
+      contract_version: "local-agent-workspace.v1" as const,
+      session_id: sessionId,
+      path,
+      entries: Array.from({ length: 400 }, (_, index) => ({
+        path: `file-${index.toString().padStart(3, "0")}.txt`,
+        name: `file-${index.toString().padStart(3, "0")}.txt`,
+        kind: "file" as const,
+        byte_size: 10,
+        editable_candidate: true,
+      })),
+      complete: true,
+    }));
+    render(<AgentWorkspacePane
+      fileRequest={{
+        sessionId: SESSION,
+        path: "file-399.txt",
+        requestId: 99,
+        intent: "reveal",
+      }}
+      pendingWrite={null}
+      sessionId={SESSION}
+      transport={api}
+    />);
+
+    const late = await screen.findByRole("button", { name: "file-399.txt" });
+    expect(late.closest("li")).toHaveAttribute("aria-current", "location");
+    expect(screen.getByText("Showing 351–400 of 400")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "file-000.txt" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("listitem").filter((item) => item.closest(".agent-workspace__tree"))).toHaveLength(50);
+  });
+
   it("navigates to a nested artifact parent for reveal while retaining an unsaved editor draft", async () => {
     const api = transport();
     api.getAgentWorkspaceTree.mockImplementation(async (sessionId: string, path: string) => ({

@@ -309,4 +309,39 @@ describe("AgentWorkspaceDiscoveryPanel", () => {
     expect(rootChanged).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("EXAMPLE_PRIVATE_ROOT")).not.toBeInTheDocument();
   });
+
+  it("keeps maximum discovery and Git payloads on bounded, independently navigable pages", async () => {
+    const files = Array.from({ length: 400 }, (_, index) => ({
+      path: `src/file-${index.toString().padStart(3, "0")}.ts`,
+      byte_size: index + 1,
+      editable_candidate: true,
+    }));
+    const changes = files.map((file) => ({
+      path: file.path,
+      kind: "modified" as const,
+      staged: false,
+      unstaged: true,
+    }));
+    render(<AgentWorkspaceDiscoveryPanel
+      fileActionsDisabled={false}
+      refreshKey="synthetic-large"
+      sessionId={SESSION}
+      transport={{ getAgentWorkspaceDiscovery: vi.fn().mockResolvedValue(discovery({
+        scanned_entry_count: 400,
+        observed_file_count: 400,
+        files,
+        git_change_count: 400,
+        git_changes: changes,
+      })) }}
+    />);
+
+    await screen.findByText("400 files observed · 400 entries inspected");
+    expect(within(screen.getByRole("list", { name: "Mapped workspace files" })).getAllByRole("listitem")).toHaveLength(50);
+    expect(within(screen.getByRole("list", { name: "Git changes" })).getAllByRole("listitem")).toHaveLength(50);
+    expect(screen.getAllByText("Showing 1–50 of 400")).toHaveLength(2);
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Mapped workspace file pages" })).getByRole("button", { name: "Later" }));
+    expect(screen.getByText("Showing 51–100 of 400")).toBeVisible();
+    expect(within(screen.getByRole("list", { name: "Mapped workspace files" })).getByText("src/file-050.ts")).toBeVisible();
+    expect(within(screen.getByRole("list", { name: "Git changes" })).getByText("src/file-000.ts")).toBeVisible();
+  });
 });

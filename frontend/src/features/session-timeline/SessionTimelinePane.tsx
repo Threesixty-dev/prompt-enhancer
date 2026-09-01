@@ -27,6 +27,11 @@ const MARKER_LABEL: Record<string, string> = {
   permission_change: "permission change",
   session_end: "session end",
 };
+const MAX_DRAWN_TURNS = 300;
+const MAX_DRAWN_GAPS = 300;
+const MAX_DRAWN_TOOLS = 500;
+const MAX_DRAWN_CHECKS = 200;
+const MAX_DRAWN_MARKERS = 200;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -56,6 +61,29 @@ function formatTokens(value: number | null | undefined): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
   return String(value);
+}
+
+/** Preserve both ends and evenly sample the middle without changing source order. */
+export function boundedTemporalSample<T>(items: readonly T[], limit: number): T[] {
+  const safeLimit = Math.max(0, Math.floor(limit));
+  if (safeLimit === 0 || items.length === 0) return [];
+  if (items.length <= safeLimit) return [...items];
+  if (safeLimit === 1) return [items[0]];
+  const last = items.length - 1;
+  return Array.from({ length: safeLimit }, (_, index) => (
+    items[Math.round(index * last / (safeLimit - 1))]
+  ));
+}
+
+function firstAtOrAfter(sorted: readonly number[], target: number): number | undefined {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (sorted[middle] < target) low = middle + 1;
+    else high = middle;
+  }
+  return sorted[low];
 }
 
 /** Greedy row packing so overlapping spans stack into rows instead of overplotting. */
@@ -165,7 +193,7 @@ export function SessionTimelinePane({
     const gaps = timeline.turns.flatMap((turn) => {
       const at = Date.parse(turn.started_at);
       if (!Number.isFinite(at)) return [];
-      const next = toolStarts.find((t) => t >= at);
+      const next = firstAtOrAfter(toolStarts, at);
       if (next === undefined || next <= at) return [];
       return [{ start: at, end: next, ms: next - at }];
     });
@@ -209,15 +237,42 @@ export function SessionTimelinePane({
 
   const categories = [...new Set(timeline.tools.filter((tool) => !tool.verification).map((tool) => tool.category))];
   const visibleTools = timeline.tools.filter((tool) => tool.verification || !hidden.has(tool.category));
-  const plainTools = visibleTools
+  const turnCandidates = timeline.turns
+    .map((turn) => ({
+      end: turn.ended_at ? Date.parse(turn.ended_at) : Date.parse(turn.started_at) + 1,
+      start: Date.parse(turn.started_at),
+      turn,
+    }))
+    .filter((item) => Number.isFinite(item.start) && inView(item.start, item.end));
+  const gapCandidates = model.gaps.filter((gap) => inView(gap.start, gap.end));
+  const plainToolCandidates = visibleTools
     .filter((tool) => !tool.verification)
     .map((tool) => ({ tool, start: Date.parse(tool.started_at), end: Math.max(Date.parse(tool.ended_at ?? tool.started_at), Date.parse(tool.started_at) + 1) }))
-    .filter((item) => Number.isFinite(item.start))
+    .filter((item) => Number.isFinite(item.start) && inView(item.start, item.end))
     .sort((a, b) => a.start - b.start);
+  const verificationCandidates = visibleTools
+    .filter((tool) => tool.verification)
+    .map((tool) => ({
+      end: Math.max(Date.parse(tool.ended_at ?? tool.started_at), Date.parse(tool.started_at) + 1),
+      start: Date.parse(tool.started_at),
+      tool,
+    }))
+    .filter((item) => Number.isFinite(item.start) && inView(item.start, item.end));
+  const markerCandidates = timeline.markers
+    .map((marker) => ({ at: Date.parse(marker.at), marker }))
+    .filter((item) => Number.isFinite(item.at) && inView(item.at, item.at));
+  const drawnTurns = boundedTemporalSample(turnCandidates, MAX_DRAWN_TURNS);
+  const drawnGaps = boundedTemporalSample(gapCandidates, MAX_DRAWN_GAPS);
+  const plainTools = boundedTemporalSample(plainToolCandidates, MAX_DRAWN_TOOLS);
+  const verifications = boundedTemporalSample(verificationCandidates, MAX_DRAWN_CHECKS);
+  const drawnMarkers = boundedTemporalSample(markerCandidates, MAX_DRAWN_MARKERS);
   const toolRowCount = Math.min(4, Math.max(1, plainTools.length ? 4 : 1));
   const rows = packRows(plainTools, toolRowCount);
   const usedRows = plainTools.length ? Math.max(...rows) + 1 : 1;
-  const verifications = visibleTools.filter((tool) => tool.verification);
+  const eligibleDrawCount = turnCandidates.length + gapCandidates.length + plainToolCandidates.length
+    + verificationCandidates.length + markerCandidates.length;
+  const drawnCount = drawnTurns.length + drawnGaps.length + plainTools.length
+    + verifications.length + drawnMarkers.length;
 
   const lanes: { key: string; label: string; height: number }[] = [
     { key: "turns", label: "Turns", height: laneHeight },
@@ -352,7 +407,7 @@ export function SessionTimelinePane({
         className="session-timeline__chart"
         ref={chartRef}
         role="group"
-        aria-label={`Timeline with ${counts.turns} turns, ${counts.tools} tool calls and ${verifications.length} checks. Drag horizontally to zoom, or use plus and minus to zoom, Left and Right arrows to move, and Home to reset.`}
+        aria-label={`Timeline with ${counts.turns} turns, ${counts.tools} tool calls and ${verificationCandidates.length} checks in this view. Drag horizontally to zoom, or use plus and minus to zoom, Left and Right arrows to move, and Home to reset.`}
         tabIndex={0}
         onKeyDown={handleChartKeyDown}
         onPointerDown={(event) => { if (event.button === 0) { event.currentTarget.setPointerCapture(event.pointerId); beginBrush(event.clientX); } }}
@@ -365,20 +420,16 @@ export function SessionTimelinePane({
           {ticks.map((tick) => (
             <line key={tick} className="session-timeline__grid" x1={tick * width} x2={tick * width} y1={6} y2={height - 10} />
           ))}
-          {timeline.turns.map((turn) => {
-            const startMs = Date.parse(turn.started_at);
-            const endMs = turn.ended_at ? Date.parse(turn.ended_at) : startMs + 1;
-            if (!Number.isFinite(startMs) || !inView(startMs, endMs)) return null;
-            const x1 = x(startMs) * width;
-            const x2 = x(endMs) * width;
+          {drawnTurns.map(({ end, start, turn }) => {
+            const x1 = x(start) * width;
+            const x2 = x(end) * width;
             return (
               <rect key={`turn-${turn.index}`} className="session-timeline__turn" x={x1} y={laneTop("turns")} width={Math.max(3, x2 - x1)} height={laneHeight} rx={3}>
-                <title>{`Turn ${turn.index + 1}${turn.ended_at ? ` · ${formatDuration(endMs - startMs)}` : ""} · ${new Date(startMs).toLocaleTimeString()}`}</title>
+                <title>{`Turn ${turn.index + 1}${turn.ended_at ? ` · ${formatDuration(end - start)}` : ""} · ${new Date(start).toLocaleTimeString()}`}</title>
               </rect>
             );
           })}
-          {model.gaps.map((gap, index) => {
-            if (!inView(gap.start, gap.end)) return null;
+          {drawnGaps.map((gap, index) => {
             const x1 = x(gap.start) * width;
             const x2 = x(gap.end) * width;
             return (
@@ -388,7 +439,6 @@ export function SessionTimelinePane({
             );
           })}
           {plainTools.map((item, index) => {
-            if (!inView(item.start, item.end)) return null;
             const x1 = x(item.start) * width;
             const x2 = x(item.end) * width;
             const failed = item.tool.success === false;
@@ -407,18 +457,15 @@ export function SessionTimelinePane({
               </rect>
             );
           })}
-          {verifications.map((tool, index) => {
-            const startMs = Date.parse(tool.started_at);
-            const endMs = Math.max(Date.parse(tool.ended_at ?? tool.started_at), startMs + 1);
-            if (!Number.isFinite(startMs) || !inView(startMs, endMs)) return null;
+          {verifications.map(({ end, start, tool }, index) => {
             const tone = tool.success === false ? "failed" : tool.success === true ? "passed" : "unknown";
             return (
               <rect
                 key={`check-${index}`}
                 className={`session-timeline__check session-timeline__check--${tone}`}
-                x={x(startMs) * width}
+                x={x(start) * width}
                 y={laneTop("checks")}
-                width={Math.max(3, (x(endMs) - x(startMs)) * width)}
+                width={Math.max(3, (x(end) - x(start)) * width)}
                 height={laneHeight}
                 rx={3}
               >
@@ -426,9 +473,7 @@ export function SessionTimelinePane({
               </rect>
             );
           })}
-          {timeline.markers.map((marker, index) => {
-            const at = Date.parse(marker.at);
-            if (!Number.isFinite(at) || !inView(at, at)) return null;
+          {drawnMarkers.map(({ at, marker }, index) => {
             return (
               <g key={`marker-${index}`} className={`session-timeline__marker session-timeline__marker--${marker.kind}`}>
                 <line x1={x(at) * width} x2={x(at) * width} y1={laneTop("markers")} y2={laneTop("markers") + laneHeight} />
@@ -444,6 +489,11 @@ export function SessionTimelinePane({
           {lanes.map((lane) => <li key={lane.key} style={{ height: lane.height + 10 }}>{lane.label}</li>)}
         </ol>
       </div>
+      <p className="session-timeline__note" data-bounded={drawnCount < eligibleDrawCount ? "true" : "false"}>
+        {drawnCount < eligibleDrawCount
+          ? `Drawing ${drawnCount.toLocaleString("en-US")} of ${eligibleDrawCount.toLocaleString("en-US")} timeline items in this view. Zoom in to reveal more local detail.`
+          : `Drawing all ${drawnCount.toLocaleString("en-US")} timeline items in this view.`}
+      </p>
       <p className="session-timeline__axis" aria-hidden="true">
         <span>{new Date(viewStart).toLocaleTimeString()}</span>
         <span>{formatDuration(viewSpan)}{view ? " (zoomed)" : ""}</span>

@@ -7,7 +7,10 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import "./AgentWorkspaceDiscoveryPanel.css";
+
+const DISCOVERY_PAGE_SIZE = 50;
 
 type DiscoveryTransport = Partial<Pick<
   PromptEnhancerTransport,
@@ -144,6 +147,23 @@ export function AgentWorkspaceDiscoveryPanel({
     !normalizedQuery || file.path.toLocaleLowerCase().includes(normalizedQuery)
   )) ?? [], [normalizedQuery, snapshot]);
   const fileByPath = useMemo(() => new Map(snapshot?.files.map((file) => [file.path, file]) ?? []), [snapshot]);
+  const filePage = useBoundedListPage({
+    itemCount: visibleFiles.length,
+    pageSize: DISCOVERY_PAGE_SIZE,
+    resetKey: `${sessionId}:${String(refreshKey)}:files:${normalizedQuery}`,
+  });
+  const gitChanges = snapshot?.git_changes ?? [];
+  const gitPage = useBoundedListPage({
+    itemCount: gitChanges.length,
+    pageSize: DISCOVERY_PAGE_SIZE,
+    resetKey: `${sessionId}:${String(refreshKey)}:git`,
+  });
+  const searchMatches = searchResult?.matches ?? [];
+  const searchPage = useBoundedListPage({
+    itemCount: searchMatches.length,
+    pageSize: DISCOVERY_PAGE_SIZE,
+    resetKey: `${sessionId}:search:${contentQuery}:${globPattern}:${String(regexSearch)}:${searchResult?.match_count ?? 0}`,
+  });
 
   function canOpen(file: AgentWorkspaceDiscoveryFile | undefined, change?: AgentWorkspaceGitChange): boolean {
     return Boolean(
@@ -253,7 +273,7 @@ export function AgentWorkspaceDiscoveryPanel({
             ? "No application-readable files were found in the selected folder."
             : "No file could be shown; partial coverage does not establish that the folder is empty."}
       </p> : <ul aria-label="Mapped workspace files" className="agent-discovery__files">
-        {visibleFiles.map((file) => <li key={file.path}>
+        {visibleFiles.slice(filePage.start, filePage.end).map((file) => <li key={file.path}>
           <span>
             <code>{file.path}</code>
             <small>{bytes(file.byte_size)} · {file.editable_candidate ? "Editable text candidate" : "Read-only in this editor"}</small>
@@ -267,6 +287,7 @@ export function AgentWorkspaceDiscoveryPanel({
           >Open</button>
         </li>)}
       </ul>}
+      <BoundedListPager label="Mapped workspace file pages" page={filePage} />
 
       <section aria-label="Workspace text search" className="agent-discovery__content-search">
         <header>
@@ -333,7 +354,7 @@ export function AgentWorkspaceDiscoveryPanel({
             {searchResult.reasons.map((reason) => <span key={reason}>{reason}</span>)}
           </div>}
           {searchResult.matches.length === 0 ? <p>No match was found in the inspected UTF-8 text scope.</p> : <ul aria-label="Workspace search results" className="agent-discovery__results">
-            {searchResult.matches.map((match) => {
+            {searchMatches.slice(searchPage.start, searchPage.end).map((match) => {
               const file = fileByPath.get(match.path);
               return <li key={`${match.path}:${match.line_number}`}>
                 <span>
@@ -350,6 +371,7 @@ export function AgentWorkspaceDiscoveryPanel({
               </li>;
             })}
           </ul>}
+          <BoundedListPager label="Workspace search result pages" page={searchPage} />
         </>}
       </section>
 
@@ -370,7 +392,7 @@ export function AgentWorkspaceDiscoveryPanel({
             {snapshot.git_reasons.map((reason) => <span key={reason}>{GIT_REASON[reason]}</span>)}
           </div>}
           {snapshot.git_changes.length === 0 ? <p>The supported repository currently reports no changes.</p> : <ul aria-label="Git changes" className="agent-discovery__changes">
-            {snapshot.git_changes.map((change) => {
+            {gitChanges.slice(gitPage.start, gitPage.end).map((change) => {
               const file = fileByPath.get(change.path);
               return <li key={change.path}>
                 <span className="agent-discovery__change-kind" data-kind={change.kind}>{CHANGE_KIND[change.kind]}</span>
@@ -385,6 +407,7 @@ export function AgentWorkspaceDiscoveryPanel({
               </li>;
             })}
           </ul>}
+          <BoundedListPager label="Git change pages" page={gitPage} />
         </>}
       </section>
 

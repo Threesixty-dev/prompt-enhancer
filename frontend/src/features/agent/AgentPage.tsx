@@ -3545,6 +3545,7 @@ export function AgentPage({
                     historyGap={historyGap}
                     onOpenFile={openReceiptFile}
                     running={current.running}
+                    scopeKey={current.session_id}
                     turnCount={current.turns}
                   />
                   {historyGap && <p className="agent__status" role="status">Earlier in-memory events expired; completed replies below remain authoritative.</p>}

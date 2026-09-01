@@ -14,6 +14,7 @@ import type {
 } from "../../shared/api/contracts";
 import { AGENT_WORKSPACE_MAX_FILE_BYTES } from "../../shared/api/agentWorkspaceContract";
 import { TransportError } from "../../shared/api/httpTransport";
+import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { Dialog } from "../../shared/ui/Dialog";
 import { AgentWorkspaceDiscoveryPanel } from "./AgentWorkspaceDiscoveryPanel";
 import { AgentArtifactCaptureDialog } from "./AgentArtifactCaptureDialog";
@@ -44,6 +45,8 @@ type WorkspaceTransport = Pick<
   | "previewAgentArtifactCapture"
   | "captureAgentArtifact"
 >>;
+
+const WORKSPACE_TREE_PAGE_SIZE = 50;
 
 type TransactionDraftBase = {
   path: string;
@@ -329,6 +332,16 @@ export function AgentWorkspacePane({
   const [message, setMessage] = useState("");
   const [notice, setNotice] = useState("");
   const [revealedPath, setRevealedPath] = useState<string | null>(null);
+  const treeEntries = tree?.entries ?? [];
+  const revealedIndex = revealedPath === null
+    ? null
+    : treeEntries.findIndex((entry) => entry.path === revealedPath);
+  const treePage = useBoundedListPage({
+    itemCount: treeEntries.length,
+    pageSize: WORKSPACE_TREE_PAGE_SIZE,
+    preferredIndex: revealedIndex !== null && revealedIndex >= 0 ? revealedIndex : null,
+    resetKey: `${sessionId}:${folder}:${treeRetry}`,
+  });
   const [discardPrompt, setDiscardPrompt] = useState<DiscardPrompt | null>(null);
   const [artifactCapturePath, setArtifactCapturePath] = useState<string | null>(null);
   const activeSession = useRef(sessionId);
@@ -1833,7 +1846,7 @@ export function AgentWorkspacePane({
         {tree?.entries.length === 0 && <p className="agent__note">{tree.complete ? "This folder is empty." : "No entries could be shown; this does not establish that the folder is empty."}</p>}
         {tree && (
           <ul>
-            {tree.entries.map((entry) => (
+            {treeEntries.slice(treePage.start, treePage.end).map((entry) => (
               <li
                 aria-current={entry.path === revealedPath ? "location" : undefined}
                 data-kind={entry.kind}
@@ -1867,6 +1880,7 @@ export function AgentWorkspacePane({
             ))}
           </ul>
         )}
+        <BoundedListPager label="Workspace folder pages" page={treePage} />
         {tree && !tree.complete && <p className="agent__note" role="status">This bounded folder view is incomplete; at most the first 400 representable entries are shown.</p>}
       </div>
 

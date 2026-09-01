@@ -127,7 +127,7 @@ No status means “probably works.” Unknown evidence remains pending.
 | UX-03 | One icon, typography, spacing, focus and status system replaces repeated or misleading visual language. | Token/component audit, contrast and state snapshot tests. | Sweep-01b | Automated type, spacing, icon, status, action and settled-contrast matrices complete; owner review pending |
 | UX-04 | Keyboard, screen-reader, forced-colors, contrast and reduced-motion behavior are first-class correctness requirements. | Automated accessibility plus manual keyboard matrix on every primary journey. | Sweep-01b | Automated matrix complete at four widths and both themes; owner manual keyboard review pending |
 | UX-05 | Loading, empty, offline, unavailable, approval, retry, stale, error and cleanup-uncertain states are explicit and recoverable. | State inventory and failure-injection browser tests. | Sweep-01a/01b | Automated state, recovery, hierarchy and accessibility review complete; owner review pending |
-| UX-06 | Long chats, catalogs, file trees, artifacts and event streams stay responsive and do not reorder or lose selection. | Bounded stress, pagination/virtualization, cancellation, stale-response and layout-shift budgets. | Sweep-01c | Pending |
+| UX-06 | Long chats, catalogs, file trees, artifacts and event streams stay responsive and do not reorder or lose selection. | Bounded stress, pagination/virtualization, cancellation, stale-response and layout-shift budgets. | Sweep-01c | 01c.1 bounded rendering automated complete; 01c.2 durable paging next |
 
 ## I. Privacy, packaging and release
 

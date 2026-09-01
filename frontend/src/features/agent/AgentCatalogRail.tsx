@@ -15,8 +15,11 @@ import type {
   UpdateAgentCatalogSession,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { connectAgentCatalogSync, type AgentCatalogSync } from "./agentWindowChannel";
 import "./AgentCatalogRail.css";
+
+const CATALOG_RENDER_PAGE = 40;
 
 type CatalogTransport = Pick<
   PromptEnhancerTransport,
@@ -233,6 +236,26 @@ export function AgentCatalogRail({
     [projects],
   );
   const normalizedSearch = search.trim();
+  const projectItems = projects ?? [];
+  const selectedProjectIndex = selectedProjectId === null
+    ? null
+    : projectItems.findIndex((project) => project.project_id === selectedProjectId);
+  const projectPage = useBoundedListPage({
+    itemCount: projectItems.length,
+    pageSize: CATALOG_RENDER_PAGE,
+    preferredIndex: selectedProjectIndex !== null && selectedProjectIndex >= 0 ? selectedProjectIndex : null,
+    resetKey: `${normalizedSearch}:${String(includeArchived)}:${refreshKey}:${refreshNonce}:projects`,
+  });
+  const sessionItems = catalogSessions ?? [];
+  const selectedSessionIndex = currentSessionId === undefined
+    ? null
+    : sessionItems.findIndex((session) => session.session_id === currentSessionId);
+  const sessionPage = useBoundedListPage({
+    itemCount: sessionItems.length,
+    pageSize: CATALOG_RENDER_PAGE,
+    preferredIndex: selectedSessionIndex !== null && selectedSessionIndex >= 0 ? selectedSessionIndex : null,
+    resetKey: `${selectedProjectId ?? "all"}:${normalizedSearch}:${String(includeArchived)}:${refreshKey}:${refreshNonce}:sessions`,
+  });
 
   const refresh = useCallback(() => setRefreshNonce((value) => value + 1), []);
 
@@ -701,7 +724,7 @@ export function AgentCatalogRail({
       <div className="agent-rail__project-list" role="list" aria-label="Projects">
         {projects === null ? <p role="status">Loading projects…</p> : projects.length === 0 ? (
           <p>No project matches this view. Create one, or start a chat to use Personal workspace.</p>
-        ) : projects.map((project) => (
+        ) : projectItems.slice(projectPage.start, projectPage.end).map((project) => (
           <div
             className="agent-rail__project"
             data-archived={project.archived_at ? "true" : undefined}
@@ -730,6 +753,7 @@ export function AgentCatalogRail({
           </div>
         ))}
       </div>
+      <BoundedListPager label="Agent project pages" page={projectPage} />
 
       <section aria-labelledby="agent-rail-chats" className="agent-rail__chat-section">
         <div className="agent-rail__section-head">
@@ -741,7 +765,7 @@ export function AgentCatalogRail({
             : catalogSessions.length === 0 ? <p>{normalizedSearch ? "No chat matches your search." : "No chat matches this view."}</p>
               : (
                 <ul className="agent-rail__sessions">
-                  {catalogSessions.map((session) => {
+                  {sessionItems.slice(sessionPage.start, sessionPage.end).map((session) => {
                     const live = liveById.get(session.session_id);
                     const projectContext = normalizedSearch
                       ? projectNameById.get(session.project_id) ?? "Unknown project"
@@ -780,6 +804,7 @@ export function AgentCatalogRail({
                   })}
                 </ul>
               )}
+        <BoundedListPager label="Agent chat pages" page={sessionPage} />
       </section>
 
       <label className="agent-rail__archived">

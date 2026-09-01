@@ -378,6 +378,28 @@ describe("ProjectCatalog", () => {
     expect(screen.getAllByRole("checkbox", { checked: true })).toHaveLength(25);
   });
 
+  it("renders the maximum admitted project catalog on fixed pages", async () => {
+    const manySessions = Array.from({ length: 100 }, (_, index) => session({
+      sessionId: (index + 1000).toString(16).padStart(64, "0"),
+      projectId: (index + 2000).toString(16).padStart(64, "0"),
+      projectName: `Bounded Project ${index.toString().padStart(3, "0")}`,
+      sessionName: `Bounded Session ${index.toString().padStart(3, "0")}`,
+      startedAt: new Date(Date.parse("2040-01-01T00:00:00Z") + index * 1000).toISOString(),
+    }));
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      listCodexSessions: vi.fn(async () => ({ sessions: manySessions, limit: 100, offset: 0 })),
+    };
+    render(<ProjectCatalog navigate={vi.fn()} transport={transport} />);
+
+    expect(await screen.findByText("Showing 1–30 of 100")).toBeVisible();
+    expect(document.querySelectorAll(".project-catalog-card")).toHaveLength(30);
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    expect(screen.getByText("Showing 31–60 of 100")).toBeVisible();
+    expect(screen.queryByText("Bounded Project 099")).not.toBeInTheDocument();
+    expect(screen.getByText("Bounded Project 069")).toBeVisible();
+  });
+
   it("keeps hidden selections explicit when the catalog is filtered", async () => {
     const { transport } = transportWithSessions();
     render(<ProjectCatalog navigate={vi.fn()} transport={transport} />);

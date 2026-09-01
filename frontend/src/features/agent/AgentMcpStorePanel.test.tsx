@@ -116,6 +116,25 @@ async function openManagedServers() {
 }
 
 describe("AgentMcpStorePanel", () => {
+  it("bounds the mounted catalog while preserving exact loaded-result navigation", async () => {
+    const servers = Array.from({ length: 120 }, (_, index) => pagedServer(index));
+    render(<AgentMcpStorePanel transport={{
+      listMcpRegistryCatalog: vi.fn().mockResolvedValue(catalog(servers)),
+    }} />);
+
+    const region = await screen.findByRole("region", { name: "MCP Store" });
+    expect(within(region).getAllByRole("article")).toHaveLength(48);
+    expect(within(region).getByText("Showing 1–48 of 120")).toBeVisible();
+    expect(within(region).getByText("Synthetic page 0")).toBeVisible();
+    expect(within(region).queryByText("Synthetic page 48")).toBeNull();
+
+    fireEvent.click(within(region).getByRole("button", { name: "Later" }));
+    expect(within(region).getAllByRole("article")).toHaveLength(48);
+    expect(within(region).getByText("Showing 49–96 of 120")).toBeVisible();
+    expect(within(region).queryByText("Synthetic page 0")).toBeNull();
+    expect(within(region).getByText("Synthetic page 48")).toBeVisible();
+  });
+
   it("renders compact discovery cards with the narrow verified-package boundary", async () => {
     const listMcpRegistryCatalog = vi.fn().mockResolvedValue(catalog());
     render(<AgentMcpStorePanel transport={{ listMcpRegistryCatalog }} />);

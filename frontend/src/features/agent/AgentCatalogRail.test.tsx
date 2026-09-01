@@ -141,6 +141,51 @@ afterEach(() => {
 });
 
 describe("AgentCatalogRail", () => {
+  it("bounds maximum returned project and chat collections while keeping current selections visible", async () => {
+    const projects = Array.from({ length: 120 }, (_, index) => project({
+      project_id: (index + 10).toString(16).padStart(32, "0"),
+      name: `Synthetic project ${index.toString().padStart(3, "0")}`,
+      session_count: 120,
+    }));
+    const selectedProject = projects[70];
+    const sessions = Array.from({ length: 120 }, (_, index) => catalogSession({
+      session_id: (index + 1000).toString(16).padStart(32, "0"),
+      project_id: selectedProject.project_id,
+      title: `Synthetic chat ${index.toString().padStart(3, "0")}`,
+    }));
+    const api = transport();
+    api.listAgentProjects.mockResolvedValue({
+      contract_version: "agent-catalog.v2",
+      projects,
+    });
+    api.listAgentCatalogSessions.mockResolvedValue({
+      contract_version: "agent-catalog.v2",
+      sessions,
+    });
+    render(<AgentCatalogRail
+      currentSessionId={sessions[95].session_id}
+      liveSessions={[]}
+      onCloseLiveSession={vi.fn()}
+      onNewChat={vi.fn()}
+      onOpenLiveSession={vi.fn()}
+      onOpenUnavailableSession={vi.fn()}
+      onProjectChange={vi.fn()}
+      selectedProjectId={selectedProject.project_id}
+      transport={api}
+    />);
+
+    const rail = await screen.findByRole("navigation", { name: "Agent projects and chats" });
+    await screen.findByText("Synthetic project 070");
+    expect(rail.querySelectorAll(".agent-rail__project")).toHaveLength(40);
+    expect(rail.querySelectorAll(".agent-rail__sessions > li")).toHaveLength(40);
+    expect(screen.getByText("Showing 41–80 of 120")).toBeVisible();
+    expect(screen.getByText("Showing 81–120 of 120")).toBeVisible();
+    expect(screen.getByRole("button", { name: /^Synthetic chat 095 ·/u }).closest("li")).toHaveAttribute("data-current", "true");
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Agent project pages" })).getByRole("button", { name: "Later" }));
+    expect(screen.getByText("Synthetic project 080")).toBeVisible();
+    expect(screen.queryByText("Synthetic project 040")).not.toBeInTheDocument();
+  });
+
   it("marks only chats with an in-window draft without exposing draft content", async () => {
     const api = transport();
     render(

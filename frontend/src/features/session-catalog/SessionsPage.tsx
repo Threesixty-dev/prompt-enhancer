@@ -11,6 +11,7 @@ import type { AppRoute } from "../../shared/platform/platform";
 import { isPseudonym } from "../../shared/platform/platform";
 import type { RuntimeDataMode } from "../../shared/platform/runtimeMode";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
+import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { Icon } from "../../shared/ui/Icon";
 import { openLiveWindow } from "../live-window/LiveMiniWindow";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
@@ -18,6 +19,7 @@ import "./Sessions.css";
 
 const PAGE = 100;
 const MAX_PAGES = 10;
+const RENDER_PAGE = 50;
 
 type Filter = "all" | LocalProvider;
 
@@ -179,6 +181,11 @@ export function SessionsPage({
   }, [rows, query, filter]);
 
   const unnamed = useMemo(() => filtered.filter((row) => !row.session_display_name?.trim()).length, [filtered]);
+  const renderPage = useBoundedListPage({
+    itemCount: filtered.length,
+    pageSize: RENDER_PAGE,
+    resetKey: `${query.trim().toLocaleLowerCase()}:${filter}:${retry}`,
+  });
 
   return (
     <section className="sessions-page" aria-labelledby="sessions-title">
@@ -253,7 +260,7 @@ export function SessionsPage({
       ) : (
         <>
           <ul className="sessions-list">
-            {filtered.map((row) => (
+            {filtered.slice(renderPage.start, renderPage.end).map((row) => (
               <li key={row.session_id}>
                 <button
                   aria-label={`Open ${visible(row.session_display_name, "untitled session")} in ${visible(row.project_display_name, "unnamed project")}`}
@@ -289,6 +296,7 @@ export function SessionsPage({
               </li>
             ))}
           </ul>
+          <BoundedListPager label="Stored session pages" page={renderPage} />
         </>
       )}
       {rows !== null && !error && !complete && (

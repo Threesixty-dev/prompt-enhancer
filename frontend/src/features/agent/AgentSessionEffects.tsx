@@ -1,7 +1,10 @@
 import { useMemo } from "react";
 import type { AgentEvent, AgentTurnSummary, AgentWriteReceipt } from "../../shared/api/contracts";
 import { isAgentTurnSummary } from "../../shared/api/agentTurnContract";
+import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import "./AgentSessionEffects.css";
+
+const EFFECT_PATH_PAGE = 50;
 
 type ObservedWrite = { receipt: AgentWriteReceipt; turnNumber: number };
 type FileReceipts = { path: string; writes: ObservedWrite[] };
@@ -48,6 +51,7 @@ export function AgentSessionEffects({
   historyGap,
   onOpenFile,
   running,
+  scopeKey = "current-session",
   turnCount,
 }: {
   events: AgentEvent[];
@@ -55,6 +59,7 @@ export function AgentSessionEffects({
   historyGap: boolean;
   onOpenFile?: (path: string) => void;
   running: boolean;
+  scopeKey?: string;
   turnCount: number;
 }) {
   const snapshot = useMemo(() => {
@@ -88,6 +93,12 @@ export function AgentSessionEffects({
       : snapshot.coverage === "incomplete"
         ? "Retained turn summaries incomplete"
         : "Partial retained history";
+  const pathPage = useBoundedListPage({
+    itemCount: snapshot.grouped.length,
+    pageSize: EFFECT_PATH_PAGE,
+    resetKey: scopeKey,
+  });
+  const visiblePaths = snapshot.grouped.slice(pathPage.start, pathPage.end);
 
   return <details className="agent-session-effects" data-coverage={snapshot.coverage}>
     <summary aria-label="Session activity and write receipts">
@@ -115,7 +126,7 @@ export function AgentSessionEffects({
         <p>No direct reviewed file writes were recorded in the retained Agent turns.</p>
       ) : (
         <ul aria-label="Observed reviewed file receipts" className="agent-session-effects__files">
-          {snapshot.grouped.map((file) => {
+          {visiblePaths.map((file) => {
             const latest = file.writes[file.writes.length - 1];
             const hasUnverified = file.writes.some(({ receipt }) => receipt.state === "unverified");
             const observedTurns = [...new Set(file.writes.map((write) => write.turnNumber))];
@@ -136,6 +147,7 @@ export function AgentSessionEffects({
           })}
         </ul>
       )}
+      <BoundedListPager label="Reviewed path pages" page={pathPage} />
 
       {snapshot.unverifiedWrites > 0 && (
         <p className="agent-session-effects__warning">

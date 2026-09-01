@@ -12,6 +12,7 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { Dialog } from "../../shared/ui/Dialog";
 import { AgentDocumentPreview } from "./AgentDocumentPreview";
 import { AgentMessageContent } from "./AgentMessageContent";
@@ -23,6 +24,7 @@ const AgentPdfPreview = lazy(async () => {
 });
 
 const MAX_INLINE_TEXT_BYTES = 1024 * 1024;
+const ARTIFACT_PAGE_SIZE = 50;
 const SAFE_DOWNLOAD_FILENAME = /^agent-artifact-[0-9a-f]{8}(?:\.[A-Za-z0-9]{1,15})?$/u;
 const SAFE_EXPORT_FILENAME = /^agent-artifact-[0-9a-f]{8}-v[1-9][0-9]{0,3}-lineage\.json$/u;
 const MIN_IMAGE_ZOOM = 0.5;
@@ -340,6 +342,12 @@ export function AgentArtifactsPanel({
   const lifecycleRequest = useRef<AbortController | null>(null);
   const renameRef = useRef<HTMLInputElement | null>(null);
   requestContext.current = { scopeKey, transport };
+  const artifactPage = useBoundedListPage({
+    itemCount: artifacts.length,
+    pageSize: ARTIFACT_PAGE_SIZE,
+    resetKey: `${scopeKey}:${view}`,
+  });
+  const visibleArtifacts = artifacts.slice(artifactPage.start, artifactPage.end);
 
   useEffect(() => () => {
     handledOpenRequest.current = null;
@@ -1033,7 +1041,7 @@ export function AgentArtifactsPanel({
           </p>
         ) : (
           <div className="agent-artifacts__list">
-          {artifacts.map((artifact) => (
+          {visibleArtifacts.map((artifact) => (
             <article className="agent-artifacts__card" data-kind={artifact.kind} data-lifecycle={artifact.lifecycle_state} key={artifact.artifact_id}>
               <div className="agent-artifacts__type">{artifact.kind}</div>
               <div className="agent-artifacts__copy">
@@ -1088,6 +1096,7 @@ export function AgentArtifactsPanel({
           ))}
           </div>
         )}
+        <BoundedListPager label="Artifact pages" page={artifactPage} />
       </div>
       {sourceTurnNotice && <p className="agent-artifacts__message" role="status">{sourceTurnNotice}</p>}
       {lifecycleNotice && <p className="agent-artifacts__message agent-artifacts__message--success" role="status">{lifecycleNotice}</p>}

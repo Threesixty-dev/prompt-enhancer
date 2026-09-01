@@ -170,4 +170,34 @@ describe("AgentSessionEffects", () => {
     expect(toggle).toHaveTextContent("1 reviewed path");
     expect(toggle).not.toHaveTextContent("file changed");
   });
+
+  it("pages a maximum-size reviewed-path summary without losing exact totals", () => {
+    const events = Array.from({ length: 120 }, (_, index) => {
+      const turn = exampleAgentTurn({
+        turn_id: (index + 1).toString(16).padStart(32, "0"),
+        turn_number: index + 1,
+        tools_requested: 1,
+        tools_succeeded: 1,
+        writes: [exampleWriteReceipt({ path: `src/example-${index.toString().padStart(3, "0")}.ts` })],
+      });
+      return event(index + 1, "done", { turn_id: turn.turn_id, turn_summary: turn });
+    });
+    render(<AgentSessionEffects
+      events={events}
+      fileActionsDisabled={false}
+      historyGap={false}
+      running={false}
+      scopeKey="synthetic-large-session"
+      turnCount={events.length}
+    />);
+
+    fireEvent.click(screen.getByLabelText("Session activity and write receipts"));
+    expect(screen.getByLabelText("Session activity and write receipts")).toHaveTextContent("120 reviewed paths");
+    expect(screen.getAllByRole("listitem")).toHaveLength(50);
+    expect(screen.getByText("Showing 1–50 of 120")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    expect(screen.getByText("Showing 51–100 of 120")).toBeVisible();
+    expect(screen.queryByText("src/example-000.ts")).not.toBeInTheDocument();
+    expect(screen.getByText("src/example-050.ts")).toBeVisible();
+  });
 });
