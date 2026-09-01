@@ -143,6 +143,27 @@ def _append_write(catalog, project_id: str, session_id: str, *, seq: int, receip
     )
 
 
+def _faulting_artifact_service(
+    database: AgentCatalogSqliteDatabase,
+    catalog: AgentCatalogService,
+    *,
+    stage: str,
+    id_start: int,
+) -> AgentArtifactService:
+    identifiers = _ids(id_start)
+
+    def interrupt(current: str) -> None:
+        if current == stage:
+            raise RuntimeError("synthetic artifact transaction interruption")
+
+    return AgentArtifactService(
+        SqliteAgentArtifactRepository(database, fault_hook=interrupt),
+        catalog,
+        clock=lambda: T0,
+        id_factory=identifiers.__next__,
+    )
+
+
 def _synthetic_docx() -> bytes:
     output = BytesIO()
     document = b"""<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -191,6 +212,166 @@ def test_session_fork_never_inherits_artifact_lineage(tmp_path: Path) -> None:
         project_id=project.project_id,
         session_id=session.session_id,
     ).artifacts) == 1
+
+
+@pytest.mark.parametrize(
+    ("stage", "committed_before_restart"),
+    [
+        ("after_head_insert", False),
+        ("after_version_insert", False),
+        ("before_commit", False),
+        ("after_commit", True),
+    ],
+)
+def test_interrupted_new_artifact_transaction_rolls_back_or_replays_once(
+    tmp_path: Path,
+    stage: str,
+    committed_before_restart: bool,
+) -> None:
+    database, catalog, _artifacts, project, session, workspace = _fixture(tmp_path)
+    payload = b"synthetic restart-safe artifact\n"
+    (workspace / "restart.md").write_bytes(payload)
+    _append_write(
+        catalog,
+        project.project_id,
+        session.session_id,
+        seq=1,
+        receipt=_receipt(path="restart.md", payload=payload),
+    )
+    faulting = _faulting_artifact_service(
+        database,
+        catalog,
+        stage=stage,
+        id_start=500,
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic artifact transaction interruption"):
+        faulting.list_artifacts(
+            project_id=project.project_id,
+            session_id=session.session_id,
+        )
+
+    with database.connect() as connection:
+        head_count = int(connection.execute("SELECT COUNT(*) FROM agent_artifacts").fetchone()[0])
+        version_count = int(
+            connection.execute("SELECT COUNT(*) FROM agent_artifact_versions").fetchone()[0]
+        )
+    expected = 1 if committed_before_restart else 0
+    assert (head_count, version_count) == (expected, expected)
+
+    identifiers = _ids(700)
+    restarted = AgentArtifactService(
+        SqliteAgentArtifactRepository(
+            AgentCatalogSqliteDatabase(database.path),
+        ),
+        catalog,
+        clock=lambda: T0,
+        id_factory=identifiers.__next__,
+    )
+    recovered = restarted.list_artifacts(
+        project_id=project.project_id,
+        session_id=session.session_id,
+    )
+    repeated = restarted.list_artifacts(
+        project_id=project.project_id,
+        session_id=session.session_id,
+    )
+    assert len(recovered.artifacts) == 1
+    assert recovered.artifacts[0].version_count == 1
+    assert repeated.artifacts == recovered.artifacts
+
+
+@pytest.mark.parametrize(
+    ("stage", "committed_before_restart"),
+    [
+        ("after_version_insert", False),
+        ("after_head_update", False),
+        ("before_commit", False),
+        ("after_commit", True),
+    ],
+)
+def test_interrupted_artifact_append_keeps_head_atomic_and_replays_once(
+    tmp_path: Path,
+    stage: str,
+    committed_before_restart: bool,
+) -> None:
+    database, catalog, artifacts, project, session, workspace = _fixture(tmp_path)
+    first = b"synthetic first artifact version\n"
+    second = b"synthetic second artifact version\n"
+    target = workspace / "lineage.md"
+    target.write_bytes(first)
+    _append_write(
+        catalog,
+        project.project_id,
+        session.session_id,
+        seq=1,
+        receipt=_receipt(path="lineage.md", payload=first),
+    )
+    initial = artifacts.list_artifacts(
+        project_id=project.project_id,
+        session_id=session.session_id,
+    ).artifacts[0]
+    target.write_bytes(second)
+    _append_write(
+        catalog,
+        project.project_id,
+        session.session_id,
+        seq=2,
+        receipt=_receipt(path="lineage.md", payload=second, before=first),
+    )
+    faulting = _faulting_artifact_service(
+        database,
+        catalog,
+        stage=stage,
+        id_start=800,
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic artifact transaction interruption"):
+        faulting.list_artifacts(
+            project_id=project.project_id,
+            session_id=session.session_id,
+        )
+
+    with database.connect() as connection:
+        stored = connection.execute(
+            "SELECT revision,latest_version_number FROM agent_artifacts WHERE artifact_id=?",
+            (initial.artifact_id,),
+        ).fetchone()
+        version_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM agent_artifact_versions WHERE artifact_id=?",
+                (initial.artifact_id,),
+            ).fetchone()[0]
+        )
+    expected = 2 if committed_before_restart else 1
+    assert stored is not None
+    assert (int(stored["revision"]), int(stored["latest_version_number"])) == (
+        expected,
+        expected,
+    )
+    assert version_count == expected
+
+    identifiers = _ids(1_000)
+    restarted = AgentArtifactService(
+        SqliteAgentArtifactRepository(
+            AgentCatalogSqliteDatabase(database.path),
+        ),
+        catalog,
+        clock=lambda: T0,
+        id_factory=identifiers.__next__,
+    )
+    recovered = restarted.list_artifacts(
+        project_id=project.project_id,
+        session_id=session.session_id,
+    )
+    repeated = restarted.list_artifacts(
+        project_id=project.project_id,
+        session_id=session.session_id,
+    )
+    assert len(recovered.artifacts) == 1
+    assert recovered.artifacts[0].artifact_id == initial.artifact_id
+    assert recovered.artifacts[0].version_count == 2
+    assert repeated.artifacts == recovered.artifacts
 
 
 def test_reviewed_writes_form_idempotent_immutable_lineage_and_revalidate_bytes(

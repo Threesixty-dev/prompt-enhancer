@@ -1624,12 +1624,25 @@ class LocalApplication:
             mcp_server_management_service,
             connection_factory=mcp_connection_factory,
         )
+        # A consumed one-use approval from an earlier process may never be
+        # replayed or shown as a live call.  Settle those content-free claims
+        # before any Agent session can acquire this run's MCP runtime.
+        mcp_managed_runtime_service.reconcile_after_restart()
         # Inject the boot-owned runtime during construction.  This guarantees
         # that no already-live session can acquire new MCP authority as a side
         # effect of rebuilding an HTTP adapter.
         local_agent_service = self.create_local_agent_service(
             local_model_service,
             mcp_managed_runtime_service=mcp_managed_runtime_service,
+        )
+        # Catalog ownership describes a process-bound controller.  On a new
+        # composition, only sessions actually present in the boot-owned local
+        # service may retain live authority; all other rows become uncertainty
+        # evidence with native approvals and handoffs cleared.
+        agent_mcp_connection_service.ownership.reconcile_after_restart(
+            live_session_ids=tuple(
+                session.session_id for session in local_agent_service.list()
+            ),
         )
         agent_hardening_service = self.create_agent_hardening_service(
             local_agent_service

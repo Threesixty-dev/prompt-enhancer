@@ -3957,6 +3957,56 @@ class LocalModelService:
         except OSError:
             return False
 
+    def _published_download_recovery_state(
+        self,
+        job: _PersistedDownloadJob,
+    ) -> Literal["absent", "complete", "conflict"]:
+        """Classify the registry/final-file boundary left by a crashed worker.
+
+        The worker publishes the verified registry record immediately before it
+        settles the download ledger.  A restart may therefore observe the first
+        durable write without the second.  Only the exact record this worker
+        would have written, backed by the exact reviewed bytes, can close that
+        window as completed.  An occupied alias that does not match is owner
+        data and is deliberately neither overwritten nor deleted here.
+        """
+
+        record = self._registry.get(job.request.alias)
+        if record is None:
+            return "absent"
+        _partial, final = self._download_paths(job.artifact)
+        try:
+            verified_path = self._verify_downloaded_artifact(final, job.artifact)
+            metadata = read_gguf_metadata(verified_path)
+            expected = LocalModelRecord(
+                alias=job.request.alias,
+                display_name=(
+                    job.request.display_name
+                    or Path(job.artifact.filename).stem[:120]
+                ),
+                path=str(verified_path),
+                source_repo=job.artifact.repo_id,
+                source_file=job.artifact.filename,
+                size_bytes=job.artifact.size_bytes,
+                sha256=job.artifact.sha256,
+                source_revision=job.artifact.revision,
+                source_license=job.artifact.license_id,
+                source_license_policy=LICENSE_POLICY_VERSION,
+                provenance_verified=True,
+                default_device=job.request.default_device,
+                layer_count=metadata.layer_count,
+                architecture=metadata.architecture,
+                tokenizer_model=metadata.tokenizer_model,
+                training_context_size=metadata.training_context_size,
+                metadata_reader_version=LOCAL_MODEL_METADATA_READER_VERSION,
+                added_at=record.added_at,
+            )
+        except Exception:  # noqa: BLE001 - startup exposes only a closed state
+            return "conflict"
+        if record.added_at < job.status.started_at or record != expected:
+            return "conflict"
+        return "complete"
+
     def _load_download_ledger(self) -> None:
         self._download_ledger_error: str | None = None
         path = self._download_ledger_path
@@ -3993,16 +4043,40 @@ class LocalModelService:
                     })
                     changed = True
                 elif status.state in {"queued", "downloading", "pausing"}:
-                    partial_size = self._safe_partial_size(saved)
-                    status = status.model_copy(update={
-                        "state": "interrupted",
-                        "error_code": "download_interrupted",
-                        "bytes_done": partial_size,
-                        "partial_retained": partial_size > 0,
-                        "cleanup_confirmed": None,
-                        "updated_at": self._clock(),
-                        "status_revision": status.status_revision + 1,
-                    })
+                    published = self._published_download_recovery_state(saved)
+                    if published == "complete":
+                        status = status.model_copy(update={
+                            "state": "completed",
+                            "error_code": None,
+                            "bytes_done": saved.artifact.size_bytes,
+                            "partial_retained": False,
+                            "cleanup_confirmed": None,
+                            "finished_at": self._clock(),
+                            "updated_at": self._clock(),
+                            "status_revision": status.status_revision + 1,
+                        })
+                    elif published == "conflict":
+                        status = status.model_copy(update={
+                            "state": "failed",
+                            "error_code": "download_registry_conflict",
+                            "bytes_done": 0,
+                            "partial_retained": False,
+                            "cleanup_confirmed": None,
+                            "finished_at": self._clock(),
+                            "updated_at": self._clock(),
+                            "status_revision": status.status_revision + 1,
+                        })
+                    else:
+                        partial_size = self._safe_partial_size(saved)
+                        status = status.model_copy(update={
+                            "state": "interrupted",
+                            "error_code": "download_interrupted",
+                            "bytes_done": partial_size,
+                            "partial_retained": partial_size > 0,
+                            "cleanup_confirmed": None,
+                            "updated_at": self._clock(),
+                            "status_revision": status.status_revision + 1,
+                        })
                     changed = True
                 elif status.state in {"paused", "interrupted", "failed"}:
                     partial_size = self._safe_partial_size(saved)

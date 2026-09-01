@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import sqlite3
 import threading
-from typing import Iterator, Literal, cast
+from typing import Iterator, Literal, Sequence, cast
 
 from ...application.agent_catalog import (
     MAX_AGENT_CATALOG_PAGE_SIZE,
@@ -46,6 +46,7 @@ from ...application.agent_controller_ownership import (
     AgentControllerOwnership,
     AgentControllerOwnershipError,
     AgentControllerOwnershipReleaseReceipt,
+    AgentControllerRestartReconciliationReceipt,
     AgentControllerOwnershipState,
 )
 from ...config import lexical_absolute_path, path_has_symlink_component
@@ -4470,6 +4471,131 @@ class SqliteAgentMcpConnectionRepository:
         except (AgentCatalogError, sqlite3.Error):
             raise AgentControllerOwnershipError(
                 "agent_controller_ownership_storage_unavailable"
+            ) from None
+
+    def reconcile_controller_ownerships_after_restart(
+        self,
+        *,
+        live_session_ids: Sequence[str],
+        reconciled_at: datetime,
+    ) -> AgentControllerRestartReconciliationReceipt:
+        live = frozenset(live_session_ids)
+        if (
+            len(live) != len(live_session_ids)
+            or len(live) > 128
+            or any(
+                len(session_id) != 32
+                or any(character not in "0123456789abcdef" for character in session_id)
+                for session_id in live
+            )
+            or reconciled_at.tzinfo is None
+            or reconciled_at.utcoffset() is None
+        ):
+            raise AgentControllerOwnershipError(
+                "agent_controller_restart_reconciliation_invalid"
+            )
+        submission_states = {
+            "claimed",
+            "running",
+            "waiting_native_approval",
+            "reconnecting",
+            "submission_uncertain",
+        }
+        cleanup_states = {
+            "stopping",
+            "stop_uncertain",
+            "cleanup_unconfirmed",
+        }
+        try:
+            with self._write_lock, self._database.connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                rows = connection.execute(
+                    """
+                    SELECT session_id,state,approval_pending,revision,
+                           handoff_target_connection_id,handoff_offered_at,
+                           handoff_expires_at
+                    FROM agent_controller_ownerships
+                    ORDER BY session_id
+                    """
+                ).fetchall()
+                preserved = submission_uncertain = cleanup_unconfirmed = revoked = 0
+                changed = approvals_cleared = handoffs_cleared = 0
+                for row in rows:
+                    session_id = str(row["session_id"])
+                    if session_id in live:
+                        preserved += 1
+                        continue
+                    state = str(row["state"])
+                    if state in submission_states:
+                        target_state = "submission_uncertain"
+                        submission_uncertain += 1
+                    elif state in cleanup_states:
+                        target_state = "cleanup_unconfirmed"
+                        cleanup_unconfirmed += 1
+                    elif state == "revoked":
+                        target_state = "revoked"
+                        revoked += 1
+                    else:
+                        connection.execute("ROLLBACK")
+                        raise AgentControllerOwnershipError(
+                            "agent_controller_ownership_storage_corrupt"
+                        )
+                    approval_pending = bool(row["approval_pending"])
+                    handoff_present = any(
+                        row[column] is not None
+                        for column in (
+                            "handoff_target_connection_id",
+                            "handoff_offered_at",
+                            "handoff_expires_at",
+                        )
+                    )
+                    approvals_cleared += int(approval_pending)
+                    handoffs_cleared += int(handoff_present)
+                    if (
+                        state == target_state
+                        and not approval_pending
+                        and not handoff_present
+                    ):
+                        continue
+                    updated = connection.execute(
+                        """
+                        UPDATE agent_controller_ownerships
+                        SET state=?,approval_pending=0,updated_at=?,revision=revision+1,
+                            handoff_target_connection_id=NULL,
+                            handoff_offered_at=NULL,handoff_expires_at=NULL
+                        WHERE session_id=? AND revision=?
+                        """,
+                        (
+                            target_state,
+                            _iso(reconciled_at),
+                            session_id,
+                            int(row["revision"]),
+                        ),
+                    ).rowcount
+                    if updated != 1:
+                        connection.execute("ROLLBACK")
+                        raise AgentControllerOwnershipError(
+                            "agent_controller_restart_reconciliation_conflict"
+                        )
+                    changed += 1
+                receipt = AgentControllerRestartReconciliationReceipt(
+                    reconciled_at=reconciled_at,
+                    observed_ownerships=len(rows),
+                    live_ownerships_preserved=preserved,
+                    non_live_submission_uncertain=submission_uncertain,
+                    non_live_cleanup_unconfirmed=cleanup_unconfirmed,
+                    non_live_revoked=revoked,
+                    changed_ownerships=changed,
+                    native_approvals_cleared=approvals_cleared,
+                    handoffs_cleared=handoffs_cleared,
+                )
+                connection.execute("COMMIT")
+                return receipt
+        except AgentControllerOwnershipError:
+            raise
+        except (AgentCatalogError, sqlite3.Error):
+            raise AgentControllerOwnershipError(
+                "agent_controller_restart_reconciliation_unavailable"
             ) from None
 
     def offer_controller_handoff(

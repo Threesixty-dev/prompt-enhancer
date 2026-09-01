@@ -564,6 +564,7 @@ class _ReceiptStub:
         self.receipts: list[McpManagedToolCallReceipt] = []
         self.host_actions: list[McpManagedHostActionReceipt] = []
         self.cleanup_evidence: list[McpManagedHostCleanupEvidence] = []
+        self.restart_reconciliations: list[tuple[str, datetime]] = []
 
     def get_tool_call_claim(self, call_id):
         return next(
@@ -597,6 +598,17 @@ class _ReceiptStub:
             raise McpManagedRuntimeError("mcp_tool_receipt_conflict")
         if existing is None:
             self.receipts.append(receipt)
+
+    def reconcile_interrupted_tool_calls(
+        self,
+        *,
+        current_app_run_digest,
+        interrupted_at,
+    ):
+        self.restart_reconciliations.append(
+            (current_app_run_digest, interrupted_at)
+        )
+        return ()
 
     def get_host_action_receipt(self, request_id):
         return next(
@@ -1348,6 +1360,22 @@ def test_result_projection_rejects_content_floods_and_ambiguous_error_truth(
     with pytest.raises(McpManagedRuntimeError) as captured:
         _project_result(call_id="1" * 32, result=result, output_schema=None)
     assert captured.value.code == expected
+
+
+def test_runtime_restart_reconciliation_is_explicit_and_run_scoped() -> None:
+    management = _RuntimeManagementStub()
+    receipts = _ReceiptStub()
+    run_digest = "7" * 64
+    runtime = McpManagedRuntimeService(
+        management,  # type: ignore[arg-type]
+        _RuntimeSupervisorStub(management),  # type: ignore[arg-type]
+        receipts,
+        clock=lambda: NOW,
+        app_run_digest=run_digest,
+    )
+
+    assert runtime.reconcile_after_restart() == ()
+    assert receipts.restart_reconciliations == [(run_digest, NOW)]
 
 
 def test_runtime_revalidates_approval_boundary_and_records_content_free_receipt() -> None:
@@ -2150,7 +2178,7 @@ def test_schema_25_migrates_once_to_host_lifecycle_evidence(tmp_path) -> None:
     assert table_count == 2
 
 
-def test_sqlite_one_use_claim_survives_restart_and_blocks_replay_before_receipt(
+def test_sqlite_restart_terminalizes_prior_run_claims_without_replay_authority(
     tmp_path,
 ) -> None:
     database = AgentCatalogSqliteDatabase(
@@ -2300,37 +2328,61 @@ def test_sqlite_one_use_claim_survives_restart_and_blocks_replay_before_receipt(
         approval_expires_at=NOW + timedelta(minutes=30),
         claimed_at=NOW,
     )
+    old_claims = (
+        claim,
+        claim.model_copy(update={"call_id": "6" * 32, "approval_state": "denied"}),
+        claim.model_copy(update={"call_id": "7" * 32, "approval_state": "timed_out"}),
+        claim.model_copy(
+            update={
+                "call_id": "8" * 32,
+                "approval_state": "cancelled_before_decision",
+            }
+        ),
+    )
+    current_run_digest = "9" * 64
+    current_claim = claim.model_copy(
+        update={
+            "call_id": "b" * 32,
+            "app_run_digest": current_run_digest,
+            "approval_state": "denied",
+        }
+    )
     first = SqliteMcpManagedRuntimeReceiptRepository(database)
-    assert first.claim_tool_call(claim) is True
+    for item in (*old_claims, current_claim):
+        assert first.claim_tool_call(item) is True
 
     restarted = SqliteMcpManagedRuntimeReceiptRepository(database)
-    assert restarted.get_tool_call_claim(claim.call_id) == claim
+    for item in old_claims:
+        assert restarted.get_tool_call_claim(item.call_id) == item
     assert restarted.claim_tool_call(claim) is False
     assert approval_id not in claim.model_dump_json()
 
-    receipt = McpManagedToolCallReceipt(
-        call_id=claim.call_id,
-        management_id=claim.management_id,
-        project_id=claim.project_id,
-        session_id=claim.session_id,
-        turn_id=claim.turn_id,
-        host_instance_id=claim.host_instance_id,
-        tool_snapshot_id=claim.tool_snapshot_id,
-        tool_id=claim.tool_id,
-        server_revision=claim.server_revision,
-        project_binding_revision=claim.project_binding_revision,
-        argument_digest=claim.argument_digest,
-        argument_bytes=claim.argument_bytes,
-        approval_state="approved",
-        outcome="failed",
-        error_code="mcp_tool_call_failed",
-        requested_at=claim.requested_at,
-        completed_at=NOW,
-        result_bytes=0,
-        cleanup_verified=True,
+    receipts = restarted.reconcile_interrupted_tool_calls(
+        current_app_run_digest=current_run_digest,
+        interrupted_at=NOW + timedelta(seconds=1),
     )
-    restarted.record_tool_call_receipt(receipt)
-    assert restarted.get_tool_call_receipt(claim.call_id) == receipt
+    assert {item.call_id: item.outcome for item in receipts} == {
+        claim.call_id: "failed",
+        "6" * 32: "denied",
+        "7" * 32: "timed_out",
+        "8" * 32: "cancelled",
+    }
+    approved_receipt = restarted.get_tool_call_receipt(claim.call_id)
+    assert approved_receipt is not None
+    assert approved_receipt.error_code == "mcp_tool_call_interrupted"
+    assert approved_receipt.cleanup_verified is False
+    assert approved_receipt.result_bytes == 0
+    assert approved_receipt.result_digest is None
+    assert all(
+        item.cleanup_verified is True and item.error_code is None
+        for item in receipts
+        if item.approval_state != "approved"
+    )
+    assert restarted.get_tool_call_receipt(current_claim.call_id) is None
+    assert restarted.reconcile_interrupted_tool_calls(
+        current_app_run_digest=current_run_digest,
+        interrupted_at=NOW + timedelta(seconds=2),
+    ) == ()
     assert restarted.claim_tool_call(claim) is False
 
     other_project_id = "0" * 32

@@ -15,6 +15,9 @@ AGENT_CONTROLLER_OWNERSHIP_CONTRACT_VERSION = "agent-controller-ownership.v1"
 AGENT_CONTROLLER_OWNERSHIP_LIST_CONTRACT_VERSION = (
     "agent-controller-ownership-list.v1"
 )
+AGENT_CONTROLLER_RESTART_RECONCILIATION_CONTRACT_VERSION = (
+    "agent-controller-restart-reconciliation.v1"
+)
 AGENT_CONTROLLER_HANDOFF_SECONDS = 600
 MAX_AGENT_CONTROLLER_OWNERSHIPS = 128
 _ID_PATTERN = r"^[0-9a-f]{32}$"
@@ -152,6 +155,82 @@ class AgentControllerOwnershipReleaseReceipt(StrictModel):
     native_approval_inherited: Literal[False] = False
 
 
+class AgentControllerRestartReconciliationReceipt(StrictModel):
+    """Content-free evidence that stale process authority was removed."""
+
+    contract_version: Literal["agent-controller-restart-reconciliation.v1"] = (
+        AGENT_CONTROLLER_RESTART_RECONCILIATION_CONTRACT_VERSION
+    )
+    reconciled_at: datetime
+    observed_ownerships: int = Field(
+        strict=True,
+        ge=0,
+        le=MAX_AGENT_CONTROLLER_OWNERSHIPS,
+    )
+    live_ownerships_preserved: int = Field(
+        strict=True,
+        ge=0,
+        le=MAX_AGENT_CONTROLLER_OWNERSHIPS,
+    )
+    non_live_submission_uncertain: int = Field(
+        strict=True,
+        ge=0,
+        le=MAX_AGENT_CONTROLLER_OWNERSHIPS,
+    )
+    non_live_cleanup_unconfirmed: int = Field(
+        strict=True,
+        ge=0,
+        le=MAX_AGENT_CONTROLLER_OWNERSHIPS,
+    )
+    non_live_revoked: int = Field(
+        strict=True,
+        ge=0,
+        le=MAX_AGENT_CONTROLLER_OWNERSHIPS,
+    )
+    changed_ownerships: int = Field(
+        strict=True,
+        ge=0,
+        le=MAX_AGENT_CONTROLLER_OWNERSHIPS,
+    )
+    native_approvals_cleared: int = Field(
+        strict=True,
+        ge=0,
+        le=MAX_AGENT_CONTROLLER_OWNERSHIPS,
+    )
+    handoffs_cleared: int = Field(
+        strict=True,
+        ge=0,
+        le=MAX_AGENT_CONTROLLER_OWNERSHIPS,
+    )
+    stale_native_approval_retained: Literal[False] = False
+    stale_handoff_retained: Literal[False] = False
+
+    @model_validator(mode="after")
+    def coherent_counts(self) -> "AgentControllerRestartReconciliationReceipt":
+        if (
+            self.reconciled_at.tzinfo is None
+            or self.reconciled_at.utcoffset() is None
+        ):
+            raise ValueError("controller restart reconciliation time is naive")
+        non_live = (
+            self.non_live_submission_uncertain
+            + self.non_live_cleanup_unconfirmed
+            + self.non_live_revoked
+        )
+        if self.observed_ownerships != self.live_ownerships_preserved + non_live:
+            raise ValueError("controller restart reconciliation counts are incoherent")
+        if any(
+            value > non_live
+            for value in (
+                self.changed_ownerships,
+                self.native_approvals_cleared,
+                self.handoffs_cleared,
+            )
+        ):
+            raise ValueError("controller restart reconciliation exceeds stale scope")
+        return self
+
+
 class AgentControllerOwnershipRepository(Protocol):
     def claim_controller_ownership(
         self,
@@ -218,6 +297,13 @@ class AgentControllerOwnershipRepository(Protocol):
         released_at: datetime,
         released_by: Literal["owner", "native"],
     ) -> AgentControllerOwnershipReleaseReceipt: ...
+
+    def reconcile_controller_ownerships_after_restart(
+        self,
+        *,
+        live_session_ids: Sequence[str],
+        reconciled_at: datetime,
+    ) -> AgentControllerRestartReconciliationReceipt: ...
 
 
 class AgentControllerOwnershipService:
@@ -292,6 +378,16 @@ class AgentControllerOwnershipService:
             updated_at=self._now(),
         )
 
+    def reconcile_after_restart(
+        self,
+        *,
+        live_session_ids: Sequence[str],
+    ) -> AgentControllerRestartReconciliationReceipt:
+        return self._repository.reconcile_controller_ownerships_after_restart(
+            live_session_ids=live_session_ids,
+            reconciled_at=self._now(),
+        )
+
     def offer(
         self,
         *,
@@ -359,6 +455,7 @@ __all__ = (
     "AGENT_CONTROLLER_HANDOFF_SECONDS",
     "AGENT_CONTROLLER_OWNERSHIP_CONTRACT_VERSION",
     "AGENT_CONTROLLER_OWNERSHIP_LIST_CONTRACT_VERSION",
+    "AGENT_CONTROLLER_RESTART_RECONCILIATION_CONTRACT_VERSION",
     "MAX_AGENT_CONTROLLER_OWNERSHIPS",
     "AcceptAgentControllerHandoff",
     "AgentControllerClientKind",
@@ -368,6 +465,7 @@ __all__ = (
     "AgentControllerOwnershipError",
     "AgentControllerOwnershipList",
     "AgentControllerOwnershipReleaseReceipt",
+    "AgentControllerRestartReconciliationReceipt",
     "AgentControllerOwnershipRepository",
     "AgentControllerOwnershipService",
     "AgentControllerOwnershipState",

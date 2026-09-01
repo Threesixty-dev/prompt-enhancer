@@ -31,10 +31,10 @@ No status means “probably works.” Unknown evidence remains pending.
 
 | ID | Required owner-visible behavior | Acceptance boundary | Owner checkpoint | Current state |
 | --- | --- | --- | --- | --- |
-| APP-01 | Starting Prompt Enhancer opens one application instance and exactly one loopback listener. | Repeated launch, reload, shutdown and listener-collision tests; no recursive window creation. | Release-01a/01b | Hidden Release-01a.1 and 01a.2a reloads are green; repeated and packaged proof pending |
+| APP-01 | Starting Prompt Enhancer opens one application instance and exactly one loopback listener. | Repeated launch, reload, shutdown and listener-collision tests; no recursive window creation. | Release-01a/01b | Hidden Release-01a.1, 01a.2a and 01a.2b reloads are green; repeated and packaged proof pending |
 | APP-02 | Model, command, MCP and helper processes never flash terminal windows. | Hidden-process integration tests plus a real Windows process/window census. | Store-07c, Acceptance-01, Release-01b | Pending final proof |
 | APP-03 | Shutdown stops every owned listener, model, command and MCP descendant or reports cleanup uncertainty truthfully. | Normal, crash, timeout and forced-stop census; zero silently orphaned owned processes. | Store-07c, Release-01a | Pending |
-| APP-04 | Reload restores durable state without pretending interrupted operations completed. | Supported-schema migrations and restart reconciliation for projects, chats, downloads, artifacts and MCP operations. | Release-01a | Agent catalog and four auxiliary SQLite families have exact supported-head migration/rollback proof; interrupted-operation reconciliation remains pending |
+| APP-04 | Reload restores durable state without pretending interrupted operations completed. | Supported-schema migrations and restart reconciliation for projects, chats, downloads, artifacts and MCP operations. | Release-01a | Automated complete through Release-01a.2b: exact migrations plus download, artifact, MCP-call/package and controller restart reconciliation are green; owner continuity review queued |
 | APP-05 | Navigation, page titles and back/forward behavior preserve the exact selected project and chat. | Route-state, stale-response and direct-link tests at narrow and desktop widths. | Sweep-01a/01b | Automated route and accessibility matrices complete; owner route review pending |
 
 ## B. Agent projects, sessions and conversation
@@ -116,7 +116,7 @@ No status means “probably works.” Unknown evidence remains pending.
 | ORC-01 | Create, inspect and revoke a project-scoped controller connection without a bridge terminal. | Exact scope, one-time setup material, restart and revocation tests. | Orchestration-01a | Automated complete; owner client review pending |
 | ORC-02 | A controller can start, observe, stop, resume/fork and hand off an exact project/chat turn with visible ownership. | Same-project contention, reconnect, stale credential, Stop and handoff tests. | Orchestration-01b | Automated complete; owner client review pending |
 | ORC-03 | Native approval authority is never inherited or forged by an external controller. | Two-client, cross-project, pending-approval and revocation isolation tests. | Orchestration-01 | Automated complete; owner client review pending |
-| ORC-04 | Controller status and recovery remain content-free, durable and truthful across app restart. | Restart migration, interrupted ownership and proof-gated release tests. | Orchestration-01, Release-01a | Automated core complete; release regression pending |
+| ORC-04 | Controller status and recovery remain content-free, durable and truthful across app restart. | Restart migration, interrupted ownership and proof-gated release tests. | Orchestration-01, Release-01a | Automated release regression complete through Release-01a.2b; owner external-client review pending |
 
 ## H. Whole-application UI, accessibility and scale
 
@@ -133,9 +133,9 @@ No status means “probably works.” Unknown evidence remains pending.
 
 | ID | Required owner-visible behavior | Acceptance boundary | Owner checkpoint | Current state |
 | --- | --- | --- | --- | --- |
-| REL-01 | Private prompts, transcripts, tool payloads, credentials and derived data remain local and are absent from diagnostics and synthetic fixtures. | Privacy scanner, canaries, API/database/log review and network-denial tests. | Store-07e, Release-01a | Release-01a.2a privacy gate green; final release gate remains |
-| REL-02 | Every durable record carries the required schema/provenance/version identity; missing metrics remain unknown. | Migration, contract, metric and retention tests from every supported version. | Release-01a | Primary, Agent and auxiliary SQLite migration provenance is checksummed and interruption-tested; operation receipts/reconciliation remain |
-| REL-03 | Backend, frontend, strict API contracts, privacy checks and production build are green together after the final coherent change. | One recorded final gate with exact pass/fail counts and no waived safety test. | Release-01a | Release-01a.2a complete backend/privacy/static gate green; final combined frontend/package gate remains |
+| REL-01 | Private prompts, transcripts, tool payloads, credentials and derived data remain local and are absent from diagnostics and synthetic fixtures. | Privacy scanner, canaries, API/database/log review and network-denial tests. | Store-07e, Release-01a | Release-01a.2b privacy and content-free receipt gates green; final packaged release gate remains |
+| REL-02 | Every durable record carries the required schema/provenance/version identity; missing metrics remain unknown. | Migration, contract, metric and retention tests from every supported version. | Release-01a | Primary, Agent and auxiliary migration provenance plus operation restart receipts/reconciliation are complete through Release-01a.2b |
+| REL-03 | Backend, frontend, strict API contracts, privacy checks and production build are green together after the final coherent change. | One recorded final gate with exact pass/fail counts and no waived safety test. | Release-01a | Release-01a.2b combined gate green: 5,215 backend, 2,723 frontend, privacy scan and production build; final process/package gate remains |
 | REL-04 | The packaged Windows application matches the validated development behavior for pickers, confirmations, hidden processes, listener and cleanup. | Install/start/reload/shutdown package smoke on the owner machine. | Release-01b | Pending |
 | REL-05 | The complete north-star Agent + model + workspace + artifact + MCP + orchestration journey works without an undocumented workaround. | Explicit owner walkthrough and signed release checklist. | Release-01b | Pending |
 
@@ -153,8 +153,12 @@ The remaining dependency-ordered trajectory is:
 5. **Release-01a.2a — automated complete:** shared-folder,
    central-annotation, social and paid-product supported heads upgrade to exact
    checksummed heads or fail without mutation.
-6. **Release-01a.2b–01b:** interrupted-operation reconciliation, process
-   cleanup, packaged Windows parity and the connected owner journey.
+6. **Release-01a.2b — automated complete:** interrupted downloads, artifact
+   projection, MCP work and controller ownership reconcile without invented
+   success; full backend/frontend/privacy/build and hidden reload gates pass.
+7. **Owner-selected Agent composer checkpoint, then Release-01a.3–01b:** put
+   model/context/media/send controls inside the focused composer, then prove
+   process cleanup, packaged Windows parity and the connected owner journey.
 
 Completed checkpoints remain regression obligations throughout this sequence.
 A failing current test reopens the owning behavior; it is never dismissed merely

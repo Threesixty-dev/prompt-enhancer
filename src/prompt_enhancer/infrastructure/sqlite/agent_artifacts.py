@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 import hashlib
 import json
 import sqlite3
 import threading
-from typing import Iterator
 
 from ...application.agent_artifacts import (
     MAX_AGENT_ARTIFACT_PAGE_SIZE,
@@ -95,13 +95,23 @@ JOIN agent_artifact_versions version
 
 
 class SqliteAgentArtifactRepository:
-    def __init__(self, database: AgentCatalogSqliteDatabase) -> None:
+    def __init__(
+        self,
+        database: AgentCatalogSqliteDatabase,
+        *,
+        fault_hook: Callable[[str], None] | None = None,
+    ) -> None:
         self._database = database
         self._write_lock = threading.RLock()
+        self._fault_hook = fault_hook
         try:
             self._database.initialize()
         except AgentCatalogError:
             raise AgentArtifactError("agent_artifact_storage_unavailable") from None
+
+    def _fault(self, stage: str) -> None:
+        if self._fault_hook is not None:
+            self._fault_hook(stage)
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -268,6 +278,7 @@ class SqliteAgentArtifactRepository:
                             _iso(version.created_at),
                         ),
                     )
+                    self._fault("after_head_insert")
                 else:
                     actual_artifact_id = str(artifact["artifact_id"])
                     if artifact["removed_at"] is not None:
@@ -338,6 +349,7 @@ class SqliteAgentArtifactRepository:
                         stored.source_event_seq,
                     ),
                 )
+                self._fault("after_version_insert")
                 if artifact is not None:
                     connection.execute(
                         """
@@ -354,7 +366,10 @@ class SqliteAgentArtifactRepository:
                             actual_artifact_id,
                         ),
                     )
+                    self._fault("after_head_update")
+                self._fault("before_commit")
                 connection.execute("COMMIT")
+                self._fault("after_commit")
             except AgentArtifactError:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
@@ -367,6 +382,10 @@ class SqliteAgentArtifactRepository:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
                 raise AgentArtifactError("agent_artifact_storage_unavailable") from None
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
 
             head = self._head(
                 connection,

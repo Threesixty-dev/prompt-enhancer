@@ -470,6 +470,13 @@ class McpManagedRuntimeReceiptRepository(Protocol):
 
     def record_tool_call_receipt(self, receipt: McpManagedToolCallReceipt) -> None: ...
 
+    def reconcile_interrupted_tool_calls(
+        self,
+        *,
+        current_app_run_digest: str,
+        interrupted_at: datetime,
+    ) -> Sequence[McpManagedToolCallReceipt]: ...
+
     def get_host_action_receipt(
         self,
         request_id: str,
@@ -557,6 +564,23 @@ class McpManagedRuntimeService:
         # settling or modifying a prepared call even if it can observe the
         # otherwise content-free app-run digest.
         self._preparation_key = secrets.token_bytes(32)
+
+    def reconcile_after_restart(self) -> tuple[McpManagedToolCallReceipt, ...]:
+        """Terminalize prior-run one-use claims without replaying any authority."""
+
+        try:
+            return tuple(
+                self._receipts.reconcile_interrupted_tool_calls(
+                    current_app_run_digest=self._app_run_digest,
+                    interrupted_at=_utc(self._clock()),
+                )
+            )
+        except McpManagedRuntimeError:
+            raise
+        except Exception:
+            raise McpManagedRuntimeError(
+                "mcp_tool_restart_reconciliation_unavailable"
+            ) from None
 
     def _preparation_digest(
         self,

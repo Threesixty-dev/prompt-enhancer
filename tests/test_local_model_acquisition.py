@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -86,6 +87,34 @@ def _wait(service: LocalModelService, download_id: str, states: set[str], timeou
             return current
         time.sleep(0.01)
     return next(item for item in service.overview().downloads if item.download_id == download_id)
+
+
+def _rewind_completed_ledger(root: Path) -> int:
+    ledger = root / "downloads.json"
+    payload = json.loads(ledger.read_text(encoding="utf-8"))
+    status = payload["jobs"][0]["status"]
+    completed_revision = int(status["status_revision"])
+    status.update(
+        state="downloading",
+        error_code=None,
+        finished_at=None,
+    )
+    ledger.write_text(json.dumps(payload), encoding="utf-8")
+    return completed_revision
+
+
+def _complete_synthetic_download(root: Path) -> LocalModelService:
+    def transfer(*, partial_path: Path, progress, **_kwargs) -> Path:
+        partial_path.parent.mkdir(parents=True, exist_ok=True)
+        partial_path.write_bytes(BODY)
+        progress(len(BODY))
+        return partial_path
+
+    service = _service(root, transfer=transfer)
+    started = service.start_download(_request())
+    assert _wait(service, started.download_id, {"completed", "failed"}).state == "completed"
+    service.shutdown()
+    return service
 
 
 def test_disk_refusal_is_durable_and_never_enters_the_transfer(tmp_path: Path) -> None:
@@ -181,6 +210,69 @@ def test_pause_survives_restart_and_resume_continues_the_owned_partial(tmp_path:
     assert completed.state == "completed"
     assert resume_offsets == [0, 1024]
     assert restarted.registry.get("synthetic-q4") is not None
+
+
+def test_restart_settles_exact_published_download_without_a_second_transfer(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "local-models"
+    completed_service = _complete_synthetic_download(root)
+    completed_revision = _rewind_completed_ledger(root)
+    transfer_calls: list[object] = []
+
+    restarted = _service(
+        root,
+        transfer=lambda **kwargs: transfer_calls.append(kwargs),
+    )
+
+    recovered = restarted.overview().downloads[0]
+    assert recovered.state == "completed"
+    assert recovered.error_code is None
+    assert recovered.bytes_done == len(BODY)
+    assert recovered.status_revision == completed_revision + 1
+    assert transfer_calls == []
+    assert restarted.registry.get("synthetic-q4") == completed_service.registry.get(
+        "synthetic-q4"
+    )
+
+    repeated = _service(root)
+    assert repeated.overview().downloads[0] == recovered
+
+
+@pytest.mark.parametrize("conflict", ["registry", "artifact"])
+def test_restart_fails_closed_on_published_download_conflict_without_cleanup(
+    tmp_path: Path,
+    conflict: str,
+) -> None:
+    root = tmp_path / "local-models"
+    service = _complete_synthetic_download(root)
+    record = service.registry.get("synthetic-q4")
+    assert record is not None
+    final = Path(record.path)
+    _rewind_completed_ledger(root)
+
+    if conflict == "registry":
+        registry_path = root / "registry.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        registry["models"][0]["display_name"] = "Conflicting synthetic owner record"
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+        expected_bytes = BODY
+    else:
+        expected_bytes = b"GGUF" + bytes(4086) + b"drift!"
+        assert len(expected_bytes) == len(BODY)
+        final.write_bytes(expected_bytes)
+
+    restarted = _service(root)
+
+    recovered = restarted.overview().downloads[0]
+    assert recovered.state == "failed"
+    assert recovered.error_code == "download_registry_conflict"
+    assert recovered.cleanup_confirmed is None
+    assert final.read_bytes() == expected_bytes
+    assert restarted.registry.get("synthetic-q4") is not None
+
+    repeated = _service(root)
+    assert repeated.overview().downloads[0] == recovered
 
 
 def test_cancel_removes_only_the_owned_partial_and_is_idempotent(tmp_path: Path) -> None:

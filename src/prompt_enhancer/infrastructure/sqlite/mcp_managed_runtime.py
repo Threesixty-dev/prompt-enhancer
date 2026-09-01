@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import sqlite3
 import threading
 
@@ -386,6 +387,132 @@ class SqliteMcpManagedRuntimeReceiptRepository:
             raise McpManagedRuntimeError("mcp_tool_receipt_binding_invalid") from None
         except (AgentCatalogError, sqlite3.Error):
             raise McpManagedRuntimeError("mcp_tool_receipt_storage_unavailable") from None
+
+    def reconcile_interrupted_tool_calls(
+        self,
+        *,
+        current_app_run_digest: str,
+        interrupted_at: datetime,
+    ) -> tuple[McpManagedToolCallReceipt, ...]:
+        """Settle claims from earlier app runs without retaining call content.
+
+        A claim proves that a one-use native decision was consumed, but an
+        absent receipt cannot prove that an approved external call completed.
+        Approved orphaned claims therefore fail with explicit interruption and
+        unverified cleanup. Decisions that never invoke a tool keep their exact
+        denial/timeout/cancellation truth.
+        """
+
+        if (
+            len(current_app_run_digest) != 64
+            or any(character not in "0123456789abcdef" for character in current_app_run_digest)
+            or interrupted_at.tzinfo is None
+            or interrupted_at.utcoffset() is None
+        ):
+            raise McpManagedRuntimeError(
+                "mcp_tool_restart_reconciliation_invalid"
+            )
+        observed_at = interrupted_at.astimezone(UTC)
+        try:
+            with self._write_lock, self._database.connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                rows = connection.execute(
+                    """
+                    SELECT claim.*
+                    FROM mcp_managed_tool_call_claims claim
+                    LEFT JOIN mcp_managed_tool_call_receipts receipt
+                      ON receipt.call_id=claim.call_id
+                    WHERE claim.app_run_digest!=? AND receipt.call_id IS NULL
+                    ORDER BY claim.claimed_at,claim.call_id
+                    """,
+                    (current_app_run_digest,),
+                ).fetchall()
+                receipts: list[McpManagedToolCallReceipt] = []
+                for row in rows:
+                    claim = self._claim(row)
+                    outcome_by_decision = {
+                        "denied": "denied",
+                        "timed_out": "timed_out",
+                        "cancelled_before_decision": "cancelled",
+                    }
+                    approved = claim.approval_state == "approved"
+                    receipt = McpManagedToolCallReceipt(
+                        call_id=claim.call_id,
+                        management_id=claim.management_id,
+                        project_id=claim.project_id,
+                        session_id=claim.session_id,
+                        turn_id=claim.turn_id,
+                        host_instance_id=claim.host_instance_id,
+                        tool_snapshot_id=claim.tool_snapshot_id,
+                        tool_id=claim.tool_id,
+                        server_revision=claim.server_revision,
+                        project_binding_revision=claim.project_binding_revision,
+                        argument_digest=claim.argument_digest,
+                        argument_bytes=claim.argument_bytes,
+                        approval_state=claim.approval_state,
+                        outcome=(
+                            "failed"
+                            if approved
+                            else outcome_by_decision[claim.approval_state]
+                        ),
+                        error_code=(
+                            "mcp_tool_call_interrupted" if approved else None
+                        ),
+                        requested_at=claim.requested_at,
+                        completed_at=max(observed_at, claim.claimed_at),
+                        result_bytes=0,
+                        result_digest=None,
+                        cleanup_verified=not approved,
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO mcp_managed_tool_call_receipts(
+                            call_id,management_id,project_id,session_id,turn_id,
+                            host_instance_id,tool_snapshot_id,tool_id,
+                            server_revision,project_binding_revision,
+                            argument_digest,argument_bytes,approval_state,outcome,
+                            error_code,requested_at,completed_at,result_bytes,
+                            result_digest,cleanup_verified,arguments_persisted,
+                            result_persisted,credentials_persisted,
+                            reusable_approval_persisted
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0)
+                        """,
+                        (
+                            receipt.call_id,
+                            receipt.management_id,
+                            receipt.project_id,
+                            receipt.session_id,
+                            receipt.turn_id,
+                            receipt.host_instance_id,
+                            receipt.tool_snapshot_id,
+                            receipt.tool_id,
+                            receipt.server_revision,
+                            receipt.project_binding_revision,
+                            receipt.argument_digest,
+                            receipt.argument_bytes,
+                            receipt.approval_state,
+                            receipt.outcome,
+                            receipt.error_code,
+                            _iso(receipt.requested_at),
+                            _iso(receipt.completed_at),
+                            receipt.result_bytes,
+                            receipt.result_digest,
+                            int(receipt.cleanup_verified),
+                        ),
+                    )
+                    receipts.append(receipt)
+                connection.execute("COMMIT")
+                return tuple(receipts)
+        except McpManagedRuntimeError:
+            raise
+        except sqlite3.IntegrityError:
+            raise McpManagedRuntimeError(
+                "mcp_tool_restart_reconciliation_conflict"
+            ) from None
+        except (AgentCatalogError, sqlite3.Error):
+            raise McpManagedRuntimeError(
+                "mcp_tool_restart_reconciliation_unavailable"
+            ) from None
 
     def get_host_action_receipt(
         self,

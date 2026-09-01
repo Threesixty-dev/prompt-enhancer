@@ -35,6 +35,8 @@ from prompt_enhancer.application.agent_mcp_surface import (
     AgentMcpSurfaceError,
 )
 from prompt_enhancer.application.local_agent import AgentWriteProposalReceipt
+from prompt_enhancer.bootstrap import bootstrap_local_application
+from prompt_enhancer.config import AppSettings
 from prompt_enhancer.infrastructure.sqlite.agent_catalog import (
     AGENT_CATALOG_DATABASE_FILENAME,
     AGENT_CATALOG_SCHEMA_VERSION,
@@ -132,7 +134,7 @@ def _seed(
     return database, now, service
 
 
-def test_ownership_survives_restart_and_management_projection(
+def test_explicit_app_restart_reconciles_only_non_live_controller_authority(
     tmp_path: Path,
 ) -> None:
     database, now, service = _seed(tmp_path)
@@ -159,6 +161,16 @@ def test_ownership_survives_restart_and_management_projection(
     assert projected.controller_ownerships.active_count == 1
     assert projected.controller_ownerships.ownerships == (updated,)
 
+    offered = service.ownership.offer(
+        owner_connection_id=CONNECTION_A,
+        command=OfferAgentControllerHandoff(
+            session_id=SESSION_A,
+            target_connection_id=CONNECTION_B,
+            expected_revision=updated.revision,
+        ),
+    )
+    assert offered.handoff is not None
+
     now[0] += timedelta(minutes=2)
     restarted = _connection_service(
         AgentCatalogSqliteDatabase(database.path),
@@ -172,6 +184,158 @@ def test_ownership_survives_restart_and_management_projection(
     assert recovered.cursor == 7
     assert recovered.last_seq == 8
     assert recovered.approval_pending is True
+    assert recovered.handoff is not None
+
+    live_receipt = restarted.ownership.reconcile_after_restart(
+        live_session_ids=(SESSION_A,),
+    )
+    assert live_receipt.observed_ownerships == 1
+    assert live_receipt.live_ownerships_preserved == 1
+    assert live_receipt.changed_ownerships == 0
+    assert restarted.ownership.get(SESSION_A) == recovered
+
+    stale_receipt = restarted.ownership.reconcile_after_restart(
+        live_session_ids=(),
+    )
+    assert stale_receipt.observed_ownerships == 1
+    assert stale_receipt.live_ownerships_preserved == 0
+    assert stale_receipt.non_live_submission_uncertain == 1
+    assert stale_receipt.changed_ownerships == 1
+    assert stale_receipt.native_approvals_cleared == 1
+    assert stale_receipt.handoffs_cleared == 1
+    assert stale_receipt.stale_native_approval_retained is False
+    assert stale_receipt.stale_handoff_retained is False
+    reconciled = restarted.ownership.get(SESSION_A)
+    assert reconciled is not None
+    assert reconciled.state == "submission_uncertain"
+    assert reconciled.approval_pending is False
+    assert reconciled.handoff is None
+    assert reconciled.revision == offered.revision + 1
+
+    repeated = restarted.ownership.reconcile_after_restart(
+        live_session_ids=(),
+    )
+    assert repeated.changed_ownerships == 0
+    assert repeated.native_approvals_cleared == 0
+    assert repeated.handoffs_cleared == 0
+    assert restarted.ownership.get(SESSION_A) == reconciled
+
+
+@pytest.mark.parametrize(
+    ("initial_state", "expected_state", "expected_changed"),
+    [
+        ("claimed", "submission_uncertain", 1),
+        ("running", "submission_uncertain", 1),
+        ("waiting_native_approval", "submission_uncertain", 1),
+        ("reconnecting", "submission_uncertain", 1),
+        ("submission_uncertain", "submission_uncertain", 0),
+        ("stopping", "cleanup_unconfirmed", 1),
+        ("stop_uncertain", "cleanup_unconfirmed", 1),
+        ("cleanup_unconfirmed", "cleanup_unconfirmed", 0),
+        ("revoked", "revoked", 0),
+    ],
+)
+def test_controller_restart_state_matrix_is_fail_closed_and_idempotent(
+    tmp_path: Path,
+    initial_state: str,
+    expected_state: str,
+    expected_changed: int,
+) -> None:
+    _database_value, _now, service = _seed(tmp_path)
+    current = service.ownership.claim(
+        connection_id=CONNECTION_A,
+        project_id=PROJECT_A,
+        session_id=SESSION_A,
+        operation="turn",
+    )
+    if initial_state != "claimed":
+        current = service.ownership.update(
+            SESSION_A,
+            owner_connection_id=CONNECTION_A,
+            state=initial_state,  # type: ignore[arg-type]
+            cursor=0,
+            last_seq=0,
+            approval_pending=initial_state == "waiting_native_approval",
+        )
+
+    receipt = service.ownership.reconcile_after_restart(live_session_ids=())
+    recovered = service.ownership.get(SESSION_A)
+
+    assert recovered is not None
+    assert recovered.state == expected_state
+    assert recovered.approval_pending is False
+    assert recovered.handoff is None
+    assert receipt.changed_ownerships == expected_changed
+    assert recovered.revision == current.revision + expected_changed
+    if expected_state == "submission_uncertain":
+        assert receipt.non_live_submission_uncertain == 1
+    elif expected_state == "cleanup_unconfirmed":
+        assert receipt.non_live_cleanup_unconfirmed == 1
+    else:
+        assert receipt.non_live_revoked == 1
+
+    repeated = service.ownership.reconcile_after_restart(live_session_ids=())
+    assert repeated.changed_ownerships == 0
+    assert service.ownership.get(SESSION_A) == recovered
+
+
+def test_http_composition_reconciles_catalog_ownership_before_serving(
+    tmp_path: Path,
+) -> None:
+    application = bootstrap_local_application(AppSettings(home=tmp_path / "app"))
+    database = AgentCatalogSqliteDatabase(application.settings.agent_catalog_path)
+    now = [T0]
+    catalog = _catalog(database, now=now)
+    project = catalog.create_project(CreateAgentProject(name="Synthetic boot project"))
+    catalog.register_live_session(
+        session_id=SESSION_A,
+        project_id=project.project_id,
+        title="Synthetic prior-run chat",
+        workspace=tmp_path / "synthetic-boot-workspace",
+        model_alias="synthetic-model",
+        created_at=T0,
+    )
+    seeded = _connection_service(
+        database,
+        now=now,
+        ids=(CONNECTION_A,),
+    )
+    seeded.create(
+        CreateAgentMcpConnection(
+            request_id="d" * 32,
+            label="Synthetic prior-run owner",
+            client_kind="codex",
+            project_id=project.project_id,
+        ),
+        endpoint_url=ENDPOINT,
+    )
+    claimed = seeded.ownership.claim(
+        connection_id=CONNECTION_A,
+        project_id=project.project_id,
+        session_id=SESSION_A,
+        operation="turn",
+    )
+    seeded.ownership.update(
+        SESSION_A,
+        owner_connection_id=CONNECTION_A,
+        state="waiting_native_approval",
+        cursor=0,
+        last_seq=0,
+        approval_pending=True,
+    )
+
+    http_app = application.create_http_app()
+
+    assert http_app is not None
+    recovered = _connection_service(
+        AgentCatalogSqliteDatabase(application.settings.agent_catalog_path),
+        now=now,
+        ids=("9" * 32,),
+    ).ownership.get(SESSION_A)
+    assert recovered is not None
+    assert recovered.state == "submission_uncertain"
+    assert recovered.approval_pending is False
+    assert recovered.revision == claimed.revision + 2
 
 
 def test_claim_is_exactly_once_under_race_and_cross_project_fails_closed(

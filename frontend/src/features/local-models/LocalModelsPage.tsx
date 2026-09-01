@@ -76,6 +76,7 @@ const DOWNLOAD_ERROR_TEXT: Readonly<Record<string, string>> = {
   download_interrupted: "the app stopped before this transfer completed",
   download_failed: "the network transfer failed; a bounded partial may be reusable",
   download_cleanup_failed: "owned partial cleanup could not be confirmed",
+  download_registry_conflict: "the registered alias or published model bytes no longer match this reviewed download",
   download_adapter_incompatible: "the installed Hub adapter is not compatible with safe pause and cancel",
   provenance_mismatch: "the immutable repository identity changed",
   hash_mismatch: "the downloaded bytes did not match the reviewed digest",
