@@ -263,6 +263,7 @@ function renderControl(options: {
   initialSessionContext?: AgentSessionContextStatus;
   contextReadFails?: boolean;
   transportOverrides?: RuntimeTransport;
+  variant?: Parameters<typeof AgentRuntimeControl>[0]["variant"];
 } = {}) {
   let currentRuntime = options.initialRuntime ?? runtime();
   let currentSessionContext = options.initialSessionContext ?? chatContext();
@@ -345,6 +346,7 @@ function renderControl(options: {
       models={renderedModels}
       {...callbacks}
       transport={renderedTransport}
+      variant={options.variant}
     />
   );
   const rendered = render(view());
@@ -368,6 +370,35 @@ function renderControl(options: {
 }
 
 describe("AgentRuntimeControl", () => {
+  it("puts the selected model and exact chat context in an in-flow composer disclosure", async () => {
+    renderControl({
+      initialSessionContext: measuredChatContext(),
+      variant: "composer",
+    });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    const summary = within(panel).getByLabelText(
+      "Model and context settings. Example Model A. 8% context. Ready.",
+    );
+
+    expect(summary.tagName).toBe("SUMMARY");
+    expect(summary.closest("details")).not.toHaveAttribute("open");
+    expect(within(panel).getByText("8% context")).toBeVisible();
+    fireEvent.click(summary);
+
+    expect(summary.closest("details")).toHaveAttribute("open");
+    expect(within(panel).getByLabelText("Model")).toHaveValue(MODEL_A);
+    expect(within(panel).getByLabelText("Model placement")).toHaveValue("split");
+    expect(within(panel).getByLabelText("Context limit")).toHaveValue("8192");
+    expect(within(panel).getByRole("progressbar", { name: "Exact context use" }))
+      .toHaveAttribute("aria-valuenow", "8");
+    expect(within(panel).getByText("Context use").parentElement)
+      .toHaveTextContent("640 input / 8192 · 7552 available · turn 2");
+
+    fireEvent.change(within(panel).getByLabelText("Model"), { target: { value: MODEL_B } });
+    expect(within(panel).getByText("Pending change")).toBeVisible();
+    expect(summary).toHaveAccessibleName(/Example Model B.*Pending change/u);
+  });
+
   it("keeps a new chat explicitly unmeasured while reporting verified runtime capabilities", async () => {
     const { callbacks } = renderControl();
     const panel = await screen.findByRole("region", { name: "Shared local model runtime" });

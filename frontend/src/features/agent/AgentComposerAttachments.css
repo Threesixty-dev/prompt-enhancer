@@ -41,6 +41,58 @@
   white-space: nowrap;
 }
 
+.agent-attachments--compact {
+  min-width: 0;
+}
+
+.agent-attachments--compact .agent-attachments__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.agent-attachments--compact .agent-attachments__icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch-target);
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  padding: 0;
+  border-radius: 999px;
+}
+
+.agent-attachments--compact .agent-attachments__icon-button svg {
+  width: 1.12rem;
+  height: 1.12rem;
+}
+
+.agent-attachments--compact .agent-attachments__count {
+  position: absolute;
+  right: -0.2rem;
+  bottom: -0.12rem;
+  min-width: 1.45rem;
+  padding: 0.08rem 0.22rem;
+  background: var(--surface);
+  font-size: var(--type-caption);
+  line-height: 1.15;
+  text-align: center;
+}
+
+.agent-attachments--compact .agent-attachments__status {
+  max-width: min(15rem, 32vw);
+  text-align: left;
+}
+
+.agent-attachments--compact .agent-attachments__picker-actions .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
 .agent-attachments__picker {
   display: grid;
   gap: 0.55rem;
@@ -200,6 +252,15 @@
     text-align: left;
   }
 
+  .agent-attachments--compact .agent-attachments__toolbar {
+    display: flex;
+  }
+
+  .agent-attachments--compact .agent-attachments__status {
+    grid-column: auto;
+    max-width: calc(100vw - 11rem);
+  }
+
   .agent-attachments__picker-actions {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -215,5 +276,22 @@
   .agent-attachments__list audio {
     max-width: 9rem;
     width: 9rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .agent-attachments--compact .agent-attachments__icon-button {
+    width: auto;
+    padding-inline: 0.7rem;
+  }
+
+  .agent-attachments--compact .agent-attachments__icon-button svg { display: none; }
+
+  .agent-attachments--compact .agent-attachments__forced-color-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
   }
 }

@@ -11,6 +11,7 @@ import type {
   RuntimeContextStatus,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { Icon } from "../../shared/ui/Icon";
 import "./AgentRuntimeControl.css";
 
 type RuntimeControlTransport = Partial<Pick<
@@ -31,6 +32,7 @@ type Props = {
   onModelsRefresh: () => Promise<LocalModelsOverview | null | undefined>;
   onRuntimeStatus?: (runtime: LocalRuntimeCoordinatorStatus | null) => void;
   onSessionUpdated: (session: AgentSessionView) => void;
+  variant?: "panel" | "composer";
   transport: RuntimeControlTransport;
 };
 
@@ -208,6 +210,7 @@ export function AgentRuntimeControl({
   onRuntimeStatus,
   onSessionUpdated,
   transport,
+  variant = "panel",
 }: Props) {
   const available = transport.getLocalRuntime !== undefined
     && transport.switchLocalRuntime !== undefined
@@ -226,6 +229,7 @@ export function AgentRuntimeControl({
   const [contextSize, setContextSize] = useState(8192);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const composerDetailsRef = useRef<HTMLDetailsElement | null>(null);
   const modelSelectRef = useRef<HTMLSelectElement | null>(null);
   const runtimeDraftDirty = useRef(false);
   const runtimeRead = useRef<RuntimeReadRequest | null>(null);
@@ -670,11 +674,27 @@ export function AgentRuntimeControl({
 
   useEffect(() => {
     if (!available || focusRequestKey < 1) return;
+    if (variant === "composer" && composerDetailsRef.current !== null) {
+      composerDetailsRef.current.open = true;
+    }
     const control = modelSelectRef.current;
     if (control === null) return;
     control.scrollIntoView?.({ block: "nearest" });
     control.focus({ preventScroll: true });
-  }, [available, focusRequestKey]);
+  }, [available, focusRequestKey, variant]);
+
+  function changeModelSelection(nextAlias: string): void {
+    runtimeDraftDirty.current = true;
+    setAlias(nextAlias);
+    onModelSelected(nextAlias);
+    setError("");
+    setNotice("");
+    const record = models?.models.find((model) => model.record.alias === nextAlias);
+    if (record && runtime?.served?.alias !== nextAlias) {
+      setDevice(record.record.default_device);
+      setContextSize(record.record.context_size);
+    }
+  }
 
   function ownsOperation(request: RuntimeOperation): boolean {
     return operation.current === request
@@ -860,7 +880,7 @@ export function AgentRuntimeControl({
 
   if (!available) {
     return (
-      <section className="agent-runtime" data-state="unavailable">
+      <section className={`agent-runtime${variant === "composer" ? " agent-runtime--composer" : ""}`} data-state="unavailable">
         <strong>Model runtime</strong>
         <small>Update the local app to use coordinated placement and context controls here.</small>
       </section>
@@ -956,6 +976,229 @@ export function AgentRuntimeControl({
     });
   }
 
+  const runtimeActionLabel = busy
+    ? operation.current?.kind === "stop" ? "Stopping…" : "Applying…"
+    : exactSelection && chatNeedsRebind
+      ? "Bind this chat"
+      : exactSelection
+        ? "Applied"
+        : runtime?.served
+          ? "Switch model"
+          : "Start model";
+  const compactModelName = selected?.record.display_name
+    ?? runtime?.served?.alias
+    ?? currentModelAlias
+    ?? "Choose a model";
+  const compactRuntimeState = loading ? "Checking" : runtime ? stateLabel(runtime.state) : "Unavailable";
+  const compactSelectionState = runtime?.served && !exactSelection
+    ? "Pending change"
+    : runtime?.served && chatNeedsRebind
+      ? "Chat binding pending"
+      : compactRuntimeState;
+  const compactContextLabel = contextPercentage !== null
+    ? `${contextPercentage}% context${contextStale ? " · stale" : contextRefreshing ? " · checking" : ""}`
+    : contextLoading
+      ? "Checking context"
+      : contextStale
+        ? "Context stale · unknown"
+        : current !== null && sessionContext?.binding_state === "unmeasured"
+          ? "Context unmeasured"
+          : "Context unknown";
+
+  if (variant === "composer") {
+    return (
+      <section
+        aria-busy={busy || loading || contextLoading || placementLoading}
+        aria-label="Shared local model runtime"
+        className="agent-runtime agent-runtime--composer"
+        data-state={runtime?.state ?? "loading"}
+        id="agent-runtime-controls"
+      >
+        <details className="agent-runtime__composer-disclosure" ref={composerDetailsRef}>
+          <summary
+            aria-label={`Model and context settings. ${compactModelName}. ${compactContextLabel}. ${compactSelectionState}.`}
+            data-context-tone={displayedContextTone}
+            data-pending-selection={!exactSelection || chatNeedsRebind ? "true" : "false"}
+          >
+            <span aria-hidden="true" className="agent-runtime__composer-dot" />
+            <span className="agent-runtime__composer-model">
+              <strong>{compactModelName}</strong>
+              <small>{compactSelectionState}</small>
+            </span>
+            <span className="agent-runtime__composer-context">
+              {contextMeterValue !== null && (
+                <span aria-hidden="true" className="agent-runtime__composer-context-meter">
+                  <span style={{ width: `${contextMeterValue}%` }} />
+                </span>
+              )}
+              <span>{compactContextLabel}</span>
+            </span>
+            <Icon name="sliders" />
+          </summary>
+
+          <div className="agent-runtime__composer-panel">
+            <header className="agent-runtime__head">
+              <span>
+                <small>Shared local runtime</small>
+                <strong>Model, placement &amp; context</strong>
+              </span>
+              <span className="agent-runtime__state">{compactRuntimeState}</span>
+            </header>
+
+            <label>
+              <span>Model</span>
+              <select
+                aria-describedby={applyDisabledReasonId}
+                aria-label="Model"
+                disabled={busy || anyTurnRunning}
+                id="agent-runtime-model"
+                onChange={(event) => changeModelSelection(event.currentTarget.value)}
+                ref={modelSelectRef}
+                value={alias}
+              >
+                <option value="">Choose an installed model</option>
+                {(models?.models ?? []).map((model) => (
+                  <option key={model.record.alias} value={model.record.alias}>{model.record.display_name}</option>
+                ))}
+              </select>
+            </label>
+
+            <div className="agent-runtime__placement">
+              <label>
+                <span>Placement</span>
+                <select aria-label="Model placement" disabled={busy || anyTurnRunning} onChange={(event) => {
+                  runtimeDraftDirty.current = true;
+                  setDevice(event.currentTarget.value as DeviceMode);
+                }} value={device}>
+                  {(["gpu", "split", "cpu"] as const).map((value) => {
+                    const option = placementAdmission?.options.find((candidate) => candidate.device === value);
+                    return (
+                      <option disabled={option?.state === "blocked"} key={value} value={value}>
+                        {placementLabel(value)}{option?.state === "blocked" ? " · unavailable" : option?.state === "recheck_required" ? " · recheck after unload" : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <label>
+                <span>Context limit</span>
+                <select aria-label="Context limit" disabled={busy || anyTurnRunning} onChange={(event) => {
+                  runtimeDraftDirty.current = true;
+                  setContextSize(Number(event.currentTarget.value));
+                }} value={contextSize}>
+                  {!CONTEXT_OPTIONS.includes(contextSize as (typeof CONTEXT_OPTIONS)[number]) && (
+                    <option value={contextSize}>{contextSize.toLocaleString()}</option>
+                  )}
+                  {CONTEXT_OPTIONS.map((value) => (
+                    <option
+                      disabled={selected?.record.training_context_size !== null
+                        && selected?.record.training_context_size !== undefined
+                        && value > selected.record.training_context_size}
+                      key={value}
+                      value={value}
+                    >
+                      {Math.round(value / 1024)}K
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <p className="agent-runtime__placement-note" data-state={selectedPlacement?.state ?? "unknown"}>
+              {placementLoading
+                ? "Checking current placement admission…"
+                : placementReadFailed
+                  ? "Placement admission could not be refreshed; Apply stays disabled."
+                  : selectedPlacement
+                    ? `${placementReasonLabel(selectedPlacement.reason_code)}${selectedPlacement.recommended_gpu_layers != null && selectedPlacement.recommended_gpu_layers > 0 ? ` Recommended maximum: ${selectedPlacement.recommended_gpu_layers} GPU layers.` : ""} Actual tensor offload is not measured.`
+                    : selected !== null
+                      ? "Placement evidence is unavailable; Apply stays disabled. Refresh models or retry the placement check."
+                      : "Choose a model to check placement admission."}
+              {blockedPlacementSummary ? ` ${blockedPlacementSummary}` : ""}
+            </p>
+
+            <div className="agent-runtime__context-card" data-tone={displayedContextTone}>
+              <p className="agent-runtime__context">
+                <span>Context use</span>
+                <strong>{displayedContext}</strong>
+              </p>
+              {contextMeterValue !== null && (
+                <div
+                  aria-label="Exact context use"
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={contextMeterValue}
+                  aria-valuetext={`${contextPercentage}% exact input utilization · ${displayedContextEvidence?.policy.replaceAll("_", " ")}`}
+                  className="agent-runtime__context-meter"
+                  data-tone={displayedContextTone}
+                  role="progressbar"
+                >
+                  <span style={{ width: `${contextMeterValue}%` }} />
+                </div>
+              )}
+              {contextMessages.map((message, index) => (
+                <p className="agent-runtime__context-note" key={`${message.text}-${index}`} role={message.role}>{message.text}</p>
+              ))}
+            </div>
+
+            <details className="agent-runtime__details">
+              <summary>Runtime evidence &amp; capabilities</summary>
+              <div className="agent-runtime__details-body">
+                <dl className="agent-runtime__facts">
+                  <div><dt>Requested</dt><dd>{runtime?.requested?.alias ?? "None"}</dd></div>
+                  <div><dt>Served</dt><dd>{runtime?.served?.alias ?? "None"}</dd></div>
+                  <div><dt>Context</dt><dd>{displayedContext}</dd></div>
+                  <div><dt>Evidence</dt><dd>{contextEvidence}</dd></div>
+                  <div><dt>Measurement</dt><dd>{contextMeasurement}</dd></div>
+                  <div><dt>Admission</dt><dd>{contextAdmission}</dd></div>
+                  <div><dt>Placement request</dt><dd>{runtime?.served ? placementLabel(runtime.served.device) : "None"}</dd></div>
+                  <div><dt>Offload evidence</dt><dd>Not measured · runtime arguments only</dd></div>
+                  <div><dt>Cleanup</dt><dd>{runtime?.cleanup.state.replaceAll("_", " ") ?? "unknown"}</dd></div>
+                </dl>
+                <div className="agent-runtime__capabilities" aria-label="Model capability status">
+                  <span data-supported={runtime?.capabilities.text ? "true" : "false"}>Text {runtime?.capabilities.text ? "verified" : "unverified"}</span>
+                  <span data-supported={runtime?.capabilities.tools ? "true" : "false"}>Tools {runtime?.capabilities.tools ? "configured" : "not verified"}</span>
+                  <span data-supported={runtime?.capabilities.vision ? "true" : "false"}>Vision {runtime?.capabilities.vision ? "verified" : "not verified"}</span>
+                  <span data-supported={runtime?.capabilities.audio ? "true" : "false"}>Audio {runtime?.capabilities.audio ? "verified · experimental" : "not verified"}</span>
+                  <span data-supported={runtime?.capabilities.recording ? "true" : "false"}>Microphone {runtime?.capabilities.recording ? "eligible in supported windows" : "not verified"}</span>
+                </div>
+              </div>
+            </details>
+
+            <div className="agent-runtime__actions">
+              <button
+                aria-describedby={applyDisabledReasonId}
+                className="button button--primary"
+                disabled={applyDisabled}
+                onClick={() => void applyRuntime()}
+                type="button"
+              >{runtimeActionLabel}</button>
+              <button
+                aria-describedby={stopDisabledReasonId}
+                className="button button--ghost"
+                disabled={stopDisabled}
+                onClick={() => void stopRuntime()}
+                type="button"
+              >Stop runtime</button>
+              <button className="button button--ghost" disabled={busy || loading} onClick={() => {
+                void refresh();
+                void refreshContext();
+              }} type="button">Refresh</button>
+            </div>
+            {applyDisabledReasonId === "agent-runtime-apply-disabled-reason" && <span className="sr-only" id="agent-runtime-apply-disabled-reason">{applyDisabledReason}</span>}
+            {stopDisabledReasonId === "agent-runtime-stop-disabled-reason" && <span className="sr-only" id="agent-runtime-stop-disabled-reason">{stopDisabledReason}</span>}
+            {anyTurnRunning && <p className="agent-runtime__hint" id="agent-runtime-active-turn-hint">Finish or stop active responses before changing the shared runtime.</p>}
+            {transitionBlocked && <p className="agent-runtime__hint" id="agent-runtime-transition-hint">Wait for the shared runtime transition to settle before starting another model operation.</p>}
+            {cleanupBlocked && <p className="agent-runtime__hint" id="agent-runtime-cleanup-hint">Runtime cleanup is unconfirmed. Starting or switching stays disabled until cleanup is resolved.</p>}
+            {runtime?.active_requests ? <p className="agent-runtime__hint">{runtime.active_requests} runtime request active.</p> : null}
+            {error && <p className="agent-runtime__error" role="alert">{error}</p>}
+            {notice && <p className="agent-runtime__notice" role="status">{notice}</p>}
+          </div>
+        </details>
+      </section>
+    );
+  }
+
   return (
     <section aria-busy={busy || loading || contextLoading || placementLoading} aria-label="Shared local model runtime" className="agent-runtime" data-state={runtime?.state ?? "loading"} id="agent-runtime-controls">
       <header className="agent-runtime__head">
@@ -971,19 +1214,7 @@ export function AgentRuntimeControl({
         <select
           id="agent-runtime-model"
           disabled={busy || anyTurnRunning}
-          onChange={(event) => {
-            const nextAlias = event.currentTarget.value;
-            runtimeDraftDirty.current = true;
-            setAlias(nextAlias);
-            onModelSelected(nextAlias);
-            setError("");
-            setNotice("");
-            const record = models?.models.find((model) => model.record.alias === nextAlias);
-            if (record && runtime?.served?.alias !== nextAlias) {
-              setDevice(record.record.default_device);
-              setContextSize(record.record.context_size);
-            }
-          }}
+          onChange={(event) => changeModelSelection(event.currentTarget.value)}
           ref={modelSelectRef}
           value={alias}
         >
@@ -1105,9 +1336,7 @@ export function AgentRuntimeControl({
           onClick={() => void applyRuntime()}
           type="button"
         >
-          {busy
-            ? operation.current?.kind === "stop" ? "Stopping…" : "Applying…"
-            : exactSelection && chatNeedsRebind ? "Bind this chat" : exactSelection ? "Applied" : runtime?.served ? "Switch model" : "Start model"}
+          {runtimeActionLabel}
         </button>
         <button
           aria-describedby={stopDisabledReasonId}

@@ -116,12 +116,15 @@ describe("AgentPage layout contract", () => {
     expect(agentPageCss).toMatch(/@media \(max-width:\s*900px\)[\s\S]*?\.agent__activity-overview\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
   });
 
-  it("keeps navigation and settings reachable above a bounded runtime card", () => {
-    expect(agentPageCss).toMatch(/\.agent__side\s*\{[^}]*grid-template-rows:\s*minmax\(12rem,\s*1fr\) auto minmax\(0,\s*auto\);[^}]*min-width:\s*0;[^}]*height:\s*clamp\(32rem,\s*calc\(100dvh\s*-\s*15rem\),\s*46rem\);[^}]*overflow:\s*hidden;/);
+  it("keeps project navigation in the rail and model context in the active composer", () => {
+    expect(agentPageCss).toMatch(/\.agent__side\s*\{[^}]*grid-template-rows:\s*minmax\(12rem,\s*1fr\) auto;[^}]*min-width:\s*0;[^}]*height:\s*clamp\(32rem,\s*calc\(100dvh\s*-\s*15rem\),\s*46rem\);[^}]*overflow:\s*hidden;/);
     expect(agentPageCss).toMatch(/\.agent__side-scroll\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/);
     expect(agentPageCss).toMatch(/\.agent__settings-launch\s*\{[^}]*min-width:\s*0;/);
-    expect(runtimeControlCss).toMatch(/\.agent-runtime\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/);
-    expect(runtimeControlCss).toMatch(/@media \(min-width:\s*901px\)[\s\S]*?\.agent-runtime\s*\{[^}]*align-self:\s*end;[^}]*max-height:\s*min\(36dvh,\s*23rem\);[^}]*overflow-y:\s*auto;/);
+    expect(agentPageCss).toMatch(/\.agent__compose-footer\s*\{[^}]*grid-template-columns:\s*minmax\(14rem,\s*1fr\) auto;/);
+    expect(runtimeControlCss).toMatch(/\.agent-runtime--composer\s*\{[^}]*width:\s*min\(100%,\s*44rem\);[^}]*max-height:\s*none;[^}]*overflow:\s*visible;/);
+    expect(runtimeControlCss).toMatch(/\.agent-runtime__composer-disclosure > summary\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(agentPageCss).toMatch(/@media \(forced-colors:\s*active\)[\s\S]*?\.agent__compose-primary-action \.agent__forced-color-label\s*\{[^}]*position:\s*static;[^}]*clip:\s*auto;/);
+    expect(attachmentsCss).toMatch(/@media \(forced-colors:\s*active\)[\s\S]*?\.agent-attachments--compact \.agent-attachments__forced-color-label\s*\{[^}]*position:\s*static;[^}]*clip:\s*auto;/);
   });
 
   it("releases the fixed-height rail and stacks runtime controls on narrow screens", () => {

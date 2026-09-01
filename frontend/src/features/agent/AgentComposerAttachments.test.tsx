@@ -124,6 +124,7 @@ function documentAttachment(overrides: Partial<AgentAttachment> = {}): AgentAtta
 }
 
 function Harness({
+  compact = false,
   disabled = false,
   modelAlias = "example-model",
   onBusyChange,
@@ -132,6 +133,7 @@ function Harness({
   sessionId = SESSION,
   transport,
 }: {
+  compact?: boolean;
   disabled?: boolean;
   modelAlias?: string | null;
   onBusyChange?: (busy: boolean) => void;
@@ -148,6 +150,7 @@ function Harness({
       <AgentComposerAttachments
         attachments={attachments}
         capabilities={runtime}
+        compact={compact}
         disabled={disabled}
         modelAlias={modelAlias}
         onAttachmentsChange={setAttachments}
@@ -189,6 +192,59 @@ afterEach(() => {
 });
 
 describe("AgentComposerAttachments", () => {
+  it("keeps primary media controls compact while capability-gating the microphone", async () => {
+    installRecorderBoundary();
+    const transport = {
+      listAgentAttachments: vi.fn(async () => ({ contract_version: "agent-attachment.v2" as const, session_id: SESSION, attachments: [] })),
+      stageAgentAttachment: vi.fn(),
+      deleteAgentAttachment: vi.fn(),
+    };
+    render(<Harness
+      compact
+      runtime={capabilities({ audio: true, recording: true })}
+      transport={transport}
+    />);
+
+    const attachmentRegion = screen.getByLabelText("Message attachments");
+    expect(attachmentRegion).toHaveClass("agent-attachments--compact");
+    const attach = await screen.findByRole("button", { name: "Attach" });
+    await waitFor(() => expect(attach).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Record audio" })).toBeEnabled();
+    expect(screen.queryByRole("group", { name: "Attachment sources" })).not.toBeInTheDocument();
+
+    fireEvent.click(attach);
+    expect(screen.getByRole("group", { name: "Attachment sources" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Refresh staged" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Add image" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add audio" })).toBeEnabled();
+  });
+
+  it("keeps an open source menu stable while a new runtime identity re-gates its choices", async () => {
+    const transport = {
+      listAgentAttachments: vi.fn(async () => ({ contract_version: "agent-attachment.v2" as const, session_id: SESSION, attachments: [] })),
+      stageAgentAttachment: vi.fn(),
+      deleteAgentAttachment: vi.fn(),
+    };
+    const rendered = render(<Harness compact runtimeKey="runtime-a" transport={transport} />);
+    const attach = await screen.findByRole("button", { name: "Attach" });
+    await waitFor(() => expect(attach).toBeEnabled());
+    fireEvent.click(attach);
+    expect(screen.getByRole("group", { name: "Attachment sources" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Add image" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add audio" })).toBeDisabled();
+
+    rendered.rerender(<Harness
+      compact
+      runtime={capabilities({ audio: true, recording: false, vision: false })}
+      runtimeKey="runtime-b"
+      transport={transport}
+    />);
+
+    expect(screen.getByRole("group", { name: "Attachment sources" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Add image" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add audio" })).toBeEnabled();
+  });
+
   it("keeps media locked until the exact live runtime verifies it", async () => {
     const transport = {
       listAgentAttachments: vi.fn(async () => ({ contract_version: "agent-attachment.v2" as const, session_id: SESSION, attachments: [] })),

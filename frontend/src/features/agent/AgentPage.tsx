@@ -3,6 +3,7 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent a
 import type { AgentArtifact, AgentArtifactLifecycleCounts, AgentArtifactListView, AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentMessageAttachment, AgentSessionForkReceipt, AgentSessionView, AgentSettings, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckResult, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { Dialog } from "../../shared/ui/Dialog";
+import { Icon } from "../../shared/ui/Icon";
 import { TabList, tabId, tabPanelId, type TabDescriptor } from "../../shared/ui/Tabs";
 import {
   chooseNativeWorkspaceFolder,
@@ -3340,19 +3341,6 @@ export function AgentPage({
                 </section>
               )}
             </div>
-            <AgentRuntimeControl
-              current={current}
-              disabled={commandCleanupBlocked || connectionDisconnected || Boolean(current?.closing)}
-              focusRequestKey={runtimeFocusRequest}
-              liveSessions={sessions}
-              models={models}
-              onBusyChange={setRuntimeControlBusy}
-              onModelSelected={selectRuntimeModel}
-              onModelsRefresh={refreshModels}
-              onRuntimeStatus={setRuntimeCoordinator}
-              onSessionUpdated={acceptRuntimeSessionUpdate}
-              transport={transport}
-            />
           </aside>
 
         <div
@@ -3872,17 +3860,6 @@ export function AgentPage({
                       : "Ctrl/⌘+Enter sends · Enter adds a line"}
                   </small>
                 </div>
-                <AgentComposerAttachments
-                  attachments={draftAttachments}
-                  capabilities={mediaCapabilities}
-                  disabled={commandCleanupBlocked || connectionDisconnected || current.closing || current.running || current.history_write_failed || responseStopping || runtimeControlBusy || currentModelAction !== null}
-                  modelAlias={currentModelAlias}
-                  onAttachmentsChange={changeDraftAttachments}
-                  onBusyChange={setAttachmentBusy}
-                  runtimeKey={mediaRuntimeKey}
-                  sessionId={current.session_id}
-                  transport={transport}
-                />
                 <textarea
                   aria-describedby={`agent-session-model-status agent-composer-shortcut${conversationMessage ? " agent-message-error" : ""}`}
                   disabled={!commandCleanupBlocked && (current.closing || current.history_write_failed || currentModelBlocked)}
@@ -3915,23 +3892,54 @@ export function AgentPage({
                   rows={3}
                   value={draft}
                 />
-                <div className="agent__compose-actions">
+                <AgentComposerAttachments
+                  attachments={draftAttachments}
+                  capabilities={mediaCapabilities}
+                  compact
+                  disabled={commandCleanupBlocked || connectionDisconnected || current.closing || current.running || current.history_write_failed || responseStopping || runtimeControlBusy || currentModelAction !== null}
+                  modelAlias={currentModelAlias}
+                  onAttachmentsChange={changeDraftAttachments}
+                  onBusyChange={setAttachmentBusy}
+                  runtimeKey={mediaRuntimeKey}
+                  sessionId={current.session_id}
+                  transport={transport}
+                />
+                <div className="agent__compose-footer">
+                  <AgentRuntimeControl
+                    current={current}
+                    disabled={commandCleanupBlocked || connectionDisconnected || current.closing}
+                    focusRequestKey={runtimeFocusRequest}
+                    liveSessions={sessions}
+                    models={models}
+                    onBusyChange={setRuntimeControlBusy}
+                    onModelSelected={selectRuntimeModel}
+                    onModelsRefresh={refreshModels}
+                    onRuntimeStatus={setRuntimeCoordinator}
+                    onSessionUpdated={acceptRuntimeSessionUpdate}
+                    transport={transport}
+                    variant="composer"
+                  />
+                  <div className="agent__compose-actions">
                   {transport.checkPrompt && (
                     <button
                       aria-expanded={Boolean(promptCheckResult)}
-                      className="button button--ghost"
+                      aria-label="Check & improve"
+                      className="button button--ghost agent__compose-improve"
                       disabled={commandCleanupBlocked || busy || promptCheckBusy || current.closing || current.history_write_failed || current.running || responseStopping || currentModelAction !== null || runtimeControlBusy || !draft.trim()}
                       onClick={() => void runPromptCheck()}
+                      title="Check and improve this draft locally"
                       type="button"
                     >
-                      {promptCheckBusy ? "Checking…" : "Check & improve"}
+                      <Icon name="sparkles" />
+                      <span>{promptCheckBusy ? "Checking…" : "Improve"}</span>
                     </button>
                   )}
                   {current.running || responseStopping ? (
-                    <button className="button button--danger-ghost" disabled={responseStopping} onClick={() => void stop()} type="button">{responseStopping ? "Stopping…" : "Stop response"}</button>
+                    <button aria-label={responseStopping ? "Stopping…" : "Stop response"} className="button button--danger-ghost agent__compose-primary-action" disabled={responseStopping} onClick={() => void stop()} title={responseStopping ? "Stopping the active response" : "Stop the active response"} type="button"><Icon name="stop" /><span className="sr-only agent__forced-color-label">{responseStopping ? "Stopping…" : "Stop response"}</span></button>
                   ) : (
-                    <button className="button button--primary" disabled={busy || attachmentBusy || attachmentModelMismatch || promptCheckBusy || current.closing || current.history_write_failed || currentModelBlocked || (!draft.trim() && draftAttachments.length === 0)} type="submit">Send</button>
+                    <button aria-label="Send" className="button button--primary agent__compose-primary-action" disabled={busy || attachmentBusy || attachmentModelMismatch || promptCheckBusy || current.closing || current.history_write_failed || currentModelBlocked || (!draft.trim() && draftAttachments.length === 0)} title="Send message · Ctrl/Command+Enter" type="submit"><Icon name="send" /><span className="sr-only agent__forced-color-label">Send</span></button>
                   )}
+                  </div>
                 </div>
                 <div aria-live="polite" className="agent__prompt-check-status">
                   {promptCheckError && <p className="agent__error" role="alert">{promptCheckError}</p>}

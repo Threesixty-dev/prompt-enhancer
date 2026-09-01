@@ -7,6 +7,7 @@ import type {
   RuntimeCapabilities,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { Icon } from "../../shared/ui/Icon";
 import {
   microphoneCaptureAvailable,
   startPcmWavRecorder,
@@ -23,6 +24,7 @@ type AttachmentTransport = Partial<Pick<
 type Props = {
   attachments: AgentAttachment[];
   capabilities: RuntimeCapabilities | null;
+  compact?: boolean;
   disabled: boolean;
   modelAlias: string | null;
   onAttachmentsChange: (attachments: AgentAttachment[]) => void;
@@ -128,6 +130,7 @@ function recordingName(): string {
 export function AgentComposerAttachments({
   attachments,
   capabilities,
+  compact = false,
   disabled,
   modelAlias,
   onAttachmentsChange,
@@ -305,8 +308,10 @@ export function AgentComposerAttachments({
     setBusy(false);
     setRecording(false);
     setRecordingStarting(false);
-    setPickerOpen(false);
     onBusyChange(false);
+    // Keep an already-open source menu in place while runtime evidence refreshes.
+    // Every choice is capability-gated on the new render, while active capture
+    // and mutations above are still cancelled against the old runtime identity.
     if (pendingStart !== null || activeRecorder !== null) {
       setError("Recording stopped because the active model or verified input capability changed. No recording was added.");
     } else if (pendingMutation !== null) {
@@ -560,7 +565,12 @@ export function AgentComposerAttachments({
   }
 
   return (
-    <section aria-label="Message attachments" className="agent-attachments" data-preview-revision={previewRevision}>
+    <section
+      aria-label="Message attachments"
+      className={`agent-attachments${compact ? " agent-attachments--compact" : ""}`}
+      data-has-attachments={attachments.length > 0 ? "true" : "false"}
+      data-preview-revision={previewRevision}
+    >
       <input
         accept="image/png,image/jpeg"
         aria-label="Choose images"
@@ -605,26 +615,50 @@ export function AgentComposerAttachments({
       />
       <div className="agent-attachments__toolbar">
         <button
+          aria-label={compact ? "Attach" : undefined}
           aria-controls={pickerId}
           aria-expanded={pickerOpen}
-          className="button button--ghost"
+          className={`button button--ghost${compact ? " agent-attachments__icon-button" : ""}`}
           disabled={disabled || busy || refreshing || recording || !available || attachments.length >= MAX_ATTACHMENTS}
           onClick={() => setPickerOpen((value) => !value)}
           ref={pickerButton}
           title="Choose a locally validated document, image, WAV file, or microphone recording"
           type="button"
         >
-          Attach
+          {compact ? (
+            <>
+              <Icon name="paperclip" />
+              <span className="sr-only agent-attachments__forced-color-label">Attach</span>
+            </>
+          ) : "Attach"}
           <span aria-hidden="true" className="agent-attachments__count">{attachments.length}/{MAX_ATTACHMENTS}</span>
         </button>
-        <button
-          className="button button--ghost"
-          disabled={busy || refreshing || recording || !available}
-          onClick={() => setRefreshRevision((value) => value + 1)}
-          title="Refresh attachments staged by this window or a connected external agent"
-          type="button"
-        >Refresh staged</button>
-        <span className="agent-attachments__status">{attachmentStatus}</span>
+        {!compact && (
+          <button
+            className="button button--ghost"
+            disabled={busy || refreshing || recording || !available}
+            onClick={() => setRefreshRevision((value) => value + 1)}
+            title="Refresh attachments staged by this window or a connected external agent"
+            type="button"
+          >Refresh staged</button>
+        )}
+        {compact && (
+          <button
+            aria-label={recording ? "Stop audio recording" : "Record audio"}
+            aria-pressed={recording}
+            className={`${recording ? "button button--danger-ghost" : "button button--ghost"} agent-attachments__icon-button`}
+            disabled={!recording && (disabled || busy || refreshing || recordingStarting || !available || !recordingAvailable || attachments.length >= MAX_ATTACHMENTS)}
+            onClick={() => void toggleRecording()}
+            title={recordingAvailable ? "Record local PCM WAV audio" : "Verified audio input and microphone access are required"}
+            type="button"
+          >
+            <Icon name={recording ? "stop" : "microphone"} />
+            <span className="sr-only agent-attachments__forced-color-label">
+              {recording ? "Stop recording" : recordingStarting ? "Starting microphone…" : "Record audio"}
+            </span>
+          </button>
+        )}
+        <span aria-live="polite" className="agent-attachments__status" title={attachmentStatus}>{attachmentStatus}</span>
       </div>
       {pickerOpen && (
         <div
@@ -635,6 +669,15 @@ export function AgentComposerAttachments({
           role="group"
         >
           <div className="agent-attachments__picker-actions">
+            {compact && (
+              <button
+                className="button button--ghost"
+                disabled={busy || refreshing || recording || !available}
+                onClick={() => setRefreshRevision((value) => value + 1)}
+                title="Refresh attachments staged by this window or a connected external agent"
+                type="button"
+              ><Icon name="refresh" /> Refresh staged</button>
+            )}
             <button
               className="button button--ghost"
               disabled={disabled || busy || refreshing || recording || !available || !vision || attachments.length >= MAX_ATTACHMENTS}
@@ -667,14 +710,16 @@ export function AgentComposerAttachments({
                 : "Verified text input and the private document-preview service are required"}
               type="button"
             >Add document</button>
-            <button
-              aria-pressed={recording}
-              className={recording ? "button button--danger-ghost" : "button button--ghost"}
-              disabled={!recording && (disabled || busy || refreshing || recordingStarting || !available || !recordingAvailable || attachments.length >= MAX_ATTACHMENTS)}
-              onClick={() => void toggleRecording()}
-              title={recordingAvailable ? "Record local PCM WAV audio" : "Verified audio input and microphone access are required"}
-              type="button"
-            >{recording ? "Stop recording" : recordingStarting ? "Starting microphone…" : "Record audio"}</button>
+            {!compact && (
+              <button
+                aria-pressed={recording}
+                className={recording ? "button button--danger-ghost" : "button button--ghost"}
+                disabled={!recording && (disabled || busy || refreshing || recordingStarting || !available || !recordingAvailable || attachments.length >= MAX_ATTACHMENTS)}
+                onClick={() => void toggleRecording()}
+                title={recordingAvailable ? "Record local PCM WAV audio" : "Verified audio input and microphone access are required"}
+                type="button"
+              >{recording ? "Stop recording" : recordingStarting ? "Starting microphone…" : "Record audio"}</button>
+            )}
           </div>
           {!vision && !audio && !documentsAvailable && (
             <p className="agent-attachments__hint">Attachments are locked until the served model passes the matching live capability probe.</p>

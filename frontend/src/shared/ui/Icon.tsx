@@ -21,12 +21,17 @@ export type IconName =
   | "lock"
   | "merge"
   | "menu"
+  | "microphone"
+  | "paperclip"
   | "pause"
   | "play"
+  | "refresh"
   | "search"
   | "send"
   | "split"
   | "sliders"
+  | "sparkles"
+  | "stop"
   | "tasks"
   | "users"
   | "x";
@@ -124,8 +129,16 @@ const paths: Record<IconName, ReactNode> = {
   ),
   merge: <path d="M7 3v5a4 4 0 0 0 4 4h6m0 0-3-3m3 3-3 3M7 21v-5a4 4 0 0 1 4-4" />,
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
+  microphone: (
+    <>
+      <rect x="9" y="3" width="6" height="12" rx="3" />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
+    </>
+  ),
+  paperclip: <path d="m9 12.5 6.2-6.2a3 3 0 1 1 4.2 4.2l-8.1 8.1a5 5 0 0 1-7.1-7.1l8.2-8.2M7.1 14.4l8.1-8.1" />,
   pause: <path d="M9 5v14M15 5v14" />,
   play: <path d="m8 5 10 7-10 7V5Z" />,
+  refresh: <path d="M20 7v5h-5M4 17v-5h5M18.2 9A7 7 0 0 0 6.1 6.4L4 8M5.8 15A7 7 0 0 0 17.9 17.6L20 16" />,
   search: (
     <>
       <circle cx="11" cy="11" r="7" />
@@ -142,6 +155,13 @@ const paths: Record<IconName, ReactNode> = {
       <circle cx="9" cy="18" r="2" />
     </>
   ),
+  sparkles: (
+    <>
+      <path d="m12 3 1.1 3.1L16 7.5l-2.9 1.4L12 12l-1.1-3.1L8 7.5l2.9-1.4L12 3Z" />
+      <path d="m18.5 13 .7 1.8L21 15.5l-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8ZM5.5 13l.7 1.8 1.8.7-1.8.7L5.5 18l-.7-1.8-1.8-.7 1.8-.7.7-1.8Z" />
+    </>
+  ),
+  stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
   tasks: (
     <>
       <rect x="4" y="4" width="16" height="16" rx="3" />

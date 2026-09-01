@@ -908,7 +908,10 @@ describe("AgentPage coordinated runtime integration", () => {
     const composer = await screen.findByLabelText("Message to the agent");
     fireEvent.change(composer, { target: { value: "Keep this synthetic unsent prompt" } });
     const runtimePanel = await screen.findByRole("region", { name: "Shared local model runtime" });
-    await within(runtimePanel).findByText("Ready");
+    const runtimeDisclosure = await within(runtimePanel).findByLabelText(
+      /Model and context settings\..*Ready\./,
+    );
+    fireEvent.click(runtimeDisclosure);
 
     fireEvent.change(within(runtimePanel).getByLabelText("Model"), { target: { value: nextAlias } });
     fireEvent.click(within(runtimePanel).getByRole("button", { name: "Switch model" }));
@@ -3388,7 +3391,10 @@ describe("AgentPage", () => {
     expect(container.querySelector(".agent__workbench")).toHaveAttribute("data-has-workspace", "false");
     expect(screen.queryByText("Files and reviewed changes")).toBeNull();
     expect(await screen.findByRole("navigation", { name: "Agent projects and chats" })).toBeVisible();
-    expect(await screen.findByRole("region", { name: "Shared local model runtime" })).toBeVisible();
+    const runtimeRegion = await screen.findByRole("region", { name: "Shared local model runtime" });
+    expect(runtimeRegion).toBeVisible();
+    expect(screen.getByRole("form", { name: "Message composer" })).toContainElement(runtimeRegion);
+    expect(container.querySelector(".agent__side")).not.toContainElement(runtimeRegion);
     expect(screen.queryByLabelText("Workspace folder")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     expect(screen.getByRole("dialog", { name: "New session" })).toBeVisible();
