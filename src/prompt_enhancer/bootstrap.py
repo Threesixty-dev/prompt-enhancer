@@ -630,11 +630,14 @@ class LocalApplication:
 
         from .application.shared_folders import (
             PeerFolderClient,
+            SHARED_FOLDER_DATABASE_FILENAME,
             SharedFolderService,
             SharedFolderStore,
         )
 
-        store = SharedFolderStore(self.settings.home / "shared-folders.sqlite3")
+        store = SharedFolderStore(
+            self.settings.home / SHARED_FOLDER_DATABASE_FILENAME
+        )
         service = SharedFolderService(store, forbidden_roots=(self.settings.home,))
         client = PeerFolderClient(store)
         return service, client
@@ -644,6 +647,7 @@ class LocalApplication:
 
         from .application.annotation import (
             AnnotationService,
+            CENTRAL_ANNOTATION_DATABASE_FILENAME,
             CentralAnnotationServer,
             CentralAnnotationStore,
             RemoteAnnotationClient,
@@ -666,7 +670,9 @@ class LocalApplication:
             return None
 
         service = AnnotationService(judge, list_sessions=self.database.list_sessions)
-        store = CentralAnnotationStore(self.settings.home / "central-annotations.sqlite3")
+        store = CentralAnnotationStore(
+            self.settings.home / CENTRAL_ANNOTATION_DATABASE_FILENAME
+        )
         central = CentralAnnotationServer(store, chat=models.chat, active_model=active_model)
         remote_client = RemoteAnnotationClient(
             service,

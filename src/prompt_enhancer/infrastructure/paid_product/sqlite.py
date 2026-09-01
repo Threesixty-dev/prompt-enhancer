@@ -37,10 +37,14 @@ from ...application.paid_product.contracts import (
     TenantAccountBinding,
 )
 from ...config import lexical_absolute_path, path_has_symlink_component
+from ...sqlite_migration_integrity import (
+    SqliteMigrationIntegrity,
+    SqliteMigrationIntegrityError,
+)
 
 
 PAID_PRODUCT_DATABASE_FILENAME = "paid-product.sqlite3"
-PAID_PRODUCT_SCHEMA_VERSION = 1
+PAID_PRODUCT_SCHEMA_VERSION = 2
 MINIMUM_SQLITE_VERSION = (3, 37, 0)
 
 _T = TypeVar("_T", bound=BaseModel)
@@ -345,6 +349,24 @@ _SCHEMA_V1 = (
     """,
 )
 
+_SCHEMA_V2 = (
+    """
+    CREATE TABLE paid_product_migration_checksums (
+        version INTEGER PRIMARY KEY
+            REFERENCES paid_product_schema_migrations(version) ON DELETE RESTRICT
+            CHECK(version > 0),
+        checksum TEXT NOT NULL CHECK(
+            length(checksum)=64 AND checksum NOT GLOB '*[^0-9a-f]*'
+        )
+    ) STRICT
+    """,
+)
+
+_MIGRATIONS = (
+    (1, _SCHEMA_V1),
+    (2, _SCHEMA_V2),
+)
+
 _EXPECTED_PAID_TABLES = frozenset(
     {
         "paid_accounts",
@@ -355,12 +377,26 @@ _EXPECTED_PAID_TABLES = frozenset(
         "paid_identity_nonces",
         "paid_organization_spend_policies",
         "paid_product_schema_migrations",
+        "paid_product_migration_checksums",
         "paid_remote_approvals",
         "paid_spend_holds",
         "paid_tenant_bindings",
         "paid_user_spend_policies",
         "paid_webhook_fences",
     }
+)
+
+_MIGRATION_INTEGRITY = SqliteMigrationIntegrity(
+    scope="paid_product",
+    ledger_table="paid_product_schema_migrations",
+    checksum_table="paid_product_migration_checksums",
+    schema_version=PAID_PRODUCT_SCHEMA_VERSION,
+    checksum_introduced_version=2,
+    migrations=_MIGRATIONS,
+    application_tables=frozenset(
+        _EXPECTED_PAID_TABLES
+        - {"paid_product_schema_migrations", "paid_product_migration_checksums"}
+    ),
 )
 _EXPECTED_PAID_TRIGGERS = frozenset(
     {
@@ -397,10 +433,20 @@ def _normalized_sql(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
+_EXPECTED_PAID_TABLE_SQL = {
+    statement.split()[2]: _normalized_sql(statement)
+    for statement in _SCHEMA_V1
+    if statement.lstrip().startswith("CREATE TABLE ")
+}
 _EXPECTED_PAID_TRIGGER_SQL = {
     statement.split()[2]: _normalized_sql(statement)
     for statement in _SCHEMA_V1
     if statement.lstrip().startswith("CREATE TRIGGER ")
+}
+_EXPECTED_PAID_INDEX_SQL = {
+    statement.split()[2]: _normalized_sql(statement)
+    for statement in _SCHEMA_V1
+    if statement.lstrip().startswith("CREATE INDEX ")
 }
 
 
@@ -445,15 +491,21 @@ class PaidProductSqliteStore:
 
     @staticmethod
     def _verify_structure(connection: sqlite3.Connection) -> None:
-        tables = frozenset(
-            str(row[0])
+        table_rows = tuple(
+            (str(row[0]), str(row[1]))
             for row in connection.execute(
                 """
-                SELECT name FROM sqlite_master
+                SELECT name, sql FROM sqlite_master
                 WHERE type = 'table'
                 """
             )
         )
+        tables = frozenset(name for name, _sql in table_rows)
+        table_sql = {
+            name: _normalized_sql(sql)
+            for name, sql in table_rows
+            if name in _MIGRATION_INTEGRITY.application_tables
+        }
         trigger_rows = tuple(
             (str(row[0]), str(row[1]))
             for row in connection.execute(
@@ -467,16 +519,34 @@ class PaidProductSqliteStore:
         trigger_sql = {
             name: _normalized_sql(sql) for name, sql in trigger_rows
         }
+        index_sql = {
+            str(row[0]): _normalized_sql(str(row[1]))
+            for row in connection.execute(
+                """
+                SELECT name, sql FROM sqlite_master
+                WHERE type = 'index' AND sql IS NOT NULL
+                """
+            )
+        }
         integrity = connection.execute("PRAGMA integrity_check").fetchone()
         foreign = connection.execute("PRAGMA foreign_key_check").fetchall()
         if (
             tables != _EXPECTED_PAID_TABLES
+            or table_sql != _EXPECTED_PAID_TABLE_SQL
             or triggers != _EXPECTED_PAID_TRIGGERS
             or trigger_sql != _EXPECTED_PAID_TRIGGER_SQL
+            or index_sql != _EXPECTED_PAID_INDEX_SQL
             or integrity != ("ok",)
             or foreign
         ):
             raise RuntimeError("paid_product_schema_integrity_invalid")
+        _MIGRATION_INTEGRITY.validate(
+            connection,
+            database_version=int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            ),
+            allow_legacy_zero_head=False,
+        )
 
     def initialize(self) -> int:
         if sqlite3.sqlite_version_info < MINIMUM_SQLITE_VERSION:
@@ -500,35 +570,51 @@ class PaidProductSqliteStore:
         try:
             self._configure(connection)
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS paid_product_schema_migrations (
-                    version INTEGER PRIMARY KEY CHECK (version > 0),
-                    applied_at TEXT NOT NULL
-                ) STRICT
-                """
+            database_version = int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
             )
-            row = connection.execute(
-                "SELECT COALESCE(MAX(version), 0) FROM paid_product_schema_migrations"
-            ).fetchone()
-            current = int(row[0]) if row is not None else 0
-            if current > PAID_PRODUCT_SCHEMA_VERSION:
-                raise RuntimeError("paid-product database schema is newer than this build")
-            if current < 1:
-                for statement in _SCHEMA_V1:
-                    connection.execute(statement)
-                connection.execute(
-                    """
-                    INSERT INTO paid_product_schema_migrations(version, applied_at)
-                    VALUES (?, ?)
-                    """,
-                    (1, datetime.now(UTC).replace(microsecond=0).isoformat()),
-                )
+            if not _MIGRATION_INTEGRITY.table_exists(
+                connection,
+                "paid_product_schema_migrations",
+            ):
+                if database_version != 0:
+                    raise _MIGRATION_INTEGRITY.error("schema_version_mismatch")
+                tables = {
+                    str(row[0])
+                    for row in connection.execute(
+                        """
+                        SELECT name FROM sqlite_master
+                        WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                        """
+                    ).fetchall()
+                }
+                if tables:
+                    raise _MIGRATION_INTEGRITY.error(
+                        "migration_history_incomplete"
+                    )
+                _MIGRATION_INTEGRITY.create_ledger(connection)
+            current = _MIGRATION_INTEGRITY.validate(
+                connection,
+                database_version=database_version,
+                allow_legacy_zero_head=True,
+            )
+            _MIGRATION_INTEGRITY.apply_pending(
+                connection,
+                current=current,
+                applied_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
+            )
             self._verify_structure(connection)
             connection.execute("COMMIT")
-        except Exception:
+        except Exception as error:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
+            if (
+                isinstance(error, SqliteMigrationIntegrityError)
+                and error.code == "paid_product_schema_newer"
+            ):
+                raise RuntimeError(
+                    "paid-product database schema is newer than this build"
+                ) from None
             raise
         finally:
             connection.close()

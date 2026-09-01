@@ -5,7 +5,8 @@ or its identifiers.  It owns ``social.sqlite3`` and a separate
 ``social_schema_migrations`` ledger.  Version 1 was a placeholder schema that
 no adapter ever populated; version 2 installs the typed control-plane schema
 used by the durable local adapters.  Durable multi-device synchronization,
-backups and production identity remain unavailable.
+backups and production identity remain unavailable. Version 3 adds migration
+checksums and a matching SQLite schema head without changing social data.
 """
 
 from __future__ import annotations
@@ -14,9 +15,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import os
 from pathlib import Path
+import re
 import sqlite3
 
 from ...config import lexical_absolute_path, path_has_symlink_component
+from ...sqlite_migration_integrity import SqliteMigrationIntegrity
 from .sqlite_schema import SOCIAL_SCHEMA_V2, SOCIAL_SCHEMA_VERSION
 
 
@@ -144,10 +147,89 @@ CREATE TABLE IF NOT EXISTS social_file_grant_metadata (
 """
 
 
-_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
-    (1, tuple(_SOCIAL_SCHEMA_V1.split(";"))),
-    (2, SOCIAL_SCHEMA_V2),
+_SOCIAL_SCHEMA_V3 = (
+    """
+    CREATE TABLE social_migration_checksums (
+        version INTEGER PRIMARY KEY
+            REFERENCES social_schema_migrations(version) ON DELETE RESTRICT
+            CHECK(version > 0),
+        checksum TEXT NOT NULL CHECK(
+            length(checksum)=64 AND checksum NOT GLOB '*[^0-9a-f]*'
+        )
+    ) STRICT
+    """,
 )
+
+
+_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
+    (
+        1,
+        tuple(
+            statement
+            for statement in _SOCIAL_SCHEMA_V1.split(";")
+            if statement.strip()
+        ),
+    ),
+    (2, SOCIAL_SCHEMA_V2),
+    (3, _SOCIAL_SCHEMA_V3),
+)
+
+_SOCIAL_APPLICATION_TABLES = frozenset(
+    match.group(1)
+    for statement in SOCIAL_SCHEMA_V2
+    if (
+        match := re.search(
+            r"\bCREATE TABLE(?: IF NOT EXISTS)?\s+([a-z][a-z0-9_]*)",
+            statement,
+            re.IGNORECASE,
+        )
+    )
+    and match.group(1)
+    not in {"social_schema_migrations", "social_migration_checksums"}
+)
+
+_MIGRATION_INTEGRITY = SqliteMigrationIntegrity(
+    scope="social",
+    ledger_table="social_schema_migrations",
+    checksum_table="social_migration_checksums",
+    schema_version=SOCIAL_SCHEMA_VERSION,
+    checksum_introduced_version=3,
+    migrations=_MIGRATIONS,
+    application_tables=_SOCIAL_APPLICATION_TABLES,
+)
+
+
+def _normalized_schema_sql(value: str) -> str:
+    return " ".join(value.casefold().split()).replace(
+        "create table if not exists ", "create table ", 1
+    )
+
+
+_SOCIAL_EXPECTED_APPLICATION_SQL = {
+    match.group(1): _normalized_schema_sql(statement)
+    for statement in SOCIAL_SCHEMA_V2
+    if (
+        match := re.search(
+            r"\bCREATE TABLE(?: IF NOT EXISTS)?\s+([a-z][a-z0-9_]*)",
+            statement,
+            re.IGNORECASE,
+        )
+    )
+}
+_SOCIAL_EXPECTED_TABLES = _SOCIAL_APPLICATION_TABLES | frozenset(
+    {"social_schema_migrations", "social_migration_checksums"}
+)
+_SOCIAL_EXPECTED_TRIGGER_SQL = {
+    match.group(1): _normalized_schema_sql(statement)
+    for statement in SOCIAL_SCHEMA_V2
+    if (
+        match := re.search(
+            r"\bCREATE TRIGGER\s+([a-z][a-z0-9_]*)",
+            statement,
+            re.IGNORECASE,
+        )
+    )
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +250,48 @@ class SocialSqliteDatabase:
             raise ValueError("social database is a link or reparse point")
         return candidate
 
+    @staticmethod
+    def _verify_structure(connection: sqlite3.Connection) -> None:
+        table_rows = tuple(
+            (str(row[0]), str(row[1]))
+            for row in connection.execute(
+                """
+                SELECT name, sql FROM sqlite_master
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                """
+            ).fetchall()
+        )
+        tables = frozenset(name for name, _sql in table_rows)
+        application_sql = {
+            name: _normalized_schema_sql(sql)
+            for name, sql in table_rows
+            if name in _SOCIAL_APPLICATION_TABLES
+        }
+        trigger_rows = tuple(
+            (str(row[0]), str(row[1]))
+            for row in connection.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type='trigger'"
+            ).fetchall()
+        )
+        trigger_sql = {
+            name: _normalized_schema_sql(sql) for name, sql in trigger_rows
+        }
+        if (
+            tables != _SOCIAL_EXPECTED_TABLES
+            or application_sql != _SOCIAL_EXPECTED_APPLICATION_SQL
+            or trigger_sql != _SOCIAL_EXPECTED_TRIGGER_SQL
+            or connection.execute("PRAGMA integrity_check").fetchone() != ("ok",)
+            or connection.execute("PRAGMA foreign_key_check").fetchall()
+        ):
+            raise RuntimeError("social_schema_integrity_invalid")
+        _MIGRATION_INTEGRITY.validate(
+            connection,
+            database_version=int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            ),
+            allow_legacy_zero_head=False,
+        )
+
     def initialize(self) -> int:
         path = self._validated_path()
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -180,30 +304,41 @@ class SocialSqliteDatabase:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA trusted_schema = OFF")
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS social_schema_migrations (
-                    version INTEGER PRIMARY KEY CHECK (version > 0),
-                    applied_at TEXT NOT NULL
-                ) STRICT
-                """
+            database_version = int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
             )
-            current_row = connection.execute(
-                "SELECT COALESCE(MAX(version), 0) FROM social_schema_migrations"
-            ).fetchone()
-            current = int(current_row[0]) if current_row is not None else 0
-            if current > SOCIAL_SCHEMA_VERSION:
-                raise RuntimeError("social database schema is newer than this build")
-            for version, statements in _MIGRATIONS:
-                if current >= version:
-                    continue
-                for statement in statements:
-                    if statement.strip():
-                        connection.execute(statement)
-                connection.execute(
-                    "INSERT INTO social_schema_migrations(version, applied_at) VALUES (?, ?)",
-                    (version, datetime.now(UTC).replace(microsecond=0).isoformat()),
-                )
+            if not _MIGRATION_INTEGRITY.table_exists(
+                connection,
+                "social_schema_migrations",
+            ):
+                if database_version != 0:
+                    raise _MIGRATION_INTEGRITY.error("schema_version_mismatch")
+                existing = {
+                    str(row[0])
+                    for row in connection.execute(
+                        """
+                        SELECT name FROM sqlite_master
+                        WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                        """
+                    ).fetchall()
+                }
+                if existing:
+                    raise _MIGRATION_INTEGRITY.error(
+                        "migration_history_incomplete"
+                    )
+                _MIGRATION_INTEGRITY.create_ledger(connection)
+            current = _MIGRATION_INTEGRITY.validate(
+                connection,
+                database_version=database_version,
+                allow_legacy_zero_head=True,
+            )
+            applied_at = datetime.now(UTC).replace(microsecond=0).isoformat()
+            _MIGRATION_INTEGRITY.apply_pending(
+                connection,
+                current=current,
+                applied_at=applied_at,
+            )
+            self._verify_structure(connection)
             connection.execute("COMMIT")
         except Exception:
             if connection.in_transaction:

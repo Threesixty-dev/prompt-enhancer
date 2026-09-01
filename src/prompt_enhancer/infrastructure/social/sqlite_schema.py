@@ -10,7 +10,7 @@ migration may add one without a reviewed ADR.
 from __future__ import annotations
 
 
-SOCIAL_SCHEMA_VERSION = 2
+SOCIAL_SCHEMA_VERSION = 3
 
 # Version 1 was a placeholder boundary; no adapter ever wrote rows to it.  The
 # ledger keeps the entry and version 2 replaces the placeholder tables.

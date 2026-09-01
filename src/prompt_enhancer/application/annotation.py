@@ -19,6 +19,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -27,7 +28,9 @@ from typing import Literal
 
 from pydantic import Field
 
+from ..config import lexical_absolute_path, path_has_symlink_component
 from ..domain import PSEUDONYM_PATTERN, Provider, StrictModel
+from ..sqlite_migration_integrity import SqliteMigrationIntegrity
 from .model_reply import completed_chat_content, model_json_object
 from .analysis.calibration_cases import CALIBRATION_CASE_VERSION, CalibrationReviewError, PreparedCalibrationCase, prepare_calibration_case
 from .analysis.calibration_ratings import CALIBRATION_METRIC_KEYS, RatingLabel
@@ -49,6 +52,8 @@ from .analysis.model_judge import (
 
 
 ANNOTATION_CONTRACT_VERSION = "annotation.v1"
+CENTRAL_ANNOTATION_DATABASE_FILENAME = "central-annotations.sqlite3"
+CENTRAL_ANNOTATION_SCHEMA_VERSION = 3
 MAX_WORK_PAGE = 100
 MAX_BATCH = 25
 _MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._:/+-]{0,119}$")
@@ -411,41 +416,274 @@ def _is_canonical_judge_window(value: str) -> bool:
     )
 
 
+_CENTRAL_ANNOTATION_SCHEMA_V1 = (
+    """
+    CREATE TABLE central_annotations (
+        user_label TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        project_id TEXT,
+        provider TEXT NOT NULL,
+        window_chars INTEGER NOT NULL,
+        redacted_window TEXT NOT NULL,
+        labels_json TEXT NOT NULL,
+        model_identity TEXT,
+        prompt_version TEXT NOT NULL,
+        submitted_at TEXT NOT NULL,
+        PRIMARY KEY (user_label, session_id, prompt_version)
+    )
+    """,
+)
+
+_CENTRAL_ANNOTATION_SCHEMA_V2 = (
+    "ALTER TABLE central_annotations ADD COLUMN window_fingerprint TEXT",
+    "ALTER TABLE central_annotations ADD COLUMN case_fingerprint TEXT",
+    "ALTER TABLE central_annotations ADD COLUMN case_version TEXT",
+)
+
+_CENTRAL_ANNOTATION_SCHEMA_V3 = (
+    """
+    CREATE TABLE central_annotation_migration_checksums (
+        version INTEGER PRIMARY KEY
+            REFERENCES central_annotation_schema_migrations(version) ON DELETE RESTRICT
+            CHECK(version > 0),
+        checksum TEXT NOT NULL CHECK(
+            length(checksum)=64 AND checksum NOT GLOB '*[^0-9a-f]*'
+        )
+    ) STRICT
+    """,
+)
+
+_CENTRAL_ANNOTATION_COLUMNS_V1 = (
+    "user_label",
+    "session_id",
+    "project_id",
+    "provider",
+    "window_chars",
+    "redacted_window",
+    "labels_json",
+    "model_identity",
+    "prompt_version",
+    "submitted_at",
+)
+_CENTRAL_ANNOTATION_COLUMNS_V2 = _CENTRAL_ANNOTATION_COLUMNS_V1 + (
+    "window_fingerprint",
+    "case_fingerprint",
+    "case_version",
+)
+
+
+def _normalized_central_schema_sql(value: str) -> str:
+    return " ".join(value.casefold().split()).replace(
+        "create table if not exists ", "create table ", 1
+    )
+
+
+_CENTRAL_ANNOTATION_SQL_V1 = _normalized_central_schema_sql(
+    _CENTRAL_ANNOTATION_SCHEMA_V1[0]
+)
+_CENTRAL_ANNOTATION_SQL_V2 = _normalized_central_schema_sql(
+    """
+    CREATE TABLE central_annotations (
+        user_label TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        project_id TEXT,
+        provider TEXT NOT NULL,
+        window_chars INTEGER NOT NULL,
+        redacted_window TEXT NOT NULL,
+        labels_json TEXT NOT NULL,
+        model_identity TEXT,
+        prompt_version TEXT NOT NULL,
+        submitted_at TEXT NOT NULL,
+        window_fingerprint TEXT,
+        case_fingerprint TEXT,
+        case_version TEXT,
+        PRIMARY KEY (user_label, session_id, prompt_version)
+    )
+    """
+)
+_CENTRAL_ANNOTATION_MIGRATION_INTEGRITY = SqliteMigrationIntegrity(
+    scope="central_annotation",
+    ledger_table="central_annotation_schema_migrations",
+    checksum_table="central_annotation_migration_checksums",
+    schema_version=CENTRAL_ANNOTATION_SCHEMA_VERSION,
+    checksum_introduced_version=3,
+    migrations=(
+        (1, _CENTRAL_ANNOTATION_SCHEMA_V1),
+        (2, _CENTRAL_ANNOTATION_SCHEMA_V2),
+        (3, _CENTRAL_ANNOTATION_SCHEMA_V3),
+    ),
+    application_tables=frozenset({"central_annotations"}),
+)
+
+
 class CentralAnnotationStore:
-    """The central dataset: submissions + labels, one sqlite file (VPS-ready)."""
+    """The central dataset: submissions + labels, one versioned SQLite file."""
 
     def __init__(self, path: Path) -> None:
-        self._path = path
+        self._path = lexical_absolute_path(path)
         self._lock = threading.Lock()
-        with self._connect() as connection:
-            connection.execute(
+        self._initialize()
+
+    def _validated_path(self) -> Path:
+        path = lexical_absolute_path(self._path)
+        if path_has_symlink_component(path.parent) or path_has_symlink_component(path):
+            raise AnnotationError("central_annotation_database_path_unsafe")
+        return path
+
+    @staticmethod
+    def _configure(connection: sqlite3.Connection) -> None:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA trusted_schema=OFF")
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA secure_delete=ON")
+        connection.execute("PRAGMA synchronous=FULL")
+
+    @staticmethod
+    def _legacy_version(connection: sqlite3.Connection) -> int | None:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS central_annotations (
-                    user_label TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    project_id TEXT,
-                    provider TEXT NOT NULL,
-                    window_chars INTEGER NOT NULL,
-                    redacted_window TEXT NOT NULL,
-                    labels_json TEXT NOT NULL,
-                    model_identity TEXT,
-                    prompt_version TEXT NOT NULL,
-                    submitted_at TEXT NOT NULL,
-                    PRIMARY KEY (user_label, session_id, prompt_version)
-                )
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
                 """
+            ).fetchall()
+        }
+        if tables != {"central_annotations"}:
+            return None
+        columns = tuple(
+            str(row[1])
+            for row in connection.execute(
+                'PRAGMA table_info("central_annotations")'
+            ).fetchall()
+        )
+        sql_row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='central_annotations'"
+        ).fetchone()
+        if sql_row is None:
+            return None
+        sql = _normalized_central_schema_sql(str(sql_row[0]))
+        if columns == _CENTRAL_ANNOTATION_COLUMNS_V1 and sql == _CENTRAL_ANNOTATION_SQL_V1:
+            return 1
+        if columns == _CENTRAL_ANNOTATION_COLUMNS_V2 and sql == _CENTRAL_ANNOTATION_SQL_V2:
+            return 2
+        return None
+
+    @staticmethod
+    def _verify_current_structure(connection: sqlite3.Connection) -> None:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                """
+            ).fetchall()
+        }
+        if tables != {
+            "central_annotations",
+            "central_annotation_schema_migrations",
+            "central_annotation_migration_checksums",
+        }:
+            raise AnnotationError("central_annotation_schema_integrity_invalid")
+        columns = tuple(
+            str(row[1])
+            for row in connection.execute(
+                'PRAGMA table_info("central_annotations")'
+            ).fetchall()
+        )
+        if columns != _CENTRAL_ANNOTATION_COLUMNS_V2:
+            raise AnnotationError("central_annotation_schema_integrity_invalid")
+        sql_row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='central_annotations'"
+        ).fetchone()
+        if (
+            sql_row is None
+            or _normalized_central_schema_sql(str(sql_row[0]))
+            != _CENTRAL_ANNOTATION_SQL_V2
+        ):
+            raise AnnotationError("central_annotation_schema_integrity_invalid")
+        if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+            raise AnnotationError("central_annotation_schema_integrity_invalid")
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise AnnotationError("central_annotation_schema_integrity_invalid")
+
+    def _initialize(self) -> None:
+        path = self._validated_path()
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if path_has_symlink_component(path.parent) or path_has_symlink_component(path):
+            raise AnnotationError("central_annotation_database_path_unsafe")
+        connection = sqlite3.connect(path, isolation_level=None, timeout=5.0)
+        try:
+            self._configure(connection)
+            connection.execute("BEGIN IMMEDIATE")
+            database_version = int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
             )
-            columns = {row["name"] for row in connection.execute("PRAGMA table_info(central_annotations)")}
-            for name in ("window_fingerprint", "case_fingerprint", "case_version"):
-                if name not in columns:
-                    connection.execute(f"ALTER TABLE central_annotations ADD COLUMN {name} TEXT")
-            connection.commit()
+            ledger_exists = _CENTRAL_ANNOTATION_MIGRATION_INTEGRITY.table_exists(
+                connection,
+                "central_annotation_schema_migrations",
+            )
+            if not ledger_exists:
+                if database_version != 0:
+                    raise _CENTRAL_ANNOTATION_MIGRATION_INTEGRITY.error(
+                        "schema_version_mismatch"
+                    )
+                tables = {
+                    str(row[0])
+                    for row in connection.execute(
+                        """
+                        SELECT name FROM sqlite_master
+                        WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                        """
+                    ).fetchall()
+                }
+                if not tables:
+                    _CENTRAL_ANNOTATION_MIGRATION_INTEGRITY.create_ledger(connection)
+                else:
+                    legacy_version = self._legacy_version(connection)
+                    if legacy_version is None:
+                        raise _CENTRAL_ANNOTATION_MIGRATION_INTEGRITY.error(
+                            "migration_history_incomplete"
+                        )
+                    _CENTRAL_ANNOTATION_MIGRATION_INTEGRITY.adopt_legacy(
+                        connection,
+                        through_version=legacy_version,
+                        applied_at=datetime.now(UTC)
+                        .replace(microsecond=0)
+                        .isoformat(),
+                    )
+            current = _CENTRAL_ANNOTATION_MIGRATION_INTEGRITY.validate(
+                connection,
+                database_version=database_version,
+                allow_legacy_zero_head=True,
+            )
+            _CENTRAL_ANNOTATION_MIGRATION_INTEGRITY.apply_pending(
+                connection,
+                current=current,
+                applied_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
+            )
+            self._verify_current_structure(connection)
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        if path_has_symlink_component(path):
+            raise AnnotationError("central_annotation_database_path_unsafe")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self._path, timeout=5.0)
+        connection = sqlite3.connect(self._validated_path(), timeout=5.0)
         connection.row_factory = sqlite3.Row
         try:
+            self._configure(connection)
             yield connection
         finally:
             connection.close()
@@ -657,6 +895,8 @@ class RemoteAnnotationClient:
 
 __all__ = (
     "ANNOTATION_CONTRACT_VERSION",
+    "CENTRAL_ANNOTATION_DATABASE_FILENAME",
+    "CENTRAL_ANNOTATION_SCHEMA_VERSION",
     "AllowanceState",
     "AnnotationError",
     "AnnotationService",

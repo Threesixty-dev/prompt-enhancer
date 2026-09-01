@@ -56,7 +56,7 @@ def befriend(service: SocialService, alice, bob):
     service.decide_friend_request(bob, request.request_id, accept=True)
 
 
-def test_ledger_reaches_v2_and_schema_has_no_content_or_path_columns(
+def test_ledger_reaches_current_head_and_schema_has_no_content_or_path_columns(
     tmp_path: Path,
 ) -> None:
     clock = Clock()
@@ -70,7 +70,7 @@ def test_ledger_reaches_v2_and_schema_has_no_content_or_path_columns(
                 "SELECT version FROM social_schema_migrations ORDER BY version"
             )
         ]
-        assert versions == [1, SOCIAL_SCHEMA_VERSION]
+        assert versions == list(range(1, SOCIAL_SCHEMA_VERSION + 1))
         tables = [
             row[0]
             for row in connection.execute(

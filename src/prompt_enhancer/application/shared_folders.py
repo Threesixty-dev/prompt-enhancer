@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -26,9 +27,13 @@ from typing import Literal
 
 from pydantic import Field
 
+from ..config import lexical_absolute_path, path_has_symlink_component
 from ..domain import StrictModel
+from ..sqlite_migration_integrity import SqliteMigrationIntegrity
 
 SHARED_FOLDERS_CONTRACT_VERSION = "shared-folders.v1"
+SHARED_FOLDER_DATABASE_FILENAME = "shared-folders.sqlite3"
+SHARED_FOLDER_SCHEMA_VERSION = 2
 MAX_SHARES = 16
 MAX_PEER_LINKS = 16
 MAX_MANIFEST_FILES = 2_000
@@ -152,55 +157,272 @@ def _safe_relative(root: Path, relative: str) -> Path:
     return resolved
 
 
+_SHARED_FOLDER_SCHEMA_V1 = (
+    """
+    CREATE TABLE shared_folders (
+        share_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT
+    )
+    """,
+    """
+    CREATE TABLE link_file_state (
+        link_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        synced_sha256 TEXT NOT NULL,
+        PRIMARY KEY (link_id, path)
+    )
+    """,
+    """
+    CREATE TABLE peer_links (
+        link_id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        share_id TEXT NOT NULL,
+        token TEXT NOT NULL,
+        target TEXT NOT NULL,
+        name TEXT,
+        joined_at TEXT NOT NULL
+    )
+    """,
+)
+
+_SHARED_FOLDER_SCHEMA_V2 = (
+    """
+    CREATE TABLE shared_folder_migration_checksums (
+        version INTEGER PRIMARY KEY
+            REFERENCES shared_folder_schema_migrations(version) ON DELETE RESTRICT
+            CHECK(version > 0),
+        checksum TEXT NOT NULL CHECK(
+            length(checksum)=64 AND checksum NOT GLOB '*[^0-9a-f]*'
+        )
+    ) STRICT
+    """,
+)
+
+_SHARED_FOLDER_MIGRATIONS = (
+    (1, _SHARED_FOLDER_SCHEMA_V1),
+    (2, _SHARED_FOLDER_SCHEMA_V2),
+)
+
+_SHARED_FOLDER_TABLE_COLUMNS = {
+    "shared_folders": (
+        "share_id",
+        "name",
+        "path",
+        "token_hash",
+        "created_at",
+        "revoked_at",
+    ),
+    "link_file_state": ("link_id", "path", "synced_sha256"),
+    "peer_links": (
+        "link_id",
+        "url",
+        "share_id",
+        "token",
+        "target",
+        "name",
+        "joined_at",
+    ),
+}
+
+
+def _normalized_schema_sql(value: str) -> str:
+    return " ".join(value.casefold().split()).replace(
+        "create table if not exists ", "create table ", 1
+    )
+
+
+_SHARED_FOLDER_APPLICATION_SQL = {
+    match.group(1): _normalized_schema_sql(statement)
+    for statement in _SHARED_FOLDER_SCHEMA_V1
+    if (
+        match := re.search(
+            r"\bCREATE TABLE(?: IF NOT EXISTS)?\s+([a-z][a-z0-9_]*)",
+            statement,
+            re.IGNORECASE,
+        )
+    )
+}
+
+_SHARED_FOLDER_MIGRATION_INTEGRITY = SqliteMigrationIntegrity(
+    scope="shared_folder",
+    ledger_table="shared_folder_schema_migrations",
+    checksum_table="shared_folder_migration_checksums",
+    schema_version=SHARED_FOLDER_SCHEMA_VERSION,
+    checksum_introduced_version=2,
+    migrations=_SHARED_FOLDER_MIGRATIONS,
+    application_tables=frozenset(_SHARED_FOLDER_TABLE_COLUMNS),
+)
+
+
 class SharedFolderStore:
-    """Shares and peer links in one isolated sqlite file (no app-schema migration)."""
+    """Shares and peer links in one isolated, versioned SQLite file."""
 
     def __init__(self, path: Path) -> None:
-        self._path = path
+        self._path = lexical_absolute_path(path)
         self._lock = threading.Lock()
-        with self._connect() as connection:
-            connection.execute(
+        self._initialize()
+
+    def _validated_path(self) -> Path:
+        path = lexical_absolute_path(self._path)
+        if path_has_symlink_component(path.parent) or path_has_symlink_component(path):
+            raise SharedFolderError("shared_folder_database_path_unsafe")
+        return path
+
+    @staticmethod
+    def _configure(connection: sqlite3.Connection) -> None:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA trusted_schema=OFF")
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA secure_delete=ON")
+        connection.execute("PRAGMA synchronous=FULL")
+
+    @staticmethod
+    def _application_shape(connection: sqlite3.Connection) -> bool:
+        tables = {
+            str(row[0]): _normalized_schema_sql(str(row[1]))
+            for row in connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS shared_folders (
-                    share_id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    path TEXT NOT NULL,
-                    token_hash TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    revoked_at TEXT
+                SELECT name, sql FROM sqlite_master
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                """
+            ).fetchall()
+        }
+        if tables != _SHARED_FOLDER_APPLICATION_SQL:
+            return False
+        return all(
+            tuple(
+                str(row[1])
+                for row in connection.execute(
+                    f'PRAGMA table_info("{table}")'
+                ).fetchall()
+            )
+            == columns
+            for table, columns in _SHARED_FOLDER_TABLE_COLUMNS.items()
+        )
+
+    @classmethod
+    def _verify_current_structure(cls, connection: sqlite3.Connection) -> None:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                """
+            ).fetchall()
+        }
+        expected = set(_SHARED_FOLDER_TABLE_COLUMNS) | {
+            "shared_folder_schema_migrations",
+            "shared_folder_migration_checksums",
+        }
+        if tables != expected:
+            raise SharedFolderError("shared_folder_schema_integrity_invalid")
+        application_sql = {
+            str(row[0]): _normalized_schema_sql(str(row[1]))
+            for row in connection.execute(
+                """
+                SELECT name, sql FROM sqlite_master
+                WHERE type='table' AND name IN (
+                    'shared_folders', 'link_file_state', 'peer_links'
                 )
                 """
+            ).fetchall()
+        }
+        if application_sql != _SHARED_FOLDER_APPLICATION_SQL:
+            raise SharedFolderError("shared_folder_schema_integrity_invalid")
+        for table, columns in _SHARED_FOLDER_TABLE_COLUMNS.items():
+            observed = tuple(
+                str(row[1])
+                for row in connection.execute(
+                    f'PRAGMA table_info("{table}")'
+                ).fetchall()
             )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS link_file_state (
-                    link_id TEXT NOT NULL,
-                    path TEXT NOT NULL,
-                    synced_sha256 TEXT NOT NULL,
-                    PRIMARY KEY (link_id, path)
-                )
-                """
+            if observed != columns:
+                raise SharedFolderError("shared_folder_schema_integrity_invalid")
+        if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+            raise SharedFolderError("shared_folder_schema_integrity_invalid")
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise SharedFolderError("shared_folder_schema_integrity_invalid")
+
+    def _initialize(self) -> None:
+        path = self._validated_path()
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if path_has_symlink_component(path.parent) or path_has_symlink_component(path):
+            raise SharedFolderError("shared_folder_database_path_unsafe")
+        connection = sqlite3.connect(path, isolation_level=None, timeout=5.0)
+        try:
+            self._configure(connection)
+            connection.execute("BEGIN IMMEDIATE")
+            database_version = int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
             )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS peer_links (
-                    link_id TEXT PRIMARY KEY,
-                    url TEXT NOT NULL,
-                    share_id TEXT NOT NULL,
-                    token TEXT NOT NULL,
-                    target TEXT NOT NULL,
-                    name TEXT,
-                    joined_at TEXT NOT NULL
-                )
-                """
+            ledger_exists = _SHARED_FOLDER_MIGRATION_INTEGRITY.table_exists(
+                connection,
+                "shared_folder_schema_migrations",
             )
-            connection.commit()
+            if not ledger_exists:
+                if database_version != 0:
+                    raise _SHARED_FOLDER_MIGRATION_INTEGRITY.error(
+                        "schema_version_mismatch"
+                    )
+                tables = {
+                    str(row[0])
+                    for row in connection.execute(
+                        """
+                        SELECT name FROM sqlite_master
+                        WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                        """
+                    ).fetchall()
+                }
+                if not tables:
+                    _SHARED_FOLDER_MIGRATION_INTEGRITY.create_ledger(connection)
+                elif self._application_shape(connection):
+                    _SHARED_FOLDER_MIGRATION_INTEGRITY.adopt_legacy(
+                        connection,
+                        through_version=1,
+                        applied_at=datetime.now(UTC)
+                        .replace(microsecond=0)
+                        .isoformat(),
+                    )
+                else:
+                    raise _SHARED_FOLDER_MIGRATION_INTEGRITY.error(
+                        "migration_history_incomplete"
+                    )
+            current = _SHARED_FOLDER_MIGRATION_INTEGRITY.validate(
+                connection,
+                database_version=database_version,
+                allow_legacy_zero_head=True,
+            )
+            _SHARED_FOLDER_MIGRATION_INTEGRITY.apply_pending(
+                connection,
+                current=current,
+                applied_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
+            )
+            self._verify_current_structure(connection)
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        if path_has_symlink_component(path):
+            raise SharedFolderError("shared_folder_database_path_unsafe")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self._path, timeout=5.0)
+        connection = sqlite3.connect(self._validated_path(), timeout=5.0)
         try:
             connection.row_factory = sqlite3.Row
+            self._configure(connection)
             # sqlite3's context manager commits/rolls back but does not close.
             # Every operation owns and releases its connection, including reads.
             with connection:
@@ -558,6 +780,8 @@ class PeerFolderClient:
 
 __all__ = (
     "SHARED_FOLDERS_CONTRACT_VERSION",
+    "SHARED_FOLDER_DATABASE_FILENAME",
+    "SHARED_FOLDER_SCHEMA_VERSION",
     "FileContent",
     "FolderManifest",
     "JoinRequest",
