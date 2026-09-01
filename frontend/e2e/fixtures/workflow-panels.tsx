@@ -15,7 +15,7 @@ import { exampleCalibrationReview } from "../../src/features/calibration/calibra
 import { ModelJobStatusFixture } from "./model-job-status";
 import "../../src/features/calibration/CalibrationPage.css";
 import type {
-  AgentArtifact, AgentArtifactCapturePreview, AgentArtifactDetail, AgentArtifactExport, AgentAttachment, AgentCatalogSession, AgentEvent, AgentHardeningSnapshot, AgentHistoryExport, AgentMcpClientSetup, AgentMcpConnectionList, AgentMessageAttachment, AgentProject, AgentSessionContextStatus, AgentSessionForkReceipt, AgentSessionView, AgentWorkspaceFile, LocalModelCompatibilityCatalog, LocalModelPlacementAdmission, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, McpRegistryCatalog, McpRegistryServerReview, SessionTimeline,
+  AgentArtifact, AgentArtifactCapturePreview, AgentArtifactDetail, AgentArtifactExport, AgentArtifactPage, AgentArtifactPageQuery, AgentAttachment, AgentCatalogPageQuery, AgentCatalogSession, AgentCatalogSessionPage, AgentCatalogSessionPageQuery, AgentEvent, AgentHardeningSnapshot, AgentHistoryExport, AgentMcpClientSetup, AgentMcpConnectionList, AgentMessageAttachment, AgentProject, AgentProjectPage, AgentSessionContextStatus, AgentSessionForkReceipt, AgentSessionView, AgentWorkspaceFile, LocalModelCompatibilityCatalog, LocalModelPlacementAdmission, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, McpRegistryCatalog, McpRegistryServerReview, SessionTimeline,
   PeerLink, PromptCheckRecord, PromptCheckResult, PromptEnhancerTransport, SessionJudgments, SharedFolder, CalibrationReview,
 } from "../../src/shared/api/contracts";
 import { TransportError } from "../../src/shared/api/httpTransport";
@@ -49,10 +49,11 @@ const agentMcpCallCompletedFixture = agentMcpCallFixture && parameters.get("stat
 const agentControllerOwnershipFixture = panel === "agent-controller-ownership";
 const multimodalFixture = agentShellFixture && parameters.get("multimodal") === "1";
 const agentHistoryFixture = panel === "agent-history";
+const agentStressFixture = panel === "agent-stress";
 const artifactViewerFixture = panel === "artifact-viewers";
 const artifactCaptureWorkflowFixture = panel === "artifact-capture";
 const artifactLifecycleFixture = panel === "artifact-lifecycle";
-const agentCatalogFixture = agentShellFixture || agentMcpStoreFixture || agentMcpProjectToolsFixture || agentHistoryFixture || agentControllerOwnershipFixture;
+const agentCatalogFixture = agentShellFixture || agentMcpStoreFixture || agentMcpProjectToolsFixture || agentHistoryFixture || agentStressFixture || agentControllerOwnershipFixture;
 const agentWorkspaceFixture = agentTurnFixture || agentShellFixture;
 const agentStoppingFixture = panel === "agent-stopping";
 const agentCommandFixture = panel === "agent-command-cleanup";
@@ -928,13 +929,56 @@ if (agentHistoryFixture) {
   events.push(event("done", { turn_id: summary.turn_id, turn_summary: summary }));
 }
 
-let agentProjects: AgentProject[] = [
-  { contract_version: "agent-catalog.v2", project_id: agentProjectId, name: "Example coding project", created_at: at, updated_at: at,
-    revision: 1, pinned: true, archived_at: null, session_count: agentHistoryFixture ? 1 : 2, is_default: true },
-  { contract_version: "agent-catalog.v2", project_id: secondAgentProjectId, name: "Second example project", created_at: at, updated_at: at,
-    revision: 1, pinned: false, archived_at: null, session_count: 0, is_default: false },
-];
-let agentCatalogSessions: AgentCatalogSession[] = agentHistoryFixture ? [
+if (agentStressFixture) {
+  for (let index = 0; index < 4_000; index += 1) {
+    events.push(event("status", { text: `Synthetic maximum-history activity ${index + 1}` }));
+  }
+}
+
+function syntheticHexId(value: number): string {
+  return Math.max(0, Math.floor(value)).toString(16).padStart(32, "0");
+}
+
+let agentProjects: AgentProject[] = agentStressFixture
+  ? Array.from({ length: 200 }, (_, index) => ({
+      contract_version: "agent-catalog.v2" as const,
+      project_id: index === 0 ? agentProjectId : syntheticHexId(0x10_000 + index),
+      name: index === 0 ? "Maximum catalog project" : `Synthetic project ${index.toString().padStart(3, "0")}`,
+      created_at: at,
+      updated_at: at,
+      revision: 1,
+      pinned: index === 0,
+      archived_at: null,
+      session_count: index === 0 ? 2_000 : 0,
+      is_default: index === 0,
+    }))
+  : [
+      { contract_version: "agent-catalog.v2", project_id: agentProjectId, name: "Example coding project", created_at: at, updated_at: at,
+        revision: 1, pinned: true, archived_at: null, session_count: agentHistoryFixture ? 1 : 2, is_default: true },
+      { contract_version: "agent-catalog.v2", project_id: secondAgentProjectId, name: "Second example project", created_at: at, updated_at: at,
+        revision: 1, pinned: false, archived_at: null, session_count: 0, is_default: false },
+    ];
+let agentCatalogSessions: AgentCatalogSession[] = agentStressFixture ? Array.from({ length: 2_000 }, (_, index) => ({
+  contract_version: "agent-catalog.v2" as const,
+  session_id: index === 0 ? sessionId : syntheticHexId(0x20_000 + index),
+  project_id: agentProjectId,
+  title: index === 0 ? "Maximum retained chat" : `Synthetic retained chat ${index.toString().padStart(4, "0")}`,
+  workspace: "D:/example/maximum-project",
+  model_alias: modelAlias,
+  created_at: at,
+  updated_at: at,
+  last_opened_at: at,
+  revision: 1,
+  pinned: index === 0,
+  archived_at: null,
+  history_state: index === 0 ? "durable_local" as const : "memory_only" as const,
+  retention_policy: index === 0 ? "local_history" as const : "metadata_only" as const,
+  history_revision: index === 0 ? events.length : 0,
+  last_event_seq: index === 0 ? events.length : 0,
+  turn_count: index === 0 ? 1 : 0,
+  conversation_available: index === 0,
+  lineage: null,
+})) : agentHistoryFixture ? [
   { contract_version: "agent-catalog.v2", session_id: sessionId, project_id: agentProjectId, title: "Saved restart chat",
     workspace: "D:/example/project", model_alias: modelAlias, created_at: at, updated_at: at, last_opened_at: at,
     revision: 1, pinned: true, archived_at: null, history_state: "durable_local", retention_policy: "local_history",
@@ -949,10 +993,125 @@ let agentCatalogSessions: AgentCatalogSession[] = agentHistoryFixture ? [
     revision: 1, pinned: false, archived_at: null, history_state: "memory_only", retention_policy: "metadata_only",
     history_revision: 0, last_event_seq: 0, turn_count: 0, conversation_available: false, lineage: null },
 ];
+
+const stressArtifacts: AgentArtifact[] = agentStressFixture ? Array.from({ length: 500 }, (_, index) => {
+  const artifactId = syntheticHexId(0x30_000 + index);
+  const path = `docs/synthetic-artifact-${index.toString().padStart(3, "0")}.md`;
+  return {
+    contract_version: "agent-artifact.v3",
+    artifact_id: artifactId,
+    project_id: agentProjectId,
+    session_id: sessionId,
+    title: `synthetic-artifact-${index.toString().padStart(3, "0")}.md`,
+    kind: "markdown",
+    path,
+    created_at: at,
+    updated_at: at,
+    revision: 1,
+    version_count: 1,
+    availability: "unchecked",
+    lifecycle_state: "active",
+    archived_at: null,
+    removed_at: null,
+    latest_version: {
+      contract_version: "agent-artifact.v3",
+      version_id: syntheticHexId(0x40_000 + index),
+      artifact_id: artifactId,
+      version_number: 1,
+      created_at: at,
+      path,
+      media_type: "text/markdown; charset=utf-8",
+      preview_kind: "text",
+      provenance: "verified_output",
+      sha256: (index % 16).toString(16).repeat(64),
+      byte_size: 100 + index,
+      source_turn_id: null,
+      source_event_seq: null,
+    },
+  };
+}) : [];
+const agentStressSnapshot = "9".repeat(64);
 let agentForkReceipt: AgentSessionForkReceipt | null = null;
 
 async function unavailable(): Promise<never> {
   throw new Error("This operation is outside the synthetic acceptance fixture.");
+}
+
+function fixturePageBounds(total: number, limit: number, offset: number) {
+  const nextOffset = offset + limit < total ? offset + limit : null;
+  return { complete: nextOffset === null, nextOffset };
+}
+
+function stressProjectPage(query: AgentCatalogPageQuery = {}): AgentProjectPage {
+  const search = query.search?.trim().toLocaleLowerCase() ?? "";
+  const source = search
+    ? agentProjects.filter((project) => project.name.toLocaleLowerCase().includes(search))
+    : agentProjects;
+  const limit = query.limit ?? 100;
+  const offset = query.offset ?? 0;
+  const projects = source.slice(offset, offset + limit);
+  const bounds = fixturePageBounds(source.length, limit, offset);
+  return {
+    contract_version: "agent-catalog-page.v1",
+    snapshot: agentStressSnapshot,
+    limit,
+    offset,
+    total: source.length,
+    next_offset: bounds.nextOffset,
+    complete: bounds.complete,
+    projects,
+  };
+}
+
+function stressSessionPage(query: AgentCatalogSessionPageQuery = {}): AgentCatalogSessionPage {
+  const search = query.search?.trim().toLocaleLowerCase() ?? "";
+  const source = agentCatalogSessions.filter((session) => (
+    (query.projectId === undefined || session.project_id === query.projectId)
+    && (!search || session.title.toLocaleLowerCase().includes(search))
+  ));
+  const limit = query.limit ?? 100;
+  const offset = query.offset ?? 0;
+  const sessionsForPage = source.slice(offset, offset + limit);
+  const bounds = fixturePageBounds(source.length, limit, offset);
+  return {
+    contract_version: "agent-catalog-page.v1",
+    snapshot: agentStressSnapshot,
+    limit,
+    offset,
+    total: source.length,
+    next_offset: bounds.nextOffset,
+    complete: bounds.complete,
+    sessions: sessionsForPage,
+  };
+}
+
+function stressArtifactPage(
+  projectId: string,
+  id: string,
+  query: AgentArtifactPageQuery = {},
+): AgentArtifactPage {
+  const view = query.view ?? "active";
+  const source = projectId === agentProjectId && id === sessionId && view === "active"
+    ? stressArtifacts
+    : [];
+  const limit = query.limit ?? 100;
+  const offset = query.offset ?? 0;
+  const artifacts = source.slice(offset, offset + limit);
+  const bounds = fixturePageBounds(source.length, limit, offset);
+  return {
+    contract_version: "agent-artifact-page.v1",
+    project_id: projectId,
+    session_id: id,
+    view,
+    snapshot: agentStressSnapshot,
+    limit,
+    offset,
+    total: source.length,
+    next_offset: bounds.nextOffset,
+    complete: bounds.complete,
+    counts: { active: stressArtifacts.length, archived: 0, removed: 0, total: stressArtifacts.length },
+    artifacts,
+  };
 }
 
 function retainedEventsForExport(source: AgentEvent[]): AgentHistoryExport["events"] {
@@ -1125,6 +1284,13 @@ const transport = {
       runtimeRevision += 1;
       return runtimeCoordinator();
     },
+    ...(agentStressFixture ? {
+      pageAgentProjects: async (query?: AgentCatalogPageQuery) => stressProjectPage(query),
+      pageAgentCatalogSessions: async (query?: AgentCatalogSessionPageQuery) => stressSessionPage(query),
+      pageAgentArtifacts: async (projectId: string, id: string, query?: AgentArtifactPageQuery) => (
+        stressArtifactPage(projectId, id, query)
+      ),
+    } : {}),
     listAgentProjects: async () => ({ contract_version: "agent-catalog.v2" as const, projects: [...agentProjects] }),
     createAgentProject: async () => agentProjects[0],
     updateAgentProject: async () => agentProjects[0],
@@ -1139,7 +1305,7 @@ const transport = {
         session_id: id,
         events: events.filter((entry) => (
           entry.seq > after && entry.seq <= record.last_event_seq
-        )),
+        )).slice(0, agentStressFixture ? 500 : events.length),
         running: false,
         closing: false,
         stopping: false,
@@ -1210,14 +1376,18 @@ const transport = {
       session_id: id,
       view: "active" as const,
       counts: {
-        active: agentHistoryFixture && projectId === agentProjectId && id === sessionId ? 1 : 0,
+        active: agentStressFixture && projectId === agentProjectId && id === sessionId
+          ? stressArtifacts.length
+          : agentHistoryFixture && projectId === agentProjectId && id === sessionId ? 1 : 0,
         archived: 0,
         removed: 0,
-        total: agentHistoryFixture && projectId === agentProjectId && id === sessionId ? 1 : 0,
+        total: agentStressFixture && projectId === agentProjectId && id === sessionId
+          ? stressArtifacts.length
+          : agentHistoryFixture && projectId === agentProjectId && id === sessionId ? 1 : 0,
       },
-      artifacts: agentHistoryFixture && projectId === agentProjectId && id === sessionId
-        ? [retainedArtifact]
-        : [],
+      artifacts: agentStressFixture && projectId === agentProjectId && id === sessionId
+        ? [...stressArtifacts]
+        : agentHistoryFixture && projectId === agentProjectId && id === sessionId ? [retainedArtifact] : [],
     }),
     getAgentArtifact: async (projectId, id, artifactId) => {
       if (
@@ -2346,13 +2516,13 @@ function ArtifactCaptureWorkflowFixture() {
 bootstrapTheme();
 const fixtureRoot = createRoot(document.getElementById("root")!);
 fixtureRoot.render(
-  <main style={{ padding: 24, maxWidth: 1440, margin: "0 auto" }}>
+  <main style={{ padding: agentStressFixture ? 0 : 24, maxWidth: agentStressFixture ? "none" : 1440, margin: "0 auto" }}>
     <p className="eyebrow">Synthetic workflow fixture — no files, models or GPU used</p>
     {modelRaceFixture && <ModelStatusRaceControls />}
     {agentStoppingFixture && <AgentStoppingControls />}
     {agentCommandFixture && <AgentCommandControls />}
     {(panel === "models" || modelCompletionFixture) && <LocalModelsPage transport={transport} />}
-    {(panel === "agent" || closingFixture || modelRaceFixture || agentCompletionFixture || agentWorkspaceFixture || agentMcpStoreFixture || agentMcpProjectToolsFixture || agentMcpCallFixture || agentHistoryFixture || agentStoppingFixture || agentCommandFixture || agentControllerOwnershipFixture) && <AgentPage transport={transport} sessionId={agentWindow ? sessionId : undefined} windowMode={agentWindow} />}
+    {(panel === "agent" || closingFixture || modelRaceFixture || agentCompletionFixture || agentWorkspaceFixture || agentMcpStoreFixture || agentMcpProjectToolsFixture || agentMcpCallFixture || agentHistoryFixture || agentStressFixture || agentStoppingFixture || agentCommandFixture || agentControllerOwnershipFixture) && <AgentPage transport={transport} sessionId={agentWindow ? sessionId : undefined} windowMode={agentWindow} />}
     {panel === "editor" && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={editorTransport} userPresenceAvailable />}
     {panel === "editor-inspection" && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={inspectionEditorTransport} userPresenceAvailable />}
     {editorWriteFailure && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={writeFailureEditorTransport} userPresenceAvailable />}

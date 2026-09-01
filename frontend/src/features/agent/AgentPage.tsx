@@ -238,7 +238,7 @@ function newForkRequestId(): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-async function readCompleteRetainedEvents(
+export async function readCompleteRetainedEvents(
   getPage: NonNullable<TransportSlice["getAgentPersistedEvents"]>,
   projectId: string,
   sessionId: string,
@@ -1039,25 +1039,12 @@ export function AgentPage({
     setEvents([]);
     lastSeq.current = 0;
     void (async () => {
-      const retained: AgentEvent[] = [];
-      let cursor = 0;
-      let head = 0;
-      do {
-        const page = await transport.getAgentPersistedEvents!(
-          selected.project_id,
-          selected.session_id,
-          cursor,
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        head = page.last_seq;
-        if (page.events.length === 0) {
-          if (cursor < head) throw new Error("retained_history_cursor_stalled");
-          break;
-        }
-        retained.push(...page.events);
-        cursor = page.events.at(-1)?.seq ?? cursor;
-      } while (cursor < head);
+      const { events: retained, head } = await readCompleteRetainedEvents(
+        transport.getAgentPersistedEvents!,
+        selected.project_id,
+        selected.session_id,
+        controller.signal,
+      );
       if (controller.signal.aborted) return;
       setEvents(retained);
       lastSeq.current = head;
@@ -4129,8 +4116,11 @@ function RetainedHistoryView({
 
 type LiveStreamView = { firstSeq: number; content: string; reasoning: string };
 
-function transcriptStartIndex(events: readonly AgentEvent[], visibleLimit: number): number {
-  const cutoff = Math.max(0, events.length - visibleLimit);
+function transcriptStartIndex(
+  events: readonly AgentEvent[],
+  windowEnd: number,
+): number {
+  const cutoff = Math.max(0, windowEnd - TRANSCRIPT_EVENT_BATCH);
   if (cutoff === 0) return 0;
   // Include a nearby user message so a bounded transcript usually begins at a
   // turn boundary without allowing one pathological turn to mount all history.
@@ -4166,15 +4156,14 @@ function TranscriptEventRows({
   stopping?: boolean;
   turnRevisionBusy?: TurnRevisionBusy | null;
 }) {
-  const [visibleLimit, setVisibleLimit] = useState(TRANSCRIPT_EVENT_BATCH);
+  const [windowEnd, setWindowEnd] = useState(events.length);
   const previousEventCount = useRef(events.length);
   useEffect(() => {
-    const added = events.length - previousEventCount.current;
+    const previous = previousEventCount.current;
     previousEventCount.current = events.length;
-    setVisibleLimit((value) => {
-      if (added > 0 && value > TRANSCRIPT_EVENT_BATCH) return Math.min(events.length, value + added);
-      return Math.min(events.length || TRANSCRIPT_EVENT_BATCH, value);
-    });
+    setWindowEnd((value) => (
+      value >= previous ? events.length : Math.min(value, events.length)
+    ));
   }, [events.length]);
   useEffect(() => {
     if (focusTurnRequest === null || focusTurnRequest === undefined) return;
@@ -4182,7 +4171,7 @@ function TranscriptEventRows({
       event.kind === "done" && event.turn_id === focusTurnRequest.turnId
     ));
     if (targetIndex < 0) return;
-    setVisibleLimit((current) => Math.max(current, events.length - targetIndex));
+    setWindowEnd(Math.min(events.length, targetIndex + 1));
   }, [focusTurnRequest?.requestId]);
   useEffect(() => {
     if (focusTurnRequest === null || focusTurnRequest === undefined) return;
@@ -4194,9 +4183,15 @@ function TranscriptEventRows({
       target.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [focusTurnRequest?.requestId, visibleLimit]);
-  const start = transcriptStartIndex(events, visibleLimit);
-  const visible = events.slice(start);
+  }, [focusTurnRequest?.requestId, windowEnd]);
+  const effectiveWindowEnd = events.length !== previousEventCount.current
+    ? windowEnd >= previousEventCount.current
+      ? events.length
+      : Math.min(windowEnd, events.length)
+    : windowEnd;
+  const boundedEnd = Math.max(0, Math.min(events.length, effectiveWindowEnd));
+  const start = transcriptStartIndex(events, boundedEnd);
+  const visible = events.slice(start, boundedEnd);
   const mcpCalls = collectAgentMcpCalls(events);
   const visibleMcpAnchor = new Map<string, number>();
   for (const event of visible) {
@@ -4218,17 +4213,38 @@ function TranscriptEventRows({
 
   return (
     <>
-      {start > 0 && (
-        <div className="agent__transcript-window" role="status">
-          <span>Showing the latest {visible.length.toLocaleString()} of {events.length.toLocaleString()} activity events.</span>
-          <button
-            className="button button--ghost"
-            onClick={() => setVisibleLimit((value) => Math.min(events.length, value + TRANSCRIPT_EVENT_BATCH))}
-            type="button"
-          >
-            Show {Math.min(TRANSCRIPT_EVENT_BATCH, start).toLocaleString()} earlier
-          </button>
-        </div>
+      {(start > 0 || boundedEnd < events.length) && (
+        <nav aria-label="Agent activity pages" className="agent__transcript-window">
+          <span aria-live="polite">
+            Showing activity {(start + 1).toLocaleString("en-US")}–{boundedEnd.toLocaleString("en-US")} of {events.length.toLocaleString("en-US")} events.
+          </span>
+          <span className="agent__transcript-window-actions">
+            {start > 0 && (
+              <button
+                className="button button--ghost"
+                onClick={() => setWindowEnd(start)}
+                type="button"
+              >Earlier {Math.min(TRANSCRIPT_EVENT_BATCH, start).toLocaleString("en-US")}</button>
+            )}
+            {boundedEnd < events.length && (
+              <button
+                className="button button--ghost"
+                onClick={() => setWindowEnd(Math.min(
+                  events.length,
+                  boundedEnd + TRANSCRIPT_EVENT_BATCH,
+                ))}
+                type="button"
+              >Later</button>
+            )}
+            {boundedEnd < events.length && (
+              <button
+                className="button button--ghost"
+                onClick={() => setWindowEnd(events.length)}
+                type="button"
+              >Latest</button>
+            )}
+          </span>
+        </nav>
       )}
       {visible.map((event, index) => {
         const globalIndex = start + index;

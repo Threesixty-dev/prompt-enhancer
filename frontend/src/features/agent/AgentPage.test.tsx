@@ -9,7 +9,7 @@ import {
   syntheticMcpManagedServerList,
   syntheticMcpManagedToolSnapshot,
 } from "../../shared/api/mcpManagedServer.test-support";
-import { AgentPage } from "./AgentPage";
+import { AgentPage, readCompleteRetainedEvents } from "./AgentPage";
 import {
   AGENT_WINDOW_CHANNEL_VERSION,
   connectAgentWindowSelectionOwner,
@@ -1387,6 +1387,7 @@ describe("AgentPage", () => {
       _projectId: string,
       _sessionId: string,
       query: AgentArtifactPageQuery,
+      _signal?: AbortSignal,
     ) => query.offset === 0
       ? artifactPageFixture(records.slice(0, 100), 105, projectId, SESSION)
       : artifactPageFixture(records.slice(100), 105, projectId, SESSION, 100));
@@ -1508,6 +1509,54 @@ describe("AgentPage", () => {
     await Promise.resolve();
     expect(screen.queryByText("Synthetic artifact 000")).not.toBeInTheDocument();
     expect(screen.getByText("Synthetic artifact 001")).toBeVisible();
+  });
+
+  it("aborts a delayed artifact continuation and refuses its late records after lifecycle replacement", async () => {
+    const projectId = "1".repeat(32);
+    const active = Array.from({ length: 100 }, (_, index) => (
+      artifactFixture(index, projectId, SESSION)
+    ));
+    const lateActive = artifactFixture(500, projectId, SESSION);
+    const archived = artifactFixture(501, projectId, SESSION, "archived");
+    const delayed = deferred<AgentArtifactPage>();
+    const session = view({
+      settings: {
+        ...view().settings,
+        project_id: projectId,
+        retention_policy: "local_history",
+      },
+    });
+    const pageAgentArtifacts = vi.fn((
+      _projectId: string,
+      _sessionId: string,
+      query: AgentArtifactPageQuery,
+      _signal?: AbortSignal,
+    ) => {
+      if (query.view === "active" && query.offset === 100) return delayed.promise;
+      return Promise.resolve(query.view === "archived"
+        ? artifactPageFixture([archived], 1, projectId, SESSION, 0, "archived")
+        : artifactPageFixture(active, 101, projectId, SESSION));
+    });
+    const transport = {
+      ...sessionTransport(session),
+      ...artifactViewerMethods(),
+      pageAgentArtifacts,
+    };
+
+    render(<AgentPage transport={transport} />);
+    await screen.findByText("100 of 101 active artifacts loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Load more artifacts" }));
+    await waitFor(() => expect(pageAgentArtifacts).toHaveBeenCalledTimes(2));
+    const delayedSignal = pageAgentArtifacts.mock.calls[1][3];
+
+    fireEvent.click(screen.getByRole("tab", { name: /^Archived/u }));
+    expect(await screen.findByText("Synthetic artifact 501")).toBeVisible();
+    expect(delayedSignal?.aborted).toBe(true);
+    delayed.resolve(artifactPageFixture([lateActive], 101, projectId, SESSION, 100));
+    await delayed.promise;
+    await Promise.resolve();
+    expect(screen.queryByText("Synthetic artifact 500")).not.toBeInTheDocument();
+    expect(screen.getByText("Synthetic artifact 501")).toBeVisible();
   });
 
   it("shows absent turn receipts as unknown and separates denied tools from failed tools", async () => {
@@ -2200,7 +2249,7 @@ describe("AgentPage", () => {
     expect(transport.streamAgentEvents.mock.calls[1][1]).toBe(3);
   });
 
-  it("bounds a large transcript and reveals earlier activity in explicit batches", async () => {
+  it("bounds a large transcript and pages earlier activity without cumulative mounting", async () => {
     const activity = Array.from({ length: 205 }, (_, index) => (
       event(index + 1, "status", { text: `Synthetic activity ${index + 1}` })
     ));
@@ -2223,12 +2272,205 @@ describe("AgentPage", () => {
 
     render(<AgentPage transport={transport} />);
 
-    expect(await screen.findByText("Showing the latest 200 of 205 activity events.")).toBeVisible();
+    expect(await screen.findByText("Showing activity 6–205 of 205 events.")).toBeVisible();
     expect(screen.queryByText("Synthetic activity 1")).toBeNull();
     expect(screen.getByText("Synthetic activity 6")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Show 5 earlier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Earlier 5" }));
     expect(screen.getByText("Synthetic activity 1")).toBeVisible();
-    expect(screen.queryByText(/Showing the latest/u)).toBeNull();
+    expect(screen.queryByText("Synthetic activity 6")).toBeNull();
+    expect(screen.getByText("Showing activity 1–5 of 205 events.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Latest" }));
+    expect(screen.getByText("Showing activity 6–205 of 205 events.")).toBeVisible();
+    expect(screen.queryByText("Synthetic activity 1")).toBeNull();
+  });
+
+  it("fails closed on wrong-chat, repeated, out-of-order, and empty retained pages", async () => {
+    const projectId = "f".repeat(32);
+    const page = (
+      sessionId: string,
+      events: AgentEvent[],
+      lastSeq = 3,
+    ): AgentEvents => ({
+      contract_version: "local-agent.v9",
+      session_id: sessionId,
+      events,
+      running: false,
+      closing: false,
+      stopping: false,
+      cleanup_unconfirmed: false,
+      pending_approval_id: null,
+      last_seq: lastSeq,
+      first_seq: events[0]?.seq ?? 0,
+    });
+    const signal = new AbortController().signal;
+
+    await expect(readCompleteRetainedEvents(
+      async () => page("e".repeat(32), [event(1, "status")], 1),
+      projectId,
+      SESSION,
+      signal,
+    )).rejects.toThrow("retained_history_session_mismatch");
+
+    await expect(readCompleteRetainedEvents(
+      async () => page(SESSION, [event(1, "status")]),
+      projectId,
+      SESSION,
+      signal,
+    )).rejects.toThrow("retained_history_cursor_invalid");
+
+    await expect(readCompleteRetainedEvents(
+      async () => page(SESSION, [event(2, "status"), event(1, "status")]),
+      projectId,
+      SESSION,
+      signal,
+    )).rejects.toThrow("retained_history_cursor_invalid");
+
+    await expect(readCompleteRetainedEvents(
+      async () => page(SESSION, [], 1),
+      projectId,
+      SESSION,
+      signal,
+    )).rejects.toThrow("retained_history_cursor_stalled");
+  });
+
+  it("refuses retained history that exceeds the 100-page reconstruction ceiling", async () => {
+    const getPage = vi.fn(async (
+      _projectId: string,
+      _sessionId: string,
+      after: number,
+    ): Promise<AgentEvents> => ({
+      contract_version: "local-agent.v9",
+      session_id: SESSION,
+      events: [event(after + 1, "status")],
+      running: false,
+      closing: false,
+      stopping: false,
+      cleanup_unconfirmed: false,
+      pending_approval_id: null,
+      last_seq: 200,
+      first_seq: 1,
+    }));
+
+    await expect(readCompleteRetainedEvents(
+      getPage,
+      "f".repeat(32),
+      SESSION,
+      new AbortController().signal,
+    )).rejects.toThrow("retained_history_page_limit");
+    expect(getPage).toHaveBeenCalledTimes(100);
+  });
+
+  it("pages the maximum 4,000-event retained history through one fixed mounted window", async () => {
+    const projectId = "a".repeat(32);
+    const activity = Array.from({ length: 4_000 }, (_, index) => (
+      event(index + 1, "status", { text: `Maximum retained activity ${index + 1}` })
+    ));
+    const project = catalogProjectFixture(projectId, "Maximum history project", 1);
+    const saved = catalogSessionFixture(SESSION, projectId, "Maximum retained chat", {
+      history_state: "durable_local",
+      retention_policy: "local_history",
+      history_revision: activity.length,
+      last_event_seq: activity.length,
+      turn_count: 1,
+      conversation_available: true,
+    });
+    const getAgentPersistedEvents = vi.fn(async (
+      _projectId: string,
+      _sessionId: string,
+      after: number,
+    ): Promise<AgentEvents> => ({
+      contract_version: "local-agent.v9",
+      session_id: SESSION,
+      events: activity.slice(after, after + 500),
+      running: false,
+      closing: false,
+      stopping: false,
+      cleanup_unconfirmed: false,
+      pending_approval_id: null,
+      last_seq: activity.length,
+      first_seq: 1,
+    }));
+    const transport = retainedCatalogTransport(project, [saved], {
+      getAgentSession: vi.fn(async () => {
+        throw new TransportError("synthetic live session cleared", 404);
+      }),
+      getAgentPersistedEvents,
+    });
+
+    render(<AgentPage sessionId={SESSION} transport={transport} windowMode />);
+
+    expect(await screen.findByText(
+      "Showing activity 3,801–4,000 of 4,000 events.",
+      {},
+      { timeout: 5_000 },
+    )).toBeVisible();
+    const timeline = screen.getByRole("region", { name: "Retained agent activity" });
+    expect(timeline.children.length).toBeLessThanOrEqual(201);
+    expect(screen.queryByText("Maximum retained activity 3600")).toBeNull();
+    expect(screen.getByText("Maximum retained activity 3801")).toBeVisible();
+    expect(getAgentPersistedEvents).toHaveBeenCalledTimes(8);
+
+    fireEvent.click(screen.getByRole("button", { name: "Earlier 200" }));
+    expect(screen.getByText("Showing activity 3,601–3,800 of 4,000 events.")).toBeVisible();
+    expect(screen.getByText("Maximum retained activity 3601")).toBeVisible();
+    expect(screen.queryByText("Maximum retained activity 3801")).toBeNull();
+    expect(timeline.children.length).toBeLessThanOrEqual(201);
+
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    expect(screen.getByText("Showing activity 3,801–4,000 of 4,000 events.")).toBeVisible();
+    expect(timeline.children.length).toBeLessThanOrEqual(201);
+  });
+
+  it("refuses to reconstruct retained history from pages with different immutable heads", async () => {
+    const projectId = "b".repeat(32);
+    const project = catalogProjectFixture(projectId, "Changed history project", 1);
+    const saved = catalogSessionFixture(SESSION, projectId, "Changed retained chat", {
+      history_state: "durable_local",
+      retention_policy: "local_history",
+      history_revision: 4,
+      last_event_seq: 4,
+      turn_count: 1,
+      conversation_available: true,
+    });
+    const first = [
+      event(1, "status", { text: "Mixed history page one" }),
+      event(2, "status", { text: "Mixed history page two" }),
+    ];
+    const second = [
+      event(3, "status", { text: "Foreign changed-head page" }),
+      event(4, "status", { text: "Foreign changed-head tail" }),
+    ];
+    const getAgentPersistedEvents = vi.fn(async (
+      _projectId: string,
+      _sessionId: string,
+      after: number,
+    ): Promise<AgentEvents> => ({
+      contract_version: "local-agent.v9",
+      session_id: SESSION,
+      events: after === 0 ? first : second,
+      running: false,
+      closing: false,
+      stopping: false,
+      cleanup_unconfirmed: false,
+      pending_approval_id: null,
+      last_seq: after === 0 ? 4 : 5,
+      first_seq: 1,
+    }));
+    const transport = retainedCatalogTransport(project, [saved], {
+      getAgentSession: vi.fn(async () => {
+        throw new TransportError("synthetic live session cleared", 404);
+      }),
+      getAgentPersistedEvents,
+    });
+
+    render(<AgentPage sessionId={SESSION} transport={transport} windowMode />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The retained conversation could not be read. Nothing was reconstructed.",
+    );
+    expect(screen.queryByText("Mixed history page one")).toBeNull();
+    expect(screen.queryByText("Foreign changed-head page")).toBeNull();
+    expect(getAgentPersistedEvents).toHaveBeenCalledTimes(2);
   });
 
   it("offers a keyboard-reachable jump to the latest activity after the user scrolls up", async () => {
@@ -2295,7 +2537,7 @@ describe("AgentPage", () => {
 
     const live = await screen.findByLabelText("Agent response streaming");
     expect(live).toHaveTextContent("x".repeat(205));
-    expect(screen.getByText("Showing the latest 200 of 205 activity events.")).toBeVisible();
+    expect(screen.getByText("Showing activity 6–205 of 205 events.")).toBeVisible();
   });
 
   it("renders reasoning and tool execution as explicit coding-agent activity", async () => {

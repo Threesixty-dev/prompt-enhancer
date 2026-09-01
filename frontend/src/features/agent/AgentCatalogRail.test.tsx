@@ -391,6 +391,77 @@ describe("AgentCatalogRail", () => {
     expect(screen.getByText("Fresh scoped project")).toBeVisible();
   });
 
+  it("aborts delayed project and chat continuations and refuses their late records after search replacement", async () => {
+    const projects = Array.from({ length: 100 }, (_, index) => project({
+      project_id: (index + 1).toString(16).padStart(32, "0"),
+      name: `Prefix project ${index.toString().padStart(3, "0")}`,
+    }));
+    const sessions = Array.from({ length: 100 }, (_, index) => catalogSession({
+      session_id: (index + 1000).toString(16).padStart(32, "0"),
+      title: `Prefix chat ${index.toString().padStart(3, "0")}`,
+    }));
+    const delayedProjects = deferred<AgentProjectPage>();
+    const delayedSessions = deferred<AgentCatalogSessionPage>();
+    const freshProject = project({ name: "Fresh search project" });
+    const freshSession = catalogSession({ title: "Fresh search chat" });
+    const staleProject = project({
+      project_id: "d".repeat(32),
+      name: "Late foreign project",
+    });
+    const staleSession = catalogSession({
+      session_id: "e".repeat(32),
+      title: "Late foreign chat",
+    });
+    const pageAgentProjects = vi.fn((query: AgentCatalogPageQuery, _signal?: AbortSignal) => {
+      if (query.offset === 100) return delayedProjects.promise;
+      return Promise.resolve(query.search === "fresh"
+        ? projectPage([freshProject])
+        : projectPage(projects, 101));
+    });
+    const pageAgentCatalogSessions = vi.fn((query: AgentCatalogSessionPageQuery, _signal?: AbortSignal) => {
+      if (query.offset === 100) return delayedSessions.promise;
+      return Promise.resolve(query.search === "fresh"
+        ? sessionPage([freshSession])
+        : sessionPage(sessions, 101));
+    });
+    const api = { ...transport(), pageAgentProjects, pageAgentCatalogSessions };
+    render(<AgentCatalogRail
+      liveSessions={[]}
+      onCloseLiveSession={vi.fn()}
+      onNewChat={vi.fn()}
+      onOpenLiveSession={vi.fn()}
+      onOpenUnavailableSession={vi.fn()}
+      onProjectChange={vi.fn()}
+      selectedProjectId={PROJECT_ID}
+      transport={api}
+    />);
+
+    await screen.findByText("100 of 101 projects available");
+    await screen.findByText("100 of 101 chats available");
+    fireEvent.click(screen.getByRole("button", { name: "Load more projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load more chats" }));
+    await waitFor(() => {
+      expect(pageAgentProjects).toHaveBeenCalledTimes(2);
+      expect(pageAgentCatalogSessions).toHaveBeenCalledTimes(2);
+    });
+    const delayedProjectSignal = pageAgentProjects.mock.calls[1][1];
+    const delayedSessionSignal = pageAgentCatalogSessions.mock.calls[1][1];
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "fresh" } });
+    expect(await screen.findByText("Fresh search project")).toBeVisible();
+    expect(await screen.findByRole("button", { name: /^Fresh search chat ·/u })).toBeVisible();
+    expect(delayedProjectSignal?.aborted).toBe(true);
+    expect(delayedSessionSignal?.aborted).toBe(true);
+
+    delayedProjects.resolve(projectPage([staleProject], 101, 100));
+    delayedSessions.resolve(sessionPage([staleSession], 101, 100));
+    await Promise.all([delayedProjects.promise, delayedSessions.promise]);
+    await Promise.resolve();
+    expect(screen.queryByText("Late foreign project")).not.toBeInTheDocument();
+    expect(screen.queryByText("Late foreign chat")).not.toBeInTheDocument();
+    expect(screen.getByText("Fresh search project")).toBeVisible();
+  });
+
   it("bounds maximum returned project and chat collections while keeping current selections visible", async () => {
     const projects = Array.from({ length: 120 }, (_, index) => project({
       project_id: (index + 10).toString(16).padStart(32, "0"),

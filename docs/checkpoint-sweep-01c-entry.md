@@ -1,6 +1,6 @@
 # Checkpoint Sweep-01c entry
 
-Status: active; slices 01c.1 and 01c.2 automated complete, slice 01c.3 stress closure next
+Status: automated complete through 01c.3; owner review queued
 Entered: 2026-09-01
 Parent goal: [Prompt Enhancer finish goal](prompt-enhancer-finish-goal-2026-08-29.md)
 Prerequisite: [Sweep-01b.4 handoff](checkpoint-sweep-01b-4-handoff.md)
@@ -81,3 +81,16 @@ Closed by: [Sweep-01c.1 handoff](checkpoint-sweep-01c-1-handoff.md)
   360/1440 px reload pass.
 
 Closed by: [Sweep-01c.2 handoff](checkpoint-sweep-01c-2-handoff.md)
+
+## 01c.3 exit gate
+
+- Maximum retained history stays within a fixed mounted transcript window and
+  every multi-page read binds one immutable history head.
+- Delayed, cancelled and out-of-order catalog/artifact continuations cannot
+  cross a replacement search, project, chat or lifecycle scope.
+- Exact mounted-node, local interaction-latency, horizontal-overflow and
+  cumulative-layout-shift budgets pass at 360 and 1,440 px.
+
+Entered by: [Sweep-01c.3 entry](checkpoint-sweep-01c-3-entry.md)
+
+Closed by: [Sweep-01c.3 handoff](checkpoint-sweep-01c-3-handoff.md)
