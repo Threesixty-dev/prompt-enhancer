@@ -3931,15 +3931,18 @@ export function AgentPage({
                   {transport.checkPrompt && (
                     <button
                       aria-expanded={Boolean(promptCheckResult)}
-                      aria-label="Check & improve"
+                      aria-label="Review prompt without sending"
                       className="button button--ghost agent__compose-improve"
                       disabled={commandCleanupBlocked || busy || promptCheckBusy || current.closing || current.history_write_failed || current.running || responseStopping || currentModelAction !== null || runtimeControlBusy || !draft.trim()}
                       onClick={() => void runPromptCheck()}
-                      title="Check and improve this draft locally"
+                      title="Review this draft and suggest a clearer version. This does not send it to the agent."
                       type="button"
                     >
                       <Icon name="sparkles" />
-                      <span>{promptCheckBusy ? "Checking…" : "Improve"}</span>
+                      <span className="agent__compose-improve-copy">
+                        <strong>{promptCheckBusy ? "Reviewing…" : "Review prompt"}</strong>
+                        <small>Optional · no agent send</small>
+                      </span>
                     </button>
                   )}
                   {current.running || responseStopping ? (

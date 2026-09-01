@@ -123,6 +123,10 @@ describe("AgentPage layout contract", () => {
     expect(agentPageCss).toMatch(/\.agent__compose-footer\s*\{[^}]*grid-template-columns:\s*minmax\(14rem,\s*1fr\) auto;/);
     expect(runtimeControlCss).toMatch(/\.agent-runtime--composer\s*\{[^}]*width:\s*min\(100%,\s*44rem\);[^}]*max-height:\s*none;[^}]*overflow:\s*visible;/);
     expect(runtimeControlCss).toMatch(/\.agent-runtime__composer-disclosure > summary\s*\{[^}]*min-height:\s*var\(--touch-target\);/);
+    expect(runtimeControlCss).toMatch(/\.agent-runtime__composer-disclosure\s*\{[^}]*position:\s*relative;/);
+    expect(runtimeControlCss).toMatch(/\.agent-runtime__composer-panel\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*calc\(100% \+ 0\.5rem\);[^}]*max-height:\s*min\([^;]*dvh[^;]*\);[^}]*overflow-y:\s*auto;/);
+    expect(runtimeControlCss).toMatch(/\.agent-runtime__composer-panel-head\s*\{[^}]*position:\s*sticky;/);
+    expect(runtimeControlCss).toMatch(/\.agent-runtime__composer-actions\s*\{[^}]*position:\s*sticky;/);
     expect(agentPageCss).toMatch(/@media \(forced-colors:\s*active\)[\s\S]*?\.agent__compose-primary-action \.agent__forced-color-label\s*\{[^}]*position:\s*static;[^}]*clip:\s*auto;/);
     expect(attachmentsCss).toMatch(/@media \(forced-colors:\s*active\)[\s\S]*?\.agent-attachments--compact \.agent-attachments__forced-color-label\s*\{[^}]*position:\s*static;[^}]*clip:\s*auto;/);
   });

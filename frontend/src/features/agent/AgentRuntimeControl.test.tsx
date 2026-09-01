@@ -370,7 +370,7 @@ function renderControl(options: {
 }
 
 describe("AgentRuntimeControl", () => {
-  it("puts the selected model and exact chat context in an in-flow composer disclosure", async () => {
+  it("keeps model selection usable in a dismissible composer popover", async () => {
     renderControl({
       initialSessionContext: measuredChatContext(),
       variant: "composer",
@@ -386,17 +386,35 @@ describe("AgentRuntimeControl", () => {
     fireEvent.click(summary);
 
     expect(summary.closest("details")).toHaveAttribute("open");
-    expect(within(panel).getByLabelText("Model")).toHaveValue(MODEL_A);
-    expect(within(panel).getByLabelText("Model placement")).toHaveValue("split");
-    expect(within(panel).getByLabelText("Context limit")).toHaveValue("8192");
+    const chooser = within(panel).getByRole("dialog", { name: "Choose model and runtime settings" });
+    expect(within(chooser).getByText("Nothing changes until Apply succeeds.", { exact: false })).toBeVisible();
+    expect(within(chooser).getByLabelText("Model")).toHaveValue(MODEL_A);
+    expect(within(chooser).getByLabelText("Model placement")).toHaveValue("split");
+    expect(within(chooser).getByLabelText("Context limit")).toHaveValue("8192");
+    expect(within(chooser).getByRole("button", { name: "Applied" })).toBeDisabled();
+    fireEvent.click(within(chooser).getByText("Context, compatibility & runtime evidence"));
     expect(within(panel).getByRole("progressbar", { name: "Exact context use" }))
       .toHaveAttribute("aria-valuenow", "8");
     expect(within(panel).getByText("Context use").parentElement)
       .toHaveTextContent("640 input / 8192 · 7552 available · turn 2");
 
-    fireEvent.change(within(panel).getByLabelText("Model"), { target: { value: MODEL_B } });
+    fireEvent.change(within(chooser).getByLabelText("Model"), { target: { value: MODEL_B } });
     expect(within(panel).getByText("Pending change")).toBeVisible();
+    await waitFor(() => expect(within(chooser).getByRole("button", { name: "Switch model" })).toBeEnabled());
     expect(summary).toHaveAccessibleName(/Example Model B.*Pending change/u);
+
+    fireEvent.click(within(chooser).getByRole("button", { name: "Close model and context settings" }));
+    expect(summary.closest("details")).not.toHaveAttribute("open");
+    expect(summary).toHaveFocus();
+
+    fireEvent.click(summary);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(summary.closest("details")).not.toHaveAttribute("open");
+    expect(summary).toHaveFocus();
+
+    fireEvent.click(summary);
+    fireEvent.pointerDown(document.body);
+    expect(summary.closest("details")).not.toHaveAttribute("open");
   });
 
   it("keeps a new chat explicitly unmeasured while reporting verified runtime capabilities", async () => {

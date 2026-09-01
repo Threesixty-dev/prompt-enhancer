@@ -3178,8 +3178,8 @@ describe("AgentPage", () => {
     try {
       expect(screen.getByLabelText("Agent activity status")).toHaveTextContent("Stopping model");
       expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "Check & improve" })).toBeDisabled();
-      fireEvent.click(screen.getByRole("button", { name: "Check & improve" }));
+      expect(screen.getByRole("button", { name: "Review prompt without sending" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Review prompt without sending" }));
       fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
       expect(transport.sendAgentMessage).not.toHaveBeenCalled();
       expect(transport.checkPrompt).not.toHaveBeenCalled();
@@ -5896,7 +5896,11 @@ describe("AgentPage", () => {
     await screen.findByText("Earlier response");
 
     fireEvent.change(screen.getByLabelText("Message to the agent"), { target: { value: "Update example.ts" } });
-    fireEvent.click(screen.getByRole("button", { name: "Check & improve" }));
+    const reviewPrompt = screen.getByRole("button", { name: "Review prompt without sending" });
+    expect(reviewPrompt).toHaveTextContent("Review prompt");
+    expect(reviewPrompt).toHaveTextContent("Optional · no agent send");
+    expect(reviewPrompt).toHaveAttribute("title", "Review this draft and suggest a clearer version. This does not send it to the agent.");
+    fireEvent.click(reviewPrompt);
 
     await waitFor(
       () => expect(transport.checkPrompt).toHaveBeenCalledTimes(1),
@@ -5943,7 +5947,7 @@ describe("AgentPage", () => {
     render(<AgentPage transport={transport} />);
     await screen.findByLabelText("Message to the agent");
     fireEvent.change(screen.getByLabelText("Message to the agent"), { target: { value: "First draft" } });
-    fireEvent.click(screen.getByRole("button", { name: "Check & improve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review prompt without sending" }));
     await waitFor(() => expect(transport.checkPrompt).toHaveBeenCalledTimes(1));
 
     fireEvent.change(screen.getByLabelText("Message to the agent"), { target: { value: "Second draft" } });
@@ -5966,7 +5970,7 @@ describe("AgentPage", () => {
     render(<AgentPage transport={transport} />);
     await screen.findByLabelText("Message to the agent");
     fireEvent.change(screen.getByLabelText("Message to the agent"), { target: { value: "Review example.ts" } });
-    fireEvent.click(screen.getByRole("button", { name: "Check & improve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review prompt without sending" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("The prompt check did not run. Your draft was not changed.");
     expect(document.body.textContent).not.toContain("synthetic-secret-canary");
   });

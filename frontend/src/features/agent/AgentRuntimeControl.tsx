@@ -683,6 +683,34 @@ export function AgentRuntimeControl({
     control.focus({ preventScroll: true });
   }, [available, focusRequestKey, variant]);
 
+  const closeComposerDisclosure = useCallback((restoreFocus = false) => {
+    const disclosure = composerDetailsRef.current;
+    if (disclosure === null || !disclosure.open) return;
+    disclosure.open = false;
+    if (restoreFocus) disclosure.querySelector<HTMLElement>("summary")?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
+    if (variant !== "composer") return;
+    const closeFromOutside = (event: PointerEvent) => {
+      const disclosure = composerDetailsRef.current;
+      if (disclosure === null || !disclosure.open || !(event.target instanceof Node) || disclosure.contains(event.target)) return;
+      closeComposerDisclosure(false);
+    };
+    const closeFromEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || composerDetailsRef.current?.open !== true) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeComposerDisclosure(true);
+    };
+    document.addEventListener("pointerdown", closeFromOutside, true);
+    document.addEventListener("keydown", closeFromEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeFromOutside, true);
+      document.removeEventListener("keydown", closeFromEscape);
+    };
+  }, [closeComposerDisclosure, variant]);
+
   function changeModelSelection(nextAlias: string): void {
     runtimeDraftDirty.current = true;
     setAlias(nextAlias);
@@ -1004,6 +1032,22 @@ export function AgentRuntimeControl({
         : current !== null && sessionContext?.binding_state === "unmeasured"
           ? "Context unmeasured"
           : "Context unknown";
+  const runtimeDecisionState = selected === null
+    ? "attention"
+    : exactSelection && !chatNeedsRebind
+      ? "current"
+      : applyDisabled
+        ? "blocked"
+        : "ready";
+  const runtimeDecisionMessage = selected === null
+    ? "Choose an installed model. Nothing is loaded until you apply the selection."
+    : exactSelection && !chatNeedsRebind
+      ? "This chat already uses this model, placement, and context configuration."
+      : applyDisabled
+        ? applyDisabledReason
+        : runtime?.served
+          ? "Ready to switch the shared runtime and bind this chat after startup succeeds."
+          : "Ready to start this model and bind it to this chat after startup succeeds.";
 
   if (variant === "composer") {
     return (
@@ -1036,14 +1080,26 @@ export function AgentRuntimeControl({
             <Icon name="sliders" />
           </summary>
 
-          <div className="agent-runtime__composer-panel">
-            <header className="agent-runtime__head">
+          <div aria-label="Choose model and runtime settings" className="agent-runtime__composer-panel" role="dialog">
+            <header className="agent-runtime__head agent-runtime__composer-panel-head">
               <span>
-                <small>Shared local runtime</small>
-                <strong>Model, placement &amp; context</strong>
+                <small>Chat runtime</small>
+                <strong>Choose model &amp; context</strong>
               </span>
-              <span className="agent-runtime__state">{compactRuntimeState}</span>
+              <span className="agent-runtime__composer-panel-actions">
+                <span className="agent-runtime__state">{compactRuntimeState}</span>
+                <button
+                  aria-label="Close model and context settings"
+                  className="button button--ghost agent-runtime__composer-close"
+                  onClick={() => closeComposerDisclosure(true)}
+                  title="Close model and context settings"
+                  type="button"
+                ><Icon name="x" /></button>
+              </span>
             </header>
+            <p className="agent-runtime__composer-guidance">
+              Choose a model, device placement, and context limit. Nothing changes until Apply succeeds.
+            </p>
 
             <label>
               <span>Model</span>
@@ -1104,68 +1160,12 @@ export function AgentRuntimeControl({
               </label>
             </div>
 
-            <p className="agent-runtime__placement-note" data-state={selectedPlacement?.state ?? "unknown"}>
-              {placementLoading
-                ? "Checking current placement admission…"
-                : placementReadFailed
-                  ? "Placement admission could not be refreshed; Apply stays disabled."
-                  : selectedPlacement
-                    ? `${placementReasonLabel(selectedPlacement.reason_code)}${selectedPlacement.recommended_gpu_layers != null && selectedPlacement.recommended_gpu_layers > 0 ? ` Recommended maximum: ${selectedPlacement.recommended_gpu_layers} GPU layers.` : ""} Actual tensor offload is not measured.`
-                    : selected !== null
-                      ? "Placement evidence is unavailable; Apply stays disabled. Refresh models or retry the placement check."
-                      : "Choose a model to check placement admission."}
-              {blockedPlacementSummary ? ` ${blockedPlacementSummary}` : ""}
+            <p className="agent-runtime__decision-note" data-state={runtimeDecisionState}>
+              <Icon name="info" />
+              <span>{runtimeDecisionMessage}</span>
             </p>
 
-            <div className="agent-runtime__context-card" data-tone={displayedContextTone}>
-              <p className="agent-runtime__context">
-                <span>Context use</span>
-                <strong>{displayedContext}</strong>
-              </p>
-              {contextMeterValue !== null && (
-                <div
-                  aria-label="Exact context use"
-                  aria-valuemax={100}
-                  aria-valuemin={0}
-                  aria-valuenow={contextMeterValue}
-                  aria-valuetext={`${contextPercentage}% exact input utilization · ${displayedContextEvidence?.policy.replaceAll("_", " ")}`}
-                  className="agent-runtime__context-meter"
-                  data-tone={displayedContextTone}
-                  role="progressbar"
-                >
-                  <span style={{ width: `${contextMeterValue}%` }} />
-                </div>
-              )}
-              {contextMessages.map((message, index) => (
-                <p className="agent-runtime__context-note" key={`${message.text}-${index}`} role={message.role}>{message.text}</p>
-              ))}
-            </div>
-
-            <details className="agent-runtime__details">
-              <summary>Runtime evidence &amp; capabilities</summary>
-              <div className="agent-runtime__details-body">
-                <dl className="agent-runtime__facts">
-                  <div><dt>Requested</dt><dd>{runtime?.requested?.alias ?? "None"}</dd></div>
-                  <div><dt>Served</dt><dd>{runtime?.served?.alias ?? "None"}</dd></div>
-                  <div><dt>Context</dt><dd>{displayedContext}</dd></div>
-                  <div><dt>Evidence</dt><dd>{contextEvidence}</dd></div>
-                  <div><dt>Measurement</dt><dd>{contextMeasurement}</dd></div>
-                  <div><dt>Admission</dt><dd>{contextAdmission}</dd></div>
-                  <div><dt>Placement request</dt><dd>{runtime?.served ? placementLabel(runtime.served.device) : "None"}</dd></div>
-                  <div><dt>Offload evidence</dt><dd>Not measured · runtime arguments only</dd></div>
-                  <div><dt>Cleanup</dt><dd>{runtime?.cleanup.state.replaceAll("_", " ") ?? "unknown"}</dd></div>
-                </dl>
-                <div className="agent-runtime__capabilities" aria-label="Model capability status">
-                  <span data-supported={runtime?.capabilities.text ? "true" : "false"}>Text {runtime?.capabilities.text ? "verified" : "unverified"}</span>
-                  <span data-supported={runtime?.capabilities.tools ? "true" : "false"}>Tools {runtime?.capabilities.tools ? "configured" : "not verified"}</span>
-                  <span data-supported={runtime?.capabilities.vision ? "true" : "false"}>Vision {runtime?.capabilities.vision ? "verified" : "not verified"}</span>
-                  <span data-supported={runtime?.capabilities.audio ? "true" : "false"}>Audio {runtime?.capabilities.audio ? "verified · experimental" : "not verified"}</span>
-                  <span data-supported={runtime?.capabilities.recording ? "true" : "false"}>Microphone {runtime?.capabilities.recording ? "eligible in supported windows" : "not verified"}</span>
-                </div>
-              </div>
-            </details>
-
-            <div className="agent-runtime__actions">
+            <div className="agent-runtime__actions agent-runtime__composer-actions">
               <button
                 aria-describedby={applyDisabledReasonId}
                 className="button button--primary"
@@ -1173,6 +1173,10 @@ export function AgentRuntimeControl({
                 onClick={() => void applyRuntime()}
                 type="button"
               >{runtimeActionLabel}</button>
+              <button className="button button--ghost" disabled={busy || loading} onClick={() => {
+                void refresh();
+                void refreshContext();
+              }} type="button">Refresh</button>
               <button
                 aria-describedby={stopDisabledReasonId}
                 className="button button--ghost"
@@ -1180,11 +1184,73 @@ export function AgentRuntimeControl({
                 onClick={() => void stopRuntime()}
                 type="button"
               >Stop runtime</button>
-              <button className="button button--ghost" disabled={busy || loading} onClick={() => {
-                void refresh();
-                void refreshContext();
-              }} type="button">Refresh</button>
             </div>
+
+            <details className="agent-runtime__composer-evidence">
+              <summary>Context, compatibility &amp; runtime evidence</summary>
+              <div className="agent-runtime__composer-evidence-body">
+                <p className="agent-runtime__placement-note" data-state={selectedPlacement?.state ?? "unknown"}>
+                  {placementLoading
+                    ? "Checking current placement admission…"
+                    : placementReadFailed
+                      ? "Placement admission could not be refreshed; Apply stays disabled."
+                      : selectedPlacement
+                        ? `${placementReasonLabel(selectedPlacement.reason_code)}${selectedPlacement.recommended_gpu_layers != null && selectedPlacement.recommended_gpu_layers > 0 ? ` Recommended maximum: ${selectedPlacement.recommended_gpu_layers} GPU layers.` : ""} Actual tensor offload is not measured.`
+                        : selected !== null
+                          ? "Placement evidence is unavailable; Apply stays disabled. Refresh models or retry the placement check."
+                          : "Choose a model to check placement admission."}
+                  {blockedPlacementSummary ? ` ${blockedPlacementSummary}` : ""}
+                </p>
+
+                <div className="agent-runtime__context-card" data-tone={displayedContextTone}>
+                  <p className="agent-runtime__context">
+                    <span>Context use</span>
+                    <strong>{displayedContext}</strong>
+                  </p>
+                  {contextMeterValue !== null && (
+                    <div
+                      aria-label="Exact context use"
+                      aria-valuemax={100}
+                      aria-valuemin={0}
+                      aria-valuenow={contextMeterValue}
+                      aria-valuetext={`${contextPercentage}% exact input utilization · ${displayedContextEvidence?.policy.replaceAll("_", " ")}`}
+                      className="agent-runtime__context-meter"
+                      data-tone={displayedContextTone}
+                      role="progressbar"
+                    >
+                      <span style={{ width: `${contextMeterValue}%` }} />
+                    </div>
+                  )}
+                  {contextMessages.map((message, index) => (
+                    <p className="agent-runtime__context-note" key={`${message.text}-${index}`} role={message.role}>{message.text}</p>
+                  ))}
+                </div>
+
+                <details className="agent-runtime__details">
+                  <summary>Runtime evidence &amp; capabilities</summary>
+                  <div className="agent-runtime__details-body">
+                    <dl className="agent-runtime__facts">
+                      <div><dt>Requested</dt><dd>{runtime?.requested?.alias ?? "None"}</dd></div>
+                      <div><dt>Served</dt><dd>{runtime?.served?.alias ?? "None"}</dd></div>
+                      <div><dt>Context</dt><dd>{displayedContext}</dd></div>
+                      <div><dt>Evidence</dt><dd>{contextEvidence}</dd></div>
+                      <div><dt>Measurement</dt><dd>{contextMeasurement}</dd></div>
+                      <div><dt>Admission</dt><dd>{contextAdmission}</dd></div>
+                      <div><dt>Placement request</dt><dd>{runtime?.served ? placementLabel(runtime.served.device) : "None"}</dd></div>
+                      <div><dt>Offload evidence</dt><dd>Not measured · runtime arguments only</dd></div>
+                      <div><dt>Cleanup</dt><dd>{runtime?.cleanup.state.replaceAll("_", " ") ?? "unknown"}</dd></div>
+                    </dl>
+                    <div className="agent-runtime__capabilities" aria-label="Model capability status">
+                      <span data-supported={runtime?.capabilities.text ? "true" : "false"}>Text {runtime?.capabilities.text ? "verified" : "unverified"}</span>
+                      <span data-supported={runtime?.capabilities.tools ? "true" : "false"}>Tools {runtime?.capabilities.tools ? "configured" : "not verified"}</span>
+                      <span data-supported={runtime?.capabilities.vision ? "true" : "false"}>Vision {runtime?.capabilities.vision ? "verified" : "not verified"}</span>
+                      <span data-supported={runtime?.capabilities.audio ? "true" : "false"}>Audio {runtime?.capabilities.audio ? "verified · experimental" : "not verified"}</span>
+                      <span data-supported={runtime?.capabilities.recording ? "true" : "false"}>Microphone {runtime?.capabilities.recording ? "eligible in supported windows" : "not verified"}</span>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </details>
             {applyDisabledReasonId === "agent-runtime-apply-disabled-reason" && <span className="sr-only" id="agent-runtime-apply-disabled-reason">{applyDisabledReason}</span>}
             {stopDisabledReasonId === "agent-runtime-stop-disabled-reason" && <span className="sr-only" id="agent-runtime-stop-disabled-reason">{stopDisabledReason}</span>}
             {anyTurnRunning && <p className="agent-runtime__hint" id="agent-runtime-active-turn-hint">Finish or stop active responses before changing the shared runtime.</p>}
