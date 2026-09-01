@@ -4266,7 +4266,7 @@ describe("AgentPage", () => {
     };
     render(<AgentPage transport={transport} />);
     expect(screen.queryByRole("button", { name: "Browse…" })).toBeNull();
-    expect(screen.getByText("Paste path")).toBeVisible();
+    expect(screen.getByText("Enter path")).toBeVisible();
     expect(screen.getByLabelText("Workspace folder")).toBeEnabled();
 
     installNativeFolderPicker(vi.fn().mockResolvedValue({
@@ -4279,6 +4279,94 @@ describe("AgentPage", () => {
       () => expect(screen.getByRole("button", { name: "Browse…" })).toBeEnabled(),
       { timeout: 5_000 },
     );
+  });
+
+  it("opens the Windows folder chooser from the ordinary browser without creating a session", async () => {
+    Reflect.deleteProperty(globalThis, "pywebview");
+    const chooseWorkspaceFolder = vi.fn()
+      .mockResolvedValueOnce({
+        contract_version: "local-workspace-folder-picker.v1" as const,
+        status: "selected" as const,
+        path: "D:\\example\\chosen-workspace",
+      })
+      .mockResolvedValueOnce({
+        contract_version: "local-workspace-folder-picker.v1" as const,
+        status: "cancelled" as const,
+        path: null,
+      })
+      .mockResolvedValueOnce({
+        contract_version: "local-workspace-folder-picker.v1" as const,
+        status: "busy" as const,
+        path: null,
+      });
+    const transport = {
+      ...workspaceMethods(),
+      getWorkspaceFolderPickerCapability: vi.fn(async () => ({
+        contract_version: "local-workspace-folder-picker.v1" as const,
+        available: true,
+        mode: "server_native_dialog" as const,
+      })),
+      chooseWorkspaceFolder,
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async (_settings: AgentSettings) => view({
+        settings: { ...view().settings, workspace: "D:\\example\\chosen-workspace" },
+      })),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const browse = await screen.findByRole("button", { name: "Browse…" });
+    const workspace = screen.getByLabelText("Workspace folder");
+    expect(transport.createAgentSession).not.toHaveBeenCalled();
+
+    fireEvent.click(browse);
+    await waitFor(() => expect(workspace).toHaveValue("D:\\example\\chosen-workspace"));
+    expect(transport.createAgentSession).not.toHaveBeenCalled();
+    expect(screen.getByText(/Choosing only fills this field/)).toBeVisible();
+
+    fireEvent.click(browse);
+    await screen.findByText("Folder selection cancelled. The workspace path was not changed.");
+    expect(workspace).toHaveValue("D:\\example\\chosen-workspace");
+
+    fireEvent.click(browse);
+    await screen.findByText(/Another folder chooser is already open/);
+    expect(workspace).toHaveValue("D:\\example\\chosen-workspace");
+    expect(transport.createAgentSession).not.toHaveBeenCalled();
+    expect(chooseWorkspaceFolder).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls back to the browser chooser when the native bridge fails", async () => {
+    const nativeChoose = vi.fn().mockRejectedValue(new Error("synthetic bridge failure"));
+    installNativeFolderPicker(nativeChoose);
+    const chooseWorkspaceFolder = vi.fn(async () => ({
+      contract_version: "local-workspace-folder-picker.v1" as const,
+      status: "selected" as const,
+      path: "D:\\example\\browser-fallback",
+    }));
+    const transport = {
+      ...workspaceMethods(),
+      getWorkspaceFolderPickerCapability: vi.fn(async () => ({
+        contract_version: "local-workspace-folder-picker.v1" as const,
+        available: true,
+        mode: "server_native_dialog" as const,
+      })),
+      chooseWorkspaceFolder,
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const browse = await screen.findByRole("button", { name: "Browse…" });
+    fireEvent.click(browse);
+
+    await waitFor(() => expect(screen.getByLabelText("Workspace folder")).toHaveValue(
+      "D:\\example\\browser-fallback",
+    ));
+    expect(nativeChoose).toHaveBeenCalledOnce();
+    expect(chooseWorkspaceFolder).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("keeps protected scopes off while checking, then enables explicit choices only", async () => {

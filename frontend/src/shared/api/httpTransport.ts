@@ -156,6 +156,8 @@ import type {
   AgentAttachmentContent,
   AgentAttachmentList,
   AgentAttachmentUpload,
+  WorkspaceFolderPick,
+  WorkspaceFolderPickerCapability,
 } from "./contracts";
 import {
   AgentOrchestrationPayloadError,
@@ -3202,6 +3204,61 @@ export function parseRuntimeHealth(value: unknown): RuntimeHealth {
   };
 }
 
+const WORKSPACE_FOLDER_PICKER_CAPABILITY_KEYS = new Set([
+  "contract_version", "available", "mode",
+]);
+const WORKSPACE_FOLDER_PICK_KEYS = new Set([
+  "contract_version", "status", "path",
+]);
+
+function isAbsoluteWorkspacePath(value: unknown): value is string {
+  return typeof value === "string"
+    && value.length > 0
+    && value.length <= 1024
+    && value === value.trim()
+    && !/[\u0000-\u001f\u007f]/u.test(value)
+    && (
+      /^[A-Za-z]:[\\/]/u.test(value)
+      || /^\\\\[^\\/]+[\\/][^\\/]+/u.test(value)
+      || /^\/(?!\/)/u.test(value)
+    );
+}
+
+export function parseWorkspaceFolderPickerCapability(
+  value: unknown,
+): WorkspaceFolderPickerCapability {
+  if (
+    !isRecord(value)
+    || !hasExactKeys(value, WORKSPACE_FOLDER_PICKER_CAPABILITY_KEYS)
+    || value.contract_version !== "local-workspace-folder-picker.v1"
+    || typeof value.available !== "boolean"
+    || !["server_native_dialog", "unavailable"].includes(String(value.mode))
+    || value.available !== (value.mode === "server_native_dialog")
+  ) {
+    throw new TransportError("Workspace folder picker capability response was invalid", 200);
+  }
+  return value as unknown as WorkspaceFolderPickerCapability;
+}
+
+export function parseWorkspaceFolderPick(value: unknown): WorkspaceFolderPick {
+  if (
+    !isRecord(value)
+    || !hasExactKeys(value, WORKSPACE_FOLDER_PICK_KEYS)
+    || value.contract_version !== "local-workspace-folder-picker.v1"
+    || !["selected", "cancelled", "busy", "unavailable"].includes(String(value.status))
+  ) {
+    throw new TransportError("Workspace folder picker response was invalid", 200);
+  }
+  if (value.status === "selected") {
+    if (!isAbsoluteWorkspacePath(value.path)) {
+      throw new TransportError("Workspace folder picker response was invalid", 200);
+    }
+  } else if (value.path !== null) {
+    throw new TransportError("Workspace folder picker response was invalid", 200);
+  }
+  return value as unknown as WorkspaceFolderPick;
+}
+
 function validManagedMutation(
   managementId: string,
   payload: { request_id: string; expected_revision: number; preview_digest: string },
@@ -3673,6 +3730,26 @@ export function createHttpTransport(options: {
         confirmation_available: confirmationAvailable,
         mode: confirmationAvailable ? "native_bridge_bound_token" : "unavailable",
       };
+    },
+    async getWorkspaceFolderPickerCapability(signal) {
+      const value = await request<unknown>(
+        "/v1/local-ui/workspace-folder-picker",
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return parseWorkspaceFolderPickerCapability(value);
+    },
+    async chooseWorkspaceFolder(signal) {
+      const value = await request<unknown>(
+        "/v1/local-ui/workspace-folder-picker",
+        { method: "POST" },
+        signal,
+        false,
+        true,
+      );
+      return parseWorkspaceFolderPick(value);
     },
     async getControlPlaneReadiness(signal) {
       const value = await request<unknown>(

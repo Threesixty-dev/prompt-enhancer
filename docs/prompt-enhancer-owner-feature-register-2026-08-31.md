@@ -70,7 +70,7 @@ No status means “probably works.” Unknown evidence remains pending.
 
 | ID | Required owner-visible behavior | Acceptance boundary | Owner checkpoint | Current state |
 | --- | --- | --- | --- | --- |
-| WSP-01 | Choose one absolute workspace with a native folder picker or validated path entry. | Cancel, invalid path, inaccessible path, restart and project-scope tests. | Workspace-01, Acceptance-01 | Automated complete; native owner review pending |
+| WSP-01 | Choose one absolute workspace with a native folder picker or validated path entry. | Cancel, invalid path, inaccessible path, restart and project-scope tests. | Workspace-01, Agent-12g, Acceptance-01 | Automated complete in owned desktop and ordinary localhost UI; owner dialog review pending |
 | WSP-02 | Browse, filter, search and read bounded admitted files without escaping the workspace. | Traversal, symlink, race, oversized/binary and stale-map tests. | Workspace-01 | Automated complete; owner review pending |
 | WSP-03 | Create and edit UTF-8 files with exact reviewed diffs and objective read-back. | Stale revision, encoding, line-ending, malformed diff and denial tests. | Workspace-01 | Automated complete; owner review pending |
 | WSP-04 | Propose and publish multi-file changes atomically within the documented boundary. | Partial failure, rollback/quarantine, restart and concurrent-edit tests. | Workspace-01 | Automated complete; owner review pending |

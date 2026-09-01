@@ -81,6 +81,7 @@ from .application.social.contracts import SocialReadiness
 from .application.social.ports import SocialPrincipalResolver
 from .application.social.service import SocialService
 from .application.task_lifecycle import TaskLifecycleService
+from .application.workspace_folder_picker import LocalWorkspaceFolderPicker
 from .interfaces.http import (
     create_agent_metric_evidence_router,
     create_control_plane_router,
@@ -496,6 +497,7 @@ def create_app(
     all_session_ids=None,
     prompt_check_service=None,
     local_agent_service=None,
+    workspace_folder_picker: LocalWorkspaceFolderPicker | None = None,
     agent_hardening_service=None,
     agent_mcp_connection_service=None,
     mcp_registry_catalog_service=None,
@@ -707,6 +709,7 @@ def create_app(
                 "/requirement-verification-evidence",
                 "/declared-task-profile",
                 "/agent/",
+                "/local-ui/workspace-folder-picker",
                 "/integrations/agent-mcp/",
                 "/integrations/mcp-store/",
                 "/diagnostics/agent-hardening",
@@ -768,6 +771,28 @@ def create_app(
                 )
             if not sessions.verify_csrf(cookie_value, supplied_csrf):
                 raise HTTPException(status_code=403, detail="CSRF validation failed")
+
+    def require_browser_interaction(
+        request: Request,
+        supplied_csrf: Annotated[str | None, Header(alias=CSRF_HEADER)] = None,
+    ) -> None:
+        """Admit an explicit browser gesture without granting native authority."""
+
+        if request.headers.get(API_TOKEN_HEADER) is not None or request.headers.get(
+            "authorization"
+        ) is not None:
+            raise HTTPException(status_code=403, detail="browser interaction required")
+        cookie_value = request.cookies.get(BROWSER_SESSION_COOKIE)
+        sessions = request.app.state.browser_sessions
+        if not sessions.authenticate(cookie_value):
+            raise HTTPException(status_code=401, detail="browser session required")
+        origin = request.headers.get("origin")
+        if origin is None or not _origin_matches_request(origin, request):
+            raise HTTPException(
+                status_code=403, detail="same-origin interaction required"
+            )
+        if not sessions.verify_csrf(cookie_value, supplied_csrf):
+            raise HTTPException(status_code=403, detail="CSRF validation failed")
 
     async def require_browser_user_confirmation(
         request: Request,
@@ -1262,6 +1287,17 @@ def create_app(
         from .interfaces.http.prompt_check_routes import create_prompt_check_router
 
         app.include_router(create_prompt_check_router(require_local_token, prompt_check_service))
+    from .interfaces.http.workspace_folder_picker_routes import (
+        create_workspace_folder_picker_router,
+    )
+
+    app.include_router(
+        create_workspace_folder_picker_router(
+            require_local_token,
+            require_browser_interaction,
+            workspace_folder_picker,
+        )
+    )
     if local_agent_service is not None:
         from .interfaces.http.local_agent_routes import create_local_agent_router
 

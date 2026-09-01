@@ -28,6 +28,8 @@ import {
   parseSessionMetricReadinessReport,
   parseSessionQualityAnalysisPreview,
   parseSessionTextAnalysisCapability,
+  parseWorkspaceFolderPick,
+  parseWorkspaceFolderPickerCapability,
   TransportError,
 } from "./httpTransport";
 import {
@@ -4907,6 +4909,72 @@ describe("local agent workspace transport", () => {
       message: "Local agent workspace tree response was invalid",
       status: 200,
     });
+  });
+});
+
+describe("workspace folder picker transport", () => {
+  it("reads capability and opens the chooser with browser CSRF authentication", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-workspace-folder-picker.v1",
+        available: true,
+        mode: "server_native_dialog",
+      }))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "local-workspace-folder-picker.v1",
+        status: "selected",
+        path: "D:\\example\\chosen-workspace",
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getWorkspaceFolderPickerCapability!()).resolves.toEqual({
+      contract_version: "local-workspace-folder-picker.v1",
+      available: true,
+      mode: "server_native_dialog",
+    });
+    await expect(transport.chooseWorkspaceFolder!()).resolves.toEqual({
+      contract_version: "local-workspace-folder-picker.v1",
+      status: "selected",
+      path: "D:\\example\\chosen-workspace",
+    });
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/auth/session",
+      "/v1/local-ui/workspace-folder-picker",
+      "/v1/local-ui/workspace-folder-picker",
+    ]);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "GET", cache: "no-store" });
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+    });
+    expect((fetchMock.mock.calls[2][1] as RequestInit).headers).toMatchObject({
+      "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+    });
+  });
+
+  it("rejects inconsistent, extra, and non-absolute picker responses", () => {
+    expect(() => parseWorkspaceFolderPickerCapability({
+      contract_version: "local-workspace-folder-picker.v1",
+      available: false,
+      mode: "server_native_dialog",
+    })).toThrow("Workspace folder picker capability response was invalid");
+    expect(() => parseWorkspaceFolderPick({
+      contract_version: "local-workspace-folder-picker.v1",
+      status: "selected",
+      path: "relative-folder",
+    })).toThrow("Workspace folder picker response was invalid");
+    expect(() => parseWorkspaceFolderPick({
+      contract_version: "local-workspace-folder-picker.v1",
+      status: "cancelled",
+      path: null,
+      detail: "EXAMPLE_PRIVATE_PATH_CANARY",
+    })).toThrow("Workspace folder picker response was invalid");
   });
 });
 

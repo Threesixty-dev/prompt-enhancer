@@ -253,6 +253,14 @@ path. Cancel and unavailable results are content-free. The local-agent service s
 the authoritative absolute-path, protected-root, drive-root, reparse-point,
 and workspace checks.
 
+The ordinary authenticated localhost Agent page also exposes **Browse** through
+a UI-only same-origin endpoint. It opens the same kind of Windows dialog inside
+the existing server process without PowerShell, a terminal or another helper.
+The endpoint rejects API-token and bearer clients; a selection only fills the
+new-session field and does not scan the folder, create a session, start a model
+or grant protected authority. Manual validated path entry remains available
+when the operating-system dialog is unavailable.
+
 **Open separate window** creates at most one same-process Agent chat child in
 the existing native GUI loop. Repeated requests focus that child; they do not
 start another listener, server, worker, command owner, model runtime, terminal,

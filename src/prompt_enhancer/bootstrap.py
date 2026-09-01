@@ -1466,6 +1466,7 @@ class LocalApplication:
         user_presence_confirmation=None,
         user_presence_confirmation_mode=None,
         desktop_owned_readiness_path=None,
+        workspace_folder_picker=None,
     ) -> FastAPI:
         """Construct the authenticated HTTP adapter without exposing its token."""
 
@@ -1479,6 +1480,9 @@ class LocalApplication:
         from .infrastructure.text_models.jobs import LocalTextModelEvaluationService
         from .application.resources import ResourceAvailability, ResourceKind
         from .infrastructure.resources import default_packaged_resource_resolver
+        from .application.workspace_folder_picker import (
+            create_default_workspace_folder_picker,
+        )
 
         token = load_or_create_api_token(self.settings.api_token_path)
         dashboard_resource = default_packaged_resource_resolver().resolve(
@@ -1635,6 +1639,8 @@ class LocalApplication:
             local_model_service,
             mcp_managed_runtime_service=mcp_managed_runtime_service,
         )
+        if workspace_folder_picker is None:
+            workspace_folder_picker = create_default_workspace_folder_picker()
         # Catalog ownership describes a process-bound controller.  On a new
         # composition, only sessions actually present in the boot-owned local
         # service may retain live authority; all other rows become uncertainty
@@ -1726,6 +1732,7 @@ class LocalApplication:
             model_judge_service=model_judge_service,
             prompt_check_service=prompt_check_service,
             local_agent_service=local_agent_service,
+            workspace_folder_picker=workspace_folder_picker,
             agent_hardening_service=agent_hardening_service,
             agent_mcp_connection_service=agent_mcp_connection_service,
             mcp_registry_catalog_service=mcp_registry_catalog_service,

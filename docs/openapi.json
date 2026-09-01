@@ -38427,6 +38427,72 @@
         "title": "WorkspaceFileTrashPreviewCommand",
         "type": "object"
       },
+      "WorkspaceFolderPick": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "local-workspace-folder-picker.v1",
+            "default": "local-workspace-folder-picker.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "status": {
+            "enum": [
+              "selected",
+              "cancelled",
+              "busy",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkspaceFolderPick",
+        "type": "object"
+      },
+      "WorkspaceFolderPickerCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "local-workspace-folder-picker.v1",
+            "default": "local-workspace-folder-picker.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "server_native_dialog",
+              "unavailable"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "available",
+          "mode"
+        ],
+        "title": "WorkspaceFolderPickerCapability",
+        "type": "object"
+      },
       "WorkspaceGitChange": {
         "additionalProperties": false,
         "properties": {
@@ -55644,6 +55710,118 @@
         "summary": "Index",
         "tags": [
           "local-sources"
+        ]
+      }
+    },
+    "/v1/local-ui/workspace-folder-picker": {
+      "get": {
+        "operationId": "capability_v1_local_ui_workspace_folder_picker_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceFolderPickerCapability"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Capability",
+        "tags": [
+          "local-ui"
+        ]
+      },
+      "post": {
+        "operationId": "choose_v1_local_ui_workspace_folder_picker_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceFolderPick"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Choose",
+        "tags": [
+          "local-ui"
         ]
       }
     },

@@ -2550,6 +2550,24 @@ export interface UserPresenceCapability {
   mode: "unavailable" | "native_bridge_bound_token";
 }
 
+export interface WorkspaceFolderPickerCapability {
+  contract_version: "local-workspace-folder-picker.v1";
+  available: boolean;
+  mode: "server_native_dialog" | "unavailable";
+}
+
+export type WorkspaceFolderPick =
+  | {
+      contract_version: "local-workspace-folder-picker.v1";
+      status: "selected";
+      path: string;
+    }
+  | {
+      contract_version: "local-workspace-folder-picker.v1";
+      status: "cancelled" | "busy" | "unavailable";
+      path: null;
+    };
+
 export interface PromptEnhancerTransport {
   /**
    * Whether this exact server/window composition can perform a native,
@@ -2558,6 +2576,14 @@ export interface PromptEnhancerTransport {
   getUserPresenceCapability?(
     signal?: AbortSignal,
   ): Promise<UserPresenceCapability>;
+  /** Whether this browser session can open the local OS folder chooser. */
+  getWorkspaceFolderPickerCapability?(
+    signal?: AbortSignal,
+  ): Promise<WorkspaceFolderPickerCapability>;
+  /** Open one user-driven OS folder chooser; this does not scan the selection. */
+  chooseWorkspaceFolder?(
+    signal?: AbortSignal,
+  ): Promise<WorkspaceFolderPick>;
   /**
    * Read the optional, default-off loopback development control-plane status.
    * This never carries the separate credential used by privileged data routes.

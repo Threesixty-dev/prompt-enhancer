@@ -121,6 +121,7 @@ type SessionComposerDraft = {
   attachments: AgentAttachment[];
 };
 type UserPresenceState = "checking" | "available" | "unavailable" | "error";
+type FolderPickerState = "checking" | "available" | "unavailable";
 type AgentConfirmationPrompt = {
   title: string;
   description: string;
@@ -187,7 +188,7 @@ function isExternalWriteTransactionProposal(event: AgentEvent | null | undefined
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
-> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getAgentChangeSet" | "getAgentChangeDiff" | "previewAgentChangeRestore" | "applyAgentChangeRestore" | "getAgentWorkspaceSearch" | "previewAgentWorkspaceTransaction" | "applyAgentWorkspaceTransaction" | "previewAgentWorkspaceCreate" | "applyAgentWorkspaceCreate" | "previewAgentWorkspaceDirectoryCreate" | "applyAgentWorkspaceDirectoryCreate" | "previewAgentWorkspaceDirectoryMove" | "applyAgentWorkspaceDirectoryMove" | "previewAgentWorkspaceMove" | "applyAgentWorkspaceMove" | "previewAgentWorkspaceFileTrash" | "applyAgentWorkspaceFileTrash" | "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "getLocalRuntime" | "switchLocalRuntime" | "stopLocalRuntime" | "getAgentSessionContext" | "checkPrompt" | "getUserPresenceCapability" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>
+> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getAgentChangeSet" | "getAgentChangeDiff" | "previewAgentChangeRestore" | "applyAgentChangeRestore" | "getAgentWorkspaceSearch" | "previewAgentWorkspaceTransaction" | "applyAgentWorkspaceTransaction" | "previewAgentWorkspaceCreate" | "applyAgentWorkspaceCreate" | "previewAgentWorkspaceDirectoryCreate" | "applyAgentWorkspaceDirectoryCreate" | "previewAgentWorkspaceDirectoryMove" | "applyAgentWorkspaceDirectoryMove" | "previewAgentWorkspaceMove" | "applyAgentWorkspaceMove" | "previewAgentWorkspaceFileTrash" | "applyAgentWorkspaceFileTrash" | "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "getLocalRuntime" | "switchLocalRuntime" | "stopLocalRuntime" | "getAgentSessionContext" | "checkPrompt" | "getUserPresenceCapability" | "getWorkspaceFolderPickerCapability" | "chooseWorkspaceFolder" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>
   & Partial<Pick<PromptEnhancerTransport, "getAgentOrchestration" | "getAgentHardening" | "listAgentMcpConnections" | "getAgentMcpClientSetup" | "listMcpRegistryCatalog" | "getMcpRegistryServerReview" | "listMcpManagedServers" | "getMcpManagedServer" | "getMcpManagedToolSnapshot" | "getMcpManagedHostStatus" | "getMcpManagedHostStartPreview" | "startMcpManagedHost" | "stopMcpManagedHost" | "getMcpManagedProjectRuntime" | "createMcpManagedServer" | "probeMcpManagedServer" | "getMcpManagedLifecyclePreview" | "getMcpManagedLocalConfigurationInspectionPreview" | "inspectMcpManagedLocalConfiguration" | "applyMcpManagedLifecycle" | "getMcpManagedLocalCleanupPreview" | "getMcpManagedLocalUpdatePreview" | "applyMcpManagedLocalUpdate" | "getMcpManagedLocalRollbackPreview" | "applyMcpManagedLocalRollback" | "getMcpManagedLocalRollbackCleanupPreview" | "cleanupMcpManagedLocalRollback" | "getMcpManagedLocalOperationRecoveryPreview" | "recoverMcpManagedLocalOperation" | "completeMcpManagedLocalCleanup" | "setMcpManagedProjectBinding" | "storeMcpManagedSecret" | "removeMcpManagedSecret" | "storeMcpManagedConfiguration" | "removeMcpManagedConfiguration" | "createAgentMcpConnection" | "rotateAgentMcpConnection" | "revokeAgentMcpConnection" | "releaseAgentControllerOwnership" | "beginAgentNativeAcceptance" | "listAgentProjects" | "pageAgentProjects" | "getAgentProject" | "createAgentProject" | "updateAgentProject" | "deleteAgentProject" | "listAgentCatalogSessions" | "pageAgentCatalogSessions" | "getAgentCatalogSession" | "updateAgentCatalogSession" | "deleteAgentCatalogSession" | "switchAgentSessionModel" | "getAgentPersistedEvents" | "forkAgentSession" | "resumeAgentSession" | "exportAgentHistory" | "revalidateAgentAuthority" | "listAgentArtifacts" | "pageAgentArtifacts" | "getAgentArtifact" | "exportAgentArtifact" | "updateAgentArtifact" | "removeAgentArtifact" | "previewAgentArtifactCapture" | "getAgentArtifactDocumentPreview" | "getAgentArtifactContent" | "captureAgentArtifact">>
   & Partial<Pick<PromptEnhancerTransport, "listAgentAttachments" | "stageAgentAttachment" | "deleteAgentAttachment" | "getAgentAttachmentContent">>
   & Partial<Pick<LocalRuntimeTransport, "getRuntimeHealth">>;
@@ -377,8 +378,14 @@ export function AgentPage({
   const [modelError, setModelError] = useState("");
   const [workspace, setWorkspace] = useState("");
   const [workspaceError, setWorkspaceError] = useState("");
-  const [folderPickerAvailable, setFolderPickerAvailable] = useState(
+  const [nativeFolderPickerAvailable, setNativeFolderPickerAvailable] = useState(
     hasNativeWorkspaceFolderPicker,
+  );
+  const [serverFolderPickerState, setServerFolderPickerState] = useState<FolderPickerState>(
+    transport.getWorkspaceFolderPickerCapability !== undefined
+      && transport.chooseWorkspaceFolder !== undefined
+      ? "checking"
+      : "unavailable",
   );
   const [folderPickerBusy, setFolderPickerBusy] = useState(false);
   const [folderPickerNotice, setFolderPickerNotice] = useState("");
@@ -919,17 +926,43 @@ export function AgentPage({
   }, [transport, userPresenceRetryNonce]);
 
   useEffect(() => {
+    const getCapability = transport.getWorkspaceFolderPickerCapability;
+    if (getCapability === undefined || transport.chooseWorkspaceFolder === undefined) {
+      setServerFolderPickerState("unavailable");
+      return;
+    }
+    const controller = new AbortController();
+    setServerFolderPickerState("checking");
+    getCapability(controller.signal)
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        const available = value.contract_version === "local-workspace-folder-picker.v1"
+          && value.available === true
+          && value.mode === "server_native_dialog";
+        setServerFolderPickerState(available ? "available" : "unavailable");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setServerFolderPickerState("unavailable");
+      });
+    return () => controller.abort();
+  }, [transport]);
+
+  useEffect(() => {
     const handleNativeBridgeReady = () => {
-      setFolderPickerAvailable(hasNativeWorkspaceFolderPicker());
+      setNativeFolderPickerAvailable(hasNativeWorkspaceFolderPicker());
       setUserPresenceRetryNonce((value) => value + 1);
     };
     window.addEventListener("pywebviewready", handleNativeBridgeReady);
     // Close the render/effect registration race without polling.
-    setFolderPickerAvailable(hasNativeWorkspaceFolderPicker());
+    setNativeFolderPickerAvailable(hasNativeWorkspaceFolderPicker());
     return () => window.removeEventListener("pywebviewready", handleNativeBridgeReady);
   }, []);
 
   const userPresenceAvailable = userPresenceState === "available";
+  const folderPickerAvailable = nativeFolderPickerAvailable
+    || serverFolderPickerState === "available";
+  const folderPickerChecking = !nativeFolderPickerAvailable
+    && serverFolderPickerState === "checking";
   const activeAgentProjectId = current?.settings.project_id
     ?? selectedCatalogSession?.project_id
     ?? selectedProjectId;
@@ -2443,18 +2476,47 @@ export function AgentPage({
     setWorkspaceError("");
     setFolderPickerNotice("");
     try {
-      const selected = await chooseNativeWorkspaceFolder();
+      let selected: { status: "selected"; path: string }
+        | { status: "cancelled" | "busy" | "unavailable"; path?: null };
+      if (nativeFolderPickerAvailable) {
+        try {
+          selected = await chooseNativeWorkspaceFolder();
+        } catch {
+          if (
+            serverFolderPickerState !== "available"
+            || transport.chooseWorkspaceFolder === undefined
+          ) throw new Error("folder_picker_unavailable");
+          setNativeFolderPickerAvailable(false);
+          selected = await transport.chooseWorkspaceFolder();
+        }
+      } else {
+        selected = await transport.chooseWorkspaceFolder!();
+      }
+      if (
+        selected.status === "unavailable"
+        && nativeFolderPickerAvailable
+        && serverFolderPickerState === "available"
+        && transport.chooseWorkspaceFolder !== undefined
+      ) {
+        setNativeFolderPickerAvailable(false);
+        selected = await transport.chooseWorkspaceFolder();
+      }
       if (selected.status === "selected") {
         setWorkspace(selected.path);
         setFolderPickerNotice("Workspace folder selected.");
       } else if (selected.status === "cancelled") {
         setFolderPickerNotice("Folder selection cancelled. The workspace path was not changed.");
+      } else if (selected.status === "busy") {
+        setFolderPickerNotice("Another folder chooser is already open. Finish or cancel it, then try again.");
       } else {
-        setFolderPickerAvailable(false);
-        setFolderPickerNotice("Native folder selection is unavailable here. Enter or paste an absolute path.");
+        if (nativeFolderPickerAvailable) setNativeFolderPickerAvailable(false);
+        else setServerFolderPickerState("unavailable");
+        setFolderPickerNotice("Folder selection is unavailable here. Enter or paste an absolute path.");
       }
     } catch {
-      setWorkspaceError("The native folder picker did not return a valid folder. Enter or paste an absolute path.");
+      if (nativeFolderPickerAvailable) setNativeFolderPickerAvailable(false);
+      else setServerFolderPickerState("unavailable");
+      setWorkspaceError("The folder picker did not return a valid folder. Enter or paste an absolute path.");
       workspaceInputRef.current?.focus();
     } finally {
       setFolderPickerBusy(false);
@@ -3061,24 +3123,26 @@ export function AgentPage({
                     type="text"
                     value={workspace}
                   />
-                  {folderPickerAvailable ? (
+                  {folderPickerAvailable || folderPickerChecking ? (
                     <button
                       className="button button--ghost"
-                      disabled={folderPickerBusy || creatingSession}
+                      disabled={folderPickerBusy || folderPickerChecking || creatingSession}
                       onClick={() => void browseForWorkspace()}
                       title="Choose a local workspace folder"
                       type="button"
                     >
-                      {folderPickerBusy ? "Choosing…" : "Browse…"}
+                      {folderPickerBusy ? "Choosing…" : folderPickerChecking ? "Checking…" : "Browse…"}
                     </button>
                   ) : (
-                    <span className="agent__workspace-path-mode">Paste path</span>
+                    <span className="agent__workspace-path-mode">Enter path</span>
                   )}
                 </div>
                 <p className="agent__note" id="agent-workspace-help">
                   {folderPickerAvailable
-                    ? "Choose a folder, or enter or paste its absolute path. No model is required, and the picker does not read files."
-                    : "No model is required. This browser cannot open the Windows folder chooser, so enter or paste an existing absolute path. Browse is available in the console-free Agent desktop app."}
+                    ? "Browse your PC, or enter its absolute path. Choosing only fills this field: no model or session is required, and no files are scanned yet."
+                    : folderPickerChecking
+                      ? "Checking whether this local app can open the Windows folder chooser. You can still enter an absolute path."
+                      : "No model is required. The Windows folder chooser is unavailable in this app composition, so enter or paste an existing absolute path."}
                 </p>
                 <p className="agent__note" id="agent-workspace-picker-status" role="status">
                   {folderPickerNotice}

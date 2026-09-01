@@ -2812,6 +2812,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-ui/workspace-folder-picker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Capability */
+        get: operations["capability_v1_local_ui_workspace_folder_picker_get"];
+        put?: never;
+        /** Choose */
+        post: operations["choose_v1_local_ui_workspace_folder_picker_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metric-contracts/v2/guidance-catalog": {
         parameters: {
             query?: never;
@@ -20541,6 +20559,38 @@ export interface components {
             /** Path */
             path: string;
         };
+        /** WorkspaceFolderPick */
+        WorkspaceFolderPick: {
+            /**
+             * Contract Version
+             * @default local-workspace-folder-picker.v1
+             * @constant
+             */
+            contract_version: "local-workspace-folder-picker.v1";
+            /** Path */
+            path?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "selected" | "cancelled" | "busy" | "unavailable";
+        };
+        /** WorkspaceFolderPickerCapability */
+        WorkspaceFolderPickerCapability: {
+            /** Available */
+            available: boolean;
+            /**
+             * Contract Version
+             * @default local-workspace-folder-picker.v1
+             * @constant
+             */
+            contract_version: "local-workspace-folder-picker.v1";
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "server_native_dialog" | "unavailable";
+        };
         /** WorkspaceGitChange */
         WorkspaceGitChange: {
             kind: components["schemas"]["WorkspaceGitChangeKind"];
@@ -27956,6 +28006,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngestionReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    capability_v1_local_ui_workspace_folder_picker_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceFolderPickerCapability"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    choose_v1_local_ui_workspace_folder_picker_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceFolderPick"];
                 };
             };
             /** @description Validation Error */
