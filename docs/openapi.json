@@ -7999,6 +7999,162 @@
         "title": "AppIssuedRequirementVerificationResult",
         "type": "object"
       },
+      "ApplicationUpdateReason": {
+        "enum": [
+          "release_feed_unconfigured",
+          "release_feed_unavailable",
+          "manifest_rejected",
+          "artifact_download_failed",
+          "artifact_verification_failed",
+          "staging_interrupted",
+          "staging_cleanup_unconfirmed"
+        ],
+        "title": "ApplicationUpdateReason",
+        "type": "string"
+      },
+      "ApplicationUpdateState": {
+        "description": "Owner-visible application update lifecycle without paths or URLs.",
+        "enum": [
+          "unconfigured",
+          "ready_to_check",
+          "checking",
+          "current",
+          "available",
+          "staging",
+          "staged",
+          "failed"
+        ],
+        "title": "ApplicationUpdateState",
+        "type": "string"
+      },
+      "ApplicationUpdateStatus": {
+        "additionalProperties": false,
+        "description": "Content-free snapshot rendered by the application shell.",
+        "properties": {
+          "artifact_size_bytes": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 4294967296.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Size Bytes"
+          },
+          "available_version": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Version"
+          },
+          "can_apply": {
+            "title": "Can Apply",
+            "type": "boolean"
+          },
+          "can_cancel": {
+            "title": "Can Cancel",
+            "type": "boolean"
+          },
+          "can_check": {
+            "title": "Can Check",
+            "type": "boolean"
+          },
+          "can_stage": {
+            "title": "Can Stage",
+            "type": "boolean"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/UpdateChannel"
+          },
+          "contains_private_data": {
+            "const": false,
+            "default": false,
+            "title": "Contains Private Data",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "application-update-status.v1",
+            "default": "application-update-status.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "downloaded_bytes": {
+            "anyOf": [
+              {
+                "maximum": 4294967296.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded Bytes"
+          },
+          "installed_version": {
+            "maxLength": 32,
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+            "title": "Installed Version",
+            "type": "string"
+          },
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Checked At"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApplicationUpdateReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ApplicationUpdateState"
+          },
+          "verification_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateRejection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "installed_version",
+          "channel",
+          "state",
+          "can_check",
+          "can_stage",
+          "can_cancel",
+          "can_apply"
+        ],
+        "title": "ApplicationUpdateStatus",
+        "type": "object"
+      },
       "ApplyMcpManagedLifecycle": {
         "additionalProperties": false,
         "properties": {
@@ -37133,6 +37289,34 @@
         "title": "UpdateAgentProject",
         "type": "object"
       },
+      "UpdateChannel": {
+        "enum": [
+          "stable",
+          "beta"
+        ],
+        "title": "UpdateChannel",
+        "type": "string"
+      },
+      "UpdateRejection": {
+        "enum": [
+          "bad_signature",
+          "channel_mismatch",
+          "current_version",
+          "downgrade",
+          "expired",
+          "invalid_encoding",
+          "invalid_schema",
+          "manifest_too_large",
+          "minimum_version_unsupported",
+          "not_yet_published",
+          "signature_too_large",
+          "unknown_key",
+          "replayed_release",
+          "release_identity_conflict"
+        ],
+        "title": "UpdateRejection",
+        "type": "string"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -47640,6 +47824,120 @@
         "summary": "Window",
         "tags": [
           "annotation"
+        ]
+      }
+    },
+    "/v1/application-updates/check": {
+      "post": {
+        "operationId": "check_v1_application_updates_check_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationUpdateStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check",
+        "tags": [
+          "application-updates"
+        ]
+      }
+    },
+    "/v1/application-updates/status": {
+      "get": {
+        "operationId": "status_v1_application_updates_status_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationUpdateStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "application-updates"
         ]
       }
     },

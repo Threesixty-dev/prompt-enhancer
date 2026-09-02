@@ -96,6 +96,9 @@ export type DownloadStatus = Schemas["DownloadStatus"];
 export type DownloadCommandRequest = Schemas["DownloadCommandRequest"];
 export type RemoteRepoFiles = Schemas["RemoteRepoFiles"];
 export type ScanFolderResult = Schemas["ScanFolderResult"];
+export type ApplicationUpdateState = Schemas["ApplicationUpdateState"];
+export type ApplicationUpdateReason = Schemas["ApplicationUpdateReason"];
+export type ApplicationUpdateStatus = Schemas["ApplicationUpdateStatus"];
 
 /** One turn sent to a local model's loopback endpoint (OpenAI chat shape). */
 export type LocalModelChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -2569,6 +2572,14 @@ export type WorkspaceFolderPick =
     };
 
 export interface PromptEnhancerTransport {
+  /** Content-free local snapshot. Reading it never performs update egress. */
+  getApplicationUpdateStatus?(
+    signal?: AbortSignal,
+  ): Promise<ApplicationUpdateStatus>;
+  /** Explicit UI-gesture advisory check; never downloads or installs bytes. */
+  checkApplicationUpdate?(
+    signal?: AbortSignal,
+  ): Promise<ApplicationUpdateStatus>;
   /**
    * Whether this exact server/window composition can perform a native,
    * non-self-issuable confirmation for protected local decisions.

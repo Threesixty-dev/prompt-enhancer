@@ -1096,7 +1096,9 @@ name = "prompt-enhancer"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "jsonschema" },
     { name = "mcp" },
     { name = "pydantic" },
@@ -1109,7 +1111,6 @@ desktop = [
     { name = "pywebview" },
 ]
 dev = [
-    { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "pytest" },
 ]
@@ -1127,8 +1128,9 @@ models = [
 requires-dist = [
     { name = "accelerate", marker = "extra == 'models'", specifier = ">=1.14,<2" },
     { name = "bitsandbytes", marker = "extra == 'models'", specifier = ">=0.50.1,<1" },
+    { name = "cryptography", specifier = ">=46,<51" },
     { name = "fastapi", specifier = ">=0.116.1,<1" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1,<1" },
+    { name = "httpx", specifier = ">=0.28.1,<1" },
     { name = "huggingface-hub", marker = "extra == 'dev'", specifier = ">=0.36.2,<1" },
     { name = "huggingface-hub", marker = "extra == 'models'", specifier = ">=0.36.2,<1" },
     { name = "jsonschema", specifier = ">=4.26,<5" },

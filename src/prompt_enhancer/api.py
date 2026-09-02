@@ -82,6 +82,11 @@ from .application.social.ports import SocialPrincipalResolver
 from .application.social.service import SocialService
 from .application.task_lifecycle import TaskLifecycleService
 from .application.workspace_folder_picker import LocalWorkspaceFolderPicker
+from .application.updates import (
+    ApplicationUpdateSurface,
+    UnconfiguredApplicationUpdateSurface,
+)
+from . import __version__
 from .interfaces.http import (
     create_agent_metric_evidence_router,
     create_control_plane_router,
@@ -99,6 +104,7 @@ from .interfaces.http import (
     create_model_ensemble_watch_router,
     create_analysis_job_router,
     create_automation_grant_router,
+    create_application_update_router,
     create_estimator_router,
     create_task_query_router,
     create_task_lifecycle_router,
@@ -498,6 +504,7 @@ def create_app(
     prompt_check_service=None,
     local_agent_service=None,
     workspace_folder_picker: LocalWorkspaceFolderPicker | None = None,
+    application_update_service: ApplicationUpdateSurface | None = None,
     agent_hardening_service=None,
     agent_mcp_connection_service=None,
     mcp_registry_catalog_service=None,
@@ -531,6 +538,11 @@ def create_app(
     """Build the local API without enabling CORS or any remote integrations."""
 
     resolved_settings = settings or AppSettings.from_env()
+    resolved_application_update_service = (
+        application_update_service
+        if application_update_service is not None
+        else UnconfiguredApplicationUpdateSurface(installed_version=__version__)
+    )
     if user_presence_confirmation_mode not in {None, "native_bridge_bound_token"}:
         raise ValueError("unsupported user-presence confirmation mode")
     if desktop_owned_readiness_path is not None and not is_desktop_owned_instance_path(
@@ -710,6 +722,7 @@ def create_app(
                 "/declared-task-profile",
                 "/agent/",
                 "/local-ui/workspace-folder-picker",
+                "/application-updates",
                 "/integrations/agent-mcp/",
                 "/integrations/mcp-store/",
                 "/diagnostics/agent-hardening",
@@ -1296,6 +1309,15 @@ def create_app(
             require_local_token,
             require_browser_interaction,
             workspace_folder_picker,
+        )
+    )
+    # Status is local and content-free. A check is separately restricted to an
+    # explicit same-origin browser gesture; the default surface has no fetcher.
+    app.include_router(
+        create_application_update_router(
+            require_local_token,
+            require_browser_interaction,
+            resolved_application_update_service,
         )
     )
     if local_agent_service is not None:

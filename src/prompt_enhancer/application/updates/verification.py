@@ -95,8 +95,10 @@ def verify_update_manifest(
     minimum = _version_tuple(manifest.minimum_supported_version)
     if installed < minimum:
         return _rejected(UpdateRejection.MINIMUM_VERSION_UNSUPPORTED)
-    if release <= installed:
-        return _rejected(UpdateRejection.DOWNGRADE_OR_CURRENT)
+    if release < installed:
+        return _rejected(UpdateRejection.DOWNGRADE)
+    if release == installed:
+        return _rejected(UpdateRejection.CURRENT_VERSION)
     return UpdateVerification(
         state=UpdateVerificationState.ACCEPTED,
         manifest=manifest,

@@ -1,8 +1,4 @@
-"""Auditable egress classification with no network implementation.
-
-Future paid/download/update classes are declarations only.  This module has no
-socket, URL-fetching, telemetry, or transport dependency.
-"""
+"""Auditable egress classification for every direct network boundary."""
 
 from __future__ import annotations
 
@@ -43,9 +39,13 @@ class EgressRegistration(StrictModel):
             raise ValueError("local registrations require the local-only state")
         if (
             self.egress_class is EgressClass.SIGNED_UPDATE_ADVISORY
-            and self.state is not FutureEgressState.DECLARED_UNIMPLEMENTED
+            and self.state
+            not in {
+                FutureEgressState.IMPLEMENTED_UNCOMPOSED,
+                FutureEgressState.ACTIVE_EXPLICIT_APPROVAL,
+            }
         ):
-            raise ValueError("signed update transport is unavailable")
+            raise ValueError("signed update transport state is invalid")
         return self
 
 
@@ -75,6 +75,10 @@ EGRESS_REGISTRY: tuple[EgressRegistration, ...] = (
     # redirects, tool calls, unbounded responses, and persistent hosts are
     # refused by the guarded-host boundary.
     EgressRegistration(module="prompt_enhancer.infrastructure.mcp_guarded_host", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.ACTIVE_EXPLICIT_APPROVAL, reason_code="confirmed_mcp_compatibility_probe"),
+    # This no-proxy/no-redirect HTTPS source is intentionally uncomposed until
+    # an owner-controlled release origin and Ed25519 public key are packaged.
+    # Even after composition, only an authenticated same-origin click calls it.
+    EgressRegistration(module="prompt_enhancer.infrastructure.updates.https_manifest_source", egress_class=EgressClass.SIGNED_UPDATE_ADVISORY, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="signed_release_manifest_uncomposed"),
     EgressRegistration(module="prompt_enhancer.infrastructure.estimator_runners.codex", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="bounded_child_cli_runner_uncomposed"),
     # Shared team folders (ADR 0018): the peer client dials exactly the URL the
     # person typed when joining a teammate's folder; the share action on the
@@ -83,7 +87,7 @@ EGRESS_REGISTRY: tuple[EgressRegistration, ...] = (
 )
 
 FUTURE_EGRESS_STATES: dict[EgressClass, FutureEgressState] = {
-    EgressClass.SIGNED_UPDATE_ADVISORY: FutureEgressState.DECLARED_UNIMPLEMENTED,
+    EgressClass.SIGNED_UPDATE_ADVISORY: FutureEgressState.IMPLEMENTED_UNCOMPOSED,
     EgressClass.APPROVED_MODEL_DOWNLOAD: FutureEgressState.ACTIVE_EXPLICIT_APPROVAL,
     EgressClass.APPROVED_PROVIDER_REQUEST: FutureEgressState.IMPLEMENTED_UNCOMPOSED,
 }

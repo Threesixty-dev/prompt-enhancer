@@ -31,6 +31,7 @@ import { EmptyState } from "../shared/ui/EmptyState";
 import { Dialog } from "../shared/ui/Dialog";
 import { retryableLazy as lazy, RouteLoadAttempt } from "../shared/ui/retryableLazy";
 import { routeMetadata } from "./appRouteManifest";
+import { ApplicationUpdateControl } from "./ApplicationUpdateControl";
 
 const AnalysisJobCentreScreen = lazy(() =>
   import("../features/analysis-job-centre").then((module) => ({
@@ -781,6 +782,7 @@ export function App({
         />
 
         <div className="sidebar__footer">
+          <ApplicationUpdateControl transport={transport} variant="sidebar" />
           <div className="privacy-status">
             <span className="privacy-status__icon"><Icon name="lock" /></span>
             <div>
@@ -987,6 +989,10 @@ export function App({
           sections={navigationSections}
           variant="drawer"
         />
+        <div className="mobile-navigation__footer">
+          <ApplicationUpdateControl transport={transport} variant="drawer" />
+          <p>Private local status · no automatic update traffic</p>
+        </div>
       </Dialog>
     </div>
   );

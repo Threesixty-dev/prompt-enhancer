@@ -15,6 +15,7 @@ class ResourceKind(StrEnum):
     ACCELERATOR_PROBE = "accelerator_probe"
     THIRD_PARTY_NOTICES = "third_party_notices"
     SOFTWARE_BILL_OF_MATERIALS = "software_bill_of_materials"
+    APPLICATION_UPDATE_TRUST = "application_update_trust"
 
 
 class ResourceShape(StrEnum):

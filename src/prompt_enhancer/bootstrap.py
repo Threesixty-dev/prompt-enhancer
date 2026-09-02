@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from . import __version__
 from .config import AppSettings, prepare_app_home
 from .database import Database
 from .ingestion import IngestionService
@@ -1480,6 +1481,9 @@ class LocalApplication:
         from .infrastructure.text_models.jobs import LocalTextModelEvaluationService
         from .application.resources import ResourceAvailability, ResourceKind
         from .infrastructure.resources import default_packaged_resource_resolver
+        from .infrastructure.updates import (
+            compose_packaged_application_update_surface,
+        )
         from .application.workspace_folder_picker import (
             create_default_workspace_folder_picker,
         )
@@ -1487,6 +1491,10 @@ class LocalApplication:
         token = load_or_create_api_token(self.settings.api_token_path)
         dashboard_resource = default_packaged_resource_resolver().resolve(
             ResourceKind.DASHBOARD_STATIC
+        )
+        application_update_service = compose_packaged_application_update_surface(
+            resolver=default_packaged_resource_resolver(),
+            installed_version=__version__,
         )
         static_directory = (
             dashboard_resource.path
@@ -1733,6 +1741,7 @@ class LocalApplication:
             prompt_check_service=prompt_check_service,
             local_agent_service=local_agent_service,
             workspace_folder_picker=workspace_folder_picker,
+            application_update_service=application_update_service,
             agent_hardening_service=agent_hardening_service,
             agent_mcp_connection_service=agent_mcp_connection_service,
             mcp_registry_catalog_service=mcp_registry_catalog_service,

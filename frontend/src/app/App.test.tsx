@@ -148,6 +148,50 @@ describe("App discovery navigation", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps the content-free software update action in the desktop sidebar", async () => {
+    const transport = createSyntheticTransport();
+    const status = {
+      contract_version: "application-update-status.v1" as const,
+      contains_private_data: false as const,
+      installed_version: "1.2.3",
+      channel: "stable" as const,
+      state: "current" as const,
+      available_version: null,
+      artifact_size_bytes: null,
+      downloaded_bytes: null,
+      last_checked_at: "2040-01-02T03:04:05Z",
+      reason_code: null,
+      verification_code: null,
+      can_check: true,
+      can_stage: false,
+      can_cancel: false,
+      can_apply: false,
+    };
+    transport.getApplicationUpdateStatus = vi.fn(async () => status);
+    transport.checkApplicationUpdate = vi.fn(async () => status);
+    render(<App runtime={syntheticRuntime(transport)} platform={createMemoryPlatform()} />);
+
+    const sidebar = screen.getByRole("complementary", { name: "Application" });
+    const button = await within(sidebar).findByRole("button", { name: /software is current/i });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(transport.checkApplicationUpdate).toHaveBeenCalledOnce());
+    expect(within(sidebar).getByRole("region", { name: "Software updates" })).toHaveAttribute(
+      "data-update-state",
+      "current",
+    );
+  });
+
+  it("includes the same update status in compact navigation", async () => {
+    render(<App runtime={syntheticRuntime()} platform={createMemoryPlatform()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Navigate Prompt Enhancer" });
+    const update = within(dialog).getByRole("region", { name: "Software updates" });
+    expect(await within(update).findByRole("button", { name: /updates not connected/i })).toBeDisabled();
+    expect(within(dialog).getByText(/no automatic update traffic/i)).toBeVisible();
+  });
+
   it("gives the Agent workbench a focused shell at medium desktop widths", () => {
     const previousMatchMedia = window.matchMedia;
     const removeEventListener = vi.fn();

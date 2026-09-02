@@ -1,5 +1,6 @@
 import type {
   AnalysisRun,
+  ApplicationUpdateStatus,
   CandidateListItem,
   CandidateStatusFilter,
   ContentFreeListPage,
@@ -66,6 +67,26 @@ function syntheticPage<T>(
 
 function safeId(sequence: number): string {
   return sequence.toString(16).padStart(64, "0");
+}
+
+function syntheticApplicationUpdateStatus(): ApplicationUpdateStatus {
+  return {
+    contract_version: "application-update-status.v1",
+    contains_private_data: false,
+    installed_version: "0.1.0",
+    channel: "stable",
+    state: "unconfigured",
+    available_version: null,
+    artifact_size_bytes: null,
+    downloaded_bytes: null,
+    last_checked_at: null,
+    reason_code: "release_feed_unconfigured",
+    verification_code: null,
+    can_check: false,
+    can_stage: false,
+    can_cancel: false,
+    can_apply: false,
+  };
 }
 
 function lifecyclePage(
@@ -444,6 +465,12 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
 
   return {
     runtimeKind: "synthetic_fixture",
+    async getApplicationUpdateStatus() {
+      return copy(syntheticApplicationUpdateStatus());
+    },
+    async checkApplicationUpdate() {
+      return copy(syntheticApplicationUpdateStatus());
+    },
     async getUserPresenceCapability() {
       return {
         contract_version: "native-user-presence-capability-v1",

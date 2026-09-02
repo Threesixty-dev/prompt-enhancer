@@ -41,6 +41,10 @@ PACKAGED_RESOURCE_LAYOUT: dict[ResourceKind, ResourceLayoutEntry] = {
     ResourceKind.SOFTWARE_BILL_OF_MATERIALS: ResourceLayoutEntry(
         ("_resources", "public", "sbom.json"), ResourceShape.FILE
     ),
+    ResourceKind.APPLICATION_UPDATE_TRUST: ResourceLayoutEntry(
+        ("_resources", "public", "application-update-trust-v1.json"),
+        ResourceShape.FILE,
+    ),
 }
 
 

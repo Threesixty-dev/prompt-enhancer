@@ -605,7 +605,8 @@ def test_update_bounds_and_schema_reject_before_signature() -> None:
         ({"expires_at": "2029-12-31T00:00:00+00:00"}, "1.0.0", UpdateChannel.STABLE, UpdateRejection.EXPIRED),
         ({"channel": "beta"}, "1.0.0", UpdateChannel.STABLE, UpdateRejection.CHANNEL_MISMATCH),
         ({"minimum_supported_version": "1.1.0"}, "1.0.0", UpdateChannel.STABLE, UpdateRejection.MINIMUM_VERSION_UNSUPPORTED),
-        ({"release_version": "1.0.0"}, "1.0.0", UpdateChannel.STABLE, UpdateRejection.DOWNGRADE_OR_CURRENT),
+        ({"release_version": "1.0.0"}, "1.0.0", UpdateChannel.STABLE, UpdateRejection.CURRENT_VERSION),
+        ({"release_version": "0.9.0"}, "1.0.0", UpdateChannel.STABLE, UpdateRejection.DOWNGRADE),
     ],
 )
 def test_update_semantic_rejections_follow_valid_signature(
@@ -812,7 +813,7 @@ def test_exact_egress_registry_distinguishes_existing_and_unimplemented_capabili
         EgressClass.APPROVED_PROVIDER_REQUEST,
     }
     assert FUTURE_EGRESS_STATES == {
-        EgressClass.SIGNED_UPDATE_ADVISORY: FutureEgressState.DECLARED_UNIMPLEMENTED,
+        EgressClass.SIGNED_UPDATE_ADVISORY: FutureEgressState.IMPLEMENTED_UNCOMPOSED,
         EgressClass.APPROVED_MODEL_DOWNLOAD: FutureEgressState.ACTIVE_EXPLICIT_APPROVAL,
         EgressClass.APPROVED_PROVIDER_REQUEST: FutureEgressState.IMPLEMENTED_UNCOMPOSED,
     }
@@ -823,10 +824,9 @@ def test_exact_egress_registry_distinguishes_existing_and_unimplemented_capabili
     assert registrations[
         "prompt_enhancer.infrastructure.estimator_runners.codex"
     ].state is FutureEgressState.IMPLEMENTED_UNCOMPOSED
-    assert all(
-        entry.egress_class is not EgressClass.SIGNED_UPDATE_ADVISORY
-        for entry in EGRESS_REGISTRY
-    )
+    assert registrations[
+        "prompt_enhancer.infrastructure.updates.https_manifest_source"
+    ].state is FutureEgressState.IMPLEMENTED_UNCOMPOSED
 
 
 def test_every_network_capable_source_module_is_egress_classified() -> None:
@@ -848,16 +848,17 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
                     "prompt_enhancer."
                     + source_path.relative_to(_SOURCE_ROOT).with_suffix("").as_posix().replace("/", ".")
                 )
-    # Exactly seven modules may touch network primitives directly. Four are
+    # Exactly eight modules may touch network primitives directly. Four are
     # owned-loopback services: the desktop overlay (probe + open), the local
     # model runtime manager (free-port bind, health, chat proxy to its child),
     # the Claude Code prompt-check hook (posts to this app's loopback API), and
     # the no-proxy/no-redirect local Agent controller bridge.
     # Three are explicit external requests: the shared-folder client (ADR 0018)
     # dials exactly the URL the person typed when joining a teammate's folder;
-    # MCP Store discovery uses the documented Official Registry; and a guarded
+    # MCP Store discovery uses the documented Official Registry; a guarded
     # compatibility check dials only the exact reviewed HTTPS origin after
-    # native confirmation.
+    # native confirmation; and the signed-update source is present but remains
+    # uncomposed until owner-controlled release identity exists.
     allowed_loopback = {
         "prompt_enhancer.desktop_overlay",
         "prompt_enhancer.application.local_models",
@@ -868,6 +869,9 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
         "prompt_enhancer.application.shared_folders",
         "prompt_enhancer.infrastructure.mcp_registry",
         "prompt_enhancer.infrastructure.mcp_guarded_host",
+    }
+    allowed_uncomposed = {
+        "prompt_enhancer.infrastructure.updates.https_manifest_source",
     }
     registered_loopback = {
         entry.module
@@ -883,8 +887,19 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
         and entry.egress_class is EgressClass.APPROVED_PROVIDER_REQUEST
         and entry.state is FutureEgressState.ACTIVE_EXPLICIT_APPROVAL
     }
+    registered_uncomposed = {
+        entry.module
+        for entry in EGRESS_REGISTRY
+        if entry.module in allowed_uncomposed
+        and entry.egress_class is EgressClass.SIGNED_UPDATE_ADVISORY
+        and entry.state is FutureEgressState.IMPLEMENTED_UNCOMPOSED
+    }
 
-    assert capable == registered_loopback | registered_approved == allowed_loopback | allowed_approved
+    assert (
+        capable
+        == registered_loopback | registered_approved | registered_uncomposed
+        == allowed_loopback | allowed_approved | allowed_uncomposed
+    )
 
 
 def test_suite_guard_fails_before_non_loopback_connection() -> None:

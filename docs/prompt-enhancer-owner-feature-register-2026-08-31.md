@@ -1,6 +1,6 @@
 # Prompt Enhancer owner feature acceptance register
 
-Status: active release contract
+Status: active release contract; implementation paused by owner after Release-01b.1a
 Established: 2026-08-31
 Parent goal: [Prompt Enhancer finish goal](prompt-enhancer-finish-goal-2026-08-29.md)
 
@@ -31,7 +31,7 @@ No status means “probably works.” Unknown evidence remains pending.
 
 | ID | Required owner-visible behavior | Acceptance boundary | Owner checkpoint | Current state |
 | --- | --- | --- | --- | --- |
-| APP-01 | Starting Prompt Enhancer opens one application instance and exactly one loopback listener. | Repeated launch, reload, shutdown and listener-collision tests; no recursive window creation. | Release-01a/01b | Automated through Release-01a.3: hidden startup and listener-collision proof is green; packaged install/update proof remains pending |
+| APP-01 | Starting Prompt Enhancer opens one application instance and exactly one loopback listener. | Repeated launch, reload, shutdown and listener-collision tests; no recursive window creation. | Release-01a/01b | Automated through Release-01a.3; Release-01b.1a adds a network-silent update status/check surface, while packaged install/update/relaunch proof remains pending |
 | APP-02 | Model, command, MCP and helper processes never flash terminal windows. | Hidden-process integration tests plus a real Windows process/window census. | Store-07c, Acceptance-01, Release-01b | Automated Release-01a.3 source-policy, hidden-owned-helper and live server-tree proof is green; packaged owner review remains pending |
 | APP-03 | Shutdown stops every owned listener, model, command and MCP descendant or reports cleanup uncertainty truthfully. | Normal, crash, timeout and forced-stop census; zero silently orphaned owned processes. | Store-07c, Release-01a | Automated Release-01a.3 proof is complete for every owned runtime/helper path; packaged updater/relaunch proof remains pending |
 | APP-04 | Reload restores durable state without pretending interrupted operations completed. | Supported-schema migrations and restart reconciliation for projects, chats, downloads, artifacts and MCP operations. | Release-01a | Automated complete through Release-01a.2b: exact migrations plus download, artifact, MCP-call/package and controller restart reconciliation are green; owner continuity review queued |
@@ -160,9 +160,10 @@ The remaining dependency-ordered trajectory is:
    model/context/media/send controls live inside the focused composer, workspace
    chats open model-neutral, and every owned process path now has bounded,
    exact cleanup evidence; owner-native review remains queued.
-8. **Release-01b.1–01b.3 — next:** implement the signed, versioned update
-   channel and sidebar state, then reviewed apply/relaunch/rollback and final
-   packaged Windows parity.
+8. **Release-01b.1a — discovery foundation complete; paused:** the signed,
+   versioned manifest check and sidebar state are implemented. Resume with
+   artifact staging, then reviewed apply/relaunch/rollback and final packaged
+   Windows parity.
 
 Completed checkpoints remain regression obligations throughout this sequence.
 A failing current test reopens the owning behavior; it is never dismissed merely

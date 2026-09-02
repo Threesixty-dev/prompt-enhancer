@@ -1318,6 +1318,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/application-updates/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check */
+        post: operations["check_v1_application_updates_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/application-updates/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status */
+        get: operations["status_v1_application_updates_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/automation-grants": {
         parameters: {
             query?: never;
@@ -8050,6 +8084,57 @@ export interface components {
             result_fingerprint: string;
             /** Result Id */
             result_id: string;
+        };
+        /**
+         * ApplicationUpdateReason
+         * @enum {string}
+         */
+        ApplicationUpdateReason: "release_feed_unconfigured" | "release_feed_unavailable" | "manifest_rejected" | "artifact_download_failed" | "artifact_verification_failed" | "staging_interrupted" | "staging_cleanup_unconfirmed";
+        /**
+         * ApplicationUpdateState
+         * @description Owner-visible application update lifecycle without paths or URLs.
+         * @enum {string}
+         */
+        ApplicationUpdateState: "unconfigured" | "ready_to_check" | "checking" | "current" | "available" | "staging" | "staged" | "failed";
+        /**
+         * ApplicationUpdateStatus
+         * @description Content-free snapshot rendered by the application shell.
+         */
+        ApplicationUpdateStatus: {
+            /** Artifact Size Bytes */
+            artifact_size_bytes?: number | null;
+            /** Available Version */
+            available_version?: string | null;
+            /** Can Apply */
+            can_apply: boolean;
+            /** Can Cancel */
+            can_cancel: boolean;
+            /** Can Check */
+            can_check: boolean;
+            /** Can Stage */
+            can_stage: boolean;
+            channel: components["schemas"]["UpdateChannel"];
+            /**
+             * Contains Private Data
+             * @default false
+             * @constant
+             */
+            contains_private_data: false;
+            /**
+             * Contract Version
+             * @default application-update-status.v1
+             * @constant
+             */
+            contract_version: "application-update-status.v1";
+            /** Downloaded Bytes */
+            downloaded_bytes?: number | null;
+            /** Installed Version */
+            installed_version: string;
+            /** Last Checked At */
+            last_checked_at?: string | null;
+            reason_code?: components["schemas"]["ApplicationUpdateReason"] | null;
+            state: components["schemas"]["ApplicationUpdateState"];
+            verification_code?: components["schemas"]["UpdateRejection"] | null;
         };
         /** ApplyMcpManagedLifecycle */
         ApplyMcpManagedLifecycle: {
@@ -19982,6 +20067,16 @@ export interface components {
             /** Pinned */
             pinned?: boolean | null;
         };
+        /**
+         * UpdateChannel
+         * @enum {string}
+         */
+        UpdateChannel: "stable" | "beta";
+        /**
+         * UpdateRejection
+         * @enum {string}
+         */
+        UpdateRejection: "bad_signature" | "channel_mismatch" | "current_version" | "downgrade" | "expired" | "invalid_encoding" | "invalid_schema" | "manifest_too_large" | "minimum_version_unsupported" | "not_yet_published" | "signature_too_large" | "unknown_key" | "replayed_release" | "release_identity_conflict";
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -24257,6 +24352,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkWindow"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_v1_application_updates_check_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationUpdateStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    status_v1_application_updates_status_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationUpdateStatus"];
                 };
             };
             /** @description Validation Error */

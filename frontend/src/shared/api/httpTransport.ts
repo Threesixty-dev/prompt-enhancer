@@ -316,6 +316,10 @@ import { parseControlPlaneReadiness } from "./controlPlaneReadiness";
 import { parseCandidateDecisionsResponse } from "./taskDecisionContract";
 import { hasNativeUserPresenceBridge } from "../platform/nativeDesktopBridge";
 import {
+  ApplicationUpdatePayloadError,
+  parseApplicationUpdateStatus,
+} from "./applicationUpdateContract";
+import {
   TaskLifecyclePayloadError,
   parseTaskLifecycleListResponse,
   parseTaskLifecycleMutationResponse,
@@ -3719,6 +3723,40 @@ export function createHttpTransport(options: {
 
   return {
     runtimeKind: "local_loopback",
+    async getApplicationUpdateStatus(signal) {
+      const value = await request<unknown>(
+        "/v1/application-updates/status",
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseApplicationUpdateStatus(value);
+      } catch (error) {
+        if (error instanceof ApplicationUpdatePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async checkApplicationUpdate(signal) {
+      const value = await request<unknown>(
+        "/v1/application-updates/check",
+        { method: "POST" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseApplicationUpdateStatus(value);
+      } catch (error) {
+        if (error instanceof ApplicationUpdatePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
     async getUserPresenceCapability(signal) {
       await ensureBrowserSession(signal);
       const serverCapabilityAvailable = sessionAuth?.userPresenceAvailable === true

@@ -4912,6 +4912,75 @@ describe("local agent workspace transport", () => {
   });
 });
 
+describe("application update transport", () => {
+  const currentStatus = {
+    contract_version: "application-update-status.v1",
+    contains_private_data: false,
+    installed_version: "1.2.3",
+    channel: "stable",
+    state: "current",
+    available_version: null,
+    artifact_size_bytes: null,
+    downloaded_bytes: null,
+    last_checked_at: "2040-01-02T03:04:05Z",
+    reason_code: null,
+    verification_code: null,
+    can_check: true,
+    can_stage: false,
+    can_cancel: false,
+    can_apply: false,
+  } as const;
+
+  it("reads local status and checks only through browser CSRF authentication", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(currentStatus))
+      .mockResolvedValueOnce(privateJsonResponse(currentStatus));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getApplicationUpdateStatus!()).resolves.toEqual(currentStatus);
+    await expect(transport.checkApplicationUpdate!()).resolves.toEqual(currentStatus);
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/auth/session",
+      "/v1/application-updates/status",
+      "/v1/application-updates/check",
+    ]);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "GET", cache: "no-store" });
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+    });
+    expect((fetchMock.mock.calls[2][1] as RequestInit).headers).toMatchObject({
+      "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+    });
+  });
+
+  it("rejects malformed update status without retaining unknown fields", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        ...currentStatus,
+        source_url: "EXAMPLE_PRIVATE_UPDATE_CANARY",
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const error = await transport.getApplicationUpdateStatus!().catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      message: "Application update status response was invalid",
+      status: 200,
+    });
+    expect(String(error)).not.toContain("EXAMPLE_PRIVATE_UPDATE_CANARY");
+  });
+});
+
 describe("workspace folder picker transport", () => {
   it("reads capability and opens the chooser with browser CSRF authentication", async () => {
     const fetchMock = vi.fn()

@@ -9,7 +9,9 @@ description = "Local-first, privacy-sensitive analytics for coding-agent workflo
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "cryptography>=46,<51",
   "fastapi>=0.116.1,<1",
+  "httpx>=0.28.1,<1",
   # MIT-licensed official MCP SDK. Keep the protocol/runtime revision exact;
   # Store host behavior is contract-tested against this release.
   "mcp==2.1.1",
@@ -23,7 +25,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "huggingface-hub>=0.36.2,<1",
-  "httpx>=0.28.1,<1",
   "pytest>=8.4.1,<9",
 ]
 models = [
