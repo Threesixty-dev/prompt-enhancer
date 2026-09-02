@@ -13,6 +13,10 @@ from threading import Event, Lock, Thread
 import time
 from typing import BinaryIO, Callable
 
+from .....application.owned_process import (
+    OwnedProcess,
+    start_owned_process,
+)
 from .....application.runtime_cancellation import (
     RuntimeCooperativeStop,
     raise_if_runtime_cancelled,
@@ -80,6 +84,7 @@ def codex_app_server_argv(
 
 
 CODEX_APP_SERVER_ARGV = codex_app_server_argv()
+MAX_CODEX_APP_SERVER_PROCESSES = 16
 REQUEST_METHOD_ALLOWLIST = frozenset({"initialize", "thread/list", "thread/read"})
 NOTIFICATION_METHOD_ALLOWLIST = frozenset({"initialized"})
 
@@ -89,6 +94,20 @@ class ThreadReadPolicy(StrEnum):
     SUMMARY_ONLY = "summary_only"
     OPERATIONAL = "operational"
     TEXT_ANALYSIS = "text_analysis"
+
+
+def start_codex_app_server_process() -> OwnedProcess:
+    """Start the documented provider helper under exact tree ownership."""
+
+    return start_owned_process(
+        CODEX_APP_SERVER_ARGV,
+        cwd=None,
+        env=dict(os.environ),
+        pipe_stdin=True,
+        capture_stdout=True,
+        capture_stderr=False,
+        maximum_active_processes=MAX_CODEX_APP_SERVER_PROCESSES,
+    )
 
 
 class StdioJsonRpcTransport:
@@ -107,7 +126,7 @@ class StdioJsonRpcTransport:
             if thread_read_policy is ThreadReadPolicy.TEXT_ANALYSIS
             else self._limits.max_json_line_bytes
         )
-        self._process: subprocess.Popen[bytes] | None = None
+        self._process: OwnedProcess | None = None
         # A text response can be materially larger than metadata.  One queued
         # frame is sufficient for this sequential transport and prevents four
         # maximum-sized provider frames from accumulating in memory.
@@ -125,20 +144,19 @@ class StdioJsonRpcTransport:
             raise CodexTransportError("Codex App Server transport is closed")
         if self._process is not None:
             return
-        creationflags = codex_app_server_creation_flags()
         try:
-            process = subprocess.Popen(
-                CODEX_APP_SERVER_ARGV,
-                shell=False,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                creationflags=creationflags,
-            )
+            process = start_codex_app_server_process()
         except (OSError, ValueError) as _error:
             raise CodexTransportError("Codex App Server is unavailable") from None
         if process.stdin is None or process.stdout is None:
-            process.kill()
+            try:
+                process.kill()
+            except Exception:
+                pass
+            try:
+                process.close()
+            except Exception:
+                pass
             raise CodexTransportError("Codex App Server stdio is unavailable")
         self._process = process
         self._reader = Thread(
@@ -335,29 +353,48 @@ class StdioJsonRpcTransport:
     def close(self) -> None:
         process = self._process
         self._process = None
+        cleanup_confirmed = True
         if process is not None:
             if process.stdin is not None:
                 try:
                     process.stdin.close()
                 except (OSError, ValueError):
                     pass
+            root_exit_observed = False
             try:
                 process.wait(timeout=self._limits.shutdown_timeout_seconds)
+                root_exit_observed = True
             except (OSError, subprocess.TimeoutExpired):
                 try:
                     process.terminate()
                     process.wait(timeout=self._limits.shutdown_timeout_seconds)
+                    root_exit_observed = True
                 except (OSError, subprocess.TimeoutExpired):
                     try:
                         process.kill()
                         process.wait(timeout=self._limits.shutdown_timeout_seconds)
+                        root_exit_observed = True
                     except (OSError, subprocess.TimeoutExpired):
-                        pass
+                        cleanup_confirmed = False
+            tree_exited = getattr(process, "tree_exited", None)
+            if callable(tree_exited):
+                try:
+                    cleanup_confirmed = bool(tree_exited()) and cleanup_confirmed
+                except Exception:
+                    cleanup_confirmed = False
+            else:
+                cleanup_confirmed = root_exit_observed and cleanup_confirmed
             if process.stdout is not None:
                 try:
                     process.stdout.close()
                 except (OSError, ValueError):
-                    pass
+                    cleanup_confirmed = False
+            close = getattr(process, "close", None)
+            if callable(close):
+                try:
+                    cleanup_confirmed = bool(close(close_streams=False)) and cleanup_confirmed
+                except Exception:
+                    cleanup_confirmed = False
 
         self._reader_stop.set()
         while True:
@@ -374,6 +411,11 @@ class StdioJsonRpcTransport:
         self._reader = None
         if reader is not None:
             reader.join(timeout=self._limits.shutdown_timeout_seconds)
+            cleanup_confirmed = not reader.is_alive() and cleanup_confirmed
+        if not cleanup_confirmed:
+            raise CodexTransportError(
+                "Codex App Server cleanup could not be confirmed"
+            ) from None
 
     def __enter__(self) -> StdioJsonRpcTransport:
         return self

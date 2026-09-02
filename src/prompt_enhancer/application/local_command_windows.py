@@ -170,6 +170,8 @@ class WindowsCommandJob:
         env: dict[str, str],
         pipe_stdin: bool = False,
         capture_output: bool = True,
+        capture_stdout: bool | None = None,
+        capture_stderr: bool | None = None,
         maximum_active_processes: int | None = None,
     ) -> None:
         import msvcrt
@@ -178,6 +180,7 @@ class WindowsCommandJob:
         self.stdout: BinaryIO | None = None
         self.stderr: BinaryIO | None = None
         self.pid = 0
+        self._returncode: int | None = None
         self._process = None
         self._job = None
         self._api = api = _kernel()
@@ -205,18 +208,27 @@ class WindowsCommandJob:
                 limits.BasicLimitInformation.ActiveProcessLimit = maximum_active_processes
             _require(api.SetInformationJobObject(self._job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
 
-            pipes: list[tuple[int, int]] = []
-            if capture_output:
-                for _ in range(2):
+            stdout_captured = capture_output if capture_stdout is None else capture_stdout
+            stderr_captured = capture_output if capture_stderr is None else capture_stderr
+            if not isinstance(stdout_captured, bool) or not isinstance(stderr_captured, bool):
+                raise ValueError("command_process_capture_invalid")
+
+            output_readers: list[int | None] = []
+            output_fds: list[int] = []
+            for captured in (stdout_captured, stderr_captured):
+                if captured:
                     reader, writer = os.pipe()
                     descriptors.extend((reader, writer))
-                    pipes.append((reader, writer))
-                output_fds = (pipes[0][1], pipes[1][1])
-            else:
-                output_fd = os.open(os.devnull, os.O_WRONLY | getattr(os, "O_BINARY", 0))
-                error_fd = os.open(os.devnull, os.O_WRONLY | getattr(os, "O_BINARY", 0))
-                descriptors.extend((output_fd, error_fd))
-                output_fds = (output_fd, error_fd)
+                    output_readers.append(reader)
+                    output_fds.append(writer)
+                else:
+                    writer = os.open(
+                        os.devnull,
+                        os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                    )
+                    descriptors.append(writer)
+                    output_readers.append(None)
+                    output_fds.append(writer)
             if pipe_stdin:
                 input_fd, input_writer = os.pipe()
                 descriptors.extend((input_fd, input_writer))
@@ -252,11 +264,12 @@ class WindowsCommandJob:
             environment = ctypes.create_unicode_buffer(
                 "\0".join(f"{key}={value}" for key, value in sorted(env.items(), key=lambda item: item[0].upper())) + "\0\0"
             )
-            if capture_output:
-                self.stdout = os.fdopen(pipes[0][0], "rb", buffering=0)
-                descriptors.remove(pipes[0][0])
-                self.stderr = os.fdopen(pipes[1][0], "rb", buffering=0)
-                descriptors.remove(pipes[1][0])
+            if output_readers[0] is not None:
+                self.stdout = os.fdopen(output_readers[0], "rb", buffering=0)
+                descriptors.remove(output_readers[0])
+            if output_readers[1] is not None:
+                self.stderr = os.fdopen(output_readers[1], "rb", buffering=0)
+                descriptors.remove(output_readers[1])
             if input_writer is not None:
                 self.stdin = os.fdopen(input_writer, "wb", buffering=0)
                 descriptors.remove(input_writer)
@@ -310,13 +323,22 @@ class WindowsCommandJob:
             raise problem
 
     def poll(self) -> int | None:
+        if not self._process:
+            return self._returncode
         wait = self._api.WaitForSingleObject(self._process, 0)
         if wait == 258:  # WAIT_TIMEOUT
             return None
         _require(wait == 0)
         code = wintypes.DWORD()
         _require(self._api.GetExitCodeProcess(self._process, ctypes.byref(code)))
-        return int(code.value)
+        self._returncode = int(code.value)
+        return self._returncode
+
+    @property
+    def returncode(self) -> int | None:
+        """Expose the Popen-compatible status used by bounded helper runners."""
+
+        return self.poll()
 
     def tree_exited(self) -> bool:
         accounting = _Accounting()

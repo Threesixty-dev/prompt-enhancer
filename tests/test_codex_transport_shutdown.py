@@ -13,6 +13,7 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.errors import (
     CodexTransportError,
 )
 from prompt_enhancer.infrastructure.providers.codex_app_server.limits import CodexReadLimits
+from prompt_enhancer.infrastructure.providers.codex_app_server.transports import stdio_jsonl
 from prompt_enhancer.infrastructure.providers.codex_app_server.transports.stdio_jsonl import (
     CODEX_APP_SERVER_ARGV,
     StdioJsonRpcTransport,
@@ -84,7 +85,9 @@ def test_close_allows_graceful_eof_shutdown_before_terminating(
 ) -> None:
     order: list[str] = []
     process = GracefulProcess(order)
-    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        stdio_jsonl, "start_codex_app_server_process", lambda: process
+    )
     transport = StdioJsonRpcTransport(
         limits=CodexReadLimits(shutdown_timeout_seconds=0.1)
     )
@@ -105,12 +108,12 @@ def test_close_stops_child_before_closing_stdout_and_joins_reader(
     process = StalledProcess(order)
     process_attempts = 0
 
-    def fake_popen(*_args: object, **_kwargs: object) -> StalledProcess:
+    def fake_start() -> StalledProcess:
         nonlocal process_attempts
         process_attempts += 1
         return process
 
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(stdio_jsonl, "start_codex_app_server_process", fake_start)
     transport = StdioJsonRpcTransport(
         limits=CodexReadLimits(shutdown_timeout_seconds=0.1)
     )
@@ -144,7 +147,9 @@ def test_runtime_shutdown_kills_waiting_helper_before_normal_reap(
 ) -> None:
     order: list[str] = []
     process = StalledProcess(order)
-    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        stdio_jsonl, "start_codex_app_server_process", lambda: process
+    )
     transport = StdioJsonRpcTransport(
         limits=CodexReadLimits(shutdown_timeout_seconds=0.1)
     )

@@ -1,7 +1,6 @@
 """Synthetic child processes cover job I/O before model code is involved."""
 
 from dataclasses import replace
-import subprocess
 import sys
 from threading import Event, Thread
 import time
@@ -18,28 +17,40 @@ def _example_child(tmp_path, monkeypatch, source):
     monkeypatch.setattr(model_ensemble, "repository_root", lambda: tmp_path)
     owned = []
     launched = Event()
-    popen = subprocess.Popen
+    start_owned = model_ensemble._start_ensemble_process
 
-    def capture(command, *args, **kwargs):
-        process = popen(command, *args, **kwargs)
+    def capture(command, *, root, environment):
+        process = start_owned(command, root=root, environment=environment)
         if len(command) > 1 and command[1] == str(script):
             owned.append(process)
             launched.set()
         return process
 
-    monkeypatch.setattr(model_ensemble.subprocess, "Popen", capture)
+    monkeypatch.setattr(model_ensemble, "_start_ensemble_process", capture)
     spec = replace(model_ensemble.ensemble_expert_specs()[6], cache_root=tmp_path / "example-cache")
     return spec, owned, launched
 
 
 def _finish_owned(owned, caller=None):
+    exited = []
     for process in owned:
-        if process.poll() is None:
+        try:
+            running = process.poll() is None
+        except OSError:
+            running = False
+        if running:
             assert model_ensemble._terminate_ensemble_process_tree(process, environment=model_ensemble._process_control_environment())
     if caller is not None:
         caller.join(timeout=2)
         assert not caller.is_alive()
-    assert all(process.poll() is not None for process in owned)
+    for process in owned:
+        try:
+            exited.append(process.poll() is not None)
+        except OSError:
+            # Production ownership closes the native process and Job handles
+            # only after positive tree-exit evidence has been collected.
+            exited.append(True)
+    assert all(exited)
 
 
 @pytest.mark.parametrize("exit_code", [1, 2])

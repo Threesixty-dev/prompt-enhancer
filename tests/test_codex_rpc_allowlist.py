@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
-
 import pytest
 
 from prompt_enhancer.infrastructure.providers.codex_app_server.client import (
@@ -16,6 +14,7 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.errors import (
     CodexScopeError,
 )
 from prompt_enhancer.infrastructure.providers.codex_app_server.limits import CodexReadLimits
+from prompt_enhancer.infrastructure.providers.codex_app_server.transports import stdio_jsonl
 from prompt_enhancer.infrastructure.providers.codex_app_server.transports.stdio_jsonl import (
     StdioJsonRpcTransport,
     codex_app_server_argv,
@@ -143,33 +142,26 @@ def test_stdio_transport_uses_fixed_argv_shell_false_and_discards_stderr(
     )
     process = FakeProcess()
 
-    def fake_popen(argv: object, **kwargs: object) -> FakeProcess:
+    def fake_start(argv: object, **kwargs: object) -> FakeProcess:
         calls.append((argv, kwargs))
         return process
 
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(
-        "prompt_enhancer.infrastructure.providers.codex_app_server.transports."
-        "stdio_jsonl.CODEX_APP_SERVER_ARGV",
-        synthetic_argv,
-    )
+    monkeypatch.setattr(stdio_jsonl, "start_owned_process", fake_start)
+    monkeypatch.setattr(stdio_jsonl, "CODEX_APP_SERVER_ARGV", synthetic_argv)
     transport = StdioJsonRpcTransport()
     assert calls == []
     transport._start()
     transport.close()
 
-    assert calls == [
-        (
-            synthetic_argv,
-            {
-                "shell": False,
-                "stdin": subprocess.PIPE,
-                "stdout": subprocess.PIPE,
-                "stderr": subprocess.DEVNULL,
-                "creationflags": calls[0][1]["creationflags"],
-            },
-        )
-    ]
+    assert len(calls) == 1
+    argv, kwargs = calls[0]
+    assert argv == synthetic_argv
+    assert kwargs["cwd"] is None
+    assert isinstance(kwargs["env"], dict)
+    assert kwargs["pipe_stdin"] is True
+    assert kwargs["capture_stdout"] is True
+    assert kwargs["capture_stderr"] is False
+    assert kwargs["maximum_active_processes"] == 16
 
 
 def test_stdio_transport_resolves_fixed_platform_commands() -> None:
@@ -239,7 +231,9 @@ def test_stdio_transport_writes_current_headerless_protocol_frames(
 ) -> None:
     response = b'{"id":1,"result":{"version":"example-1"}}\n'
     process = FakeProcess(response)
-    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        stdio_jsonl, "start_codex_app_server_process", lambda: process
+    )
     transport = StdioJsonRpcTransport(
         limits=CodexReadLimits(request_timeout_seconds=0.5)
     )
@@ -277,7 +271,9 @@ def test_stdio_transport_fails_closed_on_server_request_without_leaking_it(
         + b"\n"
     )
     process = FakeProcess(line)
-    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        stdio_jsonl, "start_codex_app_server_process", lambda: process
+    )
     transport = StdioJsonRpcTransport(
         limits=CodexReadLimits(request_timeout_seconds=0.5)
     )
@@ -305,7 +301,9 @@ def test_stdio_transport_sanitizes_provider_request_rejection(
         }
     ).encode("utf-8") + b"\n"
     process = FakeProcess(line)
-    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        stdio_jsonl, "start_codex_app_server_process", lambda: process
+    )
     transport = StdioJsonRpcTransport(
         limits=CodexReadLimits(request_timeout_seconds=0.5)
     )

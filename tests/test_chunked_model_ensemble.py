@@ -909,15 +909,13 @@ def test_deep_result_returning_after_lane_budget_is_typed_unavailable(
     )
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows taskkill contract")
+@pytest.mark.skipif(os.name != "nt", reason="Windows owned-job contract")
 @pytest.mark.parametrize(
-    ("taskkill_return_code", "expected_confirmation"),
-    ((0, True), (1, False)),
+    "expected_confirmation",
+    (True, False),
 )
-def test_windows_tree_cleanup_requires_successful_taskkill_and_root_exit(
-    taskkill_return_code: int,
+def test_windows_tree_cleanup_requires_positive_owned_job_exit(
     expected_confirmation: bool,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class Pipe:
         def __init__(self) -> None:
@@ -931,12 +929,23 @@ def test_windows_tree_cleanup_requires_successful_taskkill_and_root_exit(
 
         def __init__(self) -> None:
             self.returncode = None
+            self.tree_gone = False
+            self.terminate_called = False
             self.kill_called = False
             self.stdin = Pipe()
             self.stdout = Pipe()
 
         def poll(self):  # type: ignore[no-untyped-def]
             return self.returncode
+
+        def tree_exited(self) -> bool:
+            return self.tree_gone
+
+        def terminate(self) -> None:
+            self.terminate_called = True
+            if expected_confirmation:
+                self.returncode = 0
+                self.tree_gone = True
 
         def kill(self) -> None:
             self.kill_called = True
@@ -950,17 +959,13 @@ def test_windows_tree_cleanup_requires_successful_taskkill_and_root_exit(
                 )
             return self.returncode
 
+        def close(self, *, close_streams: bool = True) -> bool:
+            if close_streams:
+                self.stdin.close()
+                self.stdout.close()
+            return True
+
     process = Process()
-
-    def taskkill(*args, **kwargs):  # type: ignore[no-untyped-def]
-        if taskkill_return_code == 0:
-            process.returncode = 0
-        return model_ensemble_module.subprocess.CompletedProcess(
-            args=args[0],
-            returncode=taskkill_return_code,
-        )
-
-    monkeypatch.setattr(model_ensemble_module.subprocess, "run", taskkill)
 
     confirmed = model_ensemble_module._terminate_ensemble_process_tree(
         process,  # type: ignore[arg-type]
@@ -968,7 +973,8 @@ def test_windows_tree_cleanup_requires_successful_taskkill_and_root_exit(
     )
 
     assert confirmed is expected_confirmation
-    assert process.kill_called is (taskkill_return_code != 0)
+    assert process.terminate_called is True
+    assert process.kill_called is (not expected_confirmation)
     assert process.stdin.closed is True
     assert process.stdout.closed is True
 
@@ -992,8 +998,8 @@ def test_unconfirmed_subprocess_cleanup_raises_distinct_fatal_error(
 
     observed_times = iter((100.0, 100.0, 102.0))
     monkeypatch.setattr(
-        model_ensemble_module.subprocess,
-        "Popen",
+        model_ensemble_module,
+        "_start_ensemble_process",
         lambda *args, **kwargs: Process(),
     )
     monkeypatch.setattr(

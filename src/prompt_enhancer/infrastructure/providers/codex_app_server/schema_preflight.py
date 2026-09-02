@@ -22,6 +22,11 @@ import tempfile
 import time
 from typing import Any, Protocol, runtime_checkable
 
+from ....application.owned_process import (
+    OwnedProcessResult,
+    OwnedProcessRunError,
+    run_owned_process,
+)
 from ....application.providers import (
     CapabilityKey,
     CapabilityObservation,
@@ -55,6 +60,7 @@ MAX_GENERATED_SCHEMA_DIRECTORIES = 64
 MAX_GENERATED_SCHEMA_BYTES = 64 * 1024 * 1024
 MAX_CONSUMED_SCHEMA_FILE_BYTES = 4 * 1024 * 1024
 MAX_PROVIDER_VERSION_BYTES = 256
+MAX_SCHEMA_PROBE_PROCESSES = 8
 
 _SCHEMA_FILES = (
     "v1/InitializeParams.json",
@@ -211,7 +217,12 @@ class _SchemaInspectionError(RuntimeError):
         super().__init__(status.value)
 
 
-ProcessRunner = Callable[..., subprocess.CompletedProcess[bytes]]
+class ProcessResult(Protocol):
+    returncode: int
+    stdout: bytes
+
+
+ProcessRunner = Callable[..., ProcessResult]
 Clock = Callable[[], datetime]
 
 
@@ -606,12 +617,31 @@ def _version_command() -> tuple[str, ...]:
     return command
 
 
+def _run_owned_schema_process(
+    command: tuple[str, ...],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    timeout: float,
+    stdout_limit: int,
+) -> OwnedProcessResult:
+    return run_owned_process(
+        command,
+        cwd=cwd,
+        env=env,
+        stdout_limit=stdout_limit,
+        stderr_limit=0,
+        timeout=timeout,
+        maximum_active_processes=MAX_SCHEMA_PROBE_PROCESSES,
+    )
+
+
 @dataclass(slots=True)
 class CodexInstalledSchemaProbe:
     """Run the fixed installed-schema generator under strict local bounds."""
 
     timeout_seconds: float = DEFAULT_SCHEMA_PROBE_TIMEOUT_SECONDS
-    _runner: ProcessRunner = field(default=subprocess.run, repr=False)
+    _runner: ProcessRunner = field(default=_run_owned_schema_process, repr=False)
 
     def __post_init__(self) -> None:
         if (
@@ -633,38 +663,20 @@ class CodexInstalledSchemaProbe:
                 output.mkdir()
                 command = _generator_command(output)
                 version_command = _version_command()
-                creation_flags = (
-                    getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                    if os.name == "nt"
-                    else 0
-                )
                 deadline = time.monotonic() + float(self.timeout_seconds)
-                version_path = root / "provider-version.txt"
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise subprocess.TimeoutExpired(version_command, 0)
-                with version_path.open("xb") as version_output:
-                    version_process = self._runner(
-                        version_command,
-                        shell=False,
-                        stdin=subprocess.DEVNULL,
-                        stdout=version_output,
-                        stderr=subprocess.DEVNULL,
-                        cwd=os.fspath(root),
-                        env=_isolated_environment(codex_home),
-                        timeout=remaining,
-                        check=False,
-                        creationflags=creation_flags,
-                    )
+                version_process = self._runner(
+                    version_command,
+                    cwd=root,
+                    env=_isolated_environment(codex_home),
+                    timeout=remaining,
+                    stdout_limit=MAX_PROVIDER_VERSION_BYTES,
+                )
                 provider_version = "unknown"
                 if version_process.returncode == 0:
-                    version_size = version_path.stat(follow_symlinks=False).st_size
-                    if version_size > MAX_PROVIDER_VERSION_BYTES:
-                        raise _SchemaInspectionError(
-                            CodexSchemaPreflightStatus.RESOURCE_LIMIT
-                        )
-                    version_payload = version_path.read_bytes()
-                    version_match = _CODEX_VERSION.fullmatch(version_payload)
+                    version_match = _CODEX_VERSION.fullmatch(version_process.stdout)
                     if version_match is not None:
                         provider_version = version_match.group("version").decode("ascii")
                 remaining = deadline - time.monotonic()
@@ -672,15 +684,10 @@ class CodexInstalledSchemaProbe:
                     raise subprocess.TimeoutExpired(command, 0)
                 completed = self._runner(
                     command,
-                    shell=False,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    cwd=os.fspath(root),
+                    cwd=root,
                     env=_isolated_environment(codex_home),
                     timeout=remaining,
-                    check=False,
-                    creationflags=creation_flags,
+                    stdout_limit=0,
                 )
                 if completed.returncode != 0:
                     return CodexSchemaPreflightResult(
@@ -696,6 +703,17 @@ class CodexInstalledSchemaProbe:
             return CodexSchemaPreflightResult(
                 status=CodexSchemaPreflightStatus.TIMEOUT
             )
+        except OwnedProcessRunError as error:
+            status = {
+                "owned_process_timeout": CodexSchemaPreflightStatus.TIMEOUT,
+                "owned_process_stdout_limit": (
+                    CodexSchemaPreflightStatus.RESOURCE_LIMIT
+                ),
+                "owned_process_stderr_limit": (
+                    CodexSchemaPreflightStatus.RESOURCE_LIMIT
+                ),
+            }.get(error.code, CodexSchemaPreflightStatus.UNAVAILABLE)
+            return CodexSchemaPreflightResult(status=status)
         except _SchemaInspectionError as error:
             return CodexSchemaPreflightResult(status=error.status)
         except (OSError, ValueError):

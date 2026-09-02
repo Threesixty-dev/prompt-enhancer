@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
-import subprocess
 from threading import Event
 import time
 
@@ -64,18 +63,18 @@ def test_shutdown_cancels_the_owned_evaluation_process(tmp_path: Path, monkeypat
     script = scripts / "evaluate_local_text_models.py"
     script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
     monkeypatch.setattr(jobs, "repository_root", lambda: tmp_path)
-    popen = subprocess.Popen
+    start_owned = jobs._start_model_evaluation_process
     launched = Event()
     owned = []
 
-    def capture(command, *args, **kwargs):
-        process = popen(command, *args, **kwargs)
+    def capture(command, *, root, environment):
+        process = start_owned(command, root=root, environment=environment)
         if len(command) > 1 and command[1] == str(script):
             owned.append(process)
             launched.set()
         return process
 
-    monkeypatch.setattr(jobs.subprocess, "Popen", capture)
+    monkeypatch.setattr(jobs, "_start_model_evaluation_process", capture)
     service = LocalTextModelEvaluationService()
     job = service.start(ModelEvaluationRequest(candidate="e5", device="cpu"))
     try:

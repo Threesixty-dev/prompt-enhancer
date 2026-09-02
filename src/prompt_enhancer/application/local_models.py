@@ -46,6 +46,7 @@ from pydantic import Field, field_validator, model_validator
 
 from ..domain import StrictModel
 from .model_reply import model_json_object
+from .owned_process import run_owned_process
 from .runtime_cancellation import current_runtime_cancellation
 
 
@@ -1211,6 +1212,8 @@ def free_loopback_port() -> int:
 
 
 RUNTIME_DIR_NAME = "runtimes"
+MAX_LOCAL_PROBE_OUTPUT_BYTES = 64 * 1024
+MAX_LOCAL_PROBE_PROCESSES = 4
 
 
 def detect_llama_server(environment: dict[str, str] | None = None, *, app_home: Path | None = None, models_root: Path | None = None) -> Path | None:
@@ -1267,6 +1270,39 @@ def _read_llama_server_version(
         return None
 
 
+def _run_owned_local_probe(
+    command: list[str],
+    *,
+    capture_output: bool,
+    text: bool,
+    timeout: float,
+    check: bool,
+    creationflags: int = 0,
+) -> subprocess.CompletedProcess[str]:
+    """Run a content-bounded identity probe inside the shared process owner."""
+
+    if not capture_output or not text or check or creationflags not in {
+        0,
+        _runtime_creation_flags(),
+    }:
+        raise ValueError("local_probe_options_invalid")
+    result = run_owned_process(
+        command,
+        cwd=None,
+        env=_runtime_environment(),
+        stdout_limit=MAX_LOCAL_PROBE_OUTPUT_BYTES,
+        stderr_limit=MAX_LOCAL_PROBE_OUTPUT_BYTES,
+        timeout=timeout,
+        maximum_active_processes=MAX_LOCAL_PROBE_PROCESSES,
+    )
+    return subprocess.CompletedProcess(
+        command,
+        result.returncode,
+        stdout=result.stdout.decode("utf-8", errors="replace"),
+        stderr=result.stderr.decode("utf-8", errors="replace"),
+    )
+
+
 def _cached_llama_server_version(
     llama_server: Path,
     *,
@@ -1295,7 +1331,7 @@ def probe_hardware(
     llama_server: Path | None,
     run: Callable[..., subprocess.CompletedProcess] | None = None,
 ) -> HardwareSummary:
-    runner = run or subprocess.run
+    runner = run or _run_owned_local_probe
     gpu_name = gpu_total = gpu_free = None
     hidden = {"creationflags": _runtime_creation_flags()} if os.name == "nt" else {}
     try:

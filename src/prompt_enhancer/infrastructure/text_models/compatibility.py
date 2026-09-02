@@ -16,7 +16,6 @@ import math
 import os
 from pathlib import Path
 import platform
-import signal
 import shutil
 import subprocess
 import sys
@@ -24,6 +23,12 @@ from threading import Condition, Lock, Thread
 from time import monotonic
 from types import MappingProxyType
 
+from ...application.owned_process import (
+    OwnedProcess,
+    process_tree_exited,
+    start_owned_process,
+    terminate_owned_process,
+)
 from ...application.resources import ResourceAvailability, ResourceKind
 from ..resources import default_packaged_resource_resolver
 from .loader import model_eval_cache_root, repository_root
@@ -797,86 +802,48 @@ def _parse_accelerator_probe(payload: object) -> _AcceleratorProbe:
     )
 
 
-def _accelerator_probe_control_environment() -> dict[str, str]:
-    allowlist = frozenset(
-        {
-            "APPDATA",
-            "COMSPEC",
-            "HOMEDRIVE",
-            "HOMEPATH",
-            "LOCALAPPDATA",
-            "PATH",
-            "PATHEXT",
-            "SYSTEMDRIVE",
-            "SYSTEMROOT",
-            "TEMP",
-            "TMP",
-            "USERPROFILE",
-            "WINDIR",
-        }
+def _start_accelerator_probe_process(
+    command: list[str],
+    *,
+    root: Path,
+    environment: dict[str, str],
+) -> OwnedProcess:
+    return start_owned_process(
+        command,
+        cwd=root,
+        env=environment,
+        capture_stdout=True,
+        capture_stderr=False,
+        maximum_active_processes=8,
     )
-    return {
-        name: value
-        for name, value in os.environ.items()
-        if name.upper() in allowlist and "\x00" not in value
-    }
 
 
-def _terminate_accelerator_probe_process_tree(
-    process: subprocess.Popen[bytes],
-) -> bool:
+def _close_accelerator_probe_process(process: object) -> bool:
+    close = getattr(process, "close", None)
+    if callable(close):
+        try:
+            return bool(close())
+        except Exception:
+            return False
+    stdout = getattr(process, "stdout", None)
+    if stdout is not None:
+        try:
+            stdout.close()
+        except (OSError, ValueError):
+            return False
+    return True
+
+
+def _terminate_accelerator_probe_process_tree(process: OwnedProcess) -> bool:
     """Adapt the model-child lifecycle contract and positively reap the tree."""
 
-    tree_termination_confirmed = False
-    was_running = process.poll() is None
-    if was_running:
-        if os.name == "nt":
-            try:
-                result = subprocess.run(
-                    (
-                        "taskkill.exe",
-                        "/PID",
-                        str(process.pid),
-                        "/T",
-                        "/F",
-                    ),
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    env=_accelerator_probe_control_environment(),
-                    shell=False,
-                    check=False,
-                    timeout=ACCELERATOR_PROBE_TERMINATION_GRACE_SECONDS + 1.0,
-                )
-                tree_termination_confirmed = result.returncode == 0
-            except (OSError, subprocess.SubprocessError):
-                pass
-        else:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-                tree_termination_confirmed = True
-            except (OSError, ProcessLookupError):
-                tree_termination_confirmed = process.poll() is not None
-        if process.poll() is None:
-            try:
-                process.kill()
-            except OSError:
-                pass
-    else:
-        tree_termination_confirmed = True
-
-    root_exited = process.poll() is not None
-    try:
-        process.wait(timeout=ACCELERATOR_PROBE_TERMINATION_GRACE_SECONDS)
-        root_exited = process.poll() is not None
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    if process.stdout is not None:
-        try:
-            process.stdout.close()
-        except (OSError, ValueError):
-            pass
-    return tree_termination_confirmed and root_exited
+    confirmed = terminate_owned_process(
+        process,
+        graceful_timeout=ACCELERATOR_PROBE_TERMINATION_GRACE_SECONDS,
+        forced_timeout=ACCELERATOR_PROBE_TERMINATION_GRACE_SECONDS,
+    )
+    closed = _close_accelerator_probe_process(process)
+    return confirmed and closed
 
 
 def _read_bounded_accelerator_probe(
@@ -895,26 +862,12 @@ def _read_bounded_accelerator_probe(
         or not 0 < timeout_seconds <= ACCELERATOR_PROBE_TIMEOUT_SECONDS
     ):
         return None
-    creation_flags = 0
-    start_new_session = False
-    if os.name == "nt":
-        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
-            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
-        )
-    else:
-        start_new_session = True
     deadline = monotonic() + float(timeout_seconds)
     try:
-        process = subprocess.Popen(
+        process = _start_accelerator_probe_process(
             command,
-            cwd=root,
-            env=environment,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            bufsize=0,
-            creationflags=creation_flags,
-            start_new_session=start_new_session,
+            root=root,
+            environment=environment,
         )
     except OSError:
         return None
@@ -958,13 +911,15 @@ def _read_bounded_accelerator_probe(
         if not _terminate_accelerator_probe_process_tree(process):
             raise RuntimeError("accelerator_probe_cleanup_unconfirmed") from None
         return None
-    finally:
-        if process.stdout is not None:
-            try:
-                process.stdout.close()
-            except (OSError, ValueError):
-                pass
-    return output if process.returncode == 0 else None
+    return_code = process.returncode
+    try:
+        cleanup_confirmed = process_tree_exited(process)
+    except Exception:
+        cleanup_confirmed = False
+    handles_closed = _close_accelerator_probe_process(process)
+    if not cleanup_confirmed or not handles_closed or return_code is None:
+        raise RuntimeError("accelerator_probe_cleanup_unconfirmed")
+    return output if return_code == 0 else None
 
 
 def _run_accelerator_probe() -> _AcceleratorProbe:

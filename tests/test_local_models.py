@@ -21,6 +21,7 @@ import pytest
 
 from prompt_enhancer.api import API_TOKEN_HEADER
 from prompt_enhancer.application import local_models
+from prompt_enhancer.application.owned_process import OwnedProcessResult
 from prompt_enhancer.application.local_models import (
     ActivateLocalModel,
     AddLocalModel,
@@ -304,7 +305,7 @@ def test_hardware_poll_caches_llama_server_version_by_executable_revision(
         )
         return subprocess.CompletedProcess(command_parts, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(local_models.subprocess, "run", run)
+    monkeypatch.setattr(local_models, "_run_owned_local_probe", run)
 
     first = local_models.probe_hardware(llama_server=binary)
     second = local_models.probe_hardware(llama_server=binary)
@@ -321,6 +322,29 @@ def test_hardware_poll_caches_llama_server_version_by_executable_revision(
     assert third.llama_server_version == "synthetic-llama.cpp-b9100"
     assert sum(command[-1] == "--version" for command in calls) == 2
     assert sum(command[0] == "nvidia-smi" for command in calls) == 3
+
+
+def test_default_hardware_probe_runner_uses_owned_bounded_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_owned(command, **kwargs):
+        observed["command"] = list(command)
+        observed.update(kwargs)
+        return OwnedProcessResult(
+            returncode=0,
+            stdout=b"Synthetic GPU, 8192, 4096\n",
+        )
+
+    monkeypatch.setattr(local_models, "run_owned_process", fake_owned)
+    result = local_models.probe_hardware(llama_server=None)
+
+    assert result.gpu_name == "Synthetic GPU"
+    assert observed["command"][0] == "nvidia-smi"
+    assert observed["stdout_limit"] == local_models.MAX_LOCAL_PROBE_OUTPUT_BYTES
+    assert observed["stderr_limit"] == local_models.MAX_LOCAL_PROBE_OUTPUT_BYTES
+    assert observed["maximum_active_processes"] == local_models.MAX_LOCAL_PROBE_PROCESSES
 
 
 def test_read_only_model_discovery_never_spawns_a_runtime(tmp_path: Path) -> None:

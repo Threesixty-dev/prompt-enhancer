@@ -7,6 +7,7 @@ import subprocess
 
 import pytest
 
+from prompt_enhancer.application.owned_process import OwnedProcessResult
 from prompt_enhancer.application.providers import (
     CapabilityKey,
     CapabilityState,
@@ -16,12 +17,16 @@ from prompt_enhancer.application.providers import (
     ProviderCompatibilityProbe,
     ProviderSurface,
 )
+from prompt_enhancer.infrastructure.providers.codex_app_server import schema_preflight
 from prompt_enhancer.infrastructure.providers.codex_app_server.schema_preflight import (
     CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR,
     CONSUMED_SCHEMA_MANIFEST_VERSION,
     CodexInstalledSchemaProbe,
     CodexSchemaPreflightStatus,
     CodexTextWindowCompatibilityProbe,
+    MAX_PROVIDER_VERSION_BYTES,
+    MAX_SCHEMA_PROBE_PROCESSES,
+    _run_owned_schema_process,
     preflight_generated_schema_bundle,
 )
 
@@ -291,12 +296,11 @@ def test_installed_probe_uses_fixed_bounded_isolated_processes(
     def runner(command: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         observed.append((command, kwargs))
         if command[-1] == "--version":
-            version_output = kwargs["stdout"]
-            version_output.write(b"codex-cli 0.144.5\n")  # type: ignore[union-attr]
-            version_output.flush()  # type: ignore[union-attr]
+            stdout = b"codex-cli 0.144.5\n"
         else:
             _write_synthetic_bundle(Path(command[-1]))
-        return subprocess.CompletedProcess(command, 0)
+            stdout = b""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout)
 
     result = CodexInstalledSchemaProbe(_runner=runner).probe()
 
@@ -313,11 +317,8 @@ def test_installed_probe_uses_fixed_bounded_isolated_processes(
     )
     assert "--experimental" not in schema_command
     for options in (version_options, schema_options):
-        assert options["shell"] is False
-        assert options["stdin"] == subprocess.DEVNULL
-        assert options["stderr"] == subprocess.DEVNULL
-        assert options["check"] is False
         assert 0 < options["timeout"] <= 10
+        assert isinstance(options["cwd"], Path)
         environment = options["env"]
         assert isinstance(environment, dict)
         assert "CODEX_HOME" in environment
@@ -327,6 +328,35 @@ def test_installed_probe_uses_fixed_bounded_isolated_processes(
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
         }.intersection(key.upper() for key in environment)
+    assert version_options["stdout_limit"] == MAX_PROVIDER_VERSION_BYTES
+    assert schema_options["stdout_limit"] == 0
+
+
+def test_schema_runner_uses_shared_owned_process_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_run(command: tuple[str, ...], **kwargs: object) -> OwnedProcessResult:
+        observed["command"] = command
+        observed.update(kwargs)
+        return OwnedProcessResult(returncode=0, stdout=b"synthetic")
+
+    monkeypatch.setattr(schema_preflight, "run_owned_process", fake_run)
+    result = _run_owned_schema_process(
+        ("synthetic-codex", "--version"),
+        cwd=tmp_path,
+        env={"PATH": "synthetic"},
+        timeout=1.0,
+        stdout_limit=MAX_PROVIDER_VERSION_BYTES,
+    )
+
+    assert result.stdout == b"synthetic"
+    assert observed["command"] == ("synthetic-codex", "--version")
+    assert observed["cwd"] == tmp_path
+    assert observed["stderr_limit"] == 0
+    assert observed["maximum_active_processes"] == MAX_SCHEMA_PROBE_PROCESSES
 
 
 def test_installed_probe_discards_timeout_details() -> None:

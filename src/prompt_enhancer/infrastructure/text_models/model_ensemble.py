@@ -16,12 +16,18 @@ import json
 import math
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
 from threading import Event, Thread
 from time import monotonic
 from typing import Callable, Mapping, Sequence
+
+from ...application.owned_process import (
+    OwnedProcess,
+    process_tree_exited,
+    start_owned_process,
+    terminate_owned_process,
+)
 
 from ...application.analysis.model_ensemble import (
     ChunkMetricCommitteeReceipt,
@@ -284,67 +290,60 @@ def _process_control_environment() -> dict[str, str]:
     }
 
 
+def _start_ensemble_process(
+    command: list[str],
+    *,
+    root: Path,
+    environment: dict[str, str],
+) -> OwnedProcess:
+    return start_owned_process(
+        command,
+        cwd=root,
+        env=environment,
+        pipe_stdin=True,
+        capture_stdout=True,
+        capture_stderr=False,
+        maximum_active_processes=16,
+    )
+
+
+def _close_ensemble_process(process: object, *, close_streams: bool) -> bool:
+    close = getattr(process, "close", None)
+    if callable(close):
+        try:
+            return bool(close(close_streams=close_streams))
+        except Exception:
+            return False
+    if close_streams:
+        for pipe in (getattr(process, "stdin", None), getattr(process, "stdout", None)):
+            if pipe is None:
+                continue
+            try:
+                pipe.close()
+            except (OSError, ValueError):
+                return False
+    return True
+
+
 def _terminate_ensemble_process_tree(
-    process: subprocess.Popen[bytes],
+    process: OwnedProcess,
     *,
     environment: Mapping[str, str],
     close_pipes: bool = True,
 ) -> bool:
     """Force one isolated model tree down and report positive confirmation."""
 
-    tree_termination_confirmed = False
-    if process.poll() is None:
-        if os.name == "nt":
-            try:
-                result = subprocess.run(
-                    (
-                        "taskkill.exe",
-                        "/PID",
-                        str(process.pid),
-                        "/T",
-                        "/F",
-                    ),
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    env=dict(environment),
-                    shell=False,
-                    check=False,
-                    timeout=(
-                        MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS
-                        + 1.0
-                    ),
-                )
-                tree_termination_confirmed = result.returncode == 0
-            except (OSError, subprocess.SubprocessError):
-                pass
-        else:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-                tree_termination_confirmed = True
-            except (OSError, ProcessLookupError):
-                pass
-        if process.poll() is None:
-            try:
-                process.kill()
-            except OSError:
-                pass
-    root_exited = process.poll() is not None
-    try:
-        process.wait(
-            timeout=MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS
-        )
-        root_exited = process.poll() is not None
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    for pipe in (process.stdin, process.stdout) if close_pipes else ():
-        if pipe is None:
-            continue
-        try:
-            pipe.close()
-        except (OSError, ValueError):
-            pass
-    return tree_termination_confirmed and root_exited
+    del environment
+    confirmed = terminate_owned_process(
+        process,
+        graceful_timeout=MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS,
+        forced_timeout=MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS,
+    )
+    closed = _close_ensemble_process(
+        process,
+        close_streams=close_pipes,
+    )
+    return confirmed and closed
 
 
 def run_ensemble_expert_subprocess(
@@ -391,16 +390,6 @@ def run_ensemble_expert_subprocess(
         quantization,
     ]
     child_environment = _child_environment(root, spec.cache_root)
-    creation_flags = 0
-    start_new_session = False
-    if os.name == "nt":
-        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
-            subprocess,
-            "CREATE_NEW_PROCESS_GROUP",
-            0,
-        )
-    else:
-        start_new_session = True
     process = None
     threads: list[Thread] = []
     captured = bytearray()
@@ -458,17 +447,10 @@ def run_ensemble_expert_subprocess(
         if heartbeat is not None:
             heartbeat()
         started = monotonic()
-        process = subprocess.Popen(
+        process = _start_ensemble_process(
             command,
-            cwd=root,
-            env=child_environment,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            bufsize=0,
-            shell=False,
-            creationflags=creation_flags,
-            start_new_session=start_new_session,
+            root=root,
+            environment=child_environment,
         )
         for target, name in ((read_output, "model-stage-output"), (write_input, "model-stage-input")):
             thread = Thread(target=target, name=name, daemon=True)
@@ -493,28 +475,54 @@ def run_ensemble_expert_subprocess(
                 next_heartbeat = (
                     observed + MODEL_ENSEMBLE_SUBPROCESS_CONTROL_INTERVAL_SECONDS
                 )
-            if input_finished.is_set() and output_finished.is_set() and process.poll() is not None:
+            if (
+                input_finished.is_set()
+                and output_finished.is_set()
+                and process_tree_exited(process)
+            ):
                 break
             poll_wait.wait(min(0.05, remaining))
         # Cancellation arriving with the final bytes still owns the outcome.
         if heartbeat is not None:
             heartbeat()
     except BaseException as error:
-        cleanup_confirmed = process is None or process.poll() is not None or (
-            _terminate_ensemble_process_tree(
-                process,
-                environment=_process_control_environment(),
-                close_pipes=False,
-            )
+        cleanup_confirmed = process is None
+        if process is not None:
+            try:
+                cleanup_confirmed = process_tree_exited(process)
+            except Exception:
+                cleanup_confirmed = False
+            if not cleanup_confirmed:
+                cleanup_confirmed = _terminate_ensemble_process_tree(
+                    process,
+                    environment=_process_control_environment(),
+                    close_pipes=False,
+                )
+        io_finished = finish_io()
+        handles_closed = process is None or _close_ensemble_process(
+            process,
+            close_streams=False,
         )
-        if not finish_io() or not cleanup_confirmed:
+        if not io_finished or not cleanup_confirmed or not handles_closed:
             raise ModelEnsembleCleanupUnconfirmedError() from None
         if isinstance(error, subprocess.TimeoutExpired):
             raise ModelEnsembleError(MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE) from None
         if isinstance(error, OSError):
             raise ModelEnsembleError("model_ensemble_subprocess_failed") from None
         raise
-    if not finish_io():
+    if process is None:
+        raise ModelEnsembleCleanupUnconfirmedError()
+    return_code = process.returncode
+    try:
+        cleanup_confirmed = process_tree_exited(process)
+    except Exception:
+        cleanup_confirmed = False
+    if (
+        not finish_io()
+        or not cleanup_confirmed
+        or not _close_ensemble_process(process, close_streams=False)
+        or return_code is None
+    ):
         raise ModelEnsembleCleanupUnconfirmedError()
     stdout = bytes(captured)
     if not stdout or len(stdout) > MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES:
@@ -525,7 +533,7 @@ def run_ensemble_expert_subprocess(
         raise ModelEnsembleError("model_ensemble_output_invalid") from None
     if not isinstance(result, dict):
         raise ModelEnsembleError("model_ensemble_output_invalid")
-    if not ((process.returncode == 0 and result.get("status") == "completed") or (process.returncode == 2 and result.get("status") == "failed")):
+    if not ((return_code == 0 and result.get("status") == "completed") or (return_code == 2 and result.get("status") == "failed")):
         raise ModelEnsembleError("model_ensemble_subprocess_failed")
     return result
 

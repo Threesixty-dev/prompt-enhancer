@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
 
 from pydantic import SecretStr
 import pytest
@@ -14,7 +13,14 @@ from prompt_enhancer.application.analysis.model_link_experiments import (
     ModelLinkCase,
     ModelLinkRunnerRequest,
 )
+from prompt_enhancer.application.owned_process import (
+    OwnedProcessResult,
+    OwnedProcessRunError,
+)
+from prompt_enhancer.infrastructure.text_models import session_links
 from prompt_enhancer.infrastructure.text_models.session_links import (
+    MAX_SESSION_LINK_PROCESSES,
+    MAX_SESSION_LINK_STDOUT_BYTES,
     SESSION_LINK_RUNNER_SCHEMA_VERSION,
     SessionLinkRunnerError,
     SubprocessSessionModelLinkRunner,
@@ -85,15 +91,16 @@ def test_subprocess_runner_uses_stdin_only_and_accepts_content_free_stdout(
         captured["command"] = command
         captured["cwd"] = kwargs["cwd"]
         captured["env"] = kwargs["env"]
-        captured["input"] = kwargs["input"]
-        assert kwargs["stderr"] is subprocess.DEVNULL
-        return subprocess.CompletedProcess(
-            command,
-            0,
+        captured["input"] = kwargs["stdin_payload"]
+        assert kwargs["stderr_limit"] == 0
+        assert kwargs["stdout_limit"] == MAX_SESSION_LINK_STDOUT_BYTES
+        assert kwargs["maximum_active_processes"] == MAX_SESSION_LINK_PROCESSES
+        return OwnedProcessResult(
+            returncode=0,
             stdout=json.dumps(_safe_response()).encode("utf-8"),
         )
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(session_links, "run_owned_process", fake_run)
     result = SubprocessSessionModelLinkRunner().run(_request())
 
     serialized_command = json.dumps(captured["command"])
@@ -103,6 +110,18 @@ def test_subprocess_runner_uses_stdin_only_and_accepts_content_free_stdout(
     assert SYNTHETIC_CANARY in captured["input"].decode("utf-8")
     assert SYNTHETIC_CANARY not in result.model_dump_json()
     assert result.scores[0].qwen_score == 0.75
+
+
+def test_subprocess_runner_maps_owned_cleanup_failure_to_closed_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_run(*_args: object, **_kwargs: object) -> OwnedProcessResult:
+        raise OwnedProcessRunError("owned_process_cleanup_unconfirmed")
+
+    monkeypatch.setattr(session_links, "run_owned_process", fail_run)
+
+    with pytest.raises(SessionLinkRunnerError, match="^session_link_runner_failed$"):
+        SubprocessSessionModelLinkRunner().run(_request())
 
 
 def test_child_environment_is_offline_and_excludes_home_and_tokens(monkeypatch) -> None:

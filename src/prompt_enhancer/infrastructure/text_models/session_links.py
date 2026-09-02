@@ -7,7 +7,6 @@ import json
 import math
 import os
 from pathlib import Path
-import subprocess
 import sys
 from typing import Any, Mapping
 
@@ -18,6 +17,7 @@ from ...application.analysis.model_link_experiments import (
     ModelLinkRunnerRequest,
     ModelLinkRunnerResult,
 )
+from ...application.owned_process import OwnedProcessRunError, run_owned_process
 from .benchmark import RetrievalCandidate, RetrievalCase
 from .loader import (
     isolated_hugging_face_environment,
@@ -35,6 +35,7 @@ from .transformers_backends import (
 SESSION_LINK_RUNNER_SCHEMA_VERSION = 1
 MAX_SESSION_LINK_STDIN_BYTES = 512 * 1024
 MAX_SESSION_LINK_STDOUT_BYTES = 1024 * 1024
+MAX_SESSION_LINK_PROCESSES = 32
 
 
 class SessionLinkRunnerError(RuntimeError):
@@ -313,24 +314,20 @@ class SubprocessSessionModelLinkRunner:
         ).encode("utf-8")
         if len(encoded) > MAX_SESSION_LINK_STDIN_BYTES:
             raise SessionLinkRunnerError("session_link_input_exceeded_bound")
-        creation_flags = (
-            getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-        )
         try:
-            completed = subprocess.run(
+            completed = run_owned_process(
                 [sys.executable, str(script)],
                 cwd=root,
                 env=_child_environment(root),
-                input=encoded,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stdin_payload=encoded,
+                stdout_limit=MAX_SESSION_LINK_STDOUT_BYTES,
+                stderr_limit=0,
                 timeout=300,
-                check=False,
-                creationflags=creation_flags,
+                maximum_active_processes=MAX_SESSION_LINK_PROCESSES,
             )
-        except (OSError, subprocess.TimeoutExpired):
+        except (OSError, OwnedProcessRunError):
             raise SessionLinkRunnerError("session_link_runner_failed") from None
-        if completed.returncode != 0 or len(completed.stdout) > MAX_SESSION_LINK_STDOUT_BYTES:
+        if completed.returncode != 0:
             raise SessionLinkRunnerError("session_link_runner_failed")
         try:
             payload = json.loads(completed.stdout.decode("utf-8"))

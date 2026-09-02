@@ -574,12 +574,11 @@ def test_accelerator_cleanup_unconfirmed_is_typed_unknown(monkeypatch) -> None:
     assert discovered.discovery_reason_codes == ("cuda_inventory_unknown",)
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows taskkill race contract")
-def test_windows_accelerator_cleanup_does_not_bless_a_surviving_descendant(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.skipif(os.name != "nt", reason="Windows owned-job contract")
+def test_windows_accelerator_cleanup_reaps_an_atomically_owned_descendant(
     tmp_path: Path,
 ) -> None:
-    release_root = tmp_path / "synthetic-release-root"
+    root_ready = tmp_path / "synthetic-root-ready"
     descendant_marker = tmp_path / "synthetic-descendant-survived"
     grandchild = (
         "import pathlib,time; time.sleep(0.5); "
@@ -591,46 +590,25 @@ def test_windows_accelerator_cleanup_does_not_bless_a_surviving_descendant(
         "subprocess.Popen([sys.executable, '-c', "
         f"{grandchild!r}], stdin=subprocess.DEVNULL, "
         "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
-        f"release = pathlib.Path({str(release_root)!r})\n"
-        "while not release.exists(): time.sleep(0.01)\n",
+        f"pathlib.Path({str(root_ready)!r}).write_text('synthetic','utf-8')\n"
+        "time.sleep(5)\n",
         encoding="utf-8",
     )
-    process = catalog_module.subprocess.Popen(
+    process = catalog_module._start_accelerator_probe_process(
         [sys.executable, "-I", str(script)],
-        cwd=tmp_path,
-        env=catalog_module._accelerator_probe_environment(),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        root=tmp_path,
+        environment=catalog_module._accelerator_probe_environment(),
     )
-
-    def no_op_taskkill(*args, **kwargs):  # type: ignore[no-untyped-def]
-        del kwargs
-        assert args[0] == (
-            "taskkill.exe",
-            "/PID",
-            str(process.pid),
-            "/T",
-            "/F",
-        )
-        assert process.poll() is None
-        release_root.write_text("synthetic", encoding="utf-8")
-        process.wait(timeout=2.0)
-        return catalog_module.subprocess.CompletedProcess(
-            args=args[0],
-            returncode=255,
-        )
-
-    monkeypatch.setattr(catalog_module.subprocess, "run", no_op_taskkill)
+    ready_deadline = time.monotonic() + 2.0
+    while time.monotonic() < ready_deadline and not root_ready.exists():
+        time.sleep(0.01)
+    assert root_ready.exists()
 
     confirmed = catalog_module._terminate_accelerator_probe_process_tree(process)
 
-    assert confirmed is False
-    marker_deadline = time.monotonic() + 2.0
-    while time.monotonic() < marker_deadline and not descendant_marker.exists():
-        time.sleep(0.01)
-    assert descendant_marker.exists() is True
+    assert confirmed is True
+    time.sleep(1.0)
+    assert descendant_marker.exists() is False
 
 
 def test_accelerator_reader_kills_child_after_2049_bytes(tmp_path) -> None:

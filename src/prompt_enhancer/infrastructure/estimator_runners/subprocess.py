@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
-import signal
 import subprocess as _subprocess
 import threading
 import time
@@ -19,6 +18,12 @@ from typing import BinaryIO, Mapping
 
 from pydantic import Field
 
+from ...application.owned_process import (
+    OwnedProcess,
+    process_tree_exited,
+    start_owned_process,
+    terminate_owned_process,
+)
 from ...domain import StrictModel
 
 
@@ -174,54 +179,37 @@ def _write_stdin(stream: BinaryIO, payload: bytes) -> None:
             pass
 
 
+def _start_owned_process(
+    argv: tuple[str, ...],
+    *,
+    cwd: Path,
+    environment: dict[str, str],
+) -> OwnedProcess:
+    """Start one helper with atomic Windows descendant ownership."""
+
+    return start_owned_process(
+        argv,
+        cwd=cwd,
+        env=environment,
+        pipe_stdin=True,
+        capture_stdout=True,
+        capture_stderr=True,
+        maximum_active_processes=32,
+    )
+
+
 def _terminate_process_tree(
-    process: _subprocess.Popen[bytes],
+    process: OwnedProcess,
     *,
     environment: Mapping[str, str],
     grace_ms: int,
-) -> None:
-    if process.poll() is not None:
-        return
-
-    if os.name == "nt":
-        try:
-            _subprocess.run(
-                ("taskkill.exe", "/PID", str(process.pid), "/T", "/F"),
-                stdin=_subprocess.DEVNULL,
-                stdout=_subprocess.DEVNULL,
-                stderr=_subprocess.DEVNULL,
-                env=dict(environment),
-                shell=False,
-                check=False,
-                timeout=max(1.0, grace_ms / 1000 + 1.0),
-            )
-        except (OSError, _subprocess.SubprocessError):
-            pass
-    else:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
-            pass
-
-    try:
-        process.wait(timeout=grace_ms / 1000 if grace_ms else 0.001)
-        return
-    except _subprocess.TimeoutExpired:
-        pass
-
-    if os.name != "nt":
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (OSError, ProcessLookupError):
-            pass
-    try:
-        process.kill()
-    except OSError:
-        pass
-    try:
-        process.wait(timeout=1)
-    except _subprocess.TimeoutExpired:
-        pass
+) -> bool:
+    del environment
+    return terminate_owned_process(
+        process,
+        graceful_timeout=grace_ms / 1000,
+        forced_timeout=1.0,
+    )
 
 
 def _run_bounded_process(
@@ -246,27 +234,11 @@ def _run_bounded_process(
         environment_source,
         temporary_directory=temporary_directory,
     )
-    creation_flags = 0
-    start_new_session = False
-    if os.name == "nt":
-        creation_flags = (
-            getattr(_subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            | getattr(_subprocess, "CREATE_NO_WINDOW", 0)
-        )
-    else:
-        start_new_session = True
-
     try:
-        process = _subprocess.Popen(
+        process = _start_owned_process(
             argv,
-            cwd=os.fspath(cwd),
-            env=environment,
-            stdin=_subprocess.PIPE,
-            stdout=_subprocess.PIPE,
-            stderr=_subprocess.PIPE,
-            shell=False,
-            creationflags=creation_flags,
-            start_new_session=start_new_session,
+            cwd=cwd,
+            environment=environment,
         )
     except (FileNotFoundError, PermissionError, OSError) as error:
         raise RunnerExecutableUnavailable("runner_executable_unavailable") from error
@@ -311,7 +283,14 @@ def _run_bounded_process(
 
     deadline = time.monotonic() + limits.timeout_ms / 1000
     terminal_reason: str | None = None
-    while process.poll() is None:
+    while True:
+        try:
+            process_finished = process_tree_exited(process)
+        except Exception:
+            terminal_reason = "runner_cleanup_unconfirmed"
+            break
+        if process_finished:
+            break
         if stdout_overflow.is_set():
             terminal_reason = "runner_stdout_limit"
             break
@@ -327,11 +306,13 @@ def _run_bounded_process(
         time.sleep(0.005)
 
     if terminal_reason is not None:
-        _terminate_process_tree(
+        cleanup_confirmed = _terminate_process_tree(
             process,
             environment=environment,
             grace_ms=limits.termination_grace_ms,
         )
+    else:
+        cleanup_confirmed = True
 
     for thread in threads:
         thread.join(timeout=1)
@@ -343,6 +324,30 @@ def _run_bounded_process(
     for thread in threads:
         if thread.is_alive():
             thread.join(timeout=0.1)
+
+    return_code: int | None = None
+    try:
+        observed_return_code = process.returncode
+        if observed_return_code is not None:
+            return_code = int(observed_return_code)
+    except Exception:
+        return_code = None
+
+    close = getattr(process, "close", None)
+    handles_closed = True
+    if callable(close):
+        try:
+            handles_closed = bool(close(close_streams=False))
+        except Exception:
+            handles_closed = False
+
+    if (
+        not cleanup_confirmed
+        or not handles_closed
+        or any(thread.is_alive() for thread in threads)
+        or return_code is None
+    ):
+        raise RunnerProcessFailed("runner_cleanup_unconfirmed")
 
     if terminal_reason is None and stdout_overflow.is_set():
         terminal_reason = "runner_stdout_limit"
@@ -357,7 +362,7 @@ def _run_bounded_process(
         raise RunnerOutputLimitExceeded(terminal_reason)
 
     return _ProcessCapture(
-        return_code=process.returncode,
+        return_code=return_code,
         stdout=bytes(stdout),
         stderr=bytes(stderr),
     )

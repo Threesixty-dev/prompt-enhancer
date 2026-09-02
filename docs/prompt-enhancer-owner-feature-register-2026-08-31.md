@@ -31,9 +31,9 @@ No status means “probably works.” Unknown evidence remains pending.
 
 | ID | Required owner-visible behavior | Acceptance boundary | Owner checkpoint | Current state |
 | --- | --- | --- | --- | --- |
-| APP-01 | Starting Prompt Enhancer opens one application instance and exactly one loopback listener. | Repeated launch, reload, shutdown and listener-collision tests; no recursive window creation. | Release-01a/01b | Hidden Release-01a.1, 01a.2a and 01a.2b reloads are green; repeated and packaged proof pending |
-| APP-02 | Model, command, MCP and helper processes never flash terminal windows. | Hidden-process integration tests plus a real Windows process/window census. | Store-07c, Acceptance-01, Release-01b | Pending final proof |
-| APP-03 | Shutdown stops every owned listener, model, command and MCP descendant or reports cleanup uncertainty truthfully. | Normal, crash, timeout and forced-stop census; zero silently orphaned owned processes. | Store-07c, Release-01a | Pending |
+| APP-01 | Starting Prompt Enhancer opens one application instance and exactly one loopback listener. | Repeated launch, reload, shutdown and listener-collision tests; no recursive window creation. | Release-01a/01b | Automated through Release-01a.3: hidden startup and listener-collision proof is green; packaged install/update proof remains pending |
+| APP-02 | Model, command, MCP and helper processes never flash terminal windows. | Hidden-process integration tests plus a real Windows process/window census. | Store-07c, Acceptance-01, Release-01b | Automated Release-01a.3 source-policy, hidden-owned-helper and live server-tree proof is green; packaged owner review remains pending |
+| APP-03 | Shutdown stops every owned listener, model, command and MCP descendant or reports cleanup uncertainty truthfully. | Normal, crash, timeout and forced-stop census; zero silently orphaned owned processes. | Store-07c, Release-01a | Automated Release-01a.3 proof is complete for every owned runtime/helper path; packaged updater/relaunch proof remains pending |
 | APP-04 | Reload restores durable state without pretending interrupted operations completed. | Supported-schema migrations and restart reconciliation for projects, chats, downloads, artifacts and MCP operations. | Release-01a | Automated complete through Release-01a.2b: exact migrations plus download, artifact, MCP-call/package and controller restart reconciliation are green; owner continuity review queued |
 | APP-05 | Navigation, page titles and back/forward behavior preserve the exact selected project and chat. | Route-state, stale-response and direct-link tests at narrow and desktop widths. | Sweep-01a/01b | Automated route and accessibility matrices complete; owner route review pending |
 
@@ -156,11 +156,13 @@ The remaining dependency-ordered trajectory is:
 6. **Release-01a.2b — automated complete:** interrupted downloads, artifact
    projection, MCP work and controller ownership reconcile without invented
    success; full backend/frontend/privacy/build and hidden reload gates pass.
-7. **Owner-selected Agent composer and entry checkpoints, then Release-01a.3–01b:**
-   model/context/media/send controls now live inside the focused composer, and
-   workspace chats open model-neutral before an explicit in-chat model choice;
-   next prove process cleanup, packaged Windows parity and the connected owner
-   journey.
+7. **Owner-selected Agent composer and Release-01a.3 — automated complete:**
+   model/context/media/send controls live inside the focused composer, workspace
+   chats open model-neutral, and every owned process path now has bounded,
+   exact cleanup evidence; owner-native review remains queued.
+8. **Release-01b.1–01b.3 — next:** implement the signed, versioned update
+   channel and sidebar state, then reviewed apply/relaunch/rollback and final
+   packaged Windows parity.
 
 Completed checkpoints remain regression obligations throughout this sequence.
 A failing current test reopens the owning behavior; it is never dismissed merely

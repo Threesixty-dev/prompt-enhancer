@@ -17,12 +17,17 @@ from time import monotonic
 from types import MappingProxyType
 from typing import Callable, Mapping
 
+from ...application.owned_process import (
+    OwnedProcess,
+    process_tree_exited,
+    start_owned_process,
+    terminate_owned_process,
+)
 from .compatibility import (
     ModelCompatibilityCatalog,
     ModelRuntimeInventory,
     build_model_compatibility_catalog,
     cached_runtime_inventory,
-    _terminate_accelerator_probe_process_tree as _terminate_evaluation_process_tree,
 )
 from .loader import repository_root
 
@@ -189,6 +194,38 @@ def _child_environment(root: Path) -> dict[str, str]:
     return allowed
 
 
+def _start_model_evaluation_process(
+    command: list[str],
+    *,
+    root: Path,
+    environment: dict[str, str],
+) -> OwnedProcess:
+    return start_owned_process(
+        command,
+        cwd=root,
+        env=environment,
+        capture_stdout=True,
+        capture_stderr=False,
+        maximum_active_processes=32,
+    )
+
+
+def _close_model_evaluation_process(process: object) -> bool:
+    close = getattr(process, "close", None)
+    if callable(close):
+        try:
+            return bool(close())
+        except Exception:
+            return False
+    stdout = getattr(process, "stdout", None)
+    if stdout is not None:
+        try:
+            stdout.close()
+        except (OSError, ValueError):
+            return False
+    return True
+
+
 def run_model_evaluation_subprocess(
     request: ModelEvaluationRequest,
     *,
@@ -213,9 +250,6 @@ def run_model_evaluation_subprocess(
         command.append("--smoke")
     if request.allow_download:
         command.append("--download")
-    creation_flags = (
-        getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    ) if os.name == "nt" else 0
     process = None
     reader = None
     captured = bytearray()
@@ -237,17 +271,10 @@ def run_model_evaluation_subprocess(
             read_finished.set()
 
     try:
-        process = subprocess.Popen(
+        process = _start_model_evaluation_process(
             command,
-            cwd=root,
-            env=_child_environment(root),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            bufsize=0,
-            shell=False,
-            creationflags=creation_flags,
-            start_new_session=os.name != "nt",
+            root=root,
+            environment=_child_environment(root),
         )
         reader = Thread(target=read_bounded, name="model-evaluation-output", daemon=True)
         reader.start()
@@ -259,34 +286,54 @@ def run_model_evaluation_subprocess(
                 raise ModelEvaluationError("model evaluation output exceeded bound")
             if read_failed.is_set():
                 raise ModelEvaluationError("model evaluation output invalid")
-            if read_finished.is_set() and process.poll() is not None:
+            if read_finished.is_set() and process_tree_exited(process):
                 break
             if monotonic() >= deadline:
                 raise ModelEvaluationError("model evaluation timed out")
             cancellation.wait(0.05)
     except BaseException:
-        cleanup_confirmed = process is None or _terminate_evaluation_process_tree(process)
+        cleanup_confirmed = process is None
+        if process is not None:
+            cleanup_confirmed = terminate_owned_process(
+                process,
+                graceful_timeout=1.0,
+                forced_timeout=1.0,
+            )
         if reader is not None and reader.ident is not None:
             reader.join(timeout=1)
             cleanup_confirmed = not reader.is_alive() and cleanup_confirmed
+        if process is not None:
+            cleanup_confirmed = (
+                _close_model_evaluation_process(process) and cleanup_confirmed
+            )
         if not cleanup_confirmed:
             raise ModelEvaluationCleanupError("model_evaluation_cleanup_unconfirmed") from None
         raise
-    finally:
-        if process is not None and process.stdout is not None:
-            process.stdout.close()
     if reader is not None:
         reader.join(timeout=1)
+    if process is None or reader is None or reader.is_alive():
+        raise ModelEvaluationCleanupError("model_evaluation_cleanup_unconfirmed")
+    return_code = process.returncode
+    try:
+        cleanup_confirmed = process_tree_exited(process)
+    except Exception:
+        cleanup_confirmed = False
+    if (
+        not cleanup_confirmed
+        or not _close_model_evaluation_process(process)
+        or return_code is None
+    ):
+        raise ModelEvaluationCleanupError("model_evaluation_cleanup_unconfirmed")
     try:
         payload = json.loads(captured.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise ModelEvaluationError("model evaluation output invalid") from None
     if not isinstance(payload, dict):
         raise ModelEvaluationError("model evaluation output invalid")
-    if process.returncode not in {0, 2} or (
-        process.returncode == 0 and payload.get("status") != "completed"
+    if return_code not in {0, 2} or (
+        return_code == 0 and payload.get("status") != "completed"
     ) or (
-        process.returncode == 2 and payload.get("status") not in {"not_completed", "completed_with_failures"}
+        return_code == 2 and payload.get("status") not in {"not_completed", "completed_with_failures"}
     ):
         raise ModelEvaluationError("model evaluation output invalid")
     return payload
