@@ -79,6 +79,7 @@ EGRESS_REGISTRY: tuple[EgressRegistration, ...] = (
     # an owner-controlled release origin and Ed25519 public key are packaged.
     # Even after composition, only an authenticated same-origin click calls it.
     EgressRegistration(module="prompt_enhancer.infrastructure.updates.https_manifest_source", egress_class=EgressClass.SIGNED_UPDATE_ADVISORY, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="signed_release_manifest_uncomposed"),
+    EgressRegistration(module="prompt_enhancer.infrastructure.updates.https_artifact_source", egress_class=EgressClass.SIGNED_UPDATE_ADVISORY, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="signed_release_artifact_uncomposed"),
     EgressRegistration(module="prompt_enhancer.infrastructure.estimator_runners.codex", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="bounded_child_cli_runner_uncomposed"),
     # Shared team folders (ADR 0018): the peer client dials exactly the URL the
     # person typed when joining a teammate's folder; the share action on the

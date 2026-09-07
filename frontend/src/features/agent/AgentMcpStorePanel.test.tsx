@@ -1184,7 +1184,9 @@ describe("AgentMcpStorePanel", () => {
     const applyMcpManagedLifecycle = vi.fn()
       .mockResolvedValueOnce(installedReceipt)
       .mockResolvedValueOnce(removedReceipt);
+    const onAcceptanceEvidence = vi.fn();
     render(<AgentMcpStorePanel
+      onAcceptanceEvidence={onAcceptanceEvidence}
       transport={{
         applyMcpManagedLifecycle,
         getMcpManagedLifecyclePreview,
@@ -1230,6 +1232,10 @@ describe("AgentMcpStorePanel", () => {
         preview_digest: installPreview.preview_digest,
       }),
     );
+    expect(onAcceptanceEvidence).toHaveBeenNthCalledWith(1, {
+      kind: "lifecycle",
+      receipt: installedReceipt,
+    });
     expect(await screen.findByText("Verify the installed tree still matches its retained digest")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Remove local package" }));
     expect(await screen.findByText(/verified local package removed through digest-bound quarantine/i)).toBeVisible();
@@ -1242,6 +1248,10 @@ describe("AgentMcpStorePanel", () => {
         preview_digest: uninstallPreview.preview_digest,
       }),
     );
+    expect(onAcceptanceEvidence).toHaveBeenNthCalledWith(2, {
+      kind: "lifecycle",
+      receipt: removedReceipt,
+    });
   });
 
   it("shows and completes an exact interrupted local-package recovery", async () => {
@@ -1422,7 +1432,9 @@ describe("AgentMcpStorePanel", () => {
       preview_digest: preview.preview_digest,
     });
     const cleanupMcpManagedLocalRollback = vi.fn().mockResolvedValue(receipt);
+    const onAcceptanceEvidence = vi.fn();
     render(<AgentMcpStorePanel
+      onAcceptanceEvidence={onAcceptanceEvidence}
       transport={{
         cleanupMcpManagedLocalRollback,
         getMcpManagedLocalRollbackCleanupPreview: vi.fn().mockResolvedValue(preview),
@@ -1447,6 +1459,10 @@ describe("AgentMcpStorePanel", () => {
         preview_digest: preview.preview_digest,
       }),
     );
+    expect(onAcceptanceEvidence).toHaveBeenCalledWith({
+      kind: "rollback_cleanup",
+      receipt,
+    });
     expect(screen.queryByRole("heading", { name: "Retained rollback generation" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Verified local package" })).toBeVisible();
   });

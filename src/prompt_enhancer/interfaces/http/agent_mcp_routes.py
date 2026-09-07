@@ -187,6 +187,8 @@ def _management_error(error: AgentMcpConnectionError) -> HTTPException:
         "agent_mcp_scope_project_unavailable",
         "agent_mcp_rotation_replay_stale",
         "agent_mcp_rotation_request_conflict",
+        "agent_mcp_tool_activity_exhausted",
+        "agent_mcp_tool_activity_stale",
         "too_many_agent_mcp_connections",
     }:
         status = 409
@@ -417,26 +419,58 @@ def create_agent_mcp_router(
             principal,
         )
         tool_activity_name = _tool_activity_name(message, surface)
-        reply = await run_in_threadpool(
-            handle_message,
-            surface,
-            message,
-            version=__version__,
-            server_name=AGENT_MCP_SERVER_NAME,
-            instructions=AGENT_MCP_INSTRUCTIONS,
-        )
+        tool_activity_source = _tool_activity_source(request)
+        tool_activity_sequence: int | None = None
         if tool_activity_name is not None:
             try:
-                service.record_tool_call(
+                tool_activity_sequence = service.begin_tool_call(
                     principal.connection_id,
+                    credential_revision=principal.credential_revision,
+                    tool_name=tool_activity_name,
+                    source=tool_activity_source,
+                )
+            except AgentMcpConnectionError as error:
+                # An unsequenced tool call could be hidden between acceptance
+                # observations. Fail before dispatch rather than execute an
+                # action that the content-free controller ledger cannot order.
+                raise _management_error(error) from None
+        try:
+            reply = await run_in_threadpool(
+                handle_message,
+                surface,
+                message,
+                version=__version__,
+                server_name=AGENT_MCP_SERVER_NAME,
+                instructions=AGENT_MCP_INSTRUCTIONS,
+            )
+        except Exception:
+            if tool_activity_name is not None and tool_activity_sequence is not None:
+                try:
+                    service.finish_tool_call(
+                        principal.connection_id,
+                        credential_revision=principal.credential_revision,
+                        sequence=tool_activity_sequence,
+                        tool_name=tool_activity_name,
+                        outcome="failed",
+                        source=tool_activity_source,
+                    )
+                except AgentMcpConnectionError:
+                    pass
+            raise
+        if tool_activity_name is not None and tool_activity_sequence is not None:
+            try:
+                service.finish_tool_call(
+                    principal.connection_id,
+                    credential_revision=principal.credential_revision,
+                    sequence=tool_activity_sequence,
                     tool_name=tool_activity_name,
                     outcome=_tool_activity_outcome(reply),
-                    source=_tool_activity_source(request),
+                    source=tool_activity_source,
                 )
             except AgentMcpConnectionError:
-                # The tool may already have changed state. Activity metadata is
-                # intentionally best-effort and must never turn a settled call
-                # into an ambiguous retry opportunity.
+                # The call may have settled while native code rotated or
+                # revoked its credential. Preserve the tool response, but keep
+                # the admitted cursor incomplete so acceptance cannot pass.
                 pass
         if reply is None:
             return Response(status_code=202, headers=_private_headers(protocol=True))

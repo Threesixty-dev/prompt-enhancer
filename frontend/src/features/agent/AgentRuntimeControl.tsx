@@ -909,6 +909,11 @@ export function AgentRuntimeControl({
   if (!available) {
     return (
       <section className={`agent-runtime${variant === "composer" ? " agent-runtime--composer" : ""}`} data-state="unavailable">
+        {variant === "composer" && (
+          <span aria-live="polite" className="sr-only" data-agent-runtime-announcer="true">
+            Model runtime unavailable. Update the local app to use coordinated model and context controls.
+          </span>
+        )}
         <strong>Model runtime</strong>
         <small>Update the local app to use coordinated placement and context controls here.</small>
       </section>
@@ -1058,6 +1063,9 @@ export function AgentRuntimeControl({
         data-state={runtime?.state ?? "loading"}
         id="agent-runtime-controls"
       >
+        <span aria-live="polite" className="sr-only" data-agent-runtime-announcer="true">
+          {compactModelName}. {compactContextLabel}. {compactSelectionState}.
+        </span>
         <details className="agent-runtime__composer-disclosure" ref={composerDetailsRef}>
           <summary
             aria-label={`Model and context settings. ${compactModelName}. ${compactContextLabel}. ${compactSelectionState}.`}
@@ -1087,7 +1095,7 @@ export function AgentRuntimeControl({
                 <strong>Choose model &amp; context</strong>
               </span>
               <span className="agent-runtime__composer-panel-actions">
-                <span className="agent-runtime__state">{compactRuntimeState}</span>
+                <span className="agent-runtime__state">Runtime {compactRuntimeState.toLowerCase()}</span>
                 <button
                   aria-label="Close model and context settings"
                   className="button button--ghost agent-runtime__composer-close"

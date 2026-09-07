@@ -70,4 +70,3 @@ prompt itself already has. The read tools are unchanged; there is still no
 generic query and no transcript access. When the dashboard server is running
 the MCP process forwards the check to it so the active local model's commentary
 is included; otherwise the deterministic cues are returned alone.
-

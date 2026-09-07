@@ -98,7 +98,18 @@ export type RemoteRepoFiles = Schemas["RemoteRepoFiles"];
 export type ScanFolderResult = Schemas["ScanFolderResult"];
 export type ApplicationUpdateState = Schemas["ApplicationUpdateState"];
 export type ApplicationUpdateReason = Schemas["ApplicationUpdateReason"];
-export type ApplicationUpdateStatus = Schemas["ApplicationUpdateStatus"];
+export type ApplicationUpdateVerificationCode = NonNullable<Schemas["ApplicationUpdateStatus"]["verification_code"]>;
+export type ApplicationUpdatePackageReview = Required<Schemas["PackageReview"]>;
+export type ApplicationUpdatePackageReviewState = ApplicationUpdatePackageReview["state"];
+export type ApplicationUpdatePackageReviewReason = NonNullable<ApplicationUpdatePackageReview["reason_code"]>;
+export type ApplicationUpdateStatus = Omit<Required<Schemas["ApplicationUpdateStatus"]>, "package_review"> & {
+  package_review: ApplicationUpdatePackageReview;
+};
+export type ApplicationUpdateAction = "check" | "stage" | "cancel" | "retry" | "verify";
+export interface ApplicationUpdateMutationRequest {
+  expected_revision: number;
+  expected_instance_id: string;
+}
 
 /** One turn sent to a local model's loopback endpoint (OpenAI chat shape). */
 export type LocalModelChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -287,11 +298,24 @@ export interface AgentMcpConnection {
   scope: AgentMcpConnectionScope;
   state: AgentMcpConnectionState;
 }
+export interface AgentMcpToolActivitySequence {
+  contract_version: "agent-mcp-tool-activity-sequence.v1";
+  connection_id: string;
+  credential_revision: number;
+  sequence: number;
+  tool_name: string | null;
+  tool_source: AgentMcpToolSource | null;
+  started_at: string | null;
+  completed_at: string | null;
+  outcome: AgentMcpToolOutcome | null;
+}
 export interface AgentMcpConnectionList {
-  contract_version: "agent-mcp-management.v1";
+  contract_version: "agent-mcp-management.v2";
+  activity_epoch: string;
   connections: AgentMcpConnection[];
   active_count: number;
   controller_ownerships: AgentControllerOwnershipList;
+  tool_activity_sequences: AgentMcpToolActivitySequence[];
 }
 export interface CreateAgentMcpConnection {
   request_id: string;
@@ -2578,6 +2602,26 @@ export interface PromptEnhancerTransport {
   ): Promise<ApplicationUpdateStatus>;
   /** Explicit UI-gesture advisory check; never downloads or installs bytes. */
   checkApplicationUpdate?(
+    request: ApplicationUpdateMutationRequest,
+    signal?: AbortSignal,
+  ): Promise<ApplicationUpdateStatus>;
+  /** Explicit UI-gesture staging action; does not apply or install the package. */
+  stageApplicationUpdate?(
+    request: ApplicationUpdateMutationRequest,
+    signal?: AbortSignal,
+  ): Promise<ApplicationUpdateStatus>;
+  /** Explicit UI-gesture cancellation of an active local staging operation. */
+  cancelApplicationUpdate?(
+    request: ApplicationUpdateMutationRequest,
+    signal?: AbortSignal,
+  ): Promise<ApplicationUpdateStatus>;
+  /** Explicit retry of a failed local update operation. */
+  retryApplicationUpdate?(
+    request: ApplicationUpdateMutationRequest,
+    signal?: AbortSignal,
+  ): Promise<ApplicationUpdateStatus>;
+  verifyApplicationUpdate?(
+    request: ApplicationUpdateMutationRequest,
     signal?: AbortSignal,
   ): Promise<ApplicationUpdateStatus>;
   /**

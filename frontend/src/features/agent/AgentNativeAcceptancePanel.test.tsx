@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -6,9 +7,9 @@ import type {
   AgentSessionView,
   LocalRuntimeCoordinatorStatus,
 } from "../../shared/api/contracts";
-import { AgentNativeAcceptancePanel } from "./AgentNativeAcceptancePanel";
+import { AgentNativeAcceptancePanel, type NativeAcceptanceRun } from "./AgentNativeAcceptancePanel";
 import { AGENT_LEGACY_PARITY, AGENT_PARITY_SUMMARY } from "./agentReleaseParity";
-import { exampleAgentTurn } from "./agentTurnFixtures.test-support";
+import { exampleAgentTurn, exampleWriteReceipt } from "./agentTurnFixtures.test-support";
 
 const SESSION = "a".repeat(32);
 
@@ -87,10 +88,11 @@ function runtime(
     gpu_memory_free_after_mb: null,
     gpu_memory_released_mb: null,
   },
+  alias = "synthetic-model",
 ): LocalRuntimeCoordinatorStatus {
   const served = state === "ready";
   const selection = {
-    alias: "synthetic-model",
+    alias,
     device: gpuLayers > 0 ? "gpu" as const : "cpu" as const,
     gpu_layers: gpuLayers,
     context_size: 8192,
@@ -159,6 +161,47 @@ function doneEvents(): AgentEvent[] {
   ];
 }
 
+function coreLoopEvents(): AgentEvent[] {
+  return [
+    ...doneEvents(),
+    {
+      seq: 3,
+      at: "2040-01-01T10:03:00Z",
+      kind: "tool_result",
+      attachments: [],
+      tool: "write_file",
+      call_id: "1".repeat(32),
+      ok: true,
+      tool_state: "succeeded",
+      write_receipt: exampleWriteReceipt(),
+      execution_receipt: {
+        contract_version: "agent-tool-execution.v1",
+        elapsed_ms: 125,
+        timing_source: "server_monotonic.v1",
+        approval_state: "approved",
+        evidence_state: "verified_workspace_effect",
+      },
+    },
+    {
+      seq: 4,
+      at: "2040-01-01T10:04:00Z",
+      kind: "tool_result",
+      attachments: [],
+      tool: "run_command",
+      call_id: "2".repeat(32),
+      ok: true,
+      tool_state: "succeeded",
+      execution_receipt: {
+        contract_version: "agent-tool-execution.v1",
+        elapsed_ms: 250,
+        timing_source: "server_monotonic.v1",
+        approval_state: "approved",
+        evidence_state: "untracked_external_effect",
+      },
+    },
+  ];
+}
+
 const START_RECEIPT = {
   contract_version: "agent-native-acceptance-start.v1",
   owner_presence_confirmed: true,
@@ -190,7 +233,7 @@ describe("AgentNativeAcceptancePanel", () => {
     expect(getLocalRuntime).not.toHaveBeenCalled();
   });
 
-  it("records a CPU lifecycle only after explicit checks and never owns runtime actions", async () => {
+  it("does not mistake a partial CPU lifecycle for the complete packaged core loop", async () => {
     let currentRuntime = runtime("idle", 1);
     let currentSession = session();
     let events: AgentEvent[] = [];
@@ -255,10 +298,10 @@ describe("AgentNativeAcceptancePanel", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Check current evidence" }));
 
-    await screen.findByText(/in-window lifecycle check is complete/i);
+    await screen.findByText(/approved workspace write/i);
     expect(within(screen.getByText("Unload and process exit").closest("li")!).getByText("Passed")).toBeInTheDocument();
     expect(screen.getByText("CPU · not required")).toBeInTheDocument();
-    expect(screen.getByText("Complete")).toBeInTheDocument();
+    expect(screen.queryByText("Complete")).not.toBeInTheDocument();
   });
 
   it("withholds GPU cleanup and completion when measurement is unknown", async () => {
@@ -302,31 +345,42 @@ describe("AgentNativeAcceptancePanel", () => {
     expect(screen.queryByText("Complete")).not.toBeInTheDocument();
   });
 
-  it("accepts measured GPU release only after the served runtime is observed unloading", async () => {
+  it("completes only after restart, workspace, approved tools, artifact, switch, and final GPU unload evidence", async () => {
     let currentRuntime = runtime("idle", 20);
-    let currentSession = session();
+    let currentSession = session({ recovered: true, recovery_state: "recovered" });
     let events: AgentEvent[] = [];
+    let artifactViewRevision = 0;
     const transport = {
       beginAgentNativeAcceptance: vi.fn(async () => START_RECEIPT),
       getAgentChangeSet: vi.fn(async () => ({} as never)),
+      getAgentWorkspaceTree: vi.fn(async () => ({} as never)),
       getLocalRuntime: vi.fn(async () => currentRuntime),
     };
     const rendered = render(
-      <AgentNativeAcceptancePanel current={currentSession} events={events} onRuntimeStatus={vi.fn()} reviewOpen transport={transport} userPresenceAvailable />,
+      <AgentNativeAcceptancePanel artifactViewRevision={artifactViewRevision} current={currentSession} events={events} onRuntimeStatus={vi.fn()} reviewOpen transport={transport} userPresenceAvailable />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Begin guarded acceptance" }));
     await screen.findByRole("button", { name: "Check current evidence" });
 
     currentRuntime = runtime("ready", 21, 24);
-    currentSession = session({ turns: 2, last_seq: 2 });
-    events = doneEvents();
+    currentSession = session({ recovered: true, recovery_state: "recovered", turns: 2, last_seq: 4 });
+    events = coreLoopEvents();
+    artifactViewRevision = 1;
     rendered.rerender(
-      <AgentNativeAcceptancePanel current={currentSession} events={events} onRuntimeStatus={vi.fn()} reviewOpen transport={transport} userPresenceAvailable />,
+      <AgentNativeAcceptancePanel artifactViewRevision={artifactViewRevision} current={currentSession} events={events} onRuntimeStatus={vi.fn()} reviewOpen transport={transport} userPresenceAvailable />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Check current evidence" }));
     await waitFor(() => expect(screen.getByText("Verified model startup").closest("li")).toHaveAttribute("data-state", "passed"));
 
-    currentRuntime = runtime("idle", 22, 0, {
+    currentRuntime = runtime("ready", 22, 24, undefined, "synthetic-second-model");
+    rendered.rerender(
+      <AgentNativeAcceptancePanel artifactViewRevision={artifactViewRevision} current={currentSession} events={events} onRuntimeStatus={vi.fn()} reviewOpen transport={transport} userPresenceAvailable />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Check current evidence" }));
+    await waitFor(() => expect(screen.getByText("Second model became ready").closest("li")).toHaveAttribute("data-state", "passed"));
+    expect(screen.queryByText("Complete")).not.toBeInTheDocument();
+
+    currentRuntime = runtime("idle", 23, 0, {
       state: "measured",
       process_exit_confirmed: true,
       gpu_memory_free_before_mb: 1024,
@@ -334,11 +388,11 @@ describe("AgentNativeAcceptancePanel", () => {
       gpu_memory_released_mb: 512,
     });
     rendered.rerender(
-      <AgentNativeAcceptancePanel current={currentSession} events={events} onRuntimeStatus={vi.fn()} reviewOpen transport={transport} userPresenceAvailable />,
+      <AgentNativeAcceptancePanel artifactViewRevision={artifactViewRevision} current={currentSession} events={events} onRuntimeStatus={vi.fn()} reviewOpen transport={transport} userPresenceAvailable />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Check current evidence" }));
 
-    await screen.findByText(/in-window lifecycle check is complete/i);
+    await screen.findByText(/packaged Agent core-loop evidence is complete/i);
     expect(screen.getByText("Measured")).toBeInTheDocument();
   });
 
@@ -405,6 +459,46 @@ describe("AgentNativeAcceptancePanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Begin guarded acceptance" }));
     await screen.findByText(/no acceptance run, model, process, or workspace action was started/i);
     expect(getLocalRuntime).not.toHaveBeenCalled();
+  });
+
+  it("keeps the page-owned receipt when the Settings surface closes and reopens", async () => {
+    const transport = {
+      beginAgentNativeAcceptance: vi.fn(async () => START_RECEIPT),
+      getLocalRuntime: vi.fn(async () => runtime("idle", 40)),
+    };
+
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      const [run, setRun] = useState<NativeAcceptanceRun | null>(null);
+      return (
+        <>
+          <button onClick={() => setOpen((value) => !value)} type="button">Toggle settings</button>
+          {open && (
+            <AgentNativeAcceptancePanel
+              acceptanceRun={run}
+              current={session()}
+              events={[]}
+              onAcceptanceRunChange={setRun}
+              onRuntimeStatus={vi.fn()}
+              reviewOpen={false}
+              transport={transport}
+              userPresenceAvailable
+            />
+          )}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Begin guarded acceptance" }));
+    await screen.findByRole("button", { name: "Check current evidence" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle settings" }));
+    expect(screen.queryByRole("region", { name: "Guarded native Agent acceptance" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle settings" }));
+
+    expect(screen.getByRole("button", { name: "Check current evidence" })).toBeVisible();
+    expect(transport.beginAgentNativeAcceptance).toHaveBeenCalledOnce();
   });
 
   it("freezes the complete retirement ledger and keeps known blockers explicit", () => {

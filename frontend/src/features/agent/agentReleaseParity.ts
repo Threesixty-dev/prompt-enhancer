@@ -12,6 +12,7 @@ export type AgentParityItem = Readonly<{
 export type AgentRequestedCapability = Readonly<{
   key: string;
   label: string;
+  evidenceBoundary: "contract" | "loopback";
   parityKeys: readonly AgentParityItem["key"][];
 }>;
 
@@ -53,19 +54,19 @@ export const AGENT_PARITY_SUMMARY = Object.freeze({
  * may depend on several independently verified safety capabilities.
  */
 export const AGENT_REQUESTED_CAPABILITIES: readonly AgentRequestedCapability[] = [
-  { key: "chat_lifecycle", label: "Create, browse, switch, close, rename, search, pin, archive, and restore chats", parityKeys: ["chat_catalog"] },
-  { key: "streaming", label: "Text chat, streaming responses, and Stop", parityKeys: ["streaming_stop"] },
-  { key: "reasoning", label: "Model-provided reasoning, progress, tool activity, and exact turn receipts", parityKeys: ["reasoning_tools"] },
-  { key: "workspace", label: "Create, view, edit, move, trash, diff, and review workspace files with protected approvals", parityKeys: ["workspace_review", "protected_approvals"] },
-  { key: "window", label: "Separate native chat window with one shared session lifecycle", parityKeys: ["separate_native_window"] },
-  { key: "projects", label: "Durable Agent projects and project/session database hierarchy", parityKeys: ["project_catalog", "chat_catalog"] },
-  { key: "restart", label: "Retained chats survive app restart without restoring mutation authority", parityKeys: ["retained_history"] },
-  { key: "markdown", label: "Safe rich Markdown, tables, workspace links, and fenced code rendering", parityKeys: ["reasoning_tools", "responsive_accessibility"] },
-  { key: "artifacts", label: "Versioned artifact/document cards, viewers, review, reveal, and download", parityKeys: ["artifacts"] },
-  { key: "media", label: "Capability-gated image, audio-file, and local recording input", parityKeys: ["multimodal"] },
-  { key: "runtime", label: "Reliable model switching, CPU/GPU placement, unload, and cleanup evidence", parityKeys: ["runtime"] },
-  { key: "context", label: "Exact-or-unknown context usage without invented estimates", parityKeys: ["context"] },
-  { key: "branching", label: "Session branching, forking, bounded export, and deletion cascades", parityKeys: ["session_branching", "retention_export"] },
-  { key: "controller", label: "Provider-neutral controller and MCP endpoint for Codex, Claude, and other local orchestrators", parityKeys: ["controller"] },
-  { key: "responsive", label: "Desktop, 320 px, keyboard, focus, forced-colors, and reduced-motion behavior", parityKeys: ["responsive_accessibility"] },
+  { key: "chat_lifecycle", label: "Create, browse, switch, close, rename, search, pin, archive, and restore chats", evidenceBoundary: "loopback", parityKeys: ["chat_catalog"] },
+  { key: "streaming", label: "Text chat, streaming responses, and Stop", evidenceBoundary: "loopback", parityKeys: ["streaming_stop"] },
+  { key: "reasoning", label: "Model-provided reasoning, progress, tool activity, and exact turn receipts", evidenceBoundary: "loopback", parityKeys: ["reasoning_tools"] },
+  { key: "workspace", label: "Create, view, edit, move, trash, diff, and review workspace files with protected approvals", evidenceBoundary: "loopback", parityKeys: ["workspace_review", "protected_approvals"] },
+  { key: "window", label: "Separate native chat window with one shared session lifecycle", evidenceBoundary: "contract", parityKeys: ["separate_native_window"] },
+  { key: "projects", label: "Durable Agent projects and project/session database hierarchy", evidenceBoundary: "loopback", parityKeys: ["project_catalog", "chat_catalog"] },
+  { key: "restart", label: "Retained chats survive app restart without restoring mutation authority", evidenceBoundary: "loopback", parityKeys: ["retained_history"] },
+  { key: "markdown", label: "Safe rich Markdown, tables, workspace links, and fenced code rendering", evidenceBoundary: "contract", parityKeys: ["reasoning_tools", "responsive_accessibility"] },
+  { key: "artifacts", label: "Versioned artifact/document cards, viewers, review, reveal, and download", evidenceBoundary: "loopback", parityKeys: ["artifacts"] },
+  { key: "media", label: "Capability-gated image, audio-file, and local recording input", evidenceBoundary: "loopback", parityKeys: ["multimodal"] },
+  { key: "runtime", label: "Reliable model switching, CPU/GPU placement, unload, and cleanup evidence", evidenceBoundary: "loopback", parityKeys: ["runtime"] },
+  { key: "context", label: "Exact-or-unknown context usage without invented estimates", evidenceBoundary: "loopback", parityKeys: ["context"] },
+  { key: "branching", label: "Session branching, forking, bounded export, and deletion cascades", evidenceBoundary: "loopback", parityKeys: ["session_branching", "retention_export"] },
+  { key: "controller", label: "Provider-neutral controller and MCP endpoint for Codex, Claude, and other local orchestrators", evidenceBoundary: "loopback", parityKeys: ["controller"] },
+  { key: "responsive", label: "Desktop, 320 px, keyboard, focus, forced-colors, and reduced-motion behavior", evidenceBoundary: "contract", parityKeys: ["responsive_accessibility"] },
 ] as const;

@@ -856,7 +856,7 @@ SYSTEM_PROMPT = (
     "You are a careful local coding agent working inside one workspace folder on the person's machine. "
     "Inspect before changing: list and read files, search, then make small verifiable changes and run the relevant tests or build. "
     "Use the tools for every file access and command; never invent file contents. Paths are relative to the workspace root. "
-    "Writes, commands and web fetches pause for the person's approval - if a call is denied, adapt instead of retrying it. "
+    "Every enabled protected action pauses for the person's approval - if a call is denied, adapt instead of retrying it. "
     "Documents are ordinary files: write Markdown (.md), notes, plans and reports with write_file like any other change. "
     "When citing an existing workspace file in reply text, use a Markdown link such as [app.py](workspace:src/app.py) so the person can open it; use a relative forward-slash path and never an absolute path. "
     "Use create_directory for one new folder, move_directory for a no-overwrite folder rename or move, move_file for a no-overwrite file rename or move, and trash_file for a recoverable single-file removal; do not emulate those operations with shell commands. Never permanently delete a file or directory. "
@@ -1449,6 +1449,8 @@ class LocalAgentService:
         return record.model_copy(update={"conversation_available": available})
 
     def _workspace_tools(self, settings: AgentSettings) -> tuple[WorkspaceTools, Path]:
+        if settings.allow_web and self._fetcher is None:
+            raise LocalAgentError("web_fetch_unavailable")
         root = Path(settings.workspace).expanduser()
         if not root.is_absolute() or not root.is_dir():
             raise LocalAgentError("workspace_not_a_folder")
@@ -1841,7 +1843,7 @@ class LocalAgentService:
                 with self._lock:
                     self._sessions.pop(session_id, None)
                 raise LocalAgentError(error.code) from None
-        self._emit(session, "status", text=f"Session ready in {root.name}/ - reads are free; writes, commands and fetches wait for your approval.")
+        self._emit(session, "status", text=f"Session ready in {root.name}/ - reads are free; every enabled protected action waits for separate approval.")
         if session.history_write_failed:
             with self._lock:
                 self._sessions.pop(session_id, None)

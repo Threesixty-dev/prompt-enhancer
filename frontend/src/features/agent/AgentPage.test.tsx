@@ -1,7 +1,8 @@
 import { act, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentArtifact, AgentArtifactPage, AgentArtifactPageQuery, AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentHistoryExport, AgentMessageAttachment, AgentProject, AgentSessionView, AgentSettings, AgentWorkspaceTree, ForkAgentSession, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckRequest, PromptCheckResult, UpdateAgentCatalogSession } from "../../shared/api/contracts";
+import type { AgentArtifact, AgentArtifactPage, AgentArtifactPageQuery, AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentHistoryExport, AgentMcpConnection, AgentMcpConnectionList, AgentMessageAttachment, AgentProject, AgentSessionView, AgentSettings, AgentWorkspaceTree, ForkAgentSession, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckRequest, PromptCheckResult, UpdateAgentCatalogSession } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { exampleAgentOrchestrationManifest } from "../../shared/api/agentOrchestrationFixtures.test-support";
 import { syntheticMcpManagedProjectRuntime } from "../../shared/api/mcpManagedRuntime.test-support";
 import {
   syntheticMcpManagedProbeReceipt,
@@ -3716,6 +3717,7 @@ describe("AgentPage", () => {
       targetLookup.resolve(target);
       const keepDialog = await screen.findByRole("dialog", { name: "Discard workspace changes?" });
       fireEvent.click(within(keepDialog).getByRole("button", { name: "Keep current state" }));
+      fireEvent.click(screen.getByText("Chat details", { exact: true }));
       expect(screen.getByText("D:\\example\\project")).toBeVisible();
       expect(editor).toHaveValue("Synthetic unsaved edit.\n");
       expect(acknowledgements).toEqual([]);
@@ -4369,7 +4371,7 @@ describe("AgentPage", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("keeps protected scopes off while checking, then enables explicit choices only", async () => {
+  it("keeps protected scopes off while checking, enables supported choices, and hard-disables web", async () => {
     let resolveCapability!: (value: ReturnType<typeof userPresenceCapability>) => void;
     const capability = new Promise<ReturnType<typeof userPresenceCapability>>((resolve) => {
       resolveCapability = resolve;
@@ -4393,17 +4395,16 @@ describe("AgentPage", () => {
     await waitFor(() => expect(screen.getByLabelText(/May write files/i)).toBeEnabled());
     expect(screen.getByLabelText(/May write files/i)).not.toBeChecked();
     expect(screen.getByLabelText(/May run commands/i)).not.toBeChecked();
-    expect(screen.getByLabelText(/May fetch web pages/i)).not.toBeChecked();
+    expect(screen.getByLabelText(/Web fetch unavailable/i)).toBeDisabled();
 
     fireEvent.click(screen.getByLabelText(/May write files/i));
-    fireEvent.click(screen.getByLabelText(/May fetch web pages/i));
     fireEvent.click(screen.getByRole("button", { name: "Open chat without model" }));
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
     expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
       workspace: "D:\\example\\project",
       allow_writes: true,
       allow_commands: false,
-      allow_web: true,
+      allow_web: false,
     });
   });
 
@@ -4628,6 +4629,73 @@ describe("AgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide workspace" }));
     expect(screen.queryByRole("heading", { name: "Files and reviewed changes" })).toBeNull();
     expect(screen.getByLabelText("Message to the agent")).toHaveValue("Keep this synthetic draft");
+  }, 10_000);
+
+  it("keeps an active owner acceptance receipt when Settings closes and reopens", async () => {
+    const current = view({
+      recovered: true,
+      recovery_state: "recovered",
+      settings: {
+        ...view().settings,
+        retention_policy: "local_history",
+      },
+    });
+    const idleRuntime: LocalRuntimeCoordinatorStatus = {
+      ...runtimeCoordinator(MODEL_ALIAS, 41),
+      state: "idle",
+      requested: null,
+      served: null,
+      capabilities: {
+        ...runtimeCoordinator(MODEL_ALIAS, 41).capabilities,
+        state: "not_probed",
+        text: false,
+        tools: false,
+      },
+      context: {
+        ...runtimeCoordinator(MODEL_ALIAS, 41).context,
+        state: "unknown",
+        used_tokens: null,
+        limit_tokens: null,
+        requested_output_tokens: null,
+        available_output_tokens: null,
+        source: "runtime_limit_only",
+        scope: "runtime_limit",
+        policy: "runtime_enforced",
+        compacted_messages: 0,
+        reason_code: "runtime_not_served",
+      },
+    };
+    const beginAgentNativeAcceptance = vi.fn(async () => ({
+      contract_version: "agent-native-acceptance-start.v1" as const,
+      owner_presence_confirmed: true as const,
+      model_execution_started: false as const,
+      process_spawn_requested: false as const,
+      workspace_access_requested: false as const,
+      content_persisted: false as const,
+      expires_on_reload: true as const,
+    }));
+    const transport = {
+      ...sessionTransport(current),
+      beginAgentNativeAcceptance,
+      getLocalRuntime: vi.fn(async () => idleRuntime),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(true)),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const settingsTrigger = await screen.findByRole("button", { name: /Agent settings/ });
+    fireEvent.click(settingsTrigger);
+    fireEvent.click(screen.getByRole("tab", { name: "Owner checks" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Begin guarded acceptance" }));
+    await screen.findByRole("button", { name: "Check current evidence" });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Agent settings" })).toBeNull());
+    fireEvent.click(settingsTrigger);
+    fireEvent.click(screen.getByRole("tab", { name: "Owner checks" }));
+
+    expect(screen.getByRole("button", { name: "Check current evidence" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Begin guarded acceptance" })).toBeNull();
+    expect(beginAgentNativeAcceptance).toHaveBeenCalledOnce();
   }, 10_000);
 
   it("keeps or discards a dirty review drawer through the non-blocking dialog with focus return", async () => {
@@ -6208,7 +6276,7 @@ describe("AgentPage", () => {
     await waitFor(() => expect(screen.getByLabelText(/May write files/i)).not.toBeChecked());
     expect(screen.getByLabelText(/May write files/i)).toBeDisabled();
     expect(screen.getByLabelText(/May run commands/i)).toBeDisabled();
-    expect(screen.getByLabelText(/May fetch web pages/i)).toBeDisabled();
+    expect(screen.getByLabelText(/Web fetch unavailable/i)).toBeDisabled();
     expect(transport.decideAgentApproval).not.toHaveBeenCalled();
   });
 
@@ -6413,13 +6481,15 @@ describe("AgentPage", () => {
     };
     render(<AgentPage transport={transport} />);
 
-    expect(await screen.findByText("1 ready")).toBeVisible();
-    expect(getMcpManagedProjectRuntime).toHaveBeenCalledWith(projectId, expect.any(AbortSignal));
-    fireEvent.click(screen.getByText("Project tools"));
-    expect(screen.getByText("mcp_99999999_synthetic_read")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Manage in MCP Store" }));
-
+    fireEvent.click(await screen.findByRole("button", { name: "Project tools" }));
     const settings = await screen.findByRole("dialog", { name: "Agent settings" });
+    const projectTools = within(settings).getByText("Project tools");
+    fireEvent.click(projectTools);
+    expect(await within(settings).findByText("1 ready")).toBeVisible();
+    expect(getMcpManagedProjectRuntime).toHaveBeenCalledWith(projectId, expect.any(AbortSignal));
+    expect(within(settings).getByText("mcp_99999999_synthetic_read")).toBeVisible();
+    fireEvent.click(within(settings).getByRole("button", { name: "Manage in MCP Store" }));
+
     expect(within(settings).getByRole("tab", { name: "MCP Store" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(await within(settings).findByRole("tab", { name: "Managed servers" }));
     const managedRegion = await within(settings).findByRole("region", { name: "Managed MCP servers" });
@@ -6427,6 +6497,145 @@ describe("AgentPage", () => {
     const projectSelector = await within(settings).findByRole("combobox", { name: "Agent project" });
     await waitFor(() => expect(projectSelector).toHaveValue(projectId));
     expect(within(settings).getByText(/Editing the active chat project/)).toBeVisible();
+  });
+
+  it("keeps the trusted MCP acceptance receipt when Agent settings unmount the Store", async () => {
+    const projectId = "f".repeat(32);
+    const planned = syntheticMcpManagedServer({
+      option_label: "MCPB release",
+      registry_type: "mcpb",
+      package_identifier: "https://example.invalid/synthetic.mcpb",
+      runtime_hint: "node",
+      requirements: [],
+      revision: 2,
+      install_action: "available_native_confirmation_required",
+    });
+    const current = view({
+      settings: { ...view().settings, project_id: projectId },
+    });
+    const transport = {
+      ...sessionTransport(current),
+      listAgentProjects: vi.fn().mockResolvedValue({
+        contract_version: "agent-catalog.v2" as const,
+        projects: [catalogProjectFixture(projectId, "Synthetic project", 1)],
+      }),
+      listMcpManagedServers: vi.fn().mockResolvedValue(syntheticMcpManagedServerList([planned])),
+    };
+    render(<AgentPage transport={transport} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Project tools" }));
+    let settings = await screen.findByRole("dialog", { name: "Agent settings" });
+    fireEvent.click(within(settings).getByRole("tab", { name: "MCP Store" }));
+    fireEvent.click(await within(settings).findByRole("tab", { name: "Managed servers" }));
+    let managedRegion = await within(settings).findByRole("region", { name: "Managed MCP servers" });
+    fireEvent.click(within(managedRegion).getByRole("button", { name: /Synthetic Files/ }));
+    const proof = await within(settings).findByRole("region", { name: "Trusted MCP lifecycle acceptance" });
+    fireEvent.click(within(proof).getByRole("button", { name: "Begin trusted MCP proof" }));
+    expect(within(proof).getByText("In progress")).toBeVisible();
+
+    fireEvent.click(within(settings).getByRole("button", { name: "Close agent settings" }));
+    expect(screen.queryByRole("dialog", { name: "Agent settings" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Project tools" }));
+    settings = await screen.findByRole("dialog", { name: "Agent settings" });
+    fireEvent.click(within(settings).getByRole("tab", { name: "MCP Store" }));
+    fireEvent.click(await within(settings).findByRole("tab", { name: "Managed servers" }));
+    managedRegion = await within(settings).findByRole("region", { name: "Managed MCP servers" });
+    fireEvent.click(within(managedRegion).getByRole("button", { name: /Synthetic Files/ }));
+    const restoredProof = await within(settings).findByRole("region", { name: "Trusted MCP lifecycle acceptance" });
+    expect(within(restoredProof).getByText("In progress")).toBeVisible();
+    expect(within(restoredProof).getByText(/normal Install control/)).toBeVisible();
+  });
+
+  it("keeps the external-controller acceptance receipt when Agent settings unmount", async () => {
+    const projectId = "6".repeat(32);
+    const connectionId = "7".repeat(32);
+    const current = view({
+      settings: { ...view().settings, project_id: projectId },
+    });
+    const connection: AgentMcpConnection = {
+      contract_version: "agent-mcp-connection.v4",
+      connection_id: connectionId,
+      label: "Synthetic page-owned controller",
+      client_kind: "other",
+      created_at: "2040-01-01T10:00:00Z",
+      updated_at: "2040-01-01T10:00:00Z",
+      expires_at: "2040-04-01T10:00:00Z",
+      last_used_at: null,
+      last_tool_at: null,
+      last_tool_name: null,
+      last_tool_outcome: null,
+      last_tool_source: null,
+      last_auth_rejected_at: null,
+      revoked_at: null,
+      revision: 1,
+      credential_revision: 1,
+      allow_model_lifecycle: false,
+      scope: {
+        contract_version: "agent-mcp-scope.v1",
+        state: "bound",
+        project_id: projectId,
+        project_name: "Synthetic page-owned project",
+        catalog_access: "project_only",
+        chat_access: "project_only",
+        workspace_access: "project_only",
+        native_approval_inherited: false,
+      },
+      state: "active",
+    };
+    const connections: AgentMcpConnectionList = {
+      contract_version: "agent-mcp-management.v2",
+      activity_epoch: "f".repeat(32),
+      connections: [connection],
+      active_count: 1,
+      controller_ownerships: {
+        contract_version: "agent-controller-ownership-list.v1",
+        ownerships: [],
+        active_count: 0,
+      },
+      tool_activity_sequences: [{
+        contract_version: "agent-mcp-tool-activity-sequence.v1",
+        connection_id: connection.connection_id,
+        credential_revision: connection.credential_revision,
+        sequence: 0,
+        tool_name: null,
+        tool_source: null,
+        started_at: null,
+        completed_at: null,
+        outcome: null,
+      }],
+    };
+    const transport = {
+      ...sessionTransport(current),
+      getAgentOrchestration: vi.fn().mockResolvedValue(exampleAgentOrchestrationManifest()),
+      listAgentMcpConnections: vi.fn().mockResolvedValue(connections),
+      listAgentProjects: vi.fn().mockResolvedValue({
+        contract_version: "agent-catalog.v2" as const,
+        projects: [catalogProjectFixture(projectId, "Synthetic page-owned project", 1)],
+      }),
+    };
+    render(<AgentPage transport={transport} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Project tools" }));
+    let settings = await screen.findByRole("dialog", { name: "Agent settings" });
+    fireEvent.click(await within(settings).findByRole("button", {
+      name: "Begin external lifecycle proof",
+    }));
+    let proof = within(settings).getByRole("region", {
+      name: /External controller lifecycle/,
+    });
+    expect(within(proof).getByText("In progress")).toBeVisible();
+    expect(within(proof).getByText(/call only agent_discover/)).toBeVisible();
+
+    fireEvent.click(within(settings).getByRole("button", { name: "Close agent settings" }));
+    expect(screen.queryByRole("dialog", { name: "Agent settings" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Project tools" }));
+    settings = await screen.findByRole("dialog", { name: "Agent settings" });
+    proof = await within(settings).findByRole("region", {
+      name: /External controller lifecycle/,
+    });
+    expect(within(proof).getByText("In progress")).toBeVisible();
+    expect(within(settings).getByRole("button", { name: "Restart lifecycle proof" })).toBeVisible();
+    expect(within(proof).getByText(/clears on app reload/)).toBeVisible();
   });
 });
 

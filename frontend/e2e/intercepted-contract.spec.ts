@@ -1,5 +1,8 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+// This suite deliberately replaces application routes with bounded synthetic
+// fixtures. It proves browser/transport contracts, not a real backend journey.
+
 import {
   SYNTHETIC_CURRENT_SESSION_QUALITY_RUN,
   SYNTHETIC_QUALITY_PROJECT_ID,
@@ -198,19 +201,8 @@ for (const width of [360, 1440]) {
     test("Models HTTP chat recovers a " + ending + " reply at " + width + "px", async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await installLocalHttpFixture(page);
-      await page.route("**/v1/local-models", (route) => json(route, {
-        contract_version: "local-models.v1", runtime_available: true, storage_root: "D:/example/models",
-        downloads: [],
-        hardware: { gpu_name: null, gpu_memory_mb: null, gpu_memory_free_mb: null, ram_mb: 8192,
-          llama_server_path: "D:/example/runtime/llama-server.exe", llama_server_version: "example-v1" },
-        models: [{
-          record: { alias: "example-small-cpu", display_name: "Example Small CPU", format: "gguf",
-            path: "D:/example/models/example.gguf", context_size: 4096, default_device: "cpu",
-            added_at: "2040-01-01T00:00:00Z", provenance_verified: false },
-          runtime: { state: "running", device: "cpu" },
-          endpoint_path: "/v1/local-models/example-small-cpu/chat/completions",
-        }],
-      }));
+      await page.route("**/v1/local-models", (route) => json(route, localModelsOverviewFixture("example-small-cpu")));
+      await page.route("**/v1/local-models/runtime", (route) => json(route, readyRuntimeFixture("example-small-cpu")));
       const requests: { messages: { role: string; content: string }[]; stream: boolean }[] = [];
       await page.route("**/v1/local-models/example-small-cpu/chat/completions", async (route) => {
         expect(route.request().headers()["x-prompt-enhancer-csrf"]).toBe("synthetic-browser-csrf-token");
@@ -266,6 +258,130 @@ function integer(value: string | null, fallback: number): number {
   if (value === null) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isSafeInteger(parsed) ? parsed : fallback;
+}
+
+function localModelStatusFixture(
+  alias = "example-model",
+  displayName = "Example Small CPU",
+) {
+  return {
+    endpoint_path: `/v1/local-models/${alias}/chat/completions`,
+    record: {
+      added_at: "2040-01-01T00:00:00Z",
+      alias,
+      context_size: 8192,
+      default_device: "cpu" as const,
+      display_name: displayName,
+      format: "gguf",
+      path: `D:/example/models/${alias}.gguf`,
+      provenance_verified: false,
+    },
+    runtime: { state: "running" as const, device: "cpu" as const },
+    placement: {
+      contract_version: "local-model-placement.v1",
+      alias,
+      context_size: 8192,
+      gpu_memory_free_mb: null,
+      actual_offload_verified: false,
+      options: [
+        { device: "gpu", state: "blocked", reason_code: "accelerator_evidence_unavailable", recommended_gpu_layers: null, estimated_vram_required_mb: null },
+        { device: "split", state: "blocked", reason_code: "accelerator_evidence_unavailable", recommended_gpu_layers: null, estimated_vram_required_mb: null },
+        { device: "cpu", state: "available", reason_code: "cpu_available", recommended_gpu_layers: 0, estimated_vram_required_mb: 0 },
+      ],
+    },
+  };
+}
+
+function localModelsOverviewFixture(
+  alias = "example-model",
+  displayName = "Example Small CPU",
+) {
+  return {
+    contract_version: "local-models.v1",
+    runtime_available: true,
+    storage_root: "D:/example/models",
+    storage_free_bytes: 64 * 1024 ** 3,
+    download_reserve_bytes: 512 * 1024 ** 2,
+    download_ledger_error_code: null,
+    downloads: [],
+    hardware: {
+      gpu_name: null,
+      gpu_memory_mb: null,
+      gpu_memory_free_mb: null,
+      ram_mb: 8192,
+      llama_server_path: "D:/example/runtime/llama-server.exe",
+      llama_server_version: "example-v1",
+    },
+    models: [localModelStatusFixture(alias, displayName)],
+  };
+}
+
+function readyRuntimeFixture(alias = "example-model") {
+  const selection = {
+    alias,
+    device: "cpu" as const,
+    gpu_layers: 0,
+    context_size: 8192,
+  };
+  return {
+    contract_version: "local-runtime-coordinator.v2",
+    revision: 4,
+    state: "ready",
+    requested: selection,
+    served: {
+      ...selection,
+      started_at: "2040-01-01T00:00:00Z",
+      pid: 4242,
+    },
+    cleanup: {
+      state: "not_required",
+      process_exit_confirmed: true,
+      gpu_memory_free_before_mb: null,
+      gpu_memory_free_after_mb: null,
+      gpu_memory_released_mb: null,
+    },
+    capabilities: {
+      state: "verified",
+      probe_version: "local-runtime-multimodal-probe.v2",
+      text: true,
+      tools: true,
+      vision: false,
+      audio: false,
+      recording: false,
+      structured_output: false,
+      error_code: null,
+    },
+    context: {
+      state: "unknown",
+      used_tokens: null,
+      limit_tokens: 8192,
+      requested_output_tokens: null,
+      available_output_tokens: null,
+      source: "runtime_limit_only",
+      scope: "runtime_limit",
+      policy: "runtime_enforced",
+      compacted_messages: 0,
+      reason_code: "no_request_measured",
+    },
+    active_requests: 0,
+    last_error_code: null,
+  };
+}
+
+async function installReadyAgentFixture(page: Page): Promise<void> {
+  const session = exampleAgentSession({
+    model_alias: "example-model",
+    settings: {
+      ...exampleAgentSession().settings,
+      project_id: null,
+      model_alias: "example-model",
+      title: "Example workspace",
+    },
+  });
+  await page.route("**/v1/agent/sessions", (route) => json(route, [session]));
+  await page.route(`**/v1/agent/sessions/${session.session_id}`, (route) => json(route, session));
+  await page.route("**/v1/local-models", (route) => json(route, localModelsOverviewFixture()));
+  await page.route("**/v1/local-models/runtime", (route) => json(route, readyRuntimeFixture()));
 }
 
 function promptCheckFixture() {
@@ -1126,7 +1242,8 @@ for (const windowMode of [false, true]) {
       })}\n\n` });
     });
     await page.goto(windowMode ? `/agent/window/${"a".repeat(32)}` : "/agent");
-    await page.getByLabel("Turn 1 details", { exact: true }).click();
+    const turnDetails = page.getByLabel("Turn 1 details", { exact: true });
+    await turnDetails.click();
     await expect(page.getByLabel("Turn telemetry")).toContainText("Total tokens18");
     await page.getByRole("button", { name: "Open example.ts in workspace", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Workspace file editor", exact: true })).toHaveValue("export const value = 1;\n");
@@ -1138,6 +1255,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 800, height: 600 }
   for (const path of ["/agent", `/agent/window/${"a".repeat(32)}`]) {
     test(`keeps the Agent transcript readable at ${viewport.width}px on ${path}`, async ({ page }) => {
       await page.setViewportSize(viewport);
+      await installReadyAgentFixture(page);
       await page.goto(path);
       await expect(page.getByRole("heading", { name: "Example workspace" })).toBeVisible();
       const transcript = page.getByRole("log");
@@ -1349,45 +1467,61 @@ test("filters Agent navigation without unmounting the active conversation", asyn
     model_alias: null,
   });
   await page.route(/\/v1\/agent\/sessions$/, (route) => json(route, [live]));
-  await page.route(new RegExp(`/v1/agent/projects/${projectId}/sessions(?:\\?.*)?$`), (route) => {
-    const searching = Boolean(new URL(route.request().url()).searchParams.get("search"));
-    return json(route, {
-      contract_version: "agent-catalog.v2",
-      sessions: searching ? [] : [catalogSession],
-    });
+  const catalogPage = (items: unknown[], key: "projects" | "sessions") => ({
+    contract_version: "agent-catalog-page.v1",
+    snapshot: "9".repeat(64),
+    limit: 100,
+    offset: 0,
+    total: items.length,
+    next_offset: null,
+    complete: true,
+    [key]: items,
   });
-  await page.route(/\/v1\/agent\/projects(?:\?.*)?$/, (route) => {
+  await page.route(new RegExp(`/v1/agent/projects/${projectId}/sessions/page(?:\\?.*)?$`), (route) => {
     const searching = Boolean(new URL(route.request().url()).searchParams.get("search"));
-    return json(route, {
-      contract_version: "agent-catalog.v2",
-      projects: searching ? [] : [project],
-    });
+    return json(route, catalogPage(searching ? [] : [catalogSession], "sessions"));
+  });
+  await page.route(/\/v1\/agent\/catalog\/sessions\/page(?:\?.*)?$/, (route) => {
+    const searching = Boolean(new URL(route.request().url()).searchParams.get("search"));
+    return json(route, catalogPage(searching ? [] : [catalogSession], "sessions"));
+  });
+  await page.route(/\/v1\/agent\/projects\/page(?:\?.*)?$/, (route) => {
+    const searching = Boolean(new URL(route.request().url()).searchParams.get("search"));
+    return json(route, catalogPage(searching ? [] : [project], "projects"));
   });
 
   await page.goto("/agent");
   const conversation = page.getByRole("region", { name: "Agent conversation" });
   const composer = conversation.getByRole("textbox", { name: "Message to the agent" });
   await expect(composer).toBeVisible();
-  const touchTargets = [
+  const runtimeRegion = conversation.getByRole("region", { name: "Shared local model runtime" });
+  const runtimeSummary = runtimeRegion.locator(".agent-runtime__composer-disclosure > summary");
+  const alwaysVisibleTouchTargets = [
     page.getByRole("button", { name: "Collapse projects and chats" }),
     page.getByRole("button", { name: "Create project" }),
     page.getByRole("button", { name: "New chat", exact: true }),
     page.getByRole("searchbox", { name: "Search projects and chats" }),
     page.getByRole("button", { name: /^Example active chat ·/ }),
-    page.getByRole("combobox", { name: "Model", exact: true }),
-    page.getByRole("combobox", { name: "Placement", exact: true }),
-    page.getByRole("combobox", { name: "Context limit", exact: true }),
-    page.locator(".agent-runtime__details > summary"),
-    page.getByRole("button", { name: "Start model" }),
-    page.getByRole("button", { name: "Stop", exact: true }),
-    page.getByRole("button", { name: "Refresh", exact: true }),
+    runtimeSummary,
   ];
-  for (const target of touchTargets) {
+  for (const target of alwaysVisibleTouchTargets) {
+    expect((await target.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+  }
+  await runtimeSummary.click();
+  const expandedRuntimeTouchTargets = [
+    runtimeRegion.getByRole("combobox", { name: "Model", exact: true }),
+    runtimeRegion.getByRole("combobox", { name: "Model placement", exact: true }),
+    runtimeRegion.getByRole("combobox", { name: "Context limit", exact: true }),
+    runtimeRegion.getByRole("button", { name: "Start model" }),
+    runtimeRegion.getByRole("button", { name: "Stop runtime", exact: true }),
+    runtimeRegion.getByRole("button", { name: "Refresh", exact: true }),
+  ];
+  for (const target of expandedRuntimeTouchTargets) {
     expect((await target.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
   }
   await page.getByRole("searchbox", { name: "Search projects and chats" }).fill("not in this rail");
   await expect(page.getByText("No project matches this view.", { exact: false })).toBeVisible();
-  await expect(page.getByText("No chat matches this view.", { exact: true })).toBeVisible();
+  await expect(page.getByText("No chat matches your search.", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: "Example active chat" })).toBeVisible();
   await expect(composer).toBeVisible();
 
@@ -1534,7 +1668,10 @@ test("publishes a natively confirmed manual edit into the live reviewed change s
   const netDiff = page.getByRole("region", { name: "Net diff for example.ts", exact: true });
   await expect(netDiff).toContainText("-export const value = 1;");
   await expect(netDiff).toContainText("+export const value = 2;");
-  await expect(netDiff).toContainText("+1 / −1 lines against the retained session baseline");
+  const diffFigure = netDiff.getByRole("figure", { name: "Net diff for example.ts", exact: true });
+  await expect(diffFigure.getByText("+1", { exact: true })).toBeVisible();
+  await expect(diffFigure.getByText("−1", { exact: true })).toBeVisible();
+  await expect(diffFigure.getByText("1 hunk", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
@@ -1687,11 +1824,12 @@ for (const width of [390, 1440]) {
 
 test("checks and improves an agent draft through the local Prompt Check endpoint without sending it", async ({ page }) => {
   await page.setViewportSize({ width: 420, height: 820 });
+  await installReadyAgentFixture(page);
   await page.goto("/agent");
 
   const draft = page.getByRole("textbox", { name: "Message to the agent" });
   await draft.fill("Update example.ts");
-  await page.getByRole("button", { name: "Check & improve" }).click();
+  await page.getByRole("button", { name: "Review prompt without sending" }).click();
 
   await expect(page.getByRole("heading", { name: "Before the agent acts" })).toBeVisible();
   await expect(page.getByText("a checkable pass condition")).toBeVisible();

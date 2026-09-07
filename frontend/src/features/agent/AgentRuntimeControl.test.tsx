@@ -383,6 +383,7 @@ describe("AgentRuntimeControl", () => {
     expect(summary.tagName).toBe("SUMMARY");
     expect(summary.closest("details")).not.toHaveAttribute("open");
     expect(within(panel).getByText("8% context")).toBeVisible();
+    expect(within(panel).getAllByText("Ready", { exact: true })).toHaveLength(1);
     fireEvent.click(summary);
 
     expect(summary.closest("details")).toHaveAttribute("open");

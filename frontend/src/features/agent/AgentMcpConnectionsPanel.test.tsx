@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,13 +15,15 @@ import {
   AgentMcpConnectionsPanel,
   agentMcpClientRegistrationCommand,
   agentMcpClientVerificationCommand,
-  beginExternalAgentAcceptance,
-  externalAgentAcceptancePassed,
-  observeExternalAgentAcceptance,
 } from "./AgentMcpConnectionsPanel";
+import {
+  observeExternalControllerAcceptance,
+  type ExternalControllerAcceptanceRun,
+} from "./externalControllerAcceptance";
 
 const CONNECTION_ID = "a".repeat(32);
 const PROJECT_ID = "b".repeat(32);
+const SESSION_ID = "c".repeat(32);
 const TOKEN = `pemcp2.${CONNECTION_ID}.1.${"A".repeat(43)}`;
 const ENDPOINT = "http://127.0.0.1:8765/mcp/agent";
 const TOKEN_ENV = "PROMPT_ENHANCER_AGENT_MCP_TOKEN";
@@ -102,9 +105,11 @@ const clientSetup: AgentMcpClientSetup = {
 function list(
   connections: AgentMcpConnection[] = [],
   ownerships: AgentControllerOwnership[] = [],
+  sequences?: number[],
 ): AgentMcpConnectionList {
   return {
-    contract_version: "agent-mcp-management.v1",
+    contract_version: "agent-mcp-management.v2",
+    activity_epoch: "f".repeat(32),
     connections,
     active_count: connections.filter((item) => item.state === "active").length,
     controller_ownerships: {
@@ -112,6 +117,20 @@ function list(
       ownerships,
       active_count: ownerships.length,
     },
+    tool_activity_sequences: connections.map((item, index) => {
+      const sequence = sequences?.[index] ?? (item.last_tool_at === null ? 0 : 1);
+      return {
+      contract_version: "agent-mcp-tool-activity-sequence.v1",
+      connection_id: item.connection_id,
+      credential_revision: item.credential_revision,
+      sequence,
+      tool_name: sequence === 0 ? null : item.last_tool_name,
+      tool_source: sequence === 0 ? null : item.last_tool_source,
+      started_at: sequence === 0 ? null : item.last_tool_at,
+      completed_at: sequence === 0 ? null : item.last_tool_at,
+      outcome: sequence === 0 ? null : item.last_tool_outcome,
+    };
+    }),
   };
 }
 
@@ -174,68 +193,6 @@ function endpointSelfTestFetch() {
       },
     }));
 }
-
-describe("external Agent controller acceptance", () => {
-  const externalDiscovery: AgentMcpConnection = {
-    ...activeConnection,
-    last_used_at: "2026-08-28T12:05:00+00:00",
-    last_tool_at: "2026-08-28T12:05:01+00:00",
-    last_tool_name: "agent_discover",
-    last_tool_outcome: "succeeded",
-    last_tool_source: "external_client",
-  };
-
-  it("does not mistake the app's own local self-test for an external client", () => {
-    const run = beginExternalAgentAcceptance(activeConnection);
-    const observed = observeExternalAgentAcceptance(run, {
-      ...externalDiscovery,
-      last_tool_source: "native_self_test",
-    });
-
-    expect(observed.externalDiscoverAt).toBeNull();
-    expect(observed.issue).toBeNull();
-    expect(externalAgentAcceptancePassed(observed)).toBe(false);
-  });
-
-  it("requires discovery, later revocation, and a strictly post-revoke rejection", () => {
-    let run = observeExternalAgentAcceptance(
-      beginExternalAgentAcceptance(activeConnection),
-      externalDiscovery,
-    );
-    expect(run.externalDiscoverAt).toBe("2026-08-28T12:05:01+00:00");
-
-    const revoked: AgentMcpConnection = {
-      ...externalDiscovery,
-      updated_at: "2026-08-28T12:06:00+00:00",
-      revoked_at: "2026-08-28T12:06:00+00:00",
-      revision: 2,
-      state: "revoked",
-    };
-    run = observeExternalAgentAcceptance(run, {
-      ...revoked,
-      last_auth_rejected_at: revoked.revoked_at,
-    });
-    expect(run.revokedAt).toBe(revoked.revoked_at);
-    expect(run.rejectedAfterRevokeAt).toBeNull();
-    expect(externalAgentAcceptancePassed(run)).toBe(false);
-
-    run = observeExternalAgentAcceptance(run, {
-      ...revoked,
-      last_auth_rejected_at: "2026-08-28T12:06:01+00:00",
-    });
-    expect(run.rejectedAfterRevokeAt).toBe("2026-08-28T12:06:01+00:00");
-    expect(externalAgentAcceptancePassed(run)).toBe(true);
-  });
-
-  it("fails closed if the credential revision changes during the proof", () => {
-    const observed = observeExternalAgentAcceptance(
-      beginExternalAgentAcceptance(activeConnection),
-      { ...activeConnection, credential_revision: 2, revision: 2 },
-    );
-    expect(observed.issue).toBe("credential_changed");
-    expect(externalAgentAcceptancePassed(observed)).toBe(false);
-  });
-});
 
 describe("AgentMcpConnectionsPanel", () => {
   beforeEach(() => {
@@ -851,8 +808,10 @@ describe("AgentMcpConnectionsPanel", () => {
       session_settled: true,
       native_approval_inherited: false,
     });
+    const onAcceptanceEvidence = vi.fn();
     render(
       <AgentMcpConnectionsPanel
+        onAcceptanceEvidence={onAcceptanceEvidence}
         selectedProjectId={PROJECT_ID}
         transport={{
           listAgentMcpConnections,
@@ -882,6 +841,13 @@ describe("AgentMcpConnectionsPanel", () => {
       session_id: ownership.session_id,
       expected_revision: ownership.revision,
     }));
+    expect(onAcceptanceEvidence).toHaveBeenCalledWith({
+      kind: "native_release",
+      receipt: expect.objectContaining({
+        session_id: ownership.session_id,
+        released_connection_id: CONNECTION_ID,
+      }),
+    });
     expect(await screen.findByText(/Released settled external control/)).toHaveTextContent(
       "No chat, history, or native authority was deleted",
     );
@@ -890,7 +856,7 @@ describe("AgentMcpConnectionsPanel", () => {
     )).not.toBeInTheDocument());
   });
 
-  it("guides a non-mutating external proof and passes only after explicit revoke plus rejected retry", async () => {
+  it("guides a page-owned external lifecycle proof and ignores the local self-test", async () => {
     const localReceipt: AgentMcpConnection = {
       ...activeConnection,
       last_used_at: "2026-08-28T12:05:00+00:00",
@@ -904,55 +870,45 @@ describe("AgentMcpConnectionsPanel", () => {
       last_tool_at: "2026-08-28T12:05:02+00:00",
       last_tool_source: "external_client",
     };
-    const revoked: AgentMcpConnection = {
-      ...externalReceipt,
-      updated_at: "2026-08-28T12:06:00+00:00",
-      revoked_at: "2026-08-28T12:06:00+00:00",
-      revision: 2,
-      state: "revoked",
-    };
-    const rejected: AgentMcpConnection = {
-      ...revoked,
-      last_auth_rejected_at: "2026-08-28T12:06:01+00:00",
-    };
     const listAgentMcpConnections = vi.fn()
       .mockResolvedValueOnce(list([activeConnection]))
       .mockResolvedValueOnce(list([localReceipt]))
-      .mockResolvedValueOnce(list([externalReceipt]))
-      .mockResolvedValueOnce(list([revoked]))
-      .mockResolvedValueOnce(list([rejected]));
-    const revokeAgentMcpConnection = vi.fn().mockResolvedValue(revoked);
+      .mockResolvedValueOnce(list([externalReceipt], [], [2]));
 
-    render(
-      <AgentMcpConnectionsPanel
-        selectedProjectId={PROJECT_ID}
-        transport={{ listAgentMcpConnections, revokeAgentMcpConnection }}
-        userPresenceAvailable
-      />,
-    );
+    function Harness() {
+      const [run, setRun] = useState<ExternalControllerAcceptanceRun | null>(null);
+      const observeAcceptance = useCallback((catalog: AgentMcpConnectionList) => {
+        setRun((current) => observeExternalControllerAcceptance(current, catalog));
+      }, []);
+      return (
+        <AgentMcpConnectionsPanel
+          acceptanceRun={run}
+          onAcceptanceObservation={observeAcceptance}
+          onAcceptanceRunChange={setRun}
+          selectedProjectId={PROJECT_ID}
+          selectedSessionId={SESSION_ID}
+          transport={{ listAgentMcpConnections }}
+          userPresenceAvailable
+        />
+      );
+    }
+
+    render(<Harness />);
 
     await screen.findByText("Synthetic Codex connection");
-    fireEvent.click(screen.getByRole("button", { name: "Begin external proof" }));
+    fireEvent.click(screen.getByRole("button", { name: "Begin external lifecycle proof" }));
     expect(screen.getByText(/call only agent_discover/)).toBeVisible();
-    expect(revokeAgentMcpConnection).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: /External controller lifecycle/ })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh proof evidence" }));
-    expect(await screen.findByText(/Waiting for a newer external-client agent_discover/))
-      .toBeVisible();
+    expect(await screen.findByText(/call only agent_discover/)).toBeVisible();
     expect(screen.getByText(/Last tool/)).toHaveTextContent("local self-test");
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh proof evidence" }));
-    expect(await screen.findByText(/External discovery is proven/)).toBeVisible();
-    expect(revokeAgentMcpConnection).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
-    expect(await screen.findByText(/retry agent_discover once/)).toBeVisible();
-    expect(revokeAgentMcpConnection).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole("button", { name: "Refresh proof evidence" }));
-    expect(await screen.findByText(/External-controller acceptance passed/)).toBeVisible();
-    expect(screen.getByText(/Content-free rejection observed/)).toBeVisible();
-    expect(listAgentMcpConnections).toHaveBeenCalledTimes(5);
+    expect(await screen.findByText(/call agent_catalog list_chats/)).toBeVisible();
+    expect(screen.getByText("External client connected").closest("li")).toHaveAttribute("data-state", "passed");
+    expect(screen.getByText("Exact project and chat discovered").closest("li")).toHaveAttribute("data-state", "waiting");
+    expect(listAgentMcpConnections).toHaveBeenCalledTimes(3);
   });
 
   it("explains active failures and prepares inactive replacements without mutating authority", async () => {

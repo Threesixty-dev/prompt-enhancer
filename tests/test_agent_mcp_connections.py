@@ -52,6 +52,7 @@ def _service(
     now: list[datetime],
     ids: list[str] | None = None,
     master: str = MASTER,
+    activity_epoch: str | None = None,
 ) -> AgentMcpConnectionService:
     catalog = AgentCatalogService(
         SqliteAgentCatalogRepository(database),
@@ -65,11 +66,17 @@ def _service(
             raise
         catalog.create_project(CreateAgentProject(name="Synthetic scope project"))
     identities = iter(ids or ["c" * 32])
+    options = (
+        {"activity_epoch_factory": lambda: activity_epoch}
+        if activity_epoch is not None
+        else {}
+    )
     return AgentMcpConnectionService(
         SqliteAgentMcpConnectionRepository(database),
         token_pepper=master,
         clock=lambda: now[0],
         id_factory=identities.__next__,
+        **options,
     )
 
 
@@ -152,6 +159,7 @@ def test_connection_survives_restart_and_stores_no_bearer_secret(
     now[0] += timedelta(seconds=1)
     restarted.record_tool_call(
         principal.connection_id,
+        credential_revision=principal.credential_revision,
         tool_name="agent_open",
         outcome="succeeded",
         source="external_client",
@@ -186,6 +194,7 @@ def test_tool_activity_rejects_unbounded_names_and_preserves_latest_receipt(
     with pytest.raises(AgentMcpConnectionError) as invalid:
         service.record_tool_call(
             created.connection.connection_id,
+            credential_revision=created.connection.credential_revision,
             tool_name="unsafe/tool/name",
             outcome="failed",
             source="external_client",
@@ -195,6 +204,7 @@ def test_tool_activity_rejects_unbounded_names_and_preserves_latest_receipt(
     with pytest.raises(AgentMcpConnectionError) as invalid_source:
         service.record_tool_call(
             created.connection.connection_id,
+            credential_revision=created.connection.credential_revision,
             tool_name="agent_open",
             outcome="failed",
             source="untrusted",  # type: ignore[arg-type]
@@ -203,6 +213,7 @@ def test_tool_activity_rejects_unbounded_names_and_preserves_latest_receipt(
 
     service.record_tool_call(
         created.connection.connection_id,
+        credential_revision=created.connection.credential_revision,
         tool_name="unknown_tool",
         outcome="failed",
         source="native_self_test",
@@ -210,6 +221,7 @@ def test_tool_activity_rejects_unbounded_names_and_preserves_latest_receipt(
     now[0] += timedelta(seconds=1)
     service.record_tool_call(
         created.connection.connection_id,
+        credential_revision=created.connection.credential_revision,
         tool_name="agent_turn",
         outcome="succeeded",
         source="external_client",
@@ -219,6 +231,154 @@ def test_tool_activity_rejects_unbounded_names_and_preserves_latest_receipt(
     assert observed.last_tool_outcome == "succeeded"
     assert observed.last_tool_source == "external_client"
     assert observed.last_tool_at == now[0]
+
+
+def test_tool_activity_sequence_is_exact_content_free_and_process_bound(
+    tmp_path: Path,
+) -> None:
+    now = [T0]
+    database = _database(tmp_path)
+    service = _service(
+        database,
+        now=now,
+        activity_epoch="f" * 32,
+    )
+    created = _create(service)
+    principal = service.authenticate(created.bearer_token)
+
+    baseline = service.list()
+    assert baseline.contract_version == "agent-mcp-management.v2"
+    assert baseline.activity_epoch == "f" * 32
+    assert baseline.tool_activity_sequences[0].model_dump() == {
+        "contract_version": "agent-mcp-tool-activity-sequence.v1",
+        "connection_id": created.connection.connection_id,
+        "credential_revision": 1,
+        "sequence": 0,
+        "tool_name": None,
+        "tool_source": None,
+        "started_at": None,
+        "completed_at": None,
+        "outcome": None,
+    }
+
+    admitted_sequence = service.begin_tool_call(
+        principal.connection_id,
+        credential_revision=principal.credential_revision,
+        tool_name="unknown_tool",
+        source="native_self_test",
+    )
+    admitted = service.list().tool_activity_sequences[0]
+    assert admitted.sequence == admitted_sequence == 1
+    assert admitted.tool_name == "unknown_tool"
+    assert admitted.tool_source == "native_self_test"
+    assert admitted.started_at == now[0]
+    assert admitted.completed_at is None
+    assert admitted.outcome is None
+    assert service.list().connections[0].last_tool_at is None
+    service.finish_tool_call(
+        principal.connection_id,
+        credential_revision=principal.credential_revision,
+        sequence=admitted_sequence,
+        tool_name="unknown_tool",
+        outcome="failed",
+        source="native_self_test",
+    )
+    service.record_tool_call(
+        principal.connection_id,
+        credential_revision=principal.credential_revision,
+        tool_name="agent_turn",
+        outcome="succeeded",
+        source="external_client",
+    )
+    assert service.list().tool_activity_sequences[0].sequence == 2
+
+    restarted = _service(
+        database,
+        now=now,
+        ids=["d" * 32],
+        activity_epoch="e" * 32,
+    )
+    after_restart = restarted.list()
+    assert after_restart.activity_epoch == "e" * 32
+    assert after_restart.tool_activity_sequences[0].sequence == 0
+    assert after_restart.connections[0].last_tool_name == "agent_turn"
+
+
+def test_tool_activity_sequence_rejects_a_stale_credential_revision(
+    tmp_path: Path,
+) -> None:
+    now = [T0]
+    database = _database(tmp_path)
+    service = _service(database, now=now)
+    created = _create(service)
+    rotated = service.rotate(
+        created.connection.connection_id,
+        RotateAgentMcpConnection(
+            request_id="b" * 32,
+            expected_revision=created.connection.revision,
+        ),
+        endpoint_url=ENDPOINT,
+    )
+
+    with pytest.raises(AgentMcpConnectionError) as stale:
+        service.record_tool_call(
+            created.connection.connection_id,
+            credential_revision=created.connection.credential_revision,
+            tool_name="agent_discover",
+            outcome="succeeded",
+            source="external_client",
+        )
+    assert stale.value.code == "agent_mcp_tool_activity_stale"
+    cursor = service.list().tool_activity_sequences[0]
+    assert cursor.credential_revision == rotated.connection.credential_revision
+    assert cursor.sequence == 0
+
+
+def test_late_completion_cannot_overwrite_a_newer_admitted_tool(
+    tmp_path: Path,
+) -> None:
+    now = [T0]
+    database = _database(tmp_path)
+    service = _service(database, now=now)
+    created = _create(service)
+    principal = service.authenticate(created.bearer_token)
+
+    turn_sequence = service.begin_tool_call(
+        principal.connection_id,
+        credential_revision=principal.credential_revision,
+        tool_name="agent_turn",
+        source="external_client",
+    )
+    now[0] += timedelta(seconds=1)
+    stop_sequence = service.begin_tool_call(
+        principal.connection_id,
+        credential_revision=principal.credential_revision,
+        tool_name="agent_stop",
+        source="external_client",
+    )
+    service.finish_tool_call(
+        principal.connection_id,
+        credential_revision=principal.credential_revision,
+        sequence=stop_sequence,
+        tool_name="agent_stop",
+        outcome="succeeded",
+        source="external_client",
+    )
+    now[0] += timedelta(seconds=1)
+    service.finish_tool_call(
+        principal.connection_id,
+        credential_revision=principal.credential_revision,
+        sequence=turn_sequence,
+        tool_name="agent_turn",
+        outcome="succeeded",
+        source="external_client",
+    )
+
+    latest = service.list()
+    assert latest.tool_activity_sequences[0].sequence == stop_sequence == 2
+    assert latest.tool_activity_sequences[0].tool_name == "agent_stop"
+    assert latest.tool_activity_sequences[0].outcome == "succeeded"
+    assert latest.connections[0].last_tool_name == "agent_stop"
 
 
 def test_create_is_idempotent_and_conflicting_reuse_fails_closed(

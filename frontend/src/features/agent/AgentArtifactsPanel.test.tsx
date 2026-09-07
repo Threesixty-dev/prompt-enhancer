@@ -220,6 +220,7 @@ function renderPanel(overrides: {
   onCaptureCurrent?: (path: string) => void;
   onOpenFile?: (path: string) => void;
   onOpenSourceTurn?: (turnId: string) => boolean;
+  onViewerReady?: () => void;
   onRevealFile?: (path: string) => void;
   onReviewChanges?: (path: string) => void;
   onRefresh?: () => void;
@@ -286,6 +287,7 @@ function renderPanel(overrides: {
       onCaptureCurrent={overrides.onCaptureCurrent}
       onOpenFile={overrides.onOpenFile}
       onOpenSourceTurn={overrides.onOpenSourceTurn}
+      onViewerReady={overrides.onViewerReady}
       onRevealFile={overrides.onRevealFile}
       onRefresh={overrides.onRefresh ?? vi.fn()}
       onReviewChanges={overrides.onReviewChanges}
@@ -510,7 +512,8 @@ describe("AgentArtifactsPanel", () => {
 
   it("shows provenance cards and lazily revalidates an inert text preview", async () => {
     const onOpenFile = vi.fn();
-    const { getDetail, getContent } = renderPanel({ onOpenFile });
+    const onViewerReady = vi.fn();
+    const { getDetail, getContent } = renderPanel({ onOpenFile, onViewerReady });
     expect(screen.getByText("Artifacts · 1")).toBeVisible();
     expect(screen.getByText(`Reviewed write · event 7 · v1 · rev 1 · ${MARKDOWN_BYTES} B`)).toBeVisible();
 
@@ -520,6 +523,7 @@ describe("AgentArtifactsPanel", () => {
     expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
     expect(getDetail).toHaveBeenCalledWith(PROJECT, SESSION, ARTIFACT, expect.any(AbortSignal));
     expect(getContent).toHaveBeenCalledWith(PROJECT, SESSION, ARTIFACT, VERSION, false, expect.any(AbortSignal));
+    expect(onViewerReady).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Open current file" }));
     expect(onOpenFile).toHaveBeenCalledExactlyOnceWith("docs/example.md");
@@ -681,13 +685,16 @@ describe("AgentArtifactsPanel", () => {
   it("does not fetch or download bytes when the recorded workspace revision is stale", async () => {
     const stale = detail({ availability: "stale" });
     const getContent = vi.fn();
+    const onViewerReady = vi.fn();
     renderPanel({
       getDetail: vi.fn().mockResolvedValue(stale),
       getContent,
+      onViewerReady,
     });
     fireEvent.click(screen.getByRole("button", { name: "Preview example.md" }));
     expect(await screen.findByText(/changed after this version was recorded/u)).toBeVisible();
     expect(getContent).not.toHaveBeenCalled();
+    expect(onViewerReady).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Download v1" })).toBeDisabled();
   });
 
@@ -1006,6 +1013,7 @@ describe("AgentArtifactsPanel", () => {
     });
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:synthetic-invalid-image");
     const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const onViewerReady = vi.fn();
     renderPanel({
       artifacts: [image],
       getDetail: vi.fn().mockResolvedValue(image),
@@ -1014,6 +1022,7 @@ describe("AgentArtifactsPanel", () => {
         "image/png",
         "agent-artifact-33333333.png",
       )),
+      onViewerReady,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Preview synthetic-invalid.png" }));
@@ -1026,6 +1035,7 @@ describe("AgentArtifactsPanel", () => {
     expect(screen.getByText(/preview failed · 4 B · v1/u)).toBeVisible();
     expect(screen.getByRole("button", { name: "Download v1" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Zoom in image" })).toBeDisabled();
+    expect(onViewerReady).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Close artifact viewer" }));
     await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:synthetic-invalid-image"));
   });

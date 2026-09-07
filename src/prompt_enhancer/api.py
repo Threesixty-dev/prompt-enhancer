@@ -614,6 +614,10 @@ def create_app(
                     service.shutdown()
                 except Exception:
                     cleanup_failures.append(component)
+            try:
+                resolved_application_update_service.shutdown()
+            except Exception:
+                cleanup_failures.append(RuntimeComponent.APPLICATION_UPDATE_SERVICE)
             runtime_lifecycle.shutdown_failures = tuple(cleanup_failures)
             runtime_lifecycle.cleanup_finished = True
 
@@ -693,7 +697,10 @@ def create_app(
             else:
                 response = await call_next(request)
         static_asset = request.url.path.removeprefix("/")
-        if any(
+        route_declared_private = (
+            response.headers.get("Cache-Control") == "no-store, private"
+        )
+        if route_declared_private or any(
             marker in request.url.path
             for marker in (
                 "quality-analysis-previews",
@@ -704,6 +711,7 @@ def create_app(
                 "model-ensemble-head",
                 "model-ensemble-snapshots",
                 "/metric-lifecycle-evidence",
+                "/metric-contracts/",
                 "metric-coverage",
                 "/analysis-jobs",
                 "/automation-grants",

@@ -14,6 +14,10 @@ import { TransportError } from "../../shared/api/httpTransport";
 import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { TabList, tabId, tabPanelId, type TabDescriptor } from "../../shared/ui/Tabs";
 import { AgentMcpManagedPlanView } from "./AgentMcpManagedPlanView";
+import type {
+  TrustedMcpAcceptanceEvidence,
+  TrustedMcpAcceptanceRun,
+} from "./trustedMcpAcceptance";
 import "./AgentMcpStorePanel.css";
 
 type StoreTransport = Partial<Pick<
@@ -588,12 +592,22 @@ function McpServerReviewView({
 }
 
 export function AgentMcpStorePanel({
+  acceptanceRun = null,
+  activeEventHead = 0,
   activeProjectId = null,
+  activeSessionId = null,
+  onAcceptanceEvidence,
+  onAcceptanceRunChange,
   onManagedStateChange,
   transport,
   userPresenceAvailable = false,
 }: {
+  acceptanceRun?: TrustedMcpAcceptanceRun | null;
+  activeEventHead?: number;
   activeProjectId?: string | null;
+  activeSessionId?: string | null;
+  onAcceptanceEvidence?: (evidence: TrustedMcpAcceptanceEvidence) => void;
+  onAcceptanceRunChange?: (run: TrustedMcpAcceptanceRun | null) => void;
   onManagedStateChange?: () => void;
   transport: StoreTransport;
   userPresenceAvailable?: boolean;
@@ -1149,7 +1163,12 @@ export function AgentMcpStorePanel({
           >
             {selectedManaged && managed ? (
               <AgentMcpManagedPlanView
+                acceptanceRun={acceptanceRun}
+                activeEventHead={activeEventHead}
+                activeSessionId={activeSessionId}
                 onBack={() => setSelectedManaged(null)}
+                onAcceptanceEvidence={onAcceptanceEvidence}
+                onAcceptanceRunChange={onAcceptanceRunChange}
                 onRuntimeChange={onManagedStateChange}
                 onServer={upsertManaged}
                 preferredProjectId={activeProjectId}

@@ -4007,6 +4007,11 @@
             "title": "Active Count",
             "type": "integer"
           },
+          "activity_epoch": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Activity Epoch",
+            "type": "string"
+          },
           "connections": {
             "items": {
               "$ref": "#/components/schemas/AgentMcpConnection"
@@ -4015,19 +4020,28 @@
             "type": "array"
           },
           "contract_version": {
-            "const": "agent-mcp-management.v1",
-            "default": "agent-mcp-management.v1",
+            "const": "agent-mcp-management.v2",
+            "default": "agent-mcp-management.v2",
             "title": "Contract Version",
             "type": "string"
           },
           "controller_ownerships": {
             "$ref": "#/components/schemas/AgentControllerOwnershipList"
+          },
+          "tool_activity_sequences": {
+            "items": {
+              "$ref": "#/components/schemas/AgentMcpToolActivitySequence"
+            },
+            "title": "Tool Activity Sequences",
+            "type": "array"
           }
         },
         "required": [
+          "activity_epoch",
           "connections",
           "active_count",
-          "controller_ownerships"
+          "controller_ownerships",
+          "tool_activity_sequences"
         ],
         "title": "AgentMcpConnectionList",
         "type": "object"
@@ -4113,6 +4127,107 @@
           "workspace_access"
         ],
         "title": "AgentMcpConnectionScope",
+        "type": "object"
+      },
+      "AgentMcpToolActivitySequence": {
+        "additionalProperties": false,
+        "description": "Content-free current-process cursor for exact controller evidence.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "connection_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "agent-mcp-tool-activity-sequence.v1",
+            "default": "agent-mcp-tool-activity-sequence.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "credential_revision": {
+            "minimum": 1.0,
+            "title": "Credential Revision",
+            "type": "integer"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "succeeded",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "sequence": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "pattern": "^(?:agent_[a-z][a-z0-9_]{0,47}|unknown_tool)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "tool_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "external_client",
+                  "native_self_test"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Source"
+          }
+        },
+        "required": [
+          "connection_id",
+          "credential_revision",
+          "sequence"
+        ],
+        "title": "AgentMcpToolActivitySequence",
         "type": "object"
       },
       "AgentMcpToolDescriptor": {
@@ -7999,6 +8114,28 @@
         "title": "AppIssuedRequirementVerificationResult",
         "type": "object"
       },
+      "ApplicationUpdateActionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_instance_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Expected Instance Id",
+            "type": "string"
+          },
+          "expected_revision": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "expected_instance_id"
+        ],
+        "title": "ApplicationUpdateActionRequest",
+        "type": "object"
+      },
       "ApplicationUpdateReason": {
         "enum": [
           "release_feed_unconfigured",
@@ -8022,6 +8159,7 @@
           "available",
           "staging",
           "staged",
+          "verifying",
           "failed"
         ],
         "title": "ApplicationUpdateState",
@@ -8069,8 +8207,17 @@
             "title": "Can Check",
             "type": "boolean"
           },
+          "can_retry": {
+            "title": "Can Retry",
+            "type": "boolean"
+          },
           "can_stage": {
             "title": "Can Stage",
+            "type": "boolean"
+          },
+          "can_verify": {
+            "default": false,
+            "title": "Can Verify",
             "type": "boolean"
           },
           "channel": {
@@ -8083,8 +8230,8 @@
             "type": "boolean"
           },
           "contract_version": {
-            "const": "application-update-status.v1",
-            "default": "application-update-status.v1",
+            "const": "application-update-status.v3",
+            "default": "application-update-status.v3",
             "title": "Contract Version",
             "type": "string"
           },
@@ -8107,6 +8254,11 @@
             "title": "Installed Version",
             "type": "string"
           },
+          "instance_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Instance Id",
+            "type": "string"
+          },
           "last_checked_at": {
             "anyOf": [
               {
@@ -8119,6 +8271,12 @@
             ],
             "title": "Last Checked At"
           },
+          "package_review": {
+            "$ref": "#/components/schemas/PackageReview",
+            "default": {
+              "state": "not_staged"
+            }
+          },
           "reason_code": {
             "anyOf": [
               {
@@ -8128,6 +8286,12 @@
                 "type": "null"
               }
             ]
+          },
+          "revision": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
           },
           "state": {
             "$ref": "#/components/schemas/ApplicationUpdateState"
@@ -8147,9 +8311,12 @@
           "installed_version",
           "channel",
           "state",
+          "instance_id",
+          "revision",
           "can_check",
           "can_stage",
           "can_cancel",
+          "can_retry",
           "can_apply"
         ],
         "title": "ApplicationUpdateStatus",
@@ -25877,6 +26044,70 @@
         ],
         "title": "OutputRevisionDto",
         "type": "object"
+      },
+      "PackageReview": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unsupported_platform",
+                  "unsupported_package",
+                  "package_io_failed",
+                  "package_changed",
+                  "release_binding_mismatch",
+                  "archive_invalid",
+                  "manifest_invalid",
+                  "identity_mismatch",
+                  "signature_invalid",
+                  "signature_unverifiable",
+                  "signer_mismatch"
+                ],
+                "type": "string"
+              },
+              {
+                "$ref": "#/components/schemas/UpdateRejection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PackageReviewState"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "PackageReview",
+        "type": "object"
+      },
+      "PackageReviewState": {
+        "enum": [
+          "not_configured",
+          "not_staged",
+          "not_checked",
+          "checking",
+          "verified",
+          "rejected"
+        ],
+        "title": "PackageReviewState",
+        "type": "string"
       },
       "PeerLink": {
         "additionalProperties": false,
@@ -47827,6 +48058,65 @@
         ]
       }
     },
+    "/v1/application-updates/cancel": {
+      "post": {
+        "operationId": "cancel_v1_application_updates_cancel_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationUpdateActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationUpdateStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel",
+        "tags": [
+          "application-updates"
+        ]
+      }
+    },
     "/v1/application-updates/check": {
       "post": {
         "operationId": "check_v1_application_updates_check_post",
@@ -47848,6 +48138,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationUpdateActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -47871,6 +48171,124 @@
           }
         },
         "summary": "Check",
+        "tags": [
+          "application-updates"
+        ]
+      }
+    },
+    "/v1/application-updates/retry": {
+      "post": {
+        "operationId": "retry_v1_application_updates_retry_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationUpdateActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationUpdateStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry",
+        "tags": [
+          "application-updates"
+        ]
+      }
+    },
+    "/v1/application-updates/stage": {
+      "post": {
+        "operationId": "stage_v1_application_updates_stage_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationUpdateActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationUpdateStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stage",
         "tags": [
           "application-updates"
         ]
@@ -47936,6 +48354,65 @@
           }
         },
         "summary": "Status",
+        "tags": [
+          "application-updates"
+        ]
+      }
+    },
+    "/v1/application-updates/verify": {
+      "post": {
+        "operationId": "verify_v1_application_updates_verify_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationUpdateActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationUpdateStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify",
         "tags": [
           "application-updates"
         ]

@@ -92,6 +92,7 @@ def test_durable_chat_reopens_after_restart_with_visible_context_and_no_authorit
         chat=_chat,
         active_model=lambda: "example-model",
         model_ready=lambda alias: alias == "example-model",
+        fetcher=lambda _url: "synthetic public page",
         catalog=first_catalog,
         clock=lambda: T0,
     )
@@ -131,7 +132,7 @@ def test_durable_chat_reopens_after_restart_with_visible_context_and_no_authorit
         session_id=created.session_id,
     )
     assert [(event.kind, event.text) for event in page.events] == [
-        ("status", "Session ready in example-workspace/ - reads are free; writes, commands and fetches wait for your approval."),
+        ("status", "Session ready in example-workspace/ - reads are free; every enabled protected action waits for separate approval."),
         ("user", "Remember this synthetic request."),
         ("assistant", "Synthetic retained answer."),
         ("done", None),
@@ -186,6 +187,7 @@ def test_history_http_surface_is_private_restart_bound_and_native_gated(
         chat=_chat,
         active_model=lambda: "example-model",
         model_ready=lambda alias: alias == "example-model",
+        fetcher=lambda _url: "synthetic public page",
         catalog=first_catalog,
         clock=lambda: T0,
     )

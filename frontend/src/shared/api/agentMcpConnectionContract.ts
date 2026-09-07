@@ -6,6 +6,7 @@ import type {
   AgentMcpConnection,
   AgentMcpConnectionCredential,
   AgentMcpConnectionList,
+  AgentMcpToolActivitySequence,
 } from "./contracts";
 
 export class AgentMcpConnectionPayloadError extends Error {
@@ -350,14 +351,19 @@ export function parseAgentMcpConnectionList(value: unknown): AgentMcpConnectionL
   const payload = record(value);
   exactKeys(payload, [
     "contract_version",
+    "activity_epoch",
     "connections",
     "active_count",
     "controller_ownerships",
+    "tool_activity_sequences",
   ]);
   if (
-    payload.contract_version !== "agent-mcp-management.v1"
+    payload.contract_version !== "agent-mcp-management.v2"
+    || !identifier(payload.activity_epoch)
     || !Array.isArray(payload.connections)
     || payload.connections.length > 32
+    || !Array.isArray(payload.tool_activity_sequences)
+    || payload.tool_activity_sequences.length !== payload.connections.length
     || !Number.isSafeInteger(payload.active_count)
     || Number(payload.active_count) < 0
     || Number(payload.active_count) > 16
@@ -368,14 +374,79 @@ export function parseAgentMcpConnectionList(value: unknown): AgentMcpConnectionL
   const controllerOwnerships = parseAgentControllerOwnershipList(
     payload.controller_ownerships,
   );
+  const toolActivitySequences = payload.tool_activity_sequences.map((value) => {
+    const cursor = record(value);
+    exactKeys(cursor, [
+      "contract_version",
+      "connection_id",
+      "credential_revision",
+      "sequence",
+      "tool_name",
+      "tool_source",
+      "started_at",
+      "completed_at",
+      "outcome",
+    ]);
+    const sequence = Number(cursor.sequence);
+    const toolName = cursor.tool_name;
+    const toolSource = cursor.tool_source;
+    const startedAt = cursor.started_at;
+    const completedAt = cursor.completed_at;
+    const outcome = cursor.outcome;
+    if (
+      cursor.contract_version !== "agent-mcp-tool-activity-sequence.v1"
+      || !identifier(cursor.connection_id)
+      || !Number.isSafeInteger(cursor.credential_revision)
+      || Number(cursor.credential_revision) < 1
+      || !Number.isSafeInteger(cursor.sequence)
+      || sequence < 0
+      || !(toolName === null || (
+        typeof toolName === "string"
+        && /^(?:agent_[a-z][a-z0-9_]{0,47}|unknown_tool)$/u.test(toolName)
+      ))
+      || !(toolSource === null || ["external_client", "native_self_test"].includes(String(toolSource)))
+      || !optionalUtcTimestamp(startedAt)
+      || !optionalUtcTimestamp(completedAt)
+      || !(outcome === null || ["succeeded", "failed"].includes(String(outcome)))
+      || (sequence === 0 && [toolName, toolSource, startedAt, completedAt, outcome].some(
+        (item) => item !== null,
+      ))
+      || (sequence > 0 && [toolName, toolSource, startedAt].some((item) => item === null))
+      || ((completedAt === null) !== (outcome === null))
+      || (completedAt !== null && startedAt !== null && Date.parse(completedAt) < Date.parse(startedAt))
+    ) throw new AgentMcpConnectionPayloadError();
+    return {
+      contract_version: "agent-mcp-tool-activity-sequence.v1",
+      connection_id: String(cursor.connection_id),
+      credential_revision: Number(cursor.credential_revision),
+      sequence,
+      tool_name: toolName as string | null,
+      tool_source: toolSource as AgentMcpToolActivitySequence["tool_source"],
+      started_at: startedAt as string | null,
+      completed_at: completedAt as string | null,
+      outcome: outcome as AgentMcpToolActivitySequence["outcome"],
+    } satisfies AgentMcpToolActivitySequence;
+  });
+  const expectedSequenceKeys = new Set(connections.map(
+    (item) => `${item.connection_id}:${item.credential_revision}`,
+  ));
+  const actualSequenceKeys = toolActivitySequences.map(
+    (item) => `${item.connection_id}:${item.credential_revision}`,
+  );
   if (connections.filter((item) => item.state === "active").length !== payload.active_count) {
     throw new AgentMcpConnectionPayloadError();
   }
+  if (
+    new Set(actualSequenceKeys).size !== actualSequenceKeys.length
+    || actualSequenceKeys.some((key) => !expectedSequenceKeys.has(key))
+  ) throw new AgentMcpConnectionPayloadError();
   return {
-    contract_version: "agent-mcp-management.v1",
+    contract_version: "agent-mcp-management.v2",
+    activity_epoch: String(payload.activity_epoch),
     connections,
     active_count: Number(payload.active_count),
     controller_ownerships: controllerOwnerships,
+    tool_activity_sequences: toolActivitySequences,
   };
 }
 

@@ -85,6 +85,12 @@ class PrivatePathHardener(Protocol):
     def inspect(self, path: PurePath) -> HardeningReport: ...
 
 
+class PrivateUpdateStagingRootPreparer(Protocol):
+    """Creates only the fixed private update-staging child when supported."""
+
+    def prepare_private_update_staging_root(self, path: PurePath) -> HardeningReport: ...
+
+
 _WINDOWS_RESERVED_NAMES = frozenset(
     {"CON", "PRN", "AUX", "NUL", "CLOCK$", "CONIN$", "CONOUT$"}
     | {f"COM{index}" for index in range(1, 10)}

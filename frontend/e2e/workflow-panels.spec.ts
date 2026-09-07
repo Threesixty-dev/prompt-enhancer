@@ -48,31 +48,104 @@ test("short desktop keeps projects, Agent settings, and bounded runtime controls
   await expect(settings).toBeInViewport();
   await expect(runtime).toBeVisible();
 
-  const details = runtime.locator("details.agent-runtime__details > summary");
+  const runtimeSummary = runtime.getByLabel(/Model and context settings\./u);
+  await expect(runtimeSummary).toBeInViewport();
+  await runtimeSummary.click();
+  const runtimePanel = runtime.getByRole("dialog", { name: "Choose model and runtime settings", exact: true });
+  await expect(runtimePanel).toBeVisible();
+  await runtimePanel.getByText("Context, compatibility & runtime evidence", { exact: true }).click();
+  const details = runtimePanel.getByText("Runtime evidence & capabilities", { exact: true });
   await details.click();
+  await expect(runtimePanel.getByText("Offload evidence", { exact: true })).toBeVisible();
   const layout = await page.evaluate(() => {
     const rail = document.querySelector<HTMLElement>(".agent__side-scroll")!;
     const settingsButton = document.querySelector<HTMLElement>(".agent__settings-trigger")!;
-    const runtimeCard = document.querySelector<HTMLElement>(".agent-runtime")!;
+    const runtimeCard = document.querySelector<HTMLElement>(".agent-runtime__composer-panel")!;
     const railBox = rail.getBoundingClientRect();
     const settingsBox = settingsButton.getBoundingClientRect();
     const runtimeBox = runtimeCard.getBoundingClientRect();
     return {
       railHeight: railBox.height,
       settingsBelowRail: settingsBox.top >= railBox.bottom,
-      runtimeBelowSettings: runtimeBox.top >= settingsBox.bottom,
+      runtimeTop: runtimeBox.top,
+      runtimeBottom: runtimeBox.bottom,
+      viewportHeight: window.innerHeight,
       runtimeHeight: runtimeBox.height,
       runtimeScrollable: runtimeCard.scrollHeight > runtimeCard.clientHeight,
     };
   });
   expect(layout.railHeight).toBeGreaterThanOrEqual(192);
   expect(layout.settingsBelowRail, JSON.stringify(layout)).toBe(true);
-  expect(layout.runtimeBelowSettings, JSON.stringify(layout)).toBe(true);
-  expect(layout.runtimeHeight).toBeLessThanOrEqual(232);
+  expect(layout.runtimeTop, JSON.stringify(layout)).toBeGreaterThanOrEqual(8);
+  expect(layout.runtimeBottom, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewportHeight - 8);
+  expect(layout.runtimeHeight).toBeLessThanOrEqual(416);
   expect(layout.runtimeScrollable).toBe(true);
 
+  await runtime.getByRole("button", { name: "Close model and context settings", exact: true }).click();
   await settings.click();
   await expect(page.getByRole("dialog", { name: "Agent settings", exact: true })).toBeVisible();
+  await fitsViewport(page);
+});
+
+test("720px Agent workspace keeps the latest reply and compact composer in view", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/e2e/fixtures/workflow-panels.html?panel=agent-shell");
+
+  const conversation = page.getByRole("region", { name: "Agent conversation", exact: true });
+  const transcript = conversation.getByRole("log");
+  const latestReply = conversation.getByText(
+    "The fictional module is ready for review. Open Files & review to inspect its bounded workspace view.",
+    { exact: true },
+  );
+  const composer = conversation.getByRole("form", { name: "Message composer", exact: true });
+  const message = composer.getByRole("textbox", { name: "Message to the agent", exact: true });
+  const send = composer.getByRole("button", { name: "Send", exact: true });
+
+  await expect(transcript).toBeVisible();
+  await expect(latestReply).toBeVisible();
+  await expect(composer).toBeVisible();
+  await expect(composer).toBeInViewport();
+  await expect(send).toBeInViewport();
+  await message.fill("Review the synthetic result without leaving this chat.");
+  await expect(send).toBeEnabled();
+
+  const layout = await conversation.evaluate((root) => {
+    const log = root.querySelector<HTMLElement>("[role='log']")!;
+    const latest = Array.from(root.querySelectorAll<HTMLElement>(".agent__turn--assistant")).at(-1)!;
+    const compose = root.querySelector<HTMLElement>("form[aria-label='Message composer']")!;
+    const stage = root.querySelector<HTMLElement>(".agent__conversation-stage")!;
+    const logBox = log.getBoundingClientRect();
+    const latestBox = latest.getBoundingClientRect();
+    const composeBox = compose.getBoundingClientRect();
+    return {
+      composerBottom: composeBox.bottom,
+      latestInsideTranscript: latestBox.top >= logBox.top - 1 && latestBox.bottom <= logBox.bottom + 1,
+      stageOverflowY: getComputedStyle(stage).overflowY,
+      transcriptOverflowY: getComputedStyle(log).overflowY,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(layout.composerBottom, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewportHeight);
+  expect(layout.latestInsideTranscript, JSON.stringify(layout)).toBe(true);
+  expect(layout.stageOverflowY).not.toMatch(/auto|scroll/u);
+  expect(layout.transcriptOverflowY).toMatch(/auto|scroll/u);
+
+  const nestedRailScrollers = await page.locator(".agent__side-scroll").evaluate((rail) => (
+    Array.from(rail.querySelectorAll<HTMLElement>("*"))
+      .filter((element) => /auto|scroll/u.test(getComputedStyle(element).overflowY))
+      .filter((element) => element.scrollHeight > element.clientHeight + 1)
+      .length
+  ));
+  expect(nestedRailScrollers).toBe(0);
+  await expect(page.locator("[data-agent-runtime-announcer='true']")).toHaveCount(1);
+
+  const detailToggle = conversation.getByText("Chat details", { exact: true });
+  await detailToggle.click();
+  const chatDetails = conversation.getByRole("group", { name: "Chat details", exact: true });
+  await expect(chatDetails).toBeVisible();
+  await chatDetails.getByRole("button", { name: "Close chat details", exact: true }).click();
+  await expect(chatDetails).toBeHidden();
+  await expect(detailToggle).toBeFocused();
   await fitsViewport(page);
 });
 
@@ -123,6 +196,10 @@ for (const width of [360, 1440]) {
     await expect(store.getByRole("heading", { name: "Synthetic MCP Files", exact: true })).toBeVisible();
     await expect(store.getByRole("heading", { name: "Compatibility check", exact: true })).toBeVisible();
     await expect(store.getByText("Prepared plan · revision 1", { exact: true })).toBeVisible();
+    const lifecycleProof = store.getByRole("region", { name: "Trusted MCP lifecycle acceptance", exact: true });
+    await expect(lifecycleProof).toBeVisible();
+    await expect(lifecycleProof.getByRole("button", { name: "Begin trusted MCP proof", exact: true })).toBeDisabled();
+    await expect(lifecycleProof).toContainText("Open one live Agent chat inside a saved project");
     await fitsViewport(page);
     await store.getByRole("button", { name: "Back to MCP Store", exact: true }).click();
     await browse.click();
@@ -162,7 +239,9 @@ for (const width of [360, 1440]) {
     await page.setViewportSize({ width, height: width === 360 ? 800 : 900 });
     await page.goto("/e2e/fixtures/workflow-panels.html?panel=agent-mcp-project-tools");
 
-    const projectTools = page.locator("details.agent-mcp-project-tools");
+    await page.getByRole("button", { name: "Project tools", exact: true }).click();
+    const settings = page.getByRole("dialog", { name: "Agent settings", exact: true });
+    const projectTools = settings.locator("details.agent-mcp-project-tools");
     await expect(projectTools).toContainText("1 ready");
     await projectTools.locator("summary").click();
     await expect(projectTools.getByText("Synthetic read", { exact: true })).toBeVisible();
@@ -174,7 +253,6 @@ for (const width of [360, 1440]) {
     await fitsViewport(page);
 
     await projectTools.getByRole("button", { name: "Manage in MCP Store", exact: true }).click();
-    const settings = page.getByRole("dialog", { name: "Agent settings", exact: true });
     await expect(settings).toHaveAttribute("data-settings-tab", "store");
     const store = settings.getByRole("region", { name: "MCP Store", exact: true });
     await store.getByRole("tab", { name: "Managed servers", exact: true }).click();
@@ -449,15 +527,20 @@ for (const width of [360, 1440]) {
       await composer.fill("Synthetic draft retained while reviewing a file.");
       const runtime = page.getByRole("region", { name: "Shared local model runtime", exact: true });
       await expect(runtime.getByText("Ready", { exact: true })).toBeVisible();
-      await expect(runtime.locator(".agent-runtime__context strong")).toHaveText(
+      await runtime.getByLabel(/Model and context settings\./u).click();
+      const runtimeDialog = runtime.getByRole("dialog", { name: "Choose model and runtime settings", exact: true });
+      await expect(runtimeDialog).toBeVisible();
+      await runtimeDialog.getByText("Context, compatibility & runtime evidence", { exact: true }).click();
+      await expect(runtimeDialog.locator(".agent-runtime__context strong")).toHaveText(
         "612 input / 4,096 · 3,484 available · turn 2",
       );
-      const runtimeModel = runtime.getByRole("combobox", { name: "Model", exact: true });
+      const runtimeModel = runtimeDialog.getByRole("combobox", { name: "Model", exact: true });
       await expect(runtimeModel).toBeVisible();
       await expect(runtimeModel).toBeEnabled();
       await runtimeModel.selectOption("example-medium-split");
-      await runtime.getByRole("button", { name: "Switch model", exact: true }).click();
-      await expect(runtime.getByRole("status")).toContainText("This chat is bound to it.");
+      await runtimeDialog.getByRole("button", { name: "Switch model", exact: true }).click();
+      await expect(runtimeDialog.getByRole("status")).toContainText("This chat is bound to it.");
+      await runtimeDialog.getByRole("button", { name: "Close model and context settings", exact: true }).click();
       await expect(composer).toHaveValue("Synthetic draft retained while reviewing a file.");
       await page.getByRole("button", { name: "Files & review", exact: true }).click();
       await expect(page.getByRole("heading", { name: "Files and reviewed changes", exact: true })).toBeVisible();
@@ -522,9 +605,9 @@ for (const width of [360, 1440]) {
       const readiness = page.getByRole("region", { name: "Agent capability readiness", exact: true });
       await expect(page.getByRole("tab", { name: "Readiness", exact: true })).toHaveAttribute("aria-selected", "true");
       await expect(readiness).toBeVisible();
-      await expect(readiness).toContainText("16/16 implemented");
+      await expect(readiness).toContainText("Loopback integrated");
       await expect(readiness.getByRole("list", { name: "Requested Agent capabilities", exact: true }).getByRole("listitem")).toHaveCount(15);
-      await expect(readiness).toContainText("implementation and synthetic-test evidence—not a claim");
+      await expect(readiness).toContainText("Contract tests, this running loopback app, and owner-only checks are reported separately");
       await page.getByRole("tab", { name: "Connections", exact: true }).click();
       const controller = page.getByRole("region", { name: "Controller API", exact: true });
       await controller.scrollIntoViewIfNeeded();
@@ -588,13 +671,15 @@ for (const width of [360, 1440]) {
         "last-request timestamp proves",
       );
       await expect(controller.getByRole("button", { name: "Copy orchestration starter", exact: true })).toBeVisible();
-      await controller.getByRole("button", { name: "Begin external proof", exact: true }).click();
-      const externalProof = controller.getByRole("region", { name: /External controller proof/u });
+      await controller.getByRole("button", { name: "Begin external lifecycle proof", exact: true }).click();
+      const externalProof = controller.getByRole("region", { name: /External controller lifecycle/u });
       await expect(externalProof).toBeVisible();
-      await expect(externalProof).toContainText("Memory-only owner acceptance · no automatic mutation");
+      await expect(externalProof).toContainText("Release acceptance · page-owned, never automatic");
       await expect(externalProof).toContainText("call only agent_discover");
       await expect(externalProof).toContainText("local self-test does not count");
-      await expect(externalProof.getByRole("listitem")).toHaveCount(4);
+      await expect(externalProof).toContainText("Reconnect without resubmission");
+      await expect(externalProof).toContainText("Revision-bound two-party handoff");
+      await expect(externalProof.getByRole("listitem")).toHaveCount(10);
       await fitsViewport(page);
       const connectedTools = controller.locator("details.agent-mcp-connections__capabilities > summary");
       await connectedTools.focus();
@@ -659,8 +744,8 @@ for (const width of [360, 1440]) {
         await page.setViewportSize({ width: 320, height: 900 });
         await health.scrollIntoViewIfNeeded();
         await fitsViewport(page);
-        await controller.getByRole("button", { name: "Begin external proof", exact: true }).click();
-        const narrowExternalProof = controller.getByRole("region", { name: /External controller proof/u });
+        await controller.getByRole("button", { name: "Restart lifecycle proof", exact: true }).click();
+        const narrowExternalProof = controller.getByRole("region", { name: /External controller lifecycle/u });
         await expect(narrowExternalProof).toBeVisible();
         await fitsViewport(page);
         const touchTargets = [
@@ -670,7 +755,7 @@ for (const width of [360, 1440]) {
           ["Copy preview install command", setupPreview.getByRole("button", { name: "Copy preview install command", exact: true })],
           ["Refresh connection status", controller.getByRole("button", { name: "Refresh connection status", exact: true })],
           ["Refresh proof evidence", narrowExternalProof.getByRole("button", { name: "Refresh proof evidence", exact: true })],
-          ["Clear proof", narrowExternalProof.getByRole("button", { name: "Clear proof", exact: true })],
+          ["Clear page-only receipt", narrowExternalProof.getByRole("button", { name: "Clear page-only receipt", exact: true })],
           ["Run health check", runHealth],
           ["Files & review", page.getByRole("button", { name: "Files & review", exact: true })],
           ["Send", page.getByRole("button", { name: "Send", exact: true })],
@@ -854,6 +939,7 @@ for (const width of [360, 1440]) {
       await page.getByRole("checkbox", { name: "File writes", exact: true }).check();
       await page.getByRole("button", { name: "Confirm and revalidate", exact: true }).click();
       await expect(recovery).toHaveCount(0);
+      await page.getByText("Chat details", { exact: true }).click();
       await expect(page.getByText(/saved locally · recovered · writes · no commands · no web/u)).toBeVisible();
       await fitsViewport(page);
     });

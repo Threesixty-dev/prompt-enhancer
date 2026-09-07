@@ -62,6 +62,15 @@
 .agent-rail__dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 .agent-rail__danger-button { border-color: var(--status-negative); background: var(--status-negative); color: white; }
 
+/* The surrounding Agent rail is the single desktop scroll owner. Project and
+   chat lists expand into it instead of creating nested wheel/keyboard traps. */
+@media (min-width: 901px) {
+  .agent__side-scroll .agent-rail { grid-template-rows: repeat(4, auto) auto auto auto auto; }
+  .agent__side-scroll .agent-rail__project-list,
+  .agent__side-scroll .agent-rail__sessions { max-height: none; overflow: visible; }
+  .agent__side-scroll .agent-rail__chat-section { grid-template-rows: auto auto; }
+}
+
 @media (max-width: 760px) {
   .agent-rail { max-height: min(70dvh, 38rem); }
   .agent-rail__project-list { max-height: 9rem; }

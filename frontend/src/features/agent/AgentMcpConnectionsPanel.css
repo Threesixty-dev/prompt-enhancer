@@ -684,7 +684,7 @@
 
 .agent-mcp-connections__acceptance > ol {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   gap: 0.35rem;
   margin: 0;
   padding: 0;

@@ -17176,4 +17176,3 @@ ALTER TABLE model_judgments ADD COLUMN case_version TEXT
     CHECK(case_version IS NULL OR length(case_version) BETWEEN 1 AND 64);
 COMMIT;
 """
-

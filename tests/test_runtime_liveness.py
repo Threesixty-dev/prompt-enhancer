@@ -62,7 +62,7 @@ class _Models:
             raise RuntimeError("SYNTHETIC_PRIVATE_MODEL_SHUTDOWN_CANARY")
 
 
-def _app(tmp_path, workers: list[_Worker], models: _Models):
+def _app(tmp_path, workers: list[_Worker], models: _Models, updater=None):
     return create_app(
         settings=AppSettings(home=tmp_path),
         database=_Store(),
@@ -72,6 +72,7 @@ def _app(tmp_path, workers: list[_Worker], models: _Models):
         model_ensemble_watch_worker=workers[2],  # type: ignore[arg-type]
         local_source_refresh_worker=workers[3],
         local_model_service=models,
+        application_update_service=updater,
     )
 
 
@@ -275,6 +276,31 @@ def test_native_fallback_and_lifespan_share_one_exhaustive_cleanup(tmp_path) -> 
         assert events.count(f"stop:{name}") == 1
     assert app.state.runtime_lifecycle.cleanup_finished is True
     assert app.state.runtime_lifecycle.shutdown_failures == ()
+
+
+def test_update_shutdown_failure_is_reported_without_private_exception_text(tmp_path) -> None:
+    class _FailingUpdater:
+        def status(self):
+            raise AssertionError("status should not be called")
+
+        def shutdown(self) -> None:
+            raise RuntimeError("SYNTHETIC_PRIVATE_UPDATE_SHUTDOWN_CANARY")
+
+    events: list[str] = []
+    workers = [
+        _Worker(name, events)
+        for name in ("analysis", "automation", "watch", "refresh")
+    ]
+    app = _app(tmp_path, workers, _Models(events), updater=_FailingUpdater())
+
+    with pytest.raises(RuntimeError, match="^runtime_component_shutdown_failed$"):
+        with TestClient(app, base_url="http://127.0.0.1"):
+            pass
+
+    report = app.state.runtime_lifecycle
+    assert report.shutdown_failures == ("application_update_service",)
+    assert report.cleanup_finished is True
+    assert "SYNTHETIC_PRIVATE" not in repr(report)
 
 
 def test_agent_and_evaluation_shutdown_are_exhaustive_and_content_free(tmp_path) -> None:

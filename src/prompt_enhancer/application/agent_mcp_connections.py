@@ -16,6 +16,7 @@ import hmac
 import json
 import re
 import secrets
+from threading import Lock
 from typing import Literal, Protocol
 
 from pydantic import Field, field_validator, model_validator
@@ -36,10 +37,13 @@ from .agent_mcp_client_config import (
 
 
 AGENT_MCP_CONNECTION_CONTRACT_VERSION = "agent-mcp-connection.v4"
-AGENT_MCP_MANAGEMENT_CONTRACT_VERSION = "agent-mcp-management.v1"
+AGENT_MCP_MANAGEMENT_CONTRACT_VERSION = "agent-mcp-management.v2"
 AGENT_MCP_MANAGEMENT_PATH = "/v1/integrations/agent-mcp/connections"
 AGENT_MCP_SCOPE_CONTRACT_VERSION = "agent-mcp-scope.v1"
 AGENT_MCP_SETUP_CONTRACT_VERSION = "agent-mcp-client-setup.v1"
+AGENT_MCP_TOOL_ACTIVITY_SEQUENCE_CONTRACT_VERSION = (
+    "agent-mcp-tool-activity-sequence.v1"
+)
 AGENT_MCP_SETUP_PATH = "/v1/integrations/agent-mcp/setup"
 AGENT_MCP_DEFAULT_EXPIRY_DAYS = 90
 AGENT_MCP_MAX_EXPIRY_DAYS = 365
@@ -227,13 +231,76 @@ class AgentMcpConnection(StrictModel):
         return self
 
 
+class AgentMcpToolActivitySequence(StrictModel):
+    """Content-free current-process cursor for exact controller evidence."""
+
+    contract_version: Literal["agent-mcp-tool-activity-sequence.v1"] = (
+        AGENT_MCP_TOOL_ACTIVITY_SEQUENCE_CONTRACT_VERSION
+    )
+    connection_id: str = Field(pattern=_ID_PATTERN)
+    credential_revision: int = Field(strict=True, ge=1)
+    sequence: int = Field(strict=True, ge=0, le=9_007_199_254_740_991)
+    tool_name: str | None = Field(
+        default=None,
+        pattern=r"^(?:agent_[a-z][a-z0-9_]{0,47}|unknown_tool)$",
+    )
+    tool_source: AgentMcpToolSource | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    outcome: AgentMcpToolOutcome | None = None
+
+    @field_validator("started_at", "completed_at")
+    @classmethod
+    def normalize_time(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _utc(value)
+
+    @model_validator(mode="after")
+    def coherent_activity(self) -> "AgentMcpToolActivitySequence":
+        identity = (self.tool_name, self.tool_source, self.started_at)
+        completion = (self.completed_at, self.outcome)
+        if self.sequence == 0:
+            if any(value is not None for value in (*identity, *completion)):
+                raise ValueError("zero activity sequence cannot carry a tool")
+            return self
+        if any(value is None for value in identity):
+            raise ValueError("tool admission receipt is incomplete")
+        if (self.completed_at is None) != (self.outcome is None):
+            raise ValueError("tool completion receipt is incomplete")
+        if (
+            self.completed_at is not None
+            and self.started_at is not None
+            and self.completed_at < self.started_at
+        ):
+            raise ValueError("tool activity timestamps are incoherent")
+        return self
+
+
 class AgentMcpConnectionList(StrictModel):
-    contract_version: Literal["agent-mcp-management.v1"] = (
+    contract_version: Literal["agent-mcp-management.v2"] = (
         AGENT_MCP_MANAGEMENT_CONTRACT_VERSION
     )
+    activity_epoch: str = Field(pattern=_ID_PATTERN)
     connections: tuple[AgentMcpConnection, ...]
     active_count: int = Field(strict=True, ge=0, le=MAX_AGENT_MCP_CONNECTIONS)
     controller_ownerships: AgentControllerOwnershipList
+    tool_activity_sequences: tuple[AgentMcpToolActivitySequence, ...]
+
+    @model_validator(mode="after")
+    def exact_activity_sequences(self) -> "AgentMcpConnectionList":
+        expected = {
+            (item.connection_id, item.credential_revision)
+            for item in self.connections
+        }
+        actual = {
+            (item.connection_id, item.credential_revision)
+            for item in self.tool_activity_sequences
+        }
+        if (
+            len(actual) != len(self.tool_activity_sequences)
+            or actual != expected
+        ):
+            raise ValueError("tool activity sequences do not match connections")
+        return self
 
 
 class AgentMcpConnectionCredential(StrictModel):
@@ -292,6 +359,7 @@ class AgentMcpClientSetup(StrictModel):
 
 class AgentMcpPrincipal(StrictModel):
     connection_id: str = Field(pattern=_ID_PATTERN)
+    credential_revision: int = Field(strict=True, ge=1)
     client_kind: AgentMcpClientKind
     allow_model_lifecycle: bool
     project_id: str = Field(pattern=_ID_PATTERN)
@@ -455,6 +523,7 @@ class AgentMcpConnectionService:
         token_pepper: str,
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
+        activity_epoch_factory: Callable[[], str] | None = None,
     ) -> None:
         if len(token_pepper) < 32:
             raise ValueError("Agent MCP token pepper is too short")
@@ -462,6 +531,17 @@ class AgentMcpConnectionService:
         self._pepper = token_pepper.encode("utf-8")
         self._clock = clock or (lambda: datetime.now(UTC))
         self._id = id_factory or (lambda: secrets.token_hex(16))
+        self._activity_epoch = (
+            activity_epoch_factory()
+            if activity_epoch_factory is not None
+            else secrets.token_hex(16)
+        )
+        if re.fullmatch(_ID_PATTERN, self._activity_epoch) is None:
+            raise ValueError("Agent MCP activity epoch is invalid")
+        self._activity_lock = Lock()
+        self._tool_activity_sequences: dict[
+            tuple[str, int], AgentMcpToolActivitySequence
+        ] = {}
         self._ownership = AgentControllerOwnershipService(
             repository,
             clock=self._clock,
@@ -524,18 +604,41 @@ class AgentMcpConnectionService:
         )
 
     def list(self) -> AgentMcpConnectionList:
-        now = self._now()
-        connections = tuple(
-            self._repository.list_connections(
-                now=now,
-                limit=MAX_AGENT_MCP_CONNECTION_LIST,
+        with self._activity_lock:
+            now = self._now()
+            connections = tuple(
+                self._repository.list_connections(
+                    now=now,
+                    limit=MAX_AGENT_MCP_CONNECTION_LIST,
+                )
             )
-        )
-        return AgentMcpConnectionList(
-            connections=connections,
-            active_count=sum(item.state == "active" for item in connections),
-            controller_ownerships=self._ownership.list(),
-        )
+            current_keys = {
+                (item.connection_id, item.credential_revision)
+                for item in connections
+            }
+            self._tool_activity_sequences = {
+                key: value
+                for key, value in self._tool_activity_sequences.items()
+                if key in current_keys
+            }
+            sequences = tuple(
+                self._tool_activity_sequences.get(
+                    (item.connection_id, item.credential_revision),
+                    AgentMcpToolActivitySequence(
+                        connection_id=item.connection_id,
+                        credential_revision=item.credential_revision,
+                        sequence=0,
+                    ),
+                )
+                for item in connections
+            )
+            return AgentMcpConnectionList(
+                activity_epoch=self._activity_epoch,
+                connections=connections,
+                active_count=sum(item.state == "active" for item in connections),
+                controller_ownerships=self._ownership.list(),
+                tool_activity_sequences=sequences,
+            )
 
     def rotate(
         self,
@@ -629,31 +732,174 @@ class AgentMcpConnectionService:
         self._repository.touch_connection(connection_id, used_at=now)
         return AgentMcpPrincipal(
             connection_id=connection.connection_id,
+            credential_revision=connection.credential_revision,
             client_kind=connection.client_kind,
             allow_model_lifecycle=connection.allow_model_lifecycle,
             project_id=project_id,
         )
 
-    def record_tool_call(
+    @staticmethod
+    def _validate_tool_activity(
+        *,
+        credential_revision: int,
+        tool_name: str,
+        source: AgentMcpToolSource,
+    ) -> None:
+        if not isinstance(credential_revision, int) or isinstance(
+            credential_revision, bool
+        ) or credential_revision < 1:
+            raise AgentMcpConnectionError("agent_mcp_tool_activity_invalid")
+        if re.fullmatch(
+            r"(?:agent_[a-z][a-z0-9_]{0,47}|unknown_tool)", tool_name
+        ) is None:
+            raise AgentMcpConnectionError("agent_mcp_tool_activity_invalid")
+        if source not in {"external_client", "native_self_test"}:
+            raise AgentMcpConnectionError("agent_mcp_tool_activity_invalid")
+
+    def begin_tool_call(
         self,
         connection_id: str,
         *,
+        credential_revision: int,
+        tool_name: str,
+        source: AgentMcpToolSource,
+    ) -> int:
+        self._validate_tool_activity(
+            credential_revision=credential_revision,
+            tool_name=tool_name,
+            source=source,
+        )
+        with self._activity_lock:
+            started_at = self._now()
+            connection = self._repository.get_connection(
+                connection_id,
+                now=started_at,
+            )
+            if (
+                connection is None
+                or connection.state != "active"
+                or connection.credential_revision != credential_revision
+            ):
+                raise AgentMcpConnectionError("agent_mcp_tool_activity_stale")
+            key = (connection_id, credential_revision)
+            previous = self._tool_activity_sequences.get(key)
+            sequence = 1 if previous is None else previous.sequence + 1
+            if sequence > 9_007_199_254_740_991:
+                raise AgentMcpConnectionError("agent_mcp_tool_activity_exhausted")
+            self._tool_activity_sequences[key] = AgentMcpToolActivitySequence(
+                connection_id=connection_id,
+                credential_revision=credential_revision,
+                sequence=sequence,
+                tool_name=tool_name,
+                tool_source=source,
+                started_at=started_at,
+            )
+            return sequence
+
+    def finish_tool_call(
+        self,
+        connection_id: str,
+        *,
+        credential_revision: int,
+        sequence: int,
         tool_name: str,
         outcome: AgentMcpToolOutcome,
         source: AgentMcpToolSource,
     ) -> None:
-        if re.fullmatch(r"(?:agent_[a-z][a-z0-9_]{0,47}|unknown_tool)", tool_name) is None:
+        self._validate_tool_activity(
+            credential_revision=credential_revision,
+            tool_name=tool_name,
+            source=source,
+        )
+        if (
+            not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or sequence < 1
+            or not isinstance(outcome, str)
+            or outcome not in {"succeeded", "failed"}
+        ):
             raise AgentMcpConnectionError("agent_mcp_tool_activity_invalid")
-        if outcome not in {"succeeded", "failed"}:
-            raise AgentMcpConnectionError("agent_mcp_tool_activity_invalid")
-        if source not in {"external_client", "native_self_test"}:
-            raise AgentMcpConnectionError("agent_mcp_tool_activity_invalid")
-        self._repository.record_tool_call(
+        with self._activity_lock:
+            key = (connection_id, credential_revision)
+            admitted = self._tool_activity_sequences.get(key)
+            if admitted is None or sequence > admitted.sequence:
+                raise AgentMcpConnectionError("agent_mcp_tool_activity_stale")
+            if sequence < admitted.sequence:
+                # A newer concurrently admitted call owns the single bounded
+                # public cursor. Its evidence must not be overwritten by a
+                # late completion from the earlier call.
+                return
+            if (
+                admitted.tool_name != tool_name
+                or admitted.tool_source != source
+                or admitted.completed_at is not None
+            ):
+                raise AgentMcpConnectionError("agent_mcp_tool_activity_stale")
+            completed_at = self._now()
+            connection = self._repository.get_connection(
+                connection_id,
+                now=completed_at,
+            )
+            if (
+                connection is None
+                or connection.state != "active"
+                or connection.credential_revision != credential_revision
+            ):
+                raise AgentMcpConnectionError("agent_mcp_tool_activity_stale")
+            self._repository.record_tool_call(
+                connection_id,
+                tool_name=tool_name,
+                outcome=outcome,
+                source=source,
+                observed_at=completed_at,
+            )
+            confirmed = self._repository.get_connection(
+                connection_id,
+                now=completed_at,
+            )
+            if (
+                confirmed is None
+                or confirmed.state != "active"
+                or confirmed.credential_revision != credential_revision
+                or confirmed.last_tool_at != completed_at
+                or confirmed.last_tool_name != tool_name
+                or confirmed.last_tool_outcome != outcome
+                or confirmed.last_tool_source != source
+            ):
+                raise AgentMcpConnectionError("agent_mcp_tool_activity_stale")
+            self._tool_activity_sequences[key] = AgentMcpToolActivitySequence(
+                connection_id=connection_id,
+                credential_revision=credential_revision,
+                sequence=sequence,
+                tool_name=tool_name,
+                tool_source=source,
+                started_at=admitted.started_at,
+                completed_at=completed_at,
+                outcome=outcome,
+            )
+
+    def record_tool_call(
+        self,
+        connection_id: str,
+        *,
+        credential_revision: int,
+        tool_name: str,
+        outcome: AgentMcpToolOutcome,
+        source: AgentMcpToolSource,
+    ) -> None:
+        sequence = self.begin_tool_call(
             connection_id,
+            credential_revision=credential_revision,
+            tool_name=tool_name,
+            source=source,
+        )
+        self.finish_tool_call(
+            connection_id,
+            credential_revision=credential_revision,
+            sequence=sequence,
             tool_name=tool_name,
             outcome=outcome,
             source=source,
-            observed_at=self._now(),
         )
 
 
@@ -668,6 +914,7 @@ __all__ = (
     "AGENT_MCP_SCOPE_CONTRACT_VERSION",
     "AGENT_MCP_SETUP_CONTRACT_VERSION",
     "AGENT_MCP_SETUP_PATH",
+    "AGENT_MCP_TOOL_ACTIVITY_SEQUENCE_CONTRACT_VERSION",
     "MAX_AGENT_MCP_CONNECTIONS",
     "AgentMcpClientKind",
     "AgentMcpClientSetup",
@@ -678,6 +925,7 @@ __all__ = (
     "AgentMcpConnectionRepository",
     "AgentMcpConnectionService",
     "AgentMcpConnectionScope",
+    "AgentMcpToolActivitySequence",
     "AgentMcpPrincipal",
     "AgentMcpToolOutcome",
     "AgentMcpToolSource",

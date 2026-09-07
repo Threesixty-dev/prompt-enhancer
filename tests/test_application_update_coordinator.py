@@ -6,6 +6,7 @@ from threading import Event, Thread
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+import pytest
 
 from prompt_enhancer.application.updates import (
     ApplicationUpdateCoordinator,
@@ -14,6 +15,7 @@ from prompt_enhancer.application.updates import (
     UpdateRejection,
 )
 from prompt_enhancer.application.updates.ports import SignedUpdateManifestEnvelope
+from prompt_enhancer.application.updates.status import UpdateActionConflict
 from prompt_enhancer.infrastructure.updates import Ed25519ManifestVerifier
 
 
@@ -69,6 +71,14 @@ def _coordinator(source: _Source, signer: Ed25519PrivateKey):
         source=source,
         verifier=Ed25519ManifestVerifier(public_keys={"release-2040": public}),
         clock=lambda: NOW,
+    )
+
+
+def _check(coordinator: ApplicationUpdateCoordinator):
+    snapshot = coordinator.status()
+    return coordinator.check(
+        expected_revision=snapshot.revision,
+        expected_instance_id=snapshot.instance_id,
     )
 
 
@@ -179,8 +189,8 @@ def test_concurrent_check_returns_checking_and_opens_the_source_once() -> None:
     worker.start()
     assert entered.wait(timeout=1)
 
-    concurrent = coordinator.check()
-    assert concurrent.state is ApplicationUpdateState.CHECKING
+    with pytest.raises(UpdateActionConflict):
+        coordinator.check()
     assert source.calls == 0
 
     release.set()

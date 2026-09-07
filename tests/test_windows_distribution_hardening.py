@@ -141,11 +141,21 @@ def test_private_relative_policy_rejects_windows_ambiguities(
 
 
 def test_windows_hardener_never_claims_posix_mode_is_a_dacl(tmp_path: Path) -> None:
+    class _UnavailableDacl:
+        def inspect(self, _path: Path) -> PathRejection:
+            return PathRejection.WINDOWS_DACL_UNAVAILABLE
+
+        def create_then_inspect(self, _path: Path) -> PathRejection:
+            return PathRejection.WINDOWS_DACL_UNAVAILABLE
+
     target = tmp_path / "private"
     target.mkdir()
     target.chmod(0o700)
 
-    report = LocalPrivatePathHardener(platform_name="nt").inspect(target)
+    report = LocalPrivatePathHardener(
+        platform_name="nt",
+        windows_private_directory=_UnavailableDacl(),
+    ).inspect(target)
 
     assert report.state is HardeningState.UNVERIFIED
     assert report.reason is PathRejection.WINDOWS_DACL_UNAVAILABLE
@@ -872,6 +882,7 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
     }
     allowed_uncomposed = {
         "prompt_enhancer.infrastructure.updates.https_manifest_source",
+        "prompt_enhancer.infrastructure.updates.https_artifact_source",
     }
     registered_loopback = {
         entry.module

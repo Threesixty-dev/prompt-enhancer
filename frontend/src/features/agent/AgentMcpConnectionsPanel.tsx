@@ -17,6 +17,15 @@ import {
   type AgentMcpEndpointSelfTestFailure,
   type AgentMcpEndpointSelfTestResult,
 } from "../../shared/api/agentMcpEndpointSelfTest";
+import {
+  beginExternalControllerAcceptance,
+  externalControllerAcceptanceBaselineIssue,
+  externalControllerAcceptancePassed,
+  externalControllerAcceptanceStepPassed,
+  type ExternalControllerAcceptanceEvidence,
+  type ExternalControllerAcceptanceRun,
+  type ExternalControllerAcceptanceStep,
+} from "./externalControllerAcceptance";
 import "./AgentMcpConnectionsPanel.css";
 
 type ConnectionTransport = Partial<Pick<
@@ -34,6 +43,11 @@ type Props = {
   transport: ConnectionTransport;
   userPresenceAvailable: boolean;
   selectedProjectId?: string | null;
+  selectedSessionId?: string | null;
+  acceptanceRun?: ExternalControllerAcceptanceRun | null;
+  onAcceptanceEvidence?: (evidence: ExternalControllerAcceptanceEvidence) => void;
+  onAcceptanceObservation?: (catalog: AgentMcpConnectionList) => void;
+  onAcceptanceRunChange?: (run: ExternalControllerAcceptanceRun | null) => void;
 };
 
 type LoadState = "loading" | "ready" | "unavailable" | "error";
@@ -57,119 +71,8 @@ type EndpointSelfTestState =
   | { state: "passed"; result: AgentMcpEndpointSelfTestResult }
   | { state: "failed"; code: AgentMcpEndpointSelfTestFailure };
 
-export type ExternalAgentAcceptanceIssue =
-  | "connection_missing"
-  | "credential_changed"
-  | "inactive_before_discovery"
-  | "expired_before_revocation";
-
-export type ExternalAgentAcceptanceRun = {
-  contractVersion: "agent-mcp-external-acceptance.v1";
-  connectionId: string;
-  connectionLabel: string;
-  clientKind: AgentMcpClientKind;
-  credentialRevision: number;
-  baselineToolAt: string | null;
-  baselineAuthRejectedAt: string | null;
-  externalDiscoverAt: string | null;
-  revokedAt: string | null;
-  rejectedAfterRevokeAt: string | null;
-  issue: ExternalAgentAcceptanceIssue | null;
-};
-
 const AGENT_MCP_ENDPOINT_PATH = "/mcp/agent";
 
-function isNewerReceipt(candidate: string | null, baseline: string | null): boolean {
-  if (candidate === null) return false;
-  const candidateTime = Date.parse(candidate);
-  if (!Number.isFinite(candidateTime)) return false;
-  if (baseline === null) return true;
-  const baselineTime = Date.parse(baseline);
-  return Number.isFinite(baselineTime) && candidateTime > baselineTime;
-}
-
-export function beginExternalAgentAcceptance(
-  connection: AgentMcpConnection,
-): ExternalAgentAcceptanceRun {
-  if (connection.state !== "active") {
-    throw new Error("An external Agent acceptance run requires an active connection");
-  }
-  return {
-    contractVersion: "agent-mcp-external-acceptance.v1",
-    connectionId: connection.connection_id,
-    connectionLabel: connection.label,
-    clientKind: connection.client_kind,
-    credentialRevision: connection.credential_revision,
-    baselineToolAt: connection.last_tool_at,
-    baselineAuthRejectedAt: connection.last_auth_rejected_at,
-    externalDiscoverAt: null,
-    revokedAt: null,
-    rejectedAfterRevokeAt: null,
-    issue: null,
-  };
-}
-
-export function observeExternalAgentAcceptance(
-  run: ExternalAgentAcceptanceRun,
-  connection: AgentMcpConnection | null,
-): ExternalAgentAcceptanceRun {
-  if (run.issue !== null || run.rejectedAfterRevokeAt !== null) return run;
-  if (connection === null || connection.connection_id !== run.connectionId) {
-    return { ...run, issue: "connection_missing" };
-  }
-  if (connection.credential_revision !== run.credentialRevision) {
-    return { ...run, issue: "credential_changed" };
-  }
-
-  let observed = run;
-  if (observed.externalDiscoverAt === null) {
-    if (connection.state !== "active") {
-      return { ...observed, issue: "inactive_before_discovery" };
-    }
-    if (
-      connection.last_tool_source === "external_client"
-      && connection.last_tool_name === "agent_discover"
-      && connection.last_tool_outcome === "succeeded"
-      && isNewerReceipt(connection.last_tool_at, observed.baselineToolAt)
-    ) {
-      observed = { ...observed, externalDiscoverAt: connection.last_tool_at };
-    }
-  }
-
-  if (observed.externalDiscoverAt !== null && connection.state === "expired") {
-    return { ...observed, issue: "expired_before_revocation" };
-  }
-  if (
-    observed.externalDiscoverAt !== null
-    && connection.state === "revoked"
-    && connection.revoked_at !== null
-  ) {
-    observed = { ...observed, revokedAt: connection.revoked_at };
-  }
-  if (
-    observed.revokedAt !== null
-    && isNewerReceipt(connection.last_auth_rejected_at, observed.revokedAt)
-    && isNewerReceipt(
-      connection.last_auth_rejected_at,
-      observed.baselineAuthRejectedAt,
-    )
-  ) {
-    observed = {
-      ...observed,
-      rejectedAfterRevokeAt: connection.last_auth_rejected_at,
-    };
-  }
-  return observed;
-}
-
-export function externalAgentAcceptancePassed(
-  run: ExternalAgentAcceptanceRun,
-): boolean {
-  return run.issue === null
-    && run.externalDiscoverAt !== null
-    && run.revokedAt !== null
-    && run.rejectedAfterRevokeAt !== null;
-}
 
 export function agentMcpClientVerificationCommand(client: ConfiguredSetupClient): string {
   return client === "codex"
@@ -340,31 +243,103 @@ function controllerMayAttemptNativeRelease(
     && !["claimed", "running", "stopping"].includes(ownership.state);
 }
 
-function externalAcceptanceIssueCopy(issue: ExternalAgentAcceptanceIssue): string {
-  if (issue === "connection_missing") {
-    return "The selected connection disappeared from the bounded catalog. Refresh, then restart the proof from a visible active connection.";
+const EXTERNAL_ACCEPTANCE_STEPS: readonly {
+  key: ExternalControllerAcceptanceStep;
+  label: string;
+}[] = [
+  { key: "connect", label: "External client connected" },
+  { key: "discovery", label: "Exact project and chat discovered" },
+  { key: "ownership", label: "Atomic chat ownership" },
+  { key: "stream", label: "Streaming state observed" },
+  { key: "stop", label: "External Stop and release" },
+  { key: "reconnect", label: "Reconnect without resubmission" },
+  { key: "handoff", label: "Revision-bound two-party handoff" },
+  { key: "revoke", label: "Current owner revoked" },
+  { key: "refusal", label: "Revoked credential refused" },
+  { key: "cleanup", label: "Settled ownership cleaned up" },
+];
+
+function externalAcceptanceIssueCopy(
+  run: ExternalControllerAcceptanceRun,
+): string {
+  if (run.invalidReason === "connection_missing") {
+    return "A bound connection disappeared. The run cannot substitute another credential; clear it and restart from a clean baseline.";
   }
-  if (issue === "credential_changed") {
-    return "The credential was rotated during this proof. Restart from the active connection so every receipt is bound to one credential revision.";
+  if (run.invalidReason === "credential_changed") {
+    return "A bound credential revision changed. Clear the receipt and restart so every observation belongs to one exact credential revision.";
   }
-  if (issue === "inactive_before_discovery") {
-    return "The connection became inactive before a new external agent_discover receipt was observed. Create a replacement and restart the proof.";
+  if (run.invalidReason === "activity_epoch_changed") {
+    return "The local controller service restarted, so its content-free activity epoch changed. Earlier and later calls cannot be combined; restart from a clean baseline.";
   }
-  return "The connection expired before native revocation was observed. Create a replacement and restart the proof.";
+  if (run.invalidReason === "activity_gap") {
+    return "More than one controller action occurred between observations, so exact ordering cannot be proven. Restart and refresh after each instructed call.";
+  }
+  if (run.invalidReason === "scope_changed" || run.invalidReason === "cross_scope_ownership") {
+    return "Project, chat, or controller ownership no longer matches the bound scope. Evidence is never combined across scopes.";
+  }
+  if (run.invalidReason === "connection_inactive") {
+    return "A required connection became inactive before its ordered revocation step. Prepare a replacement and restart the proof.";
+  }
+  if (run.invalidReason === "ownership_lost") {
+    return "The exact ownership disappeared before the required Stop, handoff, revocation, or native release receipt was observed.";
+  }
+  if (run.invalidReason === "stream_not_observed") {
+    return "The turn settled or became incomplete before the running stream state was observed. Restart with a long enough bounded request.";
+  }
+  if (run.invalidReason === "handoff_invalid") {
+    return "The handoff target, revision, owner, or project did not match the two-party handoff contract.";
+  }
+  if (run.invalidReason === "release_invalid") {
+    return "The native release receipt did not prove this exact revoked owner, settled chat, revision, and authority-free cleanup.";
+  }
+  if (run.invalidReason === "out_of_order") {
+    return "A different external tool call arrived before the expected checkpoint. This ordered receipt cannot skip or reorder activity.";
+  }
+  return "The observed controller state did not prove the required outcome. This run failed closed; inspect the connection and chat before restarting.";
 }
 
-function externalAcceptanceInstruction(run: ExternalAgentAcceptanceRun): string {
-  if (run.issue !== null) return externalAcceptanceIssueCopy(run.issue);
-  if (externalAgentAcceptancePassed(run)) {
-    return "External-controller acceptance passed. The app observed a new external discovery call, durable native revocation, and rejection of that credential after revocation.";
+function externalAcceptanceInstruction(run: ExternalControllerAcceptanceRun): string {
+  if (run.invalidReason !== null) return externalAcceptanceIssueCopy(run);
+  if (externalControllerAcceptancePassed(run)) {
+    return "Complete. One exact project/chat lifecycle proved connection, discovery, ownership, streaming, external Stop, reconnect without message resubmission, two-party handoff, revocation, refusal and settled native cleanup.";
   }
-  if (run.externalDiscoverAt === null) {
-    return `In ${clientLabel(run.clientKind)}, call only agent_discover with this connection, stop, then refresh proof evidence. The app's local self-test does not count.`;
+  if (run.phase === "connect_discover") {
+    return `Connect ${clientLabel(run.primaryClientKind)}, call only agent_discover with this credential, then refresh. The app's local self-test does not count.`;
   }
-  if (run.revokedAt === null) {
-    return "External discovery is proven. Use the selected connection's Revoke button below; the acceptance flow will never revoke it automatically.";
+  if (run.phase === "chat_discovery") {
+    return "From the same client, call agent_catalog list_chats for the bound project and locate the exact open chat, then refresh.";
   }
-  return `In ${clientLabel(run.clientKind)}, retry agent_discover once with the now-revoked token. Expect HTTP 401, then refresh proof evidence.`;
+  if (run.phase === "first_claim" || run.phase === "stream") {
+    return "Send one long-enough bounded agent_turn to this exact chat, then refresh while it is still streaming. Do not use native Send for this step.";
+  }
+  if (run.phase === "first_stop") {
+    return "From the owning external client, call agent_stop for this chat and cursor. Refresh only after Stop returns and control is released.";
+  }
+  if (run.phase === "reconnect_claim") {
+    return "Send one second long-enough agent_turn to the same chat with a short deadline. Submit this message exactly once, then refresh.";
+  }
+  if (run.phase === "reconnect_incomplete") {
+    return "Let that one call return incomplete so durable ownership enters reconnecting, then refresh. Do not submit the message again.";
+  }
+  if (run.phase === "reconnect_status") {
+    return "Reconnect or reload the same external client and call agent_control status for this chat. Do not call agent_turn again.";
+  }
+  if (run.phase === "reconnect_wait") {
+    return "Call agent_wait from the saved cursor with a short deadline so the same turn remains incomplete, then refresh.";
+  }
+  if (run.phase === "handoff_offer") {
+    return "From the current owner, offer agent_control handoff at the displayed revision to a second active connection bound to this same project, then refresh.";
+  }
+  if (run.phase === "handoff_accept") {
+    return "From that exact target credential, accept the offered ownership revision with agent_control, then refresh.";
+  }
+  if (run.phase === "revoke") {
+    return "Use the target connection's native Revoke button below while it still owns the incomplete turn. The guide never revokes automatically.";
+  }
+  if (run.phase === "post_revoke_refusal") {
+    return "Retry one MCP request with the exact revoked target token. Expect HTTP 401, then refresh proof evidence.";
+  }
+  return "Settle the exact live turn with native Stop if needed, then use Release settled control. Completion requires the backend's exact native release receipt.";
 }
 
 function replacementLabel(value: string): string {
@@ -376,6 +351,11 @@ export function AgentMcpConnectionsPanel({
   transport,
   userPresenceAvailable,
   selectedProjectId = null,
+  selectedSessionId = null,
+  acceptanceRun = null,
+  onAcceptanceEvidence,
+  onAcceptanceObservation,
+  onAcceptanceRunChange,
 }: Props) {
   const [catalog, setCatalog] = useState<AgentMcpConnectionList | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -394,7 +374,6 @@ export function AgentMcpConnectionsPanel({
   const [setupClient, setSetupClient] = useState<SetupClient>("codex");
   const [copied, setCopied] = useState<CopyKind>(null);
   const [endpointSelfTest, setEndpointSelfTest] = useState<EndpointSelfTestState>({ state: "idle" });
-  const [externalAcceptance, setExternalAcceptance] = useState<ExternalAgentAcceptanceRun | null>(null);
   const labelInput = useRef<HTMLInputElement | null>(null);
   const request = useRef<AbortController | null>(null);
   const selfTestRequest = useRef<AbortController | null>(null);
@@ -413,13 +392,7 @@ export function AgentMcpConnectionsPanel({
       const result = await transport.listAgentMcpConnections(signal);
       if (signal?.aborted) return;
       setCatalog(result);
-      setExternalAcceptance((current) => {
-        if (current === null) return null;
-        const connection = result.connections.find(
-          (item) => item.connection_id === current.connectionId,
-        ) ?? null;
-        return observeExternalAgentAcceptance(current, connection);
-      });
+      onAcceptanceObservation?.(result);
       setLoadState("ready");
     } catch {
       if (signal?.aborted) return;
@@ -428,7 +401,7 @@ export function AgentMcpConnectionsPanel({
         setLoadState("error");
       }
     }
-  }, [transport.listAgentMcpConnections]);
+  }, [onAcceptanceObservation, transport.listAgentMcpConnections]);
 
   const loadClientSetup = useCallback(async (signal?: AbortSignal) => {
     if (transport.getAgentMcpClientSetup === undefined) {
@@ -628,10 +601,11 @@ export function AgentMcpConnectionsPanel({
     setBusy(`release-control:${ownership.session_id}`);
     setMessage(null);
     try {
-      await transport.releaseAgentControllerOwnership({
+      const receipt = await transport.releaseAgentControllerOwnership({
         session_id: ownership.session_id,
         expected_revision: ownership.revision,
       });
+      onAcceptanceEvidence?.({ kind: "native_release", receipt });
       await refresh();
       setMessage(
         `Released settled external control for ${ownership.session_title}. No chat, history, or native authority was deleted.`,
@@ -643,7 +617,7 @@ export function AgentMcpConnectionsPanel({
     } finally {
       setBusy(null);
     }
-  }, [refresh, transport.releaseAgentControllerOwnership, userPresenceAvailable]);
+  }, [onAcceptanceEvidence, refresh, transport.releaseAgentControllerOwnership, userPresenceAvailable]);
 
   const copyValue = useCallback(async (
     kind: Exclude<CopyKind, null>,
@@ -749,12 +723,27 @@ export function AgentMcpConnectionsPanel({
     && transport.createAgentMcpConnection !== undefined
     && scopeReady;
   const beginExternalProof = useCallback((connection: AgentMcpConnection) => {
-    if (connection.state !== "active") return;
-    setExternalAcceptance(beginExternalAgentAcceptance(connection));
-    setMessage(
-      `External proof started for ${connection.label}. A new external agent_discover receipt is required; existing activity and the local self-test do not count.`,
+    if (catalog === null) return;
+    const issue = externalControllerAcceptanceBaselineIssue(
+      connection,
+      catalog,
+      selectedProjectId,
+      selectedSessionId,
     );
-  }, []);
+    if (issue !== null || selectedProjectId === null || selectedSessionId === null) {
+      setMessage(issue ?? "Open one live Agent chat inside a saved project before beginning this proof.");
+      return;
+    }
+    onAcceptanceRunChange?.(beginExternalControllerAcceptance(
+      connection,
+      catalog,
+      selectedProjectId,
+      selectedSessionId,
+    ));
+    setMessage(
+      `External lifecycle proof started for ${connection.label}. Earlier activity is excluded; begin with a new external agent_discover call.`,
+    );
+  }, [catalog, onAcceptanceRunChange, selectedProjectId, selectedSessionId]);
   const prepareReplacement = useCallback((connection: AgentMcpConnection) => {
     if (!controlsAvailable || connection.state === "active") return;
     setLabel(replacementLabel(connection.label));
@@ -773,6 +762,19 @@ export function AgentMcpConnectionsPanel({
     : catalog?.connections.find(
       (connection) => connection.connection_id === privateSetup.connection.connection_id,
     ) ?? privateSetup.connection;
+  const acceptancePrimary = acceptanceRun === null
+    ? null
+    : catalog?.connections.find(
+      (connection) => connection.connection_id === acceptanceRun.primaryConnectionId,
+    ) ?? null;
+  const acceptanceTarget = acceptanceRun?.targetConnectionId === null
+    || acceptanceRun?.targetConnectionId === undefined
+    ? null
+    : catalog?.connections.find(
+      (connection) => connection.connection_id === acceptanceRun.targetConnectionId,
+    ) ?? null;
+  const acceptanceContextActive = acceptanceRun === null
+    || (selectedProjectId === acceptanceRun.projectId && selectedSessionId === acceptanceRun.sessionId);
 
   return (
     <section aria-labelledby="agent-mcp-connections-title" className="agent-mcp-connections">
@@ -1285,71 +1287,56 @@ export function AgentMcpConnectionsPanel({
               Refresh connection status
             </button>
           </div>
-          {externalAcceptance && (
+          {acceptanceRun && (
             <section
               aria-labelledby="agent-mcp-external-acceptance-title"
               className="agent-mcp-connections__acceptance"
-              data-state={externalAcceptance.issue !== null
+              data-state={acceptanceRun.invalidReason !== null
                 ? "blocked"
-                : externalAgentAcceptancePassed(externalAcceptance) ? "passed" : "running"}
+                : externalControllerAcceptancePassed(acceptanceRun) ? "passed" : "running"}
             >
               <header>
                 <span>
-                  <small>Memory-only owner acceptance · no automatic mutation</small>
+                  <small>Release acceptance · page-owned, never automatic</small>
                   <strong id="agent-mcp-external-acceptance-title">
-                    External controller proof · {externalAcceptance.connectionLabel}
+                    External controller lifecycle · {acceptancePrimary?.label ?? "bound connection"}
                   </strong>
                 </span>
                 <span>
-                  {externalAcceptance.issue !== null
+                  {acceptanceRun.invalidReason !== null
                     ? "Restart required"
-                    : externalAgentAcceptancePassed(externalAcceptance) ? "Passed" : "In progress"}
+                    : externalControllerAcceptancePassed(acceptanceRun) ? "Complete" : "In progress"}
                 </span>
               </header>
               <p aria-live="polite" role="status">
-                {externalAcceptanceInstruction(externalAcceptance)}
+                {acceptanceContextActive
+                  ? externalAcceptanceInstruction(acceptanceRun)
+                  : "Return to the exact live project and chat that began this proof. Evidence remains bound there and is never combined across chats."}
               </p>
+              <small>
+                This receipt survives closing Settings and clears on app reload. It stores only
+                pseudonymous connection, project, chat, process epoch, monotonic sequence,
+                revision, cursor, state and timestamp
+                evidence—never tokens, prompts, arguments, results, paths or provider configuration.
+              </small>
               <ol aria-label="External controller proof checkpoints">
-                <li data-state="passed">
-                  <span>1</span>
-                  <strong>Fresh baseline</strong>
-                  <small>
-                    Credential revision {externalAcceptance.credentialRevision}; earlier tool and
-                    rejected-auth receipts are excluded.
-                  </small>
-                </li>
-                <li data-state={externalAcceptance.externalDiscoverAt === null ? "waiting" : "passed"}>
-                  <span>2</span>
-                  <strong>External discovery</strong>
-                  <small>
-                    {externalAcceptance.externalDiscoverAt === null
-                      ? "Waiting for a newer external-client agent_discover success."
-                      : `Observed ${dateTimeLabel(externalAcceptance.externalDiscoverAt)}.`}
-                  </small>
-                </li>
-                <li data-state={externalAcceptance.revokedAt === null ? "waiting" : "passed"}>
-                  <span>3</span>
-                  <strong>Native revocation</strong>
-                  <small>
-                    {externalAcceptance.revokedAt === null
-                      ? "Waiting for explicit native revocation after discovery."
-                      : `Durably revoked ${dateTimeLabel(externalAcceptance.revokedAt)}.`}
-                  </small>
-                </li>
-                <li data-state={externalAcceptance.rejectedAfterRevokeAt === null ? "waiting" : "passed"}>
-                  <span>4</span>
-                  <strong>Rejected retry</strong>
-                  <small>
-                    {externalAcceptance.rejectedAfterRevokeAt === null
-                      ? "Waiting for the exact revoked credential to be rejected after revocation."
-                      : `Content-free rejection observed ${dateTimeLabel(externalAcceptance.rejectedAfterRevokeAt)}.`}
-                  </small>
-                </li>
+                {EXTERNAL_ACCEPTANCE_STEPS.map((item, index) => {
+                  const passed = externalControllerAcceptanceStepPassed(acceptanceRun, item.key);
+                  return (
+                    <li data-state={passed ? "passed" : "waiting"} key={item.key}>
+                      <span>{index + 1}</span>
+                      <strong>{item.label}</strong>
+                      <small>{passed ? "Passed" : "Waiting"}</small>
+                    </li>
+                  );
+                })}
               </ol>
               <footer>
                 <p>
-                  This proves endpoint reachability and credential enforcement only. It starts no
-                  model, terminal, project, chat, turn, command, or file operation.
+                  Primary: {acceptancePrimary?.label ?? "unavailable"}
+                  {acceptanceTarget ? ` · handoff target: ${acceptanceTarget.label}` : ""}.
+                  The guide performs no MCP call, message submission, Stop, handoff, revocation,
+                  native approval or cleanup itself.
                 </p>
                 <div>
                   <button
@@ -1362,10 +1349,10 @@ export function AgentMcpConnectionsPanel({
                   </button>
                   <button
                     className="button button--ghost"
-                    onClick={() => setExternalAcceptance(null)}
+                    onClick={() => onAcceptanceRunChange?.(null)}
                     type="button"
                   >
-                    Clear proof
+                    Clear page-only receipt
                   </button>
                 </div>
               </footer>
@@ -1514,9 +1501,9 @@ export function AgentMcpConnectionsPanel({
                       onClick={() => beginExternalProof(connection)}
                       type="button"
                     >
-                      {externalAcceptance?.connectionId === connection.connection_id
-                        ? "Restart external proof"
-                        : "Begin external proof"}
+                      {acceptanceRun?.primaryConnectionId === connection.connection_id
+                        ? "Restart lifecycle proof"
+                        : "Begin external lifecycle proof"}
                     </button>
                   )}
                   <button

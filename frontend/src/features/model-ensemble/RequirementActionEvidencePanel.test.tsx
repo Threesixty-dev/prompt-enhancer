@@ -992,6 +992,7 @@ describe("RequirementActionEvidencePanel", () => {
     />);
     fireEvent.click(await screen.findByRole("button", { name: "Inspect every item" }));
     await screen.findByText("Create the synthetic artifact.");
+    await act(async () => {});
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
     fireEvent.click(screen.getByRole("button", { name: "Confirm exact reviewed graph" }));
     fireEvent.click(await screen.findByRole("button", { name: "Apply exact confirmation" }));

@@ -267,7 +267,10 @@ describe("AnalyzeLocallyDialog", () => {
     expect(within(dialog).getByText("API cost").parentElement).toHaveTextContent(
       "not_applicable · no remote call",
     );
-    expect(within(dialog).getByText("20 version-bound metric attempts")).toBeVisible();
+    expect(within(dialog).getByText("20 version-bound checks")).toBeVisible();
+    expect(within(dialog).getByText(/16 supported measurement paths · 4 need source evidence/i)).toBeVisible();
+    expect(within(dialog).getAllByText(/needs source evidence: unavailable without typed, reviewed provider evidence/i)).toHaveLength(4);
+    expect(within(dialog).getByText(/a future analysis can resolve one only after a compatible typed-evidence adapter/i)).toBeVisible();
     expect(within(dialog).getByText("a".repeat(64))).toBeVisible();
     expect(
       within(dialog).getByRole("button", { name: "Approve once and analyze" }),

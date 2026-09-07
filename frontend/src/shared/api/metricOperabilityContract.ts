@@ -181,6 +181,20 @@ function expectedOperability(metricKey: MetricKey): ExpectedOperability {
   throw new MetricOperabilityPayloadError();
 }
 
+/**
+ * Current provider-adapter gaps in the canonical coaching contract.
+ *
+ * Derived from the same strict expected-operability table that parses the
+ * server catalog, so presentation cannot drift from the release gate. These
+ * identities remain in an exact analysis receipt, but text-derived output has
+ * no authority to fill them while the adapter is unavailable.
+ */
+export const METRIC_V2_PROVIDER_ADAPTER_GAP_KEYS = METRIC_V2_KEYS.filter(
+  (metricKey) => (
+    expectedOperability(metricKey).shipped_path_state === "provider_adapter_required"
+  ),
+);
+
 function parseEntry(value: unknown, metricKey: MetricKey): MetricOperabilityEntry {
   const entry = record(value);
   exactKeys(entry, ENTRY_KEYS);

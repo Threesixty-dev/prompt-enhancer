@@ -107,10 +107,10 @@ test("desktop navigation is grouped, vertical, scrollable, and keyboard reachabl
 
   const navigation = page.getByRole("navigation", { name: "Primary" });
   const groups = navigation.getByRole("group");
-  expect(await groups.count()).toBeGreaterThanOrEqual(2);
+  expect(await groups.count()).toBe(3);
 
   const buttons = navigation.getByRole("button");
-  expect(await buttons.count()).toBeGreaterThanOrEqual(10);
+  expect(await buttons.count()).toBe(9);
   const firstRect = await buttons.nth(0).boundingBox();
   const secondRect = await buttons.nth(1).boundingBox();
   expect(firstRect).not.toBeNull();
@@ -146,6 +146,44 @@ test("desktop navigation reveals a deep current route on direct load", async ({ 
   await expect(current).toHaveAttribute("aria-current", "page");
   await expect(current).toBeInViewport();
   expect(await navigation.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+});
+
+test("Labs disclosure follows the active route and preserves focus across responsive navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 640 });
+  await page.goto("/overview");
+
+  const desktopNavigation = page.getByRole("navigation", { name: "Primary" });
+  const labs = desktopNavigation.locator("details").first();
+  const labsSummary = labs.locator("summary");
+  await expect(labsSummary).toBeVisible();
+  await expect(labs).not.toHaveAttribute("open", "");
+  await expect(labs.getByRole("button", { exact: true, name: "Methods & models" })).toBeHidden();
+
+  await labsSummary.click();
+  await expect(labs).toHaveAttribute("open", "");
+  await labs.getByRole("button", { exact: true, name: "Methods & models" }).click();
+  await expect(page).toHaveURL(/\/research\/methods$/);
+  await expect(desktopNavigation.getByRole("button", { exact: true, name: "Methods & models" }))
+    .toHaveAttribute("aria-current", "page");
+
+  // The current Labs route stays usable when a user deliberately collapses the section.
+  await labsSummary.click();
+  await expect(labs).not.toHaveAttribute("open", "");
+  await expect(labsSummary).toBeFocused();
+
+  await page.setViewportSize({ width: 360, height: 640 });
+  const dialog = await openMobileNavigation(page);
+  const mobileLabs = dialog.locator("details").first();
+  const mobileSummary = mobileLabs.locator("summary");
+  await expect(mobileSummary).toBeFocused();
+  await expect(mobileLabs.getByRole("button", { exact: true, name: "Methods & models" })).toBeHidden();
+
+  await mobileSummary.click();
+  await expect(mobileLabs.getByRole("button", { exact: true, name: "Methods & models" }))
+    .toHaveAttribute("aria-current", "page");
+  await page.setViewportSize({ width: 1280, height: 640 });
+  await expect(dialog).toHaveCount(0);
+  await expect(desktopNavigation.getByRole("button", { exact: true, name: "Methods & models" })).toBeFocused();
 });
 
 test("mobile navigation closes safely when the shell expands to desktop", async ({ page }) => {

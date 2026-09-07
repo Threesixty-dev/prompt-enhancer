@@ -466,4 +466,3 @@ The same check the *Prompt check* page runs is available to agents:
   (sub-second), `PROMPT_ENHANCER_PROMPT_CHECK_TIMEOUT_SECONDS` bounds the wait.
 
 Nothing but metrics is stored; the prompt text never leaves 127.0.0.1.
-

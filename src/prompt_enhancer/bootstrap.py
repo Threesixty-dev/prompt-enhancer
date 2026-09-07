@@ -1481,6 +1481,7 @@ class LocalApplication:
         from .infrastructure.text_models.jobs import LocalTextModelEvaluationService
         from .application.resources import ResourceAvailability, ResourceKind
         from .infrastructure.resources import default_packaged_resource_resolver
+        from .infrastructure.paths import LocalPrivatePathHardener
         from .infrastructure.updates import (
             compose_packaged_application_update_surface,
         )
@@ -1492,9 +1493,13 @@ class LocalApplication:
         dashboard_resource = default_packaged_resource_resolver().resolve(
             ResourceKind.DASHBOARD_STATIC
         )
+        application_update_path_hardener = LocalPrivatePathHardener()
         application_update_service = compose_packaged_application_update_surface(
             resolver=default_packaged_resource_resolver(),
             installed_version=__version__,
+            staging_root=self.settings.application_update_staging_dir,
+            private_path_hardener=application_update_path_hardener,
+            private_update_staging_root_preparer=application_update_path_hardener,
         )
         static_directory = (
             dashboard_resource.path

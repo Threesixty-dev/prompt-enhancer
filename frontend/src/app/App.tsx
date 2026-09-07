@@ -211,9 +211,13 @@ interface PrimaryNavigationItem {
 }
 
 interface PrimaryNavigationSection {
+  collapsible?: boolean;
+  description?: string;
   key: string;
   label: string;
   items: readonly PrimaryNavigationItem[];
+  onOpenChange?: (open: boolean) => void;
+  open?: boolean;
 }
 
 function BrandMark() {
@@ -230,6 +234,7 @@ function BrandMark() {
 
 function PrimaryNavigation({
   activeItemRef,
+  activeDisclosureRef,
   ariaLabel,
   idPrefix,
   onSelectItem,
@@ -237,6 +242,7 @@ function PrimaryNavigation({
   variant,
 }: {
   activeItemRef?: RefObject<HTMLButtonElement | null>;
+  activeDisclosureRef?: RefObject<HTMLElement | null>;
   ariaLabel: string;
   idPrefix: string;
   onSelectItem?: (item: PrimaryNavigationItem) => void;
@@ -247,9 +253,9 @@ function PrimaryNavigation({
     <nav aria-label={ariaLabel} className={`primary-nav primary-nav--${variant}`}>
       {sections.map((section) => {
         const labelId = `${idPrefix}-${section.key}`;
-        return (
-          <div aria-labelledby={labelId} className="primary-nav__section" key={section.key} role="group">
-            <p id={labelId}>{section.label}</p>
+        const itemsId = `${idPrefix}-${section.key}-items`;
+        const items = (
+          <div className="primary-nav__items" id={itemsId}>
             {section.items.map((item) => (
               <button
                 aria-busy={item.busy || undefined}
@@ -270,6 +276,42 @@ function PrimaryNavigation({
                 )}
               </button>
             ))}
+          </div>
+        );
+        return (
+          <div
+            aria-labelledby={labelId}
+            className="primary-nav__section"
+            key={section.key}
+            role={section.collapsible ? undefined : "group"}
+          >
+            {section.collapsible ? (
+              <details
+                aria-labelledby={labelId}
+                open={section.open}
+                onToggle={(event) => {
+                  const nextOpen = event.currentTarget.open;
+                  if (nextOpen !== section.open) section.onOpenChange?.(nextOpen);
+                }}
+              >
+                <summary aria-controls={itemsId} ref={section.items.some((item) => item.active) ? activeDisclosureRef : undefined}>
+                  <span id={labelId}>{section.label}</span>
+                  <Icon name="chevron" />
+                </summary>
+                {section.description !== undefined && (
+                  <p className="primary-nav__section-copy">{section.description}</p>
+                )}
+                {items}
+              </details>
+            ) : (
+              <>
+                <p id={labelId}>{section.label}</p>
+                {section.description !== undefined && (
+                  <p className="primary-nav__section-copy">{section.description}</p>
+                )}
+                {items}
+              </>
+            )}
           </div>
         );
       })}
@@ -387,7 +429,9 @@ export function App({
   });
   const latestTaskControllerRef = useRef<AbortController | null>(null);
   const desktopActiveItemRef = useRef<HTMLButtonElement>(null);
+  const desktopActiveDisclosureRef = useRef<HTMLElement>(null);
   const mobileActiveItemRef = useRef<HTMLButtonElement>(null);
+  const mobileActiveDisclosureRef = useRef<HTMLElement>(null);
   const mobileNavigationActionRef = useRef<(() => void) | null>(null);
   const focusDesktopNavigationAfterDrawerCloseRef = useRef(false);
   const focusMainAfterDrawerCloseRef = useRef(false);
@@ -396,15 +440,32 @@ export function App({
   const [latestTaskPending, setLatestTaskPending] = useState(false);
   const [undecidedCount, setUndecidedCount] = useState<number | null>(null);
   const [serviceRetry, setServiceRetry] = useState(0);
+  const activeNavigationKey = routeMetadata(route).navigationKey;
+  const isLabsRoute = activeNavigationKey === "prompt-checks"
+    || activeNavigationKey === "calibration"
+    || activeNavigationKey === "research"
+    || activeNavigationKey === "team"
+    || activeNavigationKey === "social";
+  const [labsOpen, setLabsOpen] = useState(isLabsRoute);
+  const previousLabsRouteRef = useRef(routeIdentity);
   const [serviceState, setServiceState] = useState<RuntimeServiceState>(() =>
     runtime.mode === "synthetic_demo" ? "available" : "checking",
   );
   const runtimeCopy = runtimeStatusCopy(runtime.mode, serviceState);
-  const activeNavigationKey = routeMetadata(route).navigationKey;
   const coverageProvider: Provider =
     runtime.mode === "synthetic_demo" ? "synthetic" : "codex";
 
   useEffect(() => platform.subscribe(setRoute), [platform]);
+
+  useEffect(() => {
+    const enteredLabs = isLabsRoute && previousLabsRouteRef.current !== routeIdentity;
+    previousLabsRouteRef.current = routeIdentity;
+    if (!isLabsRoute) {
+      setLabsOpen(false);
+    } else if (enteredLabs) {
+      setLabsOpen(true);
+    }
+  }, [isLabsRoute, routeIdentity]);
 
   useEffect(() => {
     setNavigationNotice("");
@@ -424,7 +485,13 @@ export function App({
 
   useLayoutEffect(() => {
     if (compactShell) return;
-    if (mobileNavigationOpen) focusDesktopNavigationAfterDrawerCloseRef.current = true;
+    if (mobileNavigationOpen) {
+      focusDesktopNavigationAfterDrawerCloseRef.current = true;
+      // A mobile Labs disclosure can be the only mounted open copy while the
+      // breakpoint changes. Preserve that user-visible state before the
+      // drawer unmounts so the desktop active destination remains reachable.
+      if (isLabsRoute && mobileActiveItemRef.current !== null) setLabsOpen(true);
+    }
     mobileNavigationActionRef.current = null;
     setMobileNavigationOpen(false);
   }, [compactShell]);
@@ -446,23 +513,47 @@ export function App({
     }
     if (!compactShell && focusDesktopNavigationAfterDrawerCloseRef.current) {
       focusDesktopNavigationAfterDrawerCloseRef.current = false;
-      desktopActiveItemRef.current?.focus();
+      const activeTarget = isLabsRoute && !labsOpen
+        ? desktopActiveDisclosureRef.current
+        : desktopActiveItemRef.current;
+      if (activeTarget !== null && activeTarget !== undefined) {
+        const frame = window.requestAnimationFrame(() => {
+          if (activeTarget.isConnected) activeTarget.focus();
+        });
+        return () => window.cancelAnimationFrame(frame);
+      }
     }
-  }, [compactShell, mobileNavigationOpen, routeIdentity]);
+    return undefined;
+  }, [compactShell, isLabsRoute, labsOpen, mobileNavigationOpen, routeIdentity]);
 
   useLayoutEffect(() => {
-    if (compactShell) return;
-    const activeItem = desktopActiveItemRef.current;
-    const navigation = activeItem?.closest<HTMLElement>(".primary-nav--sidebar");
-    if (activeItem === null || navigation === null || navigation === undefined) return;
-    const itemBounds = activeItem.getBoundingClientRect();
-    const navigationBounds = navigation.getBoundingClientRect();
-    if (itemBounds.top < navigationBounds.top) {
-      navigation.scrollTop += itemBounds.top - navigationBounds.top;
-    } else if (itemBounds.bottom > navigationBounds.bottom) {
-      navigation.scrollTop += itemBounds.bottom - navigationBounds.bottom;
-    }
-  }, [compactShell, routeIdentity]);
+    if (compactShell) return undefined;
+    const scrollActiveItem = () => {
+      const activeItem = desktopActiveItemRef.current;
+      const navigation = activeItem?.closest<HTMLElement>(".primary-nav--sidebar");
+      if (activeItem === null || navigation === null || navigation === undefined) return;
+      if (activeItem.closest("details:not([open])") !== null) return;
+      const itemBounds = activeItem.getBoundingClientRect();
+      const navigationBounds = navigation.getBoundingClientRect();
+      if (itemBounds.top < navigationBounds.top) {
+        navigation.scrollTop += itemBounds.top - navigationBounds.top;
+      } else if (itemBounds.bottom > navigationBounds.bottom) {
+        navigation.scrollTop += itemBounds.bottom - navigationBounds.bottom;
+      }
+    };
+    scrollActiveItem();
+    const frame = window.requestAnimationFrame(scrollActiveItem);
+    const navigation = desktopActiveItemRef.current?.closest<HTMLElement>(".primary-nav--sidebar");
+    const observer = typeof ResizeObserver === "function"
+      && navigation !== null && navigation !== undefined
+      ? new ResizeObserver(scrollActiveItem)
+      : null;
+    observer?.observe(navigation!);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [compactShell, labsOpen, routeIdentity]);
 
   useLayoutEffect(() => {
     document.title = `${routeTitle(route)} · Prompt Enhancer`;
@@ -542,9 +633,16 @@ export function App({
       };
   const navigationSections: readonly PrimaryNavigationSection[] = [
     {
-      key: "workspace",
-      label: "Workspace",
+      key: "core",
+      label: "Core",
       items: [
+        {
+          active: activeNavigationKey === "agent",
+          icon: PRIMARY_NAV_ICONS.agent,
+          key: "agent",
+          label: "Agent",
+          onSelect: () => navigate({ name: "agent" }),
+        },
         {
           active: activeNavigationKey === "overview",
           icon: PRIMARY_NAV_ICONS.overview,
@@ -552,6 +650,19 @@ export function App({
           label: "Overview",
           onSelect: () => navigate({ name: "overview" }),
         },
+        {
+          active: activeNavigationKey === "models",
+          icon: PRIMARY_NAV_ICONS.models,
+          key: "models",
+          label: "Models",
+          onSelect: () => navigate({ name: "models" }),
+        },
+      ],
+    },
+    {
+      key: "review",
+      label: "Review",
+      items: [
         {
           active: activeNavigationKey === "projects",
           icon: PRIMARY_NAV_ICONS.projects,
@@ -566,19 +677,15 @@ export function App({
           label: "Sessions",
           onSelect: () => navigate({ name: "sessions" }),
         },
-        {
-          active: activeNavigationKey === "agent",
-          icon: PRIMARY_NAV_ICONS.agent,
-          key: "agent",
-          label: "Agent",
-          onSelect: () => navigate({ name: "agent" }),
-        },
-      ],
-    },
-    {
-      key: "review",
-      label: "Review & improve",
-      items: [
+        ...(runtime.mode === "local_real"
+          ? [{
+              active: activeNavigationKey === "local-sources",
+              icon: PRIMARY_NAV_ICONS.localSources,
+              key: "local-sources",
+              label: "Data sources",
+              onSelect: () => navigate({ name: "local_sources" }),
+            } satisfies PrimaryNavigationItem]
+          : []),
         {
           active: activeNavigationKey === "discovery",
           icon: PRIMARY_NAV_ICONS.discovery,
@@ -603,6 +710,23 @@ export function App({
           onSelect: () => navigate({ name: "task_flow" }),
         },
         {
+          active: activeNavigationKey === "analysis-jobs",
+          icon: PRIMARY_NAV_ICONS.analysisJobs,
+          key: "analysis-jobs",
+          label: "Analysis jobs",
+          onSelect: () => navigate({ name: "analysis_jobs" }),
+        },
+      ],
+    },
+    {
+      collapsible: true,
+      description: "Experimental analysis · Team and Social previews (not released backends).",
+      key: "labs",
+      label: "Labs",
+      onOpenChange: setLabsOpen,
+      open: labsOpen,
+      items: [
+        {
           active: activeNavigationKey === "prompt-checks",
           icon: PRIMARY_NAV_ICONS.promptChecks,
           key: "prompt-checks",
@@ -616,61 +740,26 @@ export function App({
           label: "Calibration",
           onSelect: () => navigate({ name: "calibration" }),
         },
-      ],
-    },
-    {
-      key: "collaboration",
-      label: "Collaboration",
-      items: [
-        {
-          active: activeNavigationKey === "team",
-          icon: PRIMARY_NAV_ICONS.team,
-          key: "team",
-          label: "Team analytics",
-          onSelect: () => navigate({ name: "team" }),
-        },
-        {
-          active: activeNavigationKey === "social",
-          icon: PRIMARY_NAV_ICONS.social,
-          key: "social",
-          label: "Social",
-          onSelect: () => navigate({ name: "social" }),
-        },
-      ],
-    },
-    {
-      key: "system",
-      label: "System & methods",
-      items: [
-        {
-          active: activeNavigationKey === "models",
-          icon: PRIMARY_NAV_ICONS.models,
-          key: "models",
-          label: "Models",
-          onSelect: () => navigate({ name: "models" }),
-        },
-        ...(runtime.mode === "local_real"
-          ? [{
-              active: activeNavigationKey === "local-sources",
-              icon: PRIMARY_NAV_ICONS.localSources,
-              key: "local-sources",
-              label: "Data sources",
-              onSelect: () => navigate({ name: "local_sources" }),
-            } satisfies PrimaryNavigationItem]
-          : []),
-        {
-          active: activeNavigationKey === "analysis-jobs",
-          icon: PRIMARY_NAV_ICONS.analysisJobs,
-          key: "analysis-jobs",
-          label: "Analysis jobs",
-          onSelect: () => navigate({ name: "analysis_jobs" }),
-        },
         {
           active: activeNavigationKey === "research",
           icon: PRIMARY_NAV_ICONS.research,
           key: "research",
           label: "Methods & models",
           onSelect: () => navigate({ name: "research" }),
+        },
+        {
+          active: activeNavigationKey === "team",
+          icon: PRIMARY_NAV_ICONS.team,
+          key: "team",
+          label: "Team analytics (preview)",
+          onSelect: () => navigate({ name: "team" }),
+        },
+        {
+          active: activeNavigationKey === "social",
+          icon: PRIMARY_NAV_ICONS.social,
+          key: "social",
+          label: "Social hub (demo)",
+          onSelect: () => navigate({ name: "social" }),
         },
       ],
     },
@@ -774,6 +863,7 @@ export function App({
         </div>
 
         <PrimaryNavigation
+          activeDisclosureRef={desktopActiveDisclosureRef}
           activeItemRef={desktopActiveItemRef}
           ariaLabel="Primary"
           idPrefix="sidebar-navigation"
@@ -976,12 +1066,13 @@ export function App({
       <Dialog
         closeLabel="Close navigation"
         description="Choose a destination. The current screen receives focus first."
-        initialFocusRef={mobileActiveItemRef}
+        initialFocusRef={isLabsRoute && !labsOpen ? mobileActiveDisclosureRef : mobileActiveItemRef}
         onClose={() => setMobileNavigationOpen(false)}
         open={mobileNavigationOpen}
         title="Navigate Prompt Enhancer"
       >
         <PrimaryNavigation
+          activeDisclosureRef={mobileActiveDisclosureRef}
           activeItemRef={mobileActiveItemRef}
           ariaLabel="Mobile primary"
           idPrefix="mobile-navigation"

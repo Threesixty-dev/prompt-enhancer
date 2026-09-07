@@ -32,8 +32,8 @@ const GROUPS: ReadonlyArray<{
   },
   {
     state: "provider_adapter_required",
-    title: "Source evidence adapter needed",
-    explanation: "The provider must expose typed opportunities, links or outcomes; model prose cannot substitute for them.",
+    title: "Unavailable pending provider adapter",
+    explanation: "These contracts remain in their exact receipt but cannot produce a current value: the provider must expose typed opportunities, links or outcomes. Model prose cannot substitute for them.",
   },
 ];
 
@@ -162,8 +162,10 @@ export function MetricOperabilityPanel({ transport }: { transport: PromptEnhance
           <p className="eyebrow">All-20 release gate · {catalog.catalog_version}</p>
           <h2 id="metric-operability-title">What can produce measured evidence today</h2>
           <p>
-            Every metric stays visible. A shipped path can still be Unknown, Pending or
-            Not applicable when its evidence is absent; missing evidence is never converted to zero.
+            Every contract stays visible. {catalog.shipped_path_count} have a current measurement
+            path; {catalog.provider_adapter_gap_count} are explicitly unavailable pending a
+            provider adapter. A shipped path can still be Unknown, Pending or Not applicable when
+            its evidence is absent; missing evidence is never converted to zero.
           </p>
         </div>
         <aside>

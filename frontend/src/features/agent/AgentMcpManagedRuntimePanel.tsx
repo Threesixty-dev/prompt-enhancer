@@ -9,6 +9,7 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import type { TrustedMcpAcceptanceEvidence } from "./trustedMcpAcceptance";
 
 type RuntimeTransport = Partial<Pick<
   PromptEnhancerTransport,
@@ -136,14 +137,18 @@ function runtimeEvidenceMessage(errorCode: string): string {
 }
 
 export function AgentMcpManagedRuntimePanel({
+  acceptanceEventHead = 0,
   binding,
+  onAcceptanceEvidence,
   onRuntimeChange,
   projectId,
   server,
   transport,
   userPresenceAvailable,
 }: {
+  acceptanceEventHead?: number;
   binding: McpManagedProjectBinding | undefined;
+  onAcceptanceEvidence?: (evidence: TrustedMcpAcceptanceEvidence) => void;
   onRuntimeChange?: () => void;
   projectId: string;
   server: McpManagedServer;
@@ -296,6 +301,7 @@ export function AgentMcpManagedRuntimePanel({
       });
       if (!statusMatchesScope(next, server.management_id, projectId)) throw new Error("mcp_host_scope_mismatch");
       actionIds.current.delete(key);
+      onAcceptanceEvidence?.({ eventFloor: acceptanceEventHead, kind: "host_started", status: next });
       if (scopeRef.current === actionScope) {
         setStatus(next);
         setMessage("Host ready. Only the admitted project tools are visible, and every call still requires a separate native confirmation.");
@@ -310,7 +316,7 @@ export function AgentMcpManagedRuntimePanel({
       if (scopeRef.current === actionScope) setBusy(null);
       onRuntimeChange?.();
     }
-  }, [binding, busy, onRuntimeChange, preview, projectId, refresh, scopeKey, server, staleBinding, transport.startMcpManagedHost, userPresenceAvailable]);
+  }, [acceptanceEventHead, binding, busy, onAcceptanceEvidence, onRuntimeChange, preview, projectId, refresh, scopeKey, server, staleBinding, transport.startMcpManagedHost, userPresenceAvailable]);
 
   const stop = useCallback(async () => {
     const apply = transport.stopMcpManagedHost;
@@ -328,6 +334,7 @@ export function AgentMcpManagedRuntimePanel({
       });
       if (!statusMatchesScope(next, server.management_id, projectId)) throw new Error("mcp_host_scope_mismatch");
       actionIds.current.delete(key);
+      onAcceptanceEvidence?.({ kind: "host_stopped", status: next });
       if (scopeRef.current === actionScope) {
         setStatus(next);
         setMessage("Host stopped. Its connection and tool-routing authority were removed.");
@@ -342,7 +349,7 @@ export function AgentMcpManagedRuntimePanel({
       if (scopeRef.current === actionScope) setBusy(null);
       onRuntimeChange?.();
     }
-  }, [busy, onRuntimeChange, projectId, refresh, scopeKey, server.management_id, status, transport.stopMcpManagedHost]);
+  }, [busy, onAcceptanceEvidence, onRuntimeChange, projectId, refresh, scopeKey, server.management_id, status, transport.stopMcpManagedHost]);
 
   return (
     <section aria-labelledby="agent-mcp-runtime-title" className="agent-mcp-managed__runtime">

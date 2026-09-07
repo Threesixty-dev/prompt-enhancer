@@ -75,3 +75,9 @@ Sentiment and emotion are private coaching signals, not competence measures.
 Only synthetic content may be committed. Reserved examples should use values such as `person@example.invalid`, `/home/example/project`, `C:\Users\Example\project`, `example.invalid`, and clearly fake tokens like `example_token_do_not_use`.
 
 `.gitignore` is defense in depth; it does not make tracked or force-added content safe. Staged changes and commit metadata must be reviewed before every public push.
+
+Public screenshots are prohibited by default. A synthetic gallery capture is
+allowed only after visual review when it uses a fixed `docs/images/` filename,
+contains the scanner's metadata-free PNG envelope, and exactly matches its
+hardcoded SHA-256 pin. The exception is not a directory allowlist and does not
+permit private screenshots, arbitrary images, or image metadata.

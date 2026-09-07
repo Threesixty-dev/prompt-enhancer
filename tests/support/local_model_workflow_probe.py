@@ -36,7 +36,7 @@ def probe(model_root: Path, filename: str) -> dict[str, object]:
     )
 
     report: dict[str, object] = {
-        "contract": "local-model-workflow-probe.v1",
+        "contract": "local-model-workflow-probe.v2",
         "model_identity": "existing-local-file-not-product-certified",
         "activated": False,
         "direct_reply_verified": False,
@@ -45,6 +45,11 @@ def probe(model_root: Path, filename: str) -> dict[str, object]:
         "agent_reply_verified": False,
         "stream_observed_before_stop": False,
         "stop_completed_promptly": False,
+        "runtime_window_hidden": False,
+        "coordinator_idle_after_unload": False,
+        "process_exit_confirmed": False,
+        "gpu_cleanup_state": "unknown",
+        "gpu_cleanup_verified": False,
         "conversation_retained_after_unload": False,
         "send_rejected_after_unload": False,
         "owned_runtime_exited": False,
@@ -101,6 +106,9 @@ def probe(model_root: Path, filename: str) -> dict[str, object]:
             ))
             report["activated"] = activated.runtime.state is RuntimeState.RUNNING
             handles = tuple(models._processes.values())
+            report["runtime_window_hidden"] = bool(handles) and all(
+                not handle.process.visible_window_detected() for handle in handles
+            )
             phase("direct_reply")
             status, payload, _ = models.chat(alias, json.dumps({
                 "messages": [{"role": "user", "content": "Reply with exactly LOCAL_READY and no other text."}],
@@ -161,7 +169,21 @@ def probe(model_root: Path, filename: str) -> dict[str, object]:
                 report["stop_completed_promptly"] = not stopper.is_alive() and not agent.get(session.session_id).running
 
             phase("unload")
-            models.shutdown()
+            models.deactivate(alias)
+            coordinator = models.coordinator_status()
+            report["coordinator_idle_after_unload"] = (
+                coordinator.state.value == "idle"
+                and coordinator.served is None
+                and coordinator.active_requests == 0
+            )
+            report["process_exit_confirmed"] = coordinator.cleanup.process_exit_confirmed
+            report["gpu_cleanup_state"] = coordinator.cleanup.state.value
+            used_gpu = (activated.runtime.gpu_layers or 0) > 0
+            report["gpu_cleanup_verified"] = (
+                coordinator.cleanup.state.value == "measured"
+                if used_gpu
+                else coordinator.cleanup.state.value == "not_required"
+            )
             report["conversation_retained_after_unload"] = agent.get(session.session_id).turns >= 1
             try:
                 agent.send(session.session_id, SendMessage(text="Example blocked message after unload."))
@@ -171,6 +193,7 @@ def probe(model_root: Path, filename: str) -> dict[str, object]:
             report["error_code"] = error.code if error.code in {
                 "runtime_not_healthy", "runtime_unavailable", "runtime_unreachable", "runtime_spawn_failed",
                 "runtime_shutdown_in_progress", "runtime_stop_failed", "runtime_shutdown_failed",
+                "runtime_cleanup_unconfirmed", "runtime_quarantined",
             } else "model_probe_failed"
         except Exception:
             report["error_code"] = "workflow_probe_failed"
@@ -197,11 +220,13 @@ def main() -> int:
     try:
         report = probe(arguments.model_root, arguments.model_file)
     except Exception:
-        report = {"contract": "local-model-workflow-probe.v1", "error_code": "probe_cleanup_failed"}
+        report = {"contract": "local-model-workflow-probe.v2", "error_code": "probe_cleanup_failed"}
     print("MODEL_PROBE=" + json.dumps(report, sort_keys=True), flush=True)
     required = (
         "activated", "direct_reply_verified", "agent_session_created", "agent_read_tool_verified",
         "agent_reply_verified", "stream_observed_before_stop", "stop_completed_promptly",
+        "runtime_window_hidden", "coordinator_idle_after_unload", "process_exit_confirmed",
+        "gpu_cleanup_verified",
         "conversation_retained_after_unload", "send_rejected_after_unload", "owned_runtime_exited",
         "temporary_state_removed",
     )

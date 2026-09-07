@@ -4,6 +4,8 @@ from .contracts import (
     ApplicationUpdateReason,
     ApplicationUpdateState,
     ApplicationUpdateStatus,
+    PackageReview,
+    PackageReviewState,
     UpdateChannel,
     UpdateManifest,
     UpdateRejection,
@@ -14,6 +16,7 @@ from .status import (
     ApplicationUpdateCoordinator,
     ApplicationUpdateSurface,
     UnconfiguredApplicationUpdateSurface,
+    UpdateActionConflict,
 )
 from .verification import verify_update_manifest
 
@@ -22,8 +25,11 @@ __all__ = [
     "ApplicationUpdateCoordinator",
     "ApplicationUpdateState",
     "ApplicationUpdateStatus",
+    "PackageReview",
+    "PackageReviewState",
     "ApplicationUpdateSurface",
     "UnconfiguredApplicationUpdateSurface",
+    "UpdateActionConflict",
     "UpdateChannel",
     "UpdateManifest",
     "UpdateRejection",

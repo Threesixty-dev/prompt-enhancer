@@ -39,17 +39,20 @@ def _object_without_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str,
     return result
 
 
-def verify_update_manifest(
+def authenticate_signed_update_manifest(
     raw_manifest: bytes,
     *,
     signature: bytes,
     key_id: str,
     verifier: ManifestSignatureVerifier,
-    now: datetime,
-    installed_version: str,
-    channel: UpdateChannel,
 ) -> UpdateVerification:
-    """Verify in fixed order: size, decode, schema, signature, semantics."""
+    """Authenticate bounded signed manifest bytes without time/version policy.
+
+    This is deliberately narrower than :func:`verify_update_manifest`: replay
+    evidence needs a historically authentic release identity even when it is
+    no longer eligible to download or stage today.  Callers must separately
+    apply the full current-policy verification before exposing a release.
+    """
 
     if len(raw_manifest) > MAX_UPDATE_MANIFEST_BYTES:
         return _rejected(UpdateRejection.MANIFEST_TOO_LARGE)
@@ -76,6 +79,35 @@ def verify_update_manifest(
         return _rejected(UpdateRejection.UNKNOWN_KEY)
     if signature_state is not SignatureState.VALID:
         return _rejected(UpdateRejection.BAD_SIGNATURE)
+    return UpdateVerification(
+        state=UpdateVerificationState.ACCEPTED,
+        manifest=manifest,
+    )
+
+
+def verify_update_manifest(
+    raw_manifest: bytes,
+    *,
+    signature: bytes,
+    key_id: str,
+    verifier: ManifestSignatureVerifier,
+    now: datetime,
+    installed_version: str,
+    channel: UpdateChannel,
+) -> UpdateVerification:
+    """Verify in fixed order: size, decode, schema, signature, semantics."""
+
+    authenticated = authenticate_signed_update_manifest(
+        raw_manifest,
+        signature=signature,
+        key_id=key_id,
+        verifier=verifier,
+    )
+    if authenticated.state is UpdateVerificationState.REJECTED:
+        return authenticated
+    manifest = authenticated.manifest
+    if manifest is None:
+        return _rejected(UpdateRejection.INVALID_SCHEMA)
     try:
         installed = _version_tuple(installed_version)
     except (TypeError, ValueError):

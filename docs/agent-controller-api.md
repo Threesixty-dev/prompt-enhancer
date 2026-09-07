@@ -80,8 +80,14 @@ workspace/artifact inspection, and live-only close. Existing connection cards
 report either **Never connected** or the server-recorded last authenticated MCP
 request after an explicit refresh. That request may come from the optional
 in-app endpoint self-test or an external client; the receipt deliberately does
-not infer which. For tool calls they also report the last
-validated tool name, `succeeded`/`failed` protocol outcome, and time. This
+not infer which. For completed tool calls they also report the last validated
+tool name, `succeeded`/`failed` protocol outcome, and time. Management contract
+`agent-mcp-management.v2` additionally carries a random current-process epoch
+and one monotonic, credential-revision-bound tool-admission cursor per listed
+connection. The cursor exposes only the tool name/source, start/completion
+times, and protocol outcome; it can therefore identify an in-flight call and a
+missed sequence without retaining arguments or results. It resets under a new
+epoch on service restart. This
 receipt is deliberately content-free: no tool arguments, result, prompt, path,
 project/chat identity, token, or exception is stored. The authenticated-request
 timestamp proves only that the scoped credential reached this app, while the
@@ -124,9 +130,12 @@ POST http://127.0.0.1:8765/mcp/agent
 The exact port follows the running app. Direct HTTP starts no bridge process,
 shell, terminal, model, Agent, worker, or second listener. The app stores the
 connection identity, label, expiry, lifecycle scope, revision, and revocation
-state plus the bounded last-request and content-free last-tool receipt, but not
-the bearer secret or tool content. Rotation invalidates the previous credential
-immediately; expiry, revocation, and the receipt survive restart. The general
+state plus the bounded last-request and content-free last-completed-tool
+receipt, but not the bearer secret or tool content. Rotation invalidates the
+previous credential immediately; expiry, revocation, and the completed receipt
+survive restart. The admission cursor is deliberately process-bound and starts
+under a fresh epoch after restart so page-only acceptance cannot combine calls
+from different app runs. The general
 application API token and browser session are not accepted at the MCP endpoint.
 
 Create, rotate, and revoke require an exact, one-shot native user-presence

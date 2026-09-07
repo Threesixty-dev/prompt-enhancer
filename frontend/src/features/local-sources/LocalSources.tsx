@@ -10,11 +10,15 @@ import type {
 } from "../../shared/api/contracts";
 import type { AppRoute } from "../../shared/platform/platform";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
+import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { Icon } from "../../shared/ui/Icon";
+import "./LocalSources.css";
 
 const INDEX_LIMITS = [100, 250, 500] as const;
 const ANALYSIS_LIMITS = [5, 10, 25] as const;
 const LABEL_LIMITS = [5, 10, 25] as const;
+const PROJECT_RENDER_PAGE = 12;
+const SESSION_RENDER_PAGE = 20;
 
 function shortId(value: string): string {
   return value.length > 18
@@ -83,6 +87,201 @@ interface LabelEditorState {
   revision: number;
 }
 
+interface LocalProjectGroupProps {
+  beginLabelEdit: (
+    entityKind: DisplayLabelEntityKind,
+    entityId: string,
+    currentValue: string,
+    origin: DisplayLabelOrigin,
+    revision: number,
+  ) => void;
+  navigate: (route: AppRoute) => void;
+  operation: string | null;
+  overviewStale: boolean;
+  projectId: string;
+  projectSelected: boolean;
+  projectSessions: CodexSession[];
+  selectedSessions: Set<string>;
+  toggleProject: (projectId: string, checked: boolean) => void;
+  toggleSession: (sessionId: string, checked: boolean) => void;
+  onVisibleSessionIdsChange: (projectId: string, sessionIds: string[]) => void;
+  sourceVersion: number;
+}
+
+function LocalProjectGroup({
+  beginLabelEdit,
+  navigate,
+  operation,
+  overviewStale,
+  projectId,
+  projectSelected,
+  projectSessions,
+  selectedSessions,
+  toggleProject,
+  toggleSession,
+  onVisibleSessionIdsChange,
+  sourceVersion,
+}: LocalProjectGroupProps) {
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const rawProjectName = projectSessions[0]?.project_display_name;
+  const projectName = displayName(rawProjectName, "Unnamed project");
+  const projectOrigin = projectSessions[0]?.project_display_name_origin ?? "unknown";
+  const projectRevision = projectSessions[0]?.project_manual_label_revision ?? 0;
+  const sessionPage = useBoundedListPage({
+    itemCount: projectSessions.length,
+    pageSize: SESSION_RENDER_PAGE,
+    resetKey: `${projectId}:${sourceVersion}`,
+  });
+  const visibleSessionIds = useMemo(
+    () => projectSessions.slice(sessionPage.start, sessionPage.end).map((session) => session.session_id),
+    [projectSessions, sessionPage.end, sessionPage.start],
+  );
+  const selectedProjectSessionCount = projectSelected
+    ? projectSessions.length
+    : projectSessions.filter((session) => selectedSessions.has(session.session_id)).length;
+  const hiddenSelectedSessionCount = sessionsOpen
+    ? projectSessions
+      .slice(sessionPage.start, sessionPage.end)
+      .filter((session) => projectSelected || selectedSessions.has(session.session_id)).length
+    : 0;
+  const selectedOnOtherSessionPages = selectedProjectSessionCount - hiddenSelectedSessionCount;
+  useEffect(() => {
+    onVisibleSessionIdsChange(projectId, sessionsOpen ? visibleSessionIds : []);
+  }, [onVisibleSessionIdsChange, projectId, sessionsOpen, visibleSessionIds]);
+
+  return (
+    <article className="project-group" key={projectId}>
+      <header className="project-group__header">
+        <label>
+          <input
+            checked={projectSelected}
+            onChange={(event) => toggleProject(projectId, event.target.checked)}
+            type="checkbox"
+            value={projectId}
+          />
+          <span>
+            <strong>{projectName}</strong>
+            <small>
+              Project ID <span className="mono">{shortId(projectId)}</span> - {projectSessions.length} indexed{" "}
+              {projectSessions.length === 1 ? "session" : "sessions"}
+            </small>
+          </span>
+        </label>
+        <div className="label-meta-actions">
+          <span className="status-pill status-pill--info">
+            {labelOriginText(projectOrigin)}
+          </span>
+          <button
+            className="button button--secondary button--compact"
+            onClick={() => navigate({ name: "project_overview", projectId })}
+            type="button"
+          >
+            Open project
+          </button>
+          <button
+            aria-label="Edit local project label"
+            className="button button--secondary button--compact"
+            disabled={operation !== null || overviewStale}
+            onClick={() =>
+              beginLabelEdit(
+                "project",
+                projectId,
+                rawProjectName ?? "",
+                projectOrigin,
+                projectRevision,
+              )
+            }
+            type="button"
+          >
+            Edit label
+          </button>
+        </div>
+      </header>
+      <details
+        className="project-group__sessions"
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest("summary")) {
+            setSessionsOpen(!event.currentTarget.open);
+          }
+        }}
+        onToggle={(event) => setSessionsOpen(event.currentTarget.open)}
+      >
+        <summary>
+          <span>Sessions ({projectSessions.length})</span>
+          <span>
+            {projectSessions.filter((session) => projectSelected || selectedSessions.has(session.session_id)).length} selected
+            {selectedOnOtherSessionPages > 0
+              ? ` · ${selectedOnOtherSessionPages} ${sessionsOpen ? "selected on another page" : "hidden while collapsed"}`
+              : ""}
+          </span>
+        </summary>
+        {sessionsOpen && <>
+          <ul className="source-session-list">
+            {projectSessions.slice(sessionPage.start, sessionPage.end).map((session) => (
+          <li key={session.session_id}>
+            <label>
+              <input
+                checked={projectSelected || selectedSessions.has(session.session_id)}
+                disabled={projectSelected}
+                onChange={(event) => toggleSession(session.session_id, event.target.checked)}
+                type="checkbox"
+                value={session.session_id}
+              />
+              <span>
+                <strong>{displayName(session.session_display_name, "Unnamed session")}</strong>
+                <small>
+                  Session ID <span className="mono">{shortId(session.session_id)}</span> - {safeDate(session.started_at)} -{" "}
+                  {session.events_complete ? "Complete event set" : "Partial event set"}
+                </small>
+              </span>
+            </label>
+            <div className="label-meta-actions label-meta-actions--session">
+              <span className="status-pill status-pill--info">
+                {labelOriginText(session.session_display_name_origin)}
+              </span>
+              <button
+                aria-label="Edit local session label"
+                className="button button--secondary button--compact"
+                disabled={operation !== null || overviewStale}
+                onClick={() =>
+                  beginLabelEdit(
+                    "session",
+                    session.session_id,
+                    session.session_display_name ?? "",
+                    session.session_display_name_origin,
+                    session.session_manual_label_revision,
+                  )
+                }
+                type="button"
+              >
+                Edit label
+              </button>
+            </div>
+            <span className="status-pill">{session.terminal_state ?? "State unknown"}</span>
+            <button
+              className="button button--secondary"
+              onClick={() =>
+                navigate({
+                  name: "session_metrics",
+                  projectId: session.project_id,
+                  sessionId: session.session_id,
+                  category: "execution",
+                })
+              }
+              type="button"
+            >
+              Open metrics
+            </button>
+          </li>
+            ))}
+          </ul>
+          <BoundedListPager label={`Sessions for ${projectName}`} page={sessionPage} />
+        </>}
+      </details>
+    </article>
+  );
+}
+
 export function LocalSources({
   transport,
   navigate,
@@ -109,6 +308,10 @@ export function LocalSources({
   const [selectedSessions, setSelectedSessions] = useState<Set<string>>(
     () => new Set(),
   );
+  const [projectQuery, setProjectQuery] = useState("");
+  const [visibleSessionIdsByProject, setVisibleSessionIdsByProject] = useState<Map<string, Set<string>>>(
+    () => new Map(),
+  );
   const overviewControllerRef = useRef<AbortController | null>(null);
   const overviewGenerationRef = useRef(0);
   const [overviewStale, setOverviewStale] = useState(false);
@@ -117,6 +320,7 @@ export function LocalSources({
   if (sourceOwner.current.transport !== transport) {
     sourceOwner.current = { transport, version: sourceOwner.current.version + 1 };
   }
+  const sourceVersion = sourceOwner.current.version;
 
   const refreshOverview = useCallback(
     async (): Promise<boolean> => {
@@ -180,6 +384,8 @@ export function LocalSources({
     setLabelEditor(null);
     setLabelDraft("");
     setNotice("");
+    setProjectQuery("");
+    setVisibleSessionIdsByProject(new Map());
     setSelectedProjects(new Set());
     setSelectedSessions(new Set());
     void loadOverview();
@@ -219,6 +425,34 @@ export function LocalSources({
     return [...groups.entries()];
   }, [sessions]);
 
+  const filteredGroups = useMemo(() => {
+    const needle = projectQuery.trim().toLocaleLowerCase();
+    if (!needle) return groupedSessions;
+    return groupedSessions.filter(([projectId, projectSessions]) => {
+      const projectName = displayName(projectSessions[0]?.project_display_name, "Unnamed project");
+      return `${projectName} ${projectId}`.toLocaleLowerCase().includes(needle);
+    });
+  }, [groupedSessions, projectQuery]);
+
+  const projectPage = useBoundedListPage({
+    itemCount: filteredGroups.length,
+    pageSize: PROJECT_RENDER_PAGE,
+    resetKey: `${sourceVersion}:${projectQuery.trim().toLocaleLowerCase()}`,
+  });
+
+  const visibleGroups = filteredGroups.slice(projectPage.start, projectPage.end);
+  const visibleProjectIds = useMemo(
+    () => new Set(visibleGroups.map(([projectId]) => projectId)),
+    [visibleGroups],
+  );
+  const visibleProjectSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [projectId] of visibleGroups) {
+      for (const sessionId of visibleSessionIdsByProject.get(projectId) ?? []) ids.add(sessionId);
+    }
+    return ids;
+  }, [visibleGroups, visibleSessionIdsByProject]);
+
   const selectedSessionIds = useMemo(() => {
     const ids = new Set(selectedSessions);
     for (const session of sessions) {
@@ -226,6 +460,23 @@ export function LocalSources({
     }
     return [...ids];
   }, [selectedProjects, selectedSessions, sessions]);
+
+  const hiddenSelectedProjectCount = useMemo(
+    () => [...selectedProjects].filter((projectId) => !visibleProjectIds.has(projectId)).length,
+    [selectedProjects, visibleProjectIds],
+  );
+  const hiddenSelectedSessionCount = useMemo(
+    () => selectedSessionIds.filter((sessionId) => !visibleProjectSessionIds.has(sessionId)).length,
+    [selectedSessionIds, visibleProjectSessionIds],
+  );
+
+  const onVisibleSessionIdsChange = useCallback((projectId: string, sessionIds: string[]) => {
+    setVisibleSessionIdsByProject((current) => {
+      const next = new Map(current);
+      next.set(projectId, new Set(sessionIds));
+      return next;
+    });
+  }, []);
 
   async function runStatusAction(action: "grant" | "revoke") {
     setOperation(action);
@@ -273,7 +524,7 @@ export function LocalSources({
   }
 
   async function analyzeSelection() {
-    if (selectedProjects.size === 0 && selectedSessions.size === 0) {
+    if (overviewStale || (selectedProjects.size === 0 && selectedSessions.size === 0)) {
       setError("Select at least one project or session.");
       return;
     }
@@ -686,7 +937,35 @@ export function LocalSources({
             <p>Project selection includes its listed sessions. Individual selections stay independent.</p>
           </div>
           <div className="selection-actions">
-            <span>{selectedSessionIds.length} visible {selectedSessionIds.length === 1 ? "session" : "sessions"} selected</span>
+            <span aria-live="polite">
+              {selectedProjects.size} {selectedProjects.size === 1 ? "project" : "projects"} · {selectedSessionIds.length} {selectedSessionIds.length === 1 ? "session" : "sessions"} selected
+              {hiddenSelectedProjectCount > 0 || hiddenSelectedSessionCount > 0
+                ? ` · ${hiddenSelectedSessionCount} selected ${hiddenSelectedSessionCount === 1 ? "session" : "sessions"} outside the current project view`
+                : ""}
+            </span>
+            <button
+              aria-describedby={
+                operation !== null || (selectedProjects.size === 0 && selectedSessions.size === 0)
+                  ? "local-source-clear-disabled-reason"
+                  : undefined
+              }
+              className="button button--secondary"
+              disabled={operation !== null || (selectedProjects.size === 0 && selectedSessions.size === 0)}
+              onClick={() => {
+                setSelectedProjects(new Set());
+                setSelectedSessions(new Set());
+              }}
+              type="button"
+            >
+              Clear selection
+            </button>
+            {(operation !== null || (selectedProjects.size === 0 && selectedSessions.size === 0)) && (
+              <span className="sr-only" id="local-source-clear-disabled-reason">
+                {operation !== null
+                  ? "Wait for the current local-source operation to finish."
+                  : "Select at least one project or session before clearing the selection."}
+              </span>
+            )}
             <label className="field selection-limit">
               <span>Maximum analysis sessions</span>
               <select
@@ -701,6 +980,7 @@ export function LocalSources({
             <button
               aria-describedby={
                 !status.consent_active ||
+                overviewStale ||
                 operation !== null ||
                 (selectedProjects.size === 0 && selectedSessions.size === 0)
                   ? "local-source-analysis-disabled-reason"
@@ -709,6 +989,7 @@ export function LocalSources({
               className="button button--primary"
               disabled={
                 !status.consent_active ||
+                overviewStale ||
                 operation !== null ||
                 (selectedProjects.size === 0 && selectedSessions.size === 0)
               }
@@ -719,12 +1000,15 @@ export function LocalSources({
             </button>
             {(
               !status.consent_active ||
+              overviewStale ||
               operation !== null ||
               (selectedProjects.size === 0 && selectedSessions.size === 0)
             ) && (
               <span className="sr-only" id="local-source-analysis-disabled-reason">
                 {!status.consent_active
                   ? "Grant local-history access before importing operational metrics."
+                  : overviewStale
+                    ? "Reload source metadata before importing operational metrics."
                   : operation !== null
                     ? "Wait for the current local-source operation to finish."
                     : "Select at least one project or session before importing operational metrics."}
@@ -858,140 +1142,53 @@ export function LocalSources({
           </form>
         )}
 
+        <label className="field local-source-project-search" htmlFor="local-project-search">
+          <span>Search loaded projects</span>
+          <input
+            id="local-project-search"
+            onChange={(event) => setProjectQuery(event.currentTarget.value)}
+            placeholder="Search by project name or ID"
+            type="search"
+            value={projectQuery}
+          />
+        </label>
         {groupedSessions.length === 0 ? (
           <div className="empty-inbox">
             <span><Icon name="search" /></span>
             <h2>No indexed Codex sessions</h2>
             <p>Grant access, then run a bounded metadata index.</p>
           </div>
+        ) : filteredGroups.length === 0 ? (
+          <div className="empty-inbox">
+            <span><Icon name="search" /></span>
+            <h2>No projects match this search</h2>
+            <p>Search only covers the already-loaded local metadata.</p>
+            <button className="button button--secondary" onClick={() => setProjectQuery("")} type="button">
+              Clear project search
+            </button>
+          </div>
         ) : (
           <div className="project-groups">
-            {groupedSessions.map(([projectId, projectSessions]) => {
-              const projectSelected = selectedProjects.has(projectId);
-              const rawProjectName = projectSessions[0]?.project_display_name;
-              const projectName = displayName(rawProjectName, "Unnamed project");
-              const projectOrigin =
-                projectSessions[0]?.project_display_name_origin ?? "unknown";
-              const projectRevision =
-                projectSessions[0]?.project_manual_label_revision ?? 0;
-
-              return (
-                <article className="project-group" key={projectId}>
-                  <header className="project-group__header">
-                    <label>
-                      <input
-                        checked={projectSelected}
-                        onChange={(event) => toggleProject(projectId, event.target.checked)}
-                        type="checkbox"
-                        value={projectId}
-                      />
-                      <span>
-                        <strong>{projectName}</strong>
-                        <small>
-                          Project ID <span className="mono">{shortId(projectId)}</span> - {projectSessions.length} indexed{" "}
-                          {projectSessions.length === 1 ? "session" : "sessions"}
-                        </small>
-                      </span>
-                    </label>
-                    <div className="label-meta-actions">
-                      <span className="status-pill status-pill--info">
-                        {labelOriginText(projectOrigin)}
-                      </span>
-                      <button
-                        className="button button--secondary button--compact"
-                        onClick={() =>
-                          navigate({
-                            name: "project_overview",
-                            projectId,
-                          })
-                        }
-                        type="button"
-                      >
-                        Open project
-                      </button>
-                      <button
-                        aria-label="Edit local project label"
-                        className="button button--secondary button--compact"
-                        disabled={operation !== null || overviewStale}
-                        onClick={() =>
-                          beginLabelEdit(
-                            "project",
-                            projectId,
-                            rawProjectName ?? "",
-                            projectOrigin,
-                            projectRevision,
-                          )
-                        }
-                        type="button"
-                      >
-                        Edit label
-                      </button>
-                    </div>
-                  </header>
-                  <ul className="source-session-list">
-                    {projectSessions.map((session) => (
-                      <li key={session.session_id}>
-                        <label>
-                          <input
-                            checked={projectSelected || selectedSessions.has(session.session_id)}
-                            disabled={projectSelected}
-                            onChange={(event) => toggleSession(session.session_id, event.target.checked)}
-                            type="checkbox"
-                            value={session.session_id}
-                          />
-                          <span>
-                            <strong>{displayName(session.session_display_name, "Unnamed session")}</strong>
-                            <small>
-                              Session ID <span className="mono">{shortId(session.session_id)}</span> - {safeDate(session.started_at)} -{" "}
-                              {session.events_complete ? "Complete event set" : "Partial event set"}
-                            </small>
-                          </span>
-                        </label>
-                        <div className="label-meta-actions label-meta-actions--session">
-                          <span className="status-pill status-pill--info">
-                            {labelOriginText(session.session_display_name_origin)}
-                          </span>
-                          <button
-                            aria-label="Edit local session label"
-                            className="button button--secondary button--compact"
-                            disabled={operation !== null || overviewStale}
-                            onClick={() =>
-                              beginLabelEdit(
-                                "session",
-                                session.session_id,
-                                session.session_display_name ?? "",
-                                session.session_display_name_origin,
-                                session.session_manual_label_revision,
-                              )
-                            }
-                            type="button"
-                          >
-                            Edit label
-                          </button>
-                        </div>
-                        <span className="status-pill">{session.terminal_state ?? "State unknown"}</span>
-                        <button
-                          className="button button--secondary"
-                          onClick={() =>
-                            navigate({
-                              name: "session_metrics",
-                              projectId: session.project_id,
-                              sessionId: session.session_id,
-                              category: "execution",
-                            })
-                          }
-                          type="button"
-                        >
-                          Open metrics
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </article>
-              );
-            })}
+            {visibleGroups.map(([projectId, projectSessions]) => (
+              <LocalProjectGroup
+                beginLabelEdit={beginLabelEdit}
+                key={projectId}
+                navigate={navigate}
+                onVisibleSessionIdsChange={onVisibleSessionIdsChange}
+                operation={operation}
+                overviewStale={overviewStale}
+                projectId={projectId}
+                projectSelected={selectedProjects.has(projectId)}
+                projectSessions={projectSessions}
+                selectedSessions={selectedSessions}
+                toggleProject={toggleProject}
+                toggleSession={toggleSession}
+                sourceVersion={sourceVersion}
+              />
+            ))}
           </div>
         )}
+        <BoundedListPager label="Projects in local source maintenance" page={projectPage} />
         </section>
       </details>
     </section>

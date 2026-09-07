@@ -7,7 +7,7 @@ Thank you for helping build Prompt Enhancer. Privacy and measurement validity ar
 Before staging a change:
 
 - use only synthetic transcripts and reserved example identities;
-- remove absolute machine paths, emails, usernames, hostnames, account IDs, private remotes, tokens, and screenshots;
+- remove absolute machine paths, emails, usernames, hostnames, account IDs, private remotes, tokens, and screenshots; the sole exception is a visually reviewed synthetic gallery PNG at a fixed `docs/images/` filename, with a matching hash pin in `scripts/privacy_scan.py`;
 - do not add databases, JSONL exports, model weights, caches, logs, or `.env` files;
 - pin external model/package revisions and record their license/provenance;
 - state whether every metric is provider-reported, deterministic, estimated, classifier-derived, or LLM-judged;

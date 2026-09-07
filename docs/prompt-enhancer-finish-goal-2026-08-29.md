@@ -1,8 +1,8 @@
 # Prompt Enhancer finish goal
 
-Status: paused by owner after Release-01b.1a signed-discovery foundation; download/staging, signed Windows packaging, install/relaunch and rollback remain queued
+Status: Converge-06 automated implementation complete; C07a automated staging foundation validated/complete; C07b.1 automated security slice validated/complete; C07b.2 offline manifest-verification slice complete after owning gates; C07b.3 standalone read-only MSIX preflight implementation and automated validation complete; C07b.4 staged package-review automated slice complete; C07 remains partial; installer/relaunch/rollback, owner visual, packaged and final release evidence remain pending
 Established: 2026-08-29
-Expanded and reconciled: 2026-08-31
+Expanded and reconciled: 2026-09-04
 Scope owner: local user
 
 ## Product outcome
@@ -30,6 +30,84 @@ The feature-level release obligations are enumerated in the
 The two documents form one goal: this document controls sequencing and safety;
 the register prevents any requested capability from disappearing inside a broad
 milestone label.
+
+The [2026-09-04 convergence audit](prompt-enhancer-convergence-audit-2026-09-04.md)
+is the current empirical baseline. It supersedes broad historical
+`Automated complete` wording as a release claim. Earlier handoffs remain useful
+implementation evidence, but every affected feature is reopened until it passes
+the audit's contract, real-loopback, owner and release evidence ladder. The
+standard browser gate is green at 166/166 after the Converge-03 information
+architecture repair. Converge-02 and 03 preserve 16/16 zero-interception journeys
+through the production-built dashboard and a disposable real loopback API; later
+checkpoints must preserve both results. The separately labelled intercepted
+frontend/HTTP contract suite is also green at 41/41; that result is supporting
+contract evidence, not a substitute for the real-loopback gate. See the
+[Converge-03 handoff](checkpoint-converge-03-handoff.md). Converge-04 adds a
+fail-closed Agent owner-evidence ledger and stronger opt-in physical-model
+cleanup probe. Converge-05a adds a separate exact, page-owned trusted-MCP
+lifecycle ledger. Converge-05b adds the equivalent ordered external-controller
+ledger with a content-free process epoch and tool-admission sequence; see the
+[Converge-04 handoff](checkpoint-converge-04-handoff.md),
+[Converge-05a handoff](checkpoint-converge-05a-handoff.md), and
+[Converge-05b handoff](checkpoint-converge-05b-handoff.md), and the current
+[Converge-06 handoff](checkpoint-converge-06-handoff.md). Converge-07a adds a
+bounded signed-manifest download/staging foundation with fenced recovery and
+truthful downloaded-not-installable copy; see the
+[Converge-07a handoff](checkpoint-converge-07a-handoff.md). C07 remains partial
+pending Windows packaged evidence. C07b.1 adds the bounded private update-root
+preparation and durable signed-envelope replay floor; see the
+[C07b.1 handoff](checkpoint-converge-07b-handoff.md).
+C07b.2 adds offline deterministic public build-manifest validation for duplicate,
+ambiguous and non-normalized paths; see the
+[C07b.2 handoff](checkpoint-converge-07b2-handoff.md).
+C07b.3 adds a standalone, read-only MSIX identity/digest/signer-pin preflight
+and release-tool CLI; see the
+[C07b.3 handoff](checkpoint-converge-07b3-handoff.md).
+C07b.4 connects that preflight only to authenticated staged-package review;
+see the [C07b.4 handoff](checkpoint-converge-07b4-handoff.md).
+
+## Automatic execution directive
+
+Continue autonomously from the Converge-06 automated boundary through Converge-07
+in dependency order. Do not wait for approval between safe,
+repository-local implementation, synthetic testing, zero-interception loopback
+testing, documentation and app reload steps. At each checkpoint:
+
+1. reproduce the named defect or missing behavior;
+2. implement the smallest coherent production slice;
+3. test success, refusal, failure, cancellation, stale state, restart, privacy,
+   accessibility and responsive behavior as applicable;
+4. rerun the owning regression gates once;
+5. update the convergence audit, feature register and owner click-later list;
+6. reload the app with one loopback listener and no test model left loaded; and
+7. advance automatically only when the checkpoint's exact exit gate is green.
+
+Owner interaction is required only for a genuinely native, hardware, external-
+account, protected-authority or subjective visual acceptance step. Record those
+items without claiming success, continue other safe independent work where the
+dependency graph permits, and never use an owner-pending check to hide a code,
+test or integration failure. Do not commit, push, install a real third-party
+package, read real provider content or perform a protected external action unless
+the owner separately authorizes it.
+
+## Supervised delegation rule
+
+For future checkpoints, root reads the code, assigns bounded work, reviews the
+result and independently validates it; root does not edit implementation.
+Terra handles harder implementation, while Luna handles smaller implementation
+changes, tests and docs. Defects return to the implementer for correction, and
+bounded ownership plus targeted gates prevent duplicate work. Existing privacy,
+scope, synthetic-fixture and checkpoint rules remain in force.
+
+## Active C07b.4 owner constraint
+
+This work is being performed in a remote session. Until the owner explicitly
+approves a later native step, do not reboot the PC, restart or relaunch the
+application, install a package, kill processes, open visible windows, load a
+model, or use real provider/release data. The standing protected-reload step is
+skipped while this constraint is active; continue only with offline code review
+and temporary synthetic-fixture tests. Earlier reload evidence remains dated
+historical evidence and is not rewritten.
 
 ## Goal hierarchy and completion rule
 
@@ -161,20 +239,33 @@ evidence and design history; they do not make a later regression disappear.
 Existing implemented behavior is reconciled and repaired in place rather than
 needlessly rewritten.
 
+Rows below Release-01 describe the historical implementation inventory. Their
+old `complete` wording means contract or synthetic evidence only unless the
+2026-09-04 convergence audit explicitly says otherwise. The new Converge rows
+control execution and release status.
+
 | Milestone | Deliverable | Current state | Exit gate |
 | --- | --- | --- | --- |
+| Audit-02 | Independent Fable 5.1 review, primary source audit, live route traversal and current test baseline | Complete | One privacy-safe audit distinguishes contract evidence, real-loopback evidence, owner acceptance, placeholders and missing work. |
+| Converge-01 | Truthful status and reachable Agent/metrics controls | Complete | Six repeatable browser failures repaired; 165/165 standard browser tests green; live 20/16/0/4 operability renders; static readiness and production web no-op removed. |
+| Converge-02 | Zero-interception local-stack acceptance harness | Complete | Sixteen critical built-frontend journeys pass against a temporary synthetic real backend with no intercepted application routes; shutdown removes its state, listener and model-runtime ownership. See [handoff](checkpoint-converge-02-handoff.md). |
+| Converge-03 | SOTA-focused Agent information architecture | Automated implementation complete; owner visual review pending | Chat owns the viewport; composer and latest reply stay visible at 720 px; secondary tools use coherent disclosures/drawers; one runtime state is announced; responsive, accessibility and real-loopback gates are green. See [handoff](checkpoint-converge-03-handoff.md). |
+| Converge-04 | Packaged real Agent core loop and cleanup | Automated acceptance instrumentation complete; packaged owner/hardware execution pending | The page-owned receipt now requires recovered history, workspace, two-model lifecycle, complete/Stop turns, approved write/command, review, artifact, context and final cleanup evidence. Native dialogs, physical placement/VRAM, terminal census and package restart remain owner-gated. See [handoff](checkpoint-converge-04-handoff.md). |
+| Converge-05 | Trusted MCP and external-client production acceptance | 05a and 05b automated instrumentation complete; both real owner journeys pending | The trusted-MCP ledger requires install, admission, host/call/stop, update, rollback, retained-generation cleanup and uninstall. The external-controller ledger requires connect/discover/own/stream/Stop/reconnect/handoff/revoke/refusal/cleanup with exact process and activity ordering. One real MCPB lifecycle and one current external-controller lifecycle still need owner execution. See the [05a handoff](checkpoint-converge-05a-handoff.md) and [05b handoff](checkpoint-converge-05b-handoff.md). |
+| Converge-06 | Metric validity and product-surface simplification | Automated implementation complete; owner visual review pending | Core/Review/Labs navigation and the 39 operational vs 20 canonical vs 10 historical metric presentation are implemented; existing 20/16/4 presentation is preserved, with no new calculators/adapters or scientific-validity claim. Data sources delivers 12 projects per page, collapsed lazy sessions, 20 rows per expanded page, metadata-only search, accurate hidden selections, Clear selection and transport-generation resets. |
+| Converge-07 | Signed Windows updater and final release | **Partial: C07a foundation and C07b.1/C07b.2 slices validated; C07b.3 preflight and C07b.4 staged review automated slice complete** | C07a covers fenced signed-manifest download/stage/progress/cancel/retry and truthful downloaded-not-installable UI. C07b.1 adds scoped private update-root DACL preparation and durable signed-envelope replay CAS; C07b.2 adds deterministic public build-manifest boundaries; C07b.3 adds a standalone read-only MSIX identity/digest/signer-pin preflight and CLI; C07b.4 exposes only fenced verified/rejected review of the authenticated fixed staged candidate, without persisting a verified badge or enabling apply. Publisher/native signer positive acceptance, installer/MSIX handoff, relaunch, rollback, public release trust and the complete packaged north-star journey remain open. See [C07b.4 handoff](checkpoint-converge-07b4-handoff.md). |
 | Goal-00 | Product contract, privacy boundaries and finish definition | Complete | This document exists, the active goal matches it and the dirty worktree is preserved. |
 | Store-05c | Exact local MCP update, one retained rollback generation, uninstall and interrupted-operation cleanup | Complete; owner UI review pending | Install/update/rollback/uninstall/cleanup survive failure and restart tests; UI and API agree; one protected app reload passes with no terminal, MCP or model leak. |
 | Store-06 | Project-scoped MCP admission, configuration, tool routing and approvals | Automated implementation complete through Store-06e.4; owner protected clicks remain | Exact reviewed snapshots and project allowlists are durable. An installed admitted host starts only after an exact revision-bound preview and native confirmation, stays memory-only for the current app run, rechecks tool contracts, never auto-starts, and is omitted from model schemas as soon as durable authority drifts. Every call receives a separate non-reusable native confirmation, bounded schema validation/result projection, cancellation/timeout handling, synchronous cleanup on unsafe outcomes, and a content-free SQLite receipt. Configuration-bearing MCPB packages require an exact non-executing schema inspection whose archive, staging and values are discarded. The Store separates focused Browse and Managed workspaces, exposes source-provenanced catalog and compatibility evidence, reconciles exact project/tool/host authority, and renders each actual call as one friendly approval/activity/result card without retaining raw arguments or output. See [Store-06c handoff](checkpoint-mcp-store-06c-handoff.md), [Store-06d handoff](checkpoint-mcp-store-06d-handoff.md), [Store-06e.1 handoff](checkpoint-mcp-store-06e-1-handoff.md), [Store-06e.2 handoff](checkpoint-mcp-store-06e-2-handoff.md), [Store-06e.3 handoff](checkpoint-mcp-store-06e-3-handoff.md), and [Store-06e.4 handoff](checkpoint-mcp-store-06e-4-handoff.md). |
 | Store-07 | Adversarial MCP acceptance | Automated complete through Store-07e; owner trusted-MCP review remains in Acceptance-01 | Registry, transport, process, network, schema, secret, crash and isolation matrix passes with content-free diagnostics. See [Store-07e handoff](checkpoint-mcp-store-07e-handoff.md). |
 | Agent-11 | Durable project/session/chat parity reconciliation | Automated implementation complete through 11f; native restart review pending | Durable create/browse/switch/rename/pin/archive/restore/move/delete, retained-history resume/fork/export, and restart behavior have automated evidence. Global search follows ownership; Move loads every valid destination; confirmed chat mutations reconcile open state; selected deletion clears stale history/actions without hijacking a background foreground chat; browser export is bound to the visible catalog/history heads; and dedicated routes fall back from cleared live memory to exact durable retained or metadata-only records without accepting stale lookup results. See [Agent-11a handoff](checkpoint-agent-11a-handoff.md), [Agent-11b handoff](checkpoint-agent-11b-handoff.md), [Agent-11c handoff](checkpoint-agent-11c-handoff.md), [Agent-11d handoff](checkpoint-agent-11d-handoff.md), [Agent-11e handoff](checkpoint-agent-11e-handoff.md), and [Agent-11f handoff](checkpoint-agent-11f-handoff.md). |
-| Agent-12 | Chat timeline, reasoning summaries and truthful context | Automated implementation complete through Agent-12g; owner review pending | Streaming, Stop, retry/edit/regenerate, Markdown/code, progress, tool evidence and safe reasoning summaries pass ordering and recovery tests. Agent-12a adds exact retained-history Edit/Retry/Regenerate branches with root-turn support, attachment refusal, navigation cancellation and failed-send draft recovery. Agent-12b makes stream/command state monotonic, prevents equal-head Stop rewind, bounds duplicate-snapshot and unexpected-EOF reconnect loops, and proves exact-cursor late-terminal replacement. Agent-12c binds exact-or-unknown context evidence to chat/model/turn, removes streamed-delta request churn, distinguishes admitted/compacted/refused preflights, preserves visibly stale last-confirmed evidence, and provides accessible utilization warnings without substituting a heuristic estimate. Agent-12d moves the existing revision-safe runtime, exact context, capability-gated media and Send/Stop controls into one responsive chat composer while leaving project/chat navigation in the rail. Agent-12e makes workspace chat creation model-neutral by default and prevents global runtime inheritance. Agent-12f makes the runtime chooser a viewport-bounded upward popover and replaces ambiguous prompt improvement with an explicit no-send review. Agent-12g adds a browser-session-only in-process Windows folder chooser to the ordinary localhost New session flow without scanning or granting protected authority; see [Agent-12a handoff](checkpoint-agent-12a-handoff.md), [Agent-12b handoff](checkpoint-agent-12b-handoff.md), [Agent-12c handoff](checkpoint-agent-12c-handoff.md), [Agent-12d handoff](checkpoint-agent-12d-handoff.md), [Agent-12e handoff](checkpoint-agent-12e-handoff.md), [Agent-12f handoff](checkpoint-agent-12f-handoff.md), and [Agent-12g handoff](checkpoint-agent-12g-handoff.md). |
-| Runtime-01 | Production local-model acquisition and lifecycle | Automated implementation complete through Runtime-01c; owner review and physical real-runtime acceptance remain | Models and Agent share one revision-bound lifecycle coordinator and placement admission. CPU/GPU/split requests fail closed from current evidence. Verified immutable downloads now have disk admission, a durable restart-reconciled ledger, monotonic progress, pause/resume/retry/cancel, provenance revalidation and confirmed owned-partial cleanup. Runtime processes use minimized environments, exact crash/OOM classification and atomic Windows descendant ownership. The UI exposes truthful capacity, recovery and stale-command states. Owner-approved CPU/GPU/switch/unload and accelerator-release evidence remains pending. See [Runtime-01a handoff](checkpoint-runtime-01a-handoff.md), [Runtime-01b handoff](checkpoint-runtime-01b-handoff.md), and [Runtime-01c handoff](checkpoint-runtime-01c-handoff.md). |
-| Workspace-01 | Reviewed coding workspace and tool execution | Automated implementation complete through Workspace-01c; owner walkthrough remains | Bounded discovery, search, edit, multi-file changes, create/move, diffs, commands and web actions pass path/race/approval/read-back tests. `local-agent.v9` provides content-free terminal execution receipts. `agent-change-restore.v1` adds exact preview-first recovery for modified, missing-original and session-created paths, with native confirmation, objective read-back, retained LF/CRLF recovery and direct artifact capture/viewer handoff. Workspace-01c gives every file-change surface one line-numbered, copyable, wrap-aware structured diff viewer; malformed and very tall reviews remain exact and explicitly raw, while contradictory summary counts stay visibly disclosed. Recovery cards now name restore, recreation and Recycle Bin effects before preview. Current controller discovery is `local-agent-orchestration.v22`, with restore apply native-only, project-scoped managed-MCP runtime truth and snapshot-bound catalog paging declared explicitly. See [Workspace-01a handoff](checkpoint-workspace-01a-handoff.md), [Workspace-01b handoff](checkpoint-workspace-01b-handoff.md), and [Workspace-01c handoff](checkpoint-workspace-01c-handoff.md). |
-| Artifact-01 | Multimodal input and generated artifact experience | Automated implementation complete through Artifact-01d; owner attachment/lifecycle/viewer review pending | Producing-turn navigation, exact project/chat-bound lifecycle, native PNG/JPEG/PCM-WAV input, bounded inert projections for supported text/data/Office/ODT documents, and the complete version-aware text/code/image/PDF/Office viewer are automated at 360 px and 1440 px. Raw download and sensitive lineage export are separate exact-readback actions; export contains no artifact bytes or absolute workspace path. PDF input still fails closed; staged projections survive service reconstruction and remain model/session bound. See [Artifact-01a handoff](checkpoint-artifact-01a-handoff.md), [Artifact-01b handoff](checkpoint-artifact-01b-handoff.md), [Artifact-01c handoff](checkpoint-artifact-01c-handoff.md), and [Artifact-01d handoff](checkpoint-artifact-01d-handoff.md). |
+| Agent-12 | Chat timeline, reasoning summaries and truthful context | Converge-03 automated implementation complete; owner visual review pending | Streaming, Stop, branch-based retry/edit/regenerate, Markdown/code, context and model-neutral entry contracts remain intact. Chat now owns the bounded viewport, runtime state is announced once, project tools and metadata are secondary, and transcript interaction is pointer- and keyboard-operable. |
+| Runtime-01 | Production local-model acquisition and lifecycle | Automated implementation complete through Runtime-01c; Converge-04 now enforces the owner receipt; physical real-runtime acceptance remains | Models and Agent share one revision-bound lifecycle coordinator and placement admission. CPU/GPU/split requests fail closed from current evidence. Verified immutable downloads now have disk admission, a durable restart-reconciled ledger, monotonic progress, pause/resume/retry/cancel, provenance revalidation and confirmed owned-partial cleanup. Runtime processes use minimized environments, exact crash/OOM classification and atomic Windows descendant ownership. The UI exposes truthful capacity, recovery and stale-command states. The opt-in physical probe now requires hidden-window, coordinator-idle, process-exit and GPU-cleanup evidence; owner-approved CPU/GPU/switch/unload remains pending. See [Runtime-01a handoff](checkpoint-runtime-01a-handoff.md), [Runtime-01b handoff](checkpoint-runtime-01b-handoff.md), [Runtime-01c handoff](checkpoint-runtime-01c-handoff.md), and [Converge-04 handoff](checkpoint-converge-04-handoff.md). |
+| Workspace-01 | Reviewed coding workspace and tool execution | Production web no-op removed in Converge-01; Converge-04 acceptance ledger green; native/package execution remains | Preserve bounded file/search/diff/transaction/command contracts. Web fetch is hard-disabled in the production UI and rejected before session creation when no governed fetcher is composed. The owner receipt now requires an admitted workspace plus verified approved write and command evidence, but the native picker/approval/read-back walkthrough is still pending. |
+| Artifact-01 | Multimodal input and generated artifact experience | Automated implementation complete through Artifact-01d; Converge-04 viewer evidence is fail-closed; owner attachment/lifecycle/viewer review pending | Producing-turn navigation, exact project/chat-bound lifecycle, native PNG/JPEG/PCM-WAV input, bounded inert projections for supported text/data/Office/ODT documents, and the complete version-aware text/code/image/PDF/Office viewer are automated at 360 px and 1440 px. Converge-04 counts only a successfully revalidated/rendered viewer; stale or failed previews do not pass. Raw download and sensitive lineage export are separate exact-readback actions; export contains no artifact bytes or absolute workspace path. PDF input still fails closed; staged projections survive service reconstruction and remain model/session bound. See [Artifact-01a handoff](checkpoint-artifact-01a-handoff.md), [Artifact-01b handoff](checkpoint-artifact-01b-handoff.md), [Artifact-01c handoff](checkpoint-artifact-01c-handoff.md), [Artifact-01d handoff](checkpoint-artifact-01d-handoff.md), and [Converge-04 handoff](checkpoint-converge-04-handoff.md). |
 | Orchestration-01 | Governed Codex/Claude/provider-neutral control | Automated implementation complete through Orchestration-01b; owner external-client walkthrough remains | Two isolated clients can connect within exact project scope, atomically own one live chat operation, reconnect without resubmission, perform a revision-bound two-party handoff, and be revoked without inheriting native approvals or exposing private state. Owner-only wait/Stop, proof-gated release, visible recovery state and restart-safe content-free ownership are verified. See [Orchestration-01a handoff](checkpoint-orchestration-01a-handoff.md) and [Orchestration-01b handoff](checkpoint-orchestration-01b-handoff.md). |
-| Sweep-01 | Route-by-route UI/UX, accessibility and scale repair | Sweep-01a, Sweep-01b.1–01b.4 and Sweep-01c.1–01c.3 automated complete; owner review queued | Every route/control/state is inventoried and exercised at desktop and narrow widths with keyboard, focus, contrast, copy and icon consistency checks; loaded high-volume surfaces have explicit render budgets, snapshot-bound durable pages, fixed retained-history windows and stale-response isolation. See [Sweep-01a handoff](checkpoint-sweep-01a-handoff.md), [route/control ledger](sweep-01a-route-control-ledger.md), [state recovery ledger](sweep-01a-state-recovery-ledger.md), [Sweep-01b.1 handoff](checkpoint-sweep-01b-1-handoff.md), [Sweep-01b.2 handoff](checkpoint-sweep-01b-2-handoff.md), [Sweep-01b.3 handoff](checkpoint-sweep-01b-3-handoff.md), [Sweep-01b.4 handoff](checkpoint-sweep-01b-4-handoff.md), [Sweep-01c.1 handoff](checkpoint-sweep-01c-1-handoff.md), [Sweep-01c.2 handoff](checkpoint-sweep-01c-2-handoff.md) and [Sweep-01c.3 handoff](checkpoint-sweep-01c-3-handoff.md). |
-| Release-01 | Recovery, performance, Windows packaging and owner acceptance | Release-01a.2b is automated complete; Release-01a.3 is next | The primary, Agent and auxiliary SQLite families have exact migration provenance, and interrupted downloads, artifact projection, MCP work and controller ownership now reconcile without invented success. The owner-selected Agent-12d composer refinement, Agent-12e model-neutral entry repair, Agent-12f bounded runtime chooser and Agent-12g localhost folder chooser are also automated complete. Combined process census, production package smoke and the representative owner walkthrough remain. See [Release-01a.2b handoff](checkpoint-release-01a-2b-handoff.md), [Agent-12d handoff](checkpoint-agent-12d-handoff.md), [Agent-12e handoff](checkpoint-agent-12e-handoff.md), [Agent-12f handoff](checkpoint-agent-12f-handoff.md), and [Agent-12g handoff](checkpoint-agent-12g-handoff.md). |
+| Sweep-01 | Route-by-route UI/UX, accessibility and scale repair | Agent and C06 slices automated complete; owner visual review remains | Converge-01 through 03 repaired Agent overcrowding/clipping, unreachable controls, duplicate runtime status, the operability panel and inconsistent Agent file icons. Converge-06 adds the Core/Review/Labs boundary and bounded Data sources surfaces; owner visual review remains. |
+| Release-01 | Recovery, performance, Windows packaging and owner acceptance | Reopened; signed discovery only is current updater scope | Current browser gates must return green, genuine local-stack journeys must be added, physical process/model evidence must be collected and the missing package/update lifecycle must be built. |
 
 ## Detailed remaining checkpoint map
 
@@ -194,12 +285,15 @@ one review too large, but it may not silently absorb a later checkpoint.
 | Store-06d | Configuration-bearing local MCPB plans are inspected, configured and recovered without retaining plaintext values or accidentally executing the package. | Automated implementation complete: strict v0.3/v0.4 scalar `user_config` inspection, vault-backed required values, install/start just-in-time resolution, exact invalidation, schema-27 restart migration, private confirmed HTTP/UI contracts, 151-test MCP regression, 2,504-test frontend regression, build, privacy scan and hidden loopback reload pass. Owner protected click-through remains. See [Store-06d handoff](checkpoint-mcp-store-06d-handoff.md). |
 | Store-06e | The MCP Store and Agent tool drawer expose search, detail, install state, permissions, health, project tool selection and actual call evidence without crowding the chat. | Complete through 06e.4: exact per-call approval/activity/result ordering, denial/Stop/interruption truth, retained-history privacy, keyboard accessibility and 360/1440 px layouts are green. Owner protected clicks remain. See [Store-06e.4 handoff](checkpoint-mcp-store-06e-4-handoff.md). |
 | Store-07 | Malicious metadata, transports, schemas and process behavior fail closed without leaking data or leaving children. | Automated complete through Store-07e. Registry presentation, redirect/DNS/proxy/TLS/stream hostility, local process containment, schema/replay, exact vault binding, canary non-disclosure and project/chat/client isolation are green. Owner trusted-MCP click-through remains Acceptance-01. See [Store-07a handoff](checkpoint-mcp-store-07a-handoff.md), [Store-07b handoff](checkpoint-mcp-store-07b-handoff.md), [Store-07c handoff](checkpoint-mcp-store-07c-handoff.md), [Store-07d handoff](checkpoint-mcp-store-07d-handoff.md), and [Store-07e handoff](checkpoint-mcp-store-07e-handoff.md). |
+| Converge-05a | A trusted local MCPB has one fail-closed, content-free lifecycle receipt in the ordinary Agent/Store UI. | Automated instrumentation complete: exact plan/project/chat/snapshot/host binding; fresh approved call; stop; update; rollback; retained-generation cleanup; uninstall; cross-scope/stale/out-of-order refusal; settings-unmount persistence and responsive tests. Packaged third-party execution remains owner-gated. See [handoff](checkpoint-converge-05a-handoff.md). |
+| Converge-05b | One external controller proves the complete governed Agent lifecycle without inheriting native approval authority. | Automated instrumentation complete: a page-owned ten-step receipt is exact-project/chat/credential/process bound; in-flight admission, sequence gaps, Stop, reconnect without resubmission, two-party handoff, revoke/refusal and native cleanup are fail-closed. Current external-client owner execution remains pending. See [handoff](checkpoint-converge-05b-handoff.md). |
+| Converge-06 | Primary navigation is simplified into Core, Review and Labs while metric counts remain truthful and separately presented. | Automated implementation complete; owner visual review pending. Existing 39 operational/task, 20 canonical and 10 historical definitions remain separate, including the 20/16/4 presentation; no new calculators/adapters or scientific-validity claim. Data sources paging/disclosure and selection behavior are delivered. See [handoff](checkpoint-converge-06-handoff.md). |
 | Acceptance-01 | Previously automated Agent, Runtime, Workspace and Store milestones receive the remaining physical owner evidence without reopening their scope. | Retained-chat restart; real CPU/GPU/split admission; model switch/unload and VRAM release; native picker/confirmation; workspace and Store click ledgers. |
 | Sweep-01a | Every route and interactive element has an inventory tied to a real contract and test. Dead, duplicated and misleading controls are fixed or explicitly gated. | Route/control/state matrix; click and keyboard automation; no unexplained disabled controls; no console errors. |
 | Sweep-01b | The application uses one coherent responsive design system for hierarchy, panes, icons, focus, status, empty/loading/error states and reduced motion. | 320/360/768/1440 px visual matrix, forced colors, keyboard order and automated accessibility checks. |
 | Sweep-01c | Long histories, catalogs, trees and event streams remain usable and truthful under load. | Pagination/virtualization, cancellation, stale-response and layout-shift tests against bounded synthetic stress fixtures. |
 | Release-01a | Data migrations, interrupted-operation reconciliation, retention, diagnostics and process cleanup are production-safe. | Active through 01a.2b: migration and interrupted-operation reconciliation are automated complete, with full gates and a hidden live reload at one listener and zero model processes. Crash/start/stop process composition stays pending in 01a.3. See [Release-01a.2b handoff](checkpoint-release-01a-2b-handoff.md). |
-| Release-01b.1 | Users see truthful update availability in the left sidebar and can download only an immutable, signed, newer release into private staging. | In progress through 01b.1a: the content-free sidebar/drawer control, package trust composition, explicit HTTPS signed-manifest check, Ed25519/version/channel/time/replay gates and default no-egress state are complete. Artifact download, installer verification, private staging, progress/cancel/recovery and production release identity remain paused. See [handoff](checkpoint-release-01b-1a-handoff.md). |
+| Release-01b.1 | Users see truthful update availability in the left sidebar and can download only an immutable, signed, newer release into private staging. | **C07b.4 staged-review automated slice complete; release remains partial**: v2 fenced status/check/stage/cancel/retry, bounded progress, cleanup recovery, default no-egress UI, private update-root hardening, durable replay CAS, deterministic build-manifest validation, and C07b.3 read-only MSIX identity/digest/signer-pin verification are synthetic-tested. C07b.4 wires v3 explicit package pins to review of the authenticated fixed `artifact.staged` candidate, with fenced verified/rejected results only, no durable verified badge, and no apply capability. Production release identity/signing, real native acceptance, installer handoff, relaunch, and rollback remain open. See [C07b.4 handoff](checkpoint-converge-07b4-handoff.md). |
 | Release-01b.2 | A reviewed staged update can close the exact owned app/process tree, install, relaunch and recover without corrupting the prior version or user data. | Native consequence preview, installer signature recheck, exact process shutdown, atomic handoff to a minimal updater, interruption matrix, rollback/recovery receipt, one relaunched listener, zero orphan descendants and no visible console storm. |
 | Release-01b.3 | The installed Windows application behaves like the validated development stack and the representative owner journey has no hidden workaround. | Production-package install/start/update/reload/shutdown smoke; privacy/API/build gates; signed owner acceptance checklist. |
 
@@ -248,7 +342,7 @@ may not absorb unrelated work merely to keep implementation moving.
 | Agent-12f | **Automated complete; owner narrow-window visual review queued.** Keep Model & context usable in a short composer, make start/switch/bind consequences explicit, and replace ambiguous prompt improvement with a no-send review. | 205 relevant Agent/runtime/layout tests, production build, API/privacy gates and a live loopback DOM reload; model choice, pending state, upward viewport-bounded scrolling, Close/Escape/outside dismissal, focus restoration and no-send prompt review pass. See [handoff](checkpoint-agent-12f-handoff.md). |
 | Agent-12g | **Automated complete; owner Windows dialog click queued.** Let the ordinary authenticated localhost Agent page browse the PC for a workspace without a model or pasted path, while keeping selection separate from scanning, session creation and protected authority. | Picker concurrency/error tests, same-origin/CSRF/token rejection, strict transport parsing, selection/cancel/busy/native-fallback component tests, production build, API/privacy gates and a hidden one-listener live reload pass. See [handoff](checkpoint-agent-12g-handoff.md). |
 | Release-01a.3 | **Automated complete; owner click-later review queued.** Prove combined process ownership and cleanup under repeated start, stop, crash, timeout and listener collision. | Atomic Windows Job ownership or POSIX process groups, bounded helper I/O and process counts, exact cleanup evidence, 5,232 backend and 2,733 frontend tests, privacy/build/API gates and a hidden one-listener collision smoke pass. See [entry](checkpoint-release-01a-3-entry.md) and [handoff](checkpoint-release-01a-3-handoff.md). |
-| Release-01b.1 | **In progress through 01b.1a; paused by owner.** The left-sidebar/compact-navigation status control and signed manifest discovery boundary are implemented and tested. A missing production trust file is truthfully disabled and network-silent. | Remaining: owner-controlled release host/key, deterministic signed package, artifact download and verification, private staging, progress/cancel/retry and interrupted-download recovery. See [handoff](checkpoint-release-01b-1a-handoff.md). |
+| Release-01b.1 | **C07b.4 staged-review automated slice complete.** The left-sidebar/compact-navigation control, v2 fenced signed-manifest status, bounded artifact staging, progress/cancel/retry, interrupted-download recovery, private-root hardening, and replay evidence are synthetic-tested; v3 explicit package pins now wire the fixed authenticated `artifact.staged` candidate to fenced verified/rejected review only. Default unconfigured mode remains network-silent, verified review is not persisted, and apply remains unavailable. | Remaining: owner-controlled production release host/key and signed package, real publisher/native acceptance, installer handoff, packaged relaunch/recovery, rollback, and production trust. See [C07b.4 handoff](checkpoint-converge-07b4-handoff.md). |
 | Release-01b.2 | Apply a reviewed staged update, stop the exact owned process tree, reinstall, reopen and recover or roll back truthfully. | Native review; updater process ownership; installer revalidation; crash/power-loss boundary matrix; prior-version recovery; preserved user data; one listener and zero orphan child/terminal/model processes after relaunch. |
 | Release-01b.3 | Prove the installed Windows application matches the validated stack and complete the north-star journey. | Packaged install/start/update/reload/shutdown smoke and explicit owner sign-off with no undocumented workaround. |
 
@@ -599,43 +693,147 @@ Acceptance evidence:
 
 ## Execution order
 
-The sequence below starts from the current application state. Completed Agent,
-Runtime, Workspace, Artifact and Store slices remain regression obligations; they
-are not reimplemented merely to make progress look active.
+The 2026-09-04 audit reopened historical completion claims. Existing Agent,
+Runtime, Workspace, Artifact, Orchestration and Store implementations remain
+valuable regression obligations, but none may skip the current evidence ladder.
 
-1. **Preserve closed Orchestration-01a.** Keep the project-scoped connection
-   contract and protected-live evidence green while its short owner setup review
-   remains visible.
-2. **Preserve closed Orchestration-01b.** Keep durable visible ownership,
-   owner-only wait/Stop, exact reconnect and revision-bound two-party handoff
-   green while its real external-client owner walkthrough remains visible.
-3. **Preserve closed Store-06c.** Keep exact app-run hosting, project routing,
-   per-call approval, cancellation and synchronous cleanup green while its
-   authority-increasing owner click ledger remains visible.
-4. **Preserve automated-complete Store-06d.** Keep exact non-executing MCPB
-   configuration inspection, OS-vault value handling, restart migration and
-   strict privacy contracts green while its protected click-through remains.
-5. **Preserve automated-complete Store-06e.** Keep source-provenanced Store
-   management, exact project tools and one-card in-chat call evidence green
-   while its protected owner click ledger remains visible.
-6. **Preserve automated-complete Store-07.** Keep registry/presentation,
-   transport/network, process, schema/replay and secret/isolation packets green;
-   do not substitute synthetic evidence for the trusted owner click-through.
-7. **Close Acceptance-01 debt (next).** Collect the retained-chat restart, native
-   picker/confirmation, real CPU/GPU/supported split, model switch/unload/VRAM,
-   workspace and Store evidence that automation cannot honestly replace.
-8. **Run Sweep-01a through 01c.** Inventory and exercise every route/control,
-   repair misleading or unfinished behavior, unify the responsive accessible
-   design system and stress long histories/catalogs/trees/streams.
-9. **Run Release-01a.** Complete migration, retention, recovery, performance,
-   startup/shutdown and process/listener cleanup acceptance.
-10. **Run Release-01b.** Build and smoke-test the Windows package, execute the
-    north-star journey and obtain explicit owner release sign-off.
+1. **Converge-01 — truth and reachability repair (complete).** The six stable
+   Agent browser failures, live metric-operability composition, static readiness
+   claim and production web-tool no-op are repaired; the result remains covered
+   by the current 166/166 serial standard browser gate.
+2. **Converge-02 — genuine local-stack harness (complete).** Sixteen critical
+   built-frontend journeys now run against a temporary synthetic real backend
+   with no application-route interception. The old suite is named
+   `intercepted-contract` and is green at 41/41, while the independent standard
+   suite remains 166/166. The real gate verifies cleanup after every run. See
+   [handoff](checkpoint-converge-02-handoff.md).
+3. **Converge-03 — Agent information architecture (automated implementation
+   complete; owner visual review pending).** The chat and composer own the live
+   viewport, secondary controls use coherent disclosures/drawers, competing
+   rail scroll regions and duplicate healthy runtime status are removed, file
+   icons use the shared system, and conversation rendering is split along visible
+   boundaries. Current evidence is 166/166 standard browser, 41/41 intercepted
+   contract, 16/16 real loopback and 87/87 focused backend/harness tests. See
+   [handoff](checkpoint-converge-03-handoff.md).
+4. **Converge-04 — real packaged Agent core loop (automated instrumentation
+   complete; owner execution pending).** The fail-closed page-owned ledger now
+   requires recovered history, workspace admission, two distinct ready models,
+   completed and stopped turns, approved write and command, review, a
+   successfully rendered artifact, truthful context and final coordinator
+   cleanup. The physical probe now requires hidden-window/process-exit/GPU
+   cleanup evidence. Collect the remaining native picker/approval,
+   CPU/GPU/supported split, package restart, VRAM and terminal-census evidence.
+   Production web remains excluded when no governed fetcher is composed. See
+   [handoff](checkpoint-converge-04-handoff.md).
+5. **Converge-05 — trusted MCP and external-client acceptance (05a and 05b
+   automated instrumentation complete; owner runs pending).** The exact MCPB
+   and external-controller ledgers remain fail-closed and keep unsupported
+   Registry formats browse-only. See the [05a handoff](checkpoint-converge-05a-handoff.md)
+   and [05b handoff](checkpoint-converge-05b-handoff.md).
+6. **Converge-06 — metric validity and surface simplification (automated
+   implementation complete; owner visual review pending).** Separate the
+   existing 39 operational/task definitions from the 20 canonical coaching
+   contracts and 10 historical lexical rules; preserve the 20/16/4 presentation,
+   retire legacy default duplication, resolve or visibly block the four
+   provider-adapter gaps, and require a representative human holdout for
+   calibration claims. Core/Review/Labs navigation and Data sources paging,
+   disclosure and exact-selection behavior are delivered.
+7. **Converge-07 — signed Windows update and final release.** C07a’s automated
+   staging foundation is validated/complete and C07b.1’s bounded private-root
+   and replay-security slice is implemented; C07b.2’s offline manifest
+   acceptance is complete; C07b.3’s standalone read-only MSIX preflight focused
+   acceptance and automated owning validation are complete; C07b.4 connects
+   the fixed authenticated staged artifact to a verified/rejected review-only
+   action with no apply capability. Its automated slice is complete, while C07
+   remains partial. Build artifact staging, reviewed apply/relaunch, rollback,
+   signed packaging and the connected north-star journey remain.
 
 At each numbered boundary the board, evidence ledger and click-later list are
 updated before implementation advances. If a test exposes a regression in a
 previously complete milestone, that regression becomes the bounded repair inside
 the current dependency checkpoint; it is never hidden as historical debt.
+
+## Converge-06 review record
+
+Converge-06 is **automated implementation complete; owner visual review
+pending**. Core, Review and Labs now have an explicit boundary, while the
+existing 39 operational/task definitions, 20 canonical coaching contracts and
+10 historical lexical rules remain separate, including the 20/16/4
+presentation. Data sources delivers 12 projects per page, collapsed lazy session
+lists, 20 rows per expanded page, metadata-only search, accurate hidden
+selections, Clear selection and transport-generation resets. No new
+calculators/adapters or calibration/scientific-validity claim is made.
+
+Final evidence: root calibration/gate/report/ratings matrix **140/140**;
+Terra metric **69/69 frontend** and **35/35 backend contract**; root LocalSources
+and ClaudeSource **26/26**. Root's original App run had **117 pass and 3
+failures**; the owning-file rerun resolved them at **25/25**, without claiming a
+clean full 120-case rerun. Root browser shell/research/metric-context/standalone
+is **23/23**; whole-route accessibility is **20/20** across 320/360/768/1440,
+light/dark, keyboard, forced-colors and reduced-motion. Browser suites total
+**61 distinct cases**; earlier Luna 2-case evidence is not counted again.
+Source-maintenance is **2/2** at 360/1440 after root review. Isolated strict
+fixture/spec TypeScript, production build and real-loopback **16/16** passed,
+with `listener_released=true`, `temporary_state_removed=true`,
+`model_runtimes_remaining=0` and `runtime_cleanup_confirmed=true`. API and
+privacy checks passed, including root's final post-docwrite rescan; normal git
+diff check passed.
+
+The execution workflow is explicit: root reads code, assigns bounded work,
+reviews it and independently validates; Terra handles harder scoped work, Luna
+handles easier scoped changes, tests and docs, and root does not implement this
+packet. Existing privacy, scope, synthetic-fixture and checkpoint rules remain
+in force. No model or real data was used; no app restart or reload was
+performed, and app on port 8765 was not running when root checked. No commit or
+push is claimed. Converge-04 real model/hardware/native and
+Converge-05a/05b trusted-MCP/external-client owner evidence remain pending.
+C07a automated staging foundation is implemented and validated;
+Converge-07 Windows packaging, native installation/relaunch/rollback and final
+release evidence remain outstanding. C07b.1 now covers the private
+`application-updates` root and durable signed-envelope replay floor, but does
+not make the updater installable or usable. See the
+[C07a handoff](checkpoint-converge-07a-handoff.md) and
+[C07b.1 handoff](checkpoint-converge-07b-handoff.md).
+
+C07b.1’s owning gates are current: 244 backend tests passed with two explicit
+Windows symlink-capability skips, all 2,806 frontend tests passed, and rebuilt
+production real-loopback browser coverage passed 16/16 with cleanup and
+listener-release evidence. Build, API, privacy and diff checks passed. These
+are security-slice gates, not publisher, installer, relaunch or rollback proof.
+
+C07b.2’s focused offline acceptance is **17/17 passed**. It rejects duplicate,
+case-insensitive, prefix-ambiguous and Windows-ambiguous staged names, refuses
+hardlinked leaves, bounds source reads and collections, preserves deterministic
+host-free output, and emits content-free CLI errors. The owning C07b.2 gate is
+**172 backend tests passed with one explicit Windows symlink-capability skip**
+in 10.68s across the selected build/distribution/private-root/updater/replay/
+config/privacy/scanner files; the 17-case file is an overlapping subset. No
+frontend, browser, API-contract, build-output or app-reload gate was rerun for
+this isolated offline tool change under the active remote-session restriction.
+Privacy scanning and normal `git diff --check` passed. No package is declared
+distributable; publisher/signing/MSIX, installation, relaunch and rollback
+remain open under C07.
+
+C07b.3’s focused standalone read-only MSIX preflight acceptance is **53/53
+passed**. It checks authenticated release metadata, exact `X.Y.Z.0` identity
+mapping, package digest/size, namespaced XML, bounded archive structure,
+signer-pin outcomes and content-free CLI behavior while keeping
+`can_install=false`. The root-owned combined gate is **336 passed, 2 Windows
+symlink-fixture skips and 1 intentionally deselected native smoke** in 17.21s;
+the 53 focused cases, 15 CLI/non-native regressions and 31 fake-native cases
+are overlapping subsets. A separate real-Windows unsigned-container smoke
+failed closed with successful native close and typed `PackageSignerUnavailable`;
+it is not publisher/signing proof or cleanup-failure evidence. No
+frontend/browser/API/app-reload gate was rerun, and the preflight is not wired
+to the sidebar or `artifact.staged` action. No package is declared
+distributable; owner-signed native positive acceptance and the
+installer/relaunch/rollback gates remain open.
+
+C07b.4’s automated staged-review slice is complete. The next bounded release
+work is the separately authorized owner-native publisher/signing,
+installer/relaunch and rollback path. `can_apply=false` remains an invariant;
+no PC/app restart, relaunch or install is permitted until separately authorized.
+See the [C07b.4 handoff](checkpoint-converge-07b4-handoff.md).
 
 ## Final release gate
 

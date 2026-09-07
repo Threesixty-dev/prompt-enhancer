@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createSyntheticMetricOperabilityCatalog,
+  METRIC_V2_PROVIDER_ADAPTER_GAP_KEYS,
   MetricOperabilityDefinitionsOutOfDateError,
   MetricOperabilityPayloadError,
   parseMetricOperabilityCatalog,
@@ -18,6 +19,12 @@ describe("metric operability catalog contract", () => {
     expect(result.shipped_path_count).toBe(16);
     expect(result.task_profile_configuration_gap_count).toBe(0);
     expect(result.provider_adapter_gap_count).toBe(4);
+    expect(METRIC_V2_PROVIDER_ADAPTER_GAP_KEYS).toEqual([
+      "logic.hypothesis_test_linkage",
+      "logic.requirement_action_traceability",
+      "outcome.agent_claim_grounding",
+      "outcome.verified_requirement_coverage",
+    ]);
     expect(result.entries.find((entry) => entry.metric_key === "logic.decomposition_coverage")).toMatchObject({
       measured_path: "reviewed_requirement_plan",
       shipped_path_state: "available_when_evidence_exists",

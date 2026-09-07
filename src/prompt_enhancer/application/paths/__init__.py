@@ -7,6 +7,7 @@ from .policy import (
     PathInspectionState,
     PathRejection,
     PrivatePathHardener,
+    PrivateUpdateStagingRootPreparer,
     validate_private_relative_parts,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "PathInspectionState",
     "PathRejection",
     "PrivatePathHardener",
+    "PrivateUpdateStagingRootPreparer",
     "validate_private_relative_parts",
 ]

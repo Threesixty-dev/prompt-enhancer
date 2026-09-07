@@ -115,11 +115,24 @@ function ownershipList(values: unknown[] = []) {
 }
 
 function connectionList(values: unknown[] = [connection()], activeCount = 1) {
+  const typedValues = values as Array<Record<string, unknown>>;
   return {
-    contract_version: "agent-mcp-management.v1",
+    contract_version: "agent-mcp-management.v2",
+    activity_epoch: "f".repeat(32),
     connections: values,
     active_count: activeCount,
     controller_ownerships: ownershipList(),
+    tool_activity_sequences: typedValues.map((item) => ({
+      contract_version: "agent-mcp-tool-activity-sequence.v1",
+      connection_id: item.connection_id,
+      credential_revision: item.credential_revision,
+      sequence: 0,
+      tool_name: null,
+      tool_source: null,
+      started_at: null,
+      completed_at: null,
+      outcome: null,
+    })),
   };
 }
 
@@ -163,6 +176,20 @@ describe("Agent MCP connection contract", () => {
       state: "active",
     });
     expect(parseAgentMcpConnectionList(connectionList()).active_count).toBe(1);
+    expect(parseAgentMcpConnectionList({
+      ...connectionList(),
+      tool_activity_sequences: [{
+        contract_version: "agent-mcp-tool-activity-sequence.v1",
+        connection_id: CONNECTION_ID,
+        credential_revision: 1,
+        sequence: 1,
+        tool_name: "agent_turn",
+        tool_source: "external_client",
+        started_at: "2026-08-28T12:05:00+00:00",
+        completed_at: null,
+        outcome: null,
+      }],
+    }).tool_activity_sequences[0].completed_at).toBeNull();
     expect(parseAgentMcpConnectionCredential(credential())).toMatchObject({
       bearer_token: TOKEN,
       starts_process: false,
@@ -285,6 +312,45 @@ describe("Agent MCP connection contract", () => {
     expect(() => parseAgentMcpConnectionCredential(credential({
       bearer_token: `pemcp2.${CONNECTION_ID}.2.${"A".repeat(43)}`,
     }))).toThrow(AgentMcpConnectionPayloadError);
+  });
+
+  it("requires one exact content-free activity cursor for every credential revision", () => {
+    expect(() => parseAgentMcpConnectionList({
+      ...connectionList(),
+      activity_epoch: "not-an-epoch",
+    })).toThrow(AgentMcpConnectionPayloadError);
+    expect(() => parseAgentMcpConnectionList({
+      ...connectionList(),
+      tool_activity_sequences: [],
+    })).toThrow(AgentMcpConnectionPayloadError);
+    expect(() => parseAgentMcpConnectionList({
+      ...connectionList(),
+      tool_activity_sequences: [{
+        contract_version: "agent-mcp-tool-activity-sequence.v1",
+        connection_id: CONNECTION_ID,
+        credential_revision: 2,
+        sequence: 1,
+        tool_name: "agent_discover",
+        tool_source: "external_client",
+        started_at: "2026-08-28T12:05:00+00:00",
+        completed_at: null,
+        outcome: null,
+      }],
+    })).toThrow(AgentMcpConnectionPayloadError);
+    expect(() => parseAgentMcpConnectionList({
+      ...connectionList(),
+      tool_activity_sequences: [{
+        contract_version: "agent-mcp-tool-activity-sequence.v1",
+        connection_id: CONNECTION_ID,
+        credential_revision: 1,
+        sequence: -1,
+        tool_name: null,
+        tool_source: null,
+        started_at: null,
+        completed_at: null,
+        outcome: null,
+      }],
+    })).toThrow(AgentMcpConnectionPayloadError);
   });
 
   it.each([

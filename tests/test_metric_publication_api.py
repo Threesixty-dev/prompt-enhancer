@@ -189,7 +189,7 @@ def test_operability_catalog_is_authenticated_private_and_content_free(
 
     assert unauthorized.status_code == 401
     assert response.status_code == 200, response.text
-    assert "no-store" in response.headers["Cache-Control"]
+    assert response.headers["Cache-Control"] == "no-store, private"
     assert response.headers["Pragma"] == "no-cache"
     body = response.json()
     assert body["total_metric_count"] == 20
@@ -233,7 +233,7 @@ def test_authenticated_metric_publication_publishes_all_twenty_states(
     assert body["source_result_count"] == 1
     assert "not_canonical_live_snapshot" in body["preview_limits"]
     assert "no_model_stage_output_consumed" in body["preview_limits"]
-    assert "no-store" in response.headers["Cache-Control"]
+    assert response.headers["Cache-Control"] == "no-store, private"
     assert response.headers["Pragma"] == "no-cache"
     publication = body["publication"]
     assert publication["source"] == "v1_compatibility_preview"

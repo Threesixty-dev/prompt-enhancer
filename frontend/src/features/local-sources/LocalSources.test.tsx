@@ -244,6 +244,14 @@ function renderLocalSources(transport: PromptEnhancerTransport) {
 async function openAdvancedMaintenance() {
   const label = await screen.findByText("Advanced source maintenance");
   fireEvent.click(label.closest("summary")!);
+  for (const title of screen.getAllByText(/^Sessions \(/)) {
+    fireEvent.click(title.closest("summary")!);
+  }
+}
+
+async function openAdvancedMaintenanceWithoutSessions() {
+  const label = await screen.findByText("Advanced source maintenance");
+  fireEvent.click(label.closest("summary")!);
 }
 
 describe("LocalSources", () => {
@@ -597,5 +605,108 @@ describe("LocalSources", () => {
       category: "execution",
     });
     expect(metrics).not.toHaveBeenCalled();
+  });
+
+  it("bounds a large single project and preserves a page-two session selection", async () => {
+    const largeRows = Array.from({ length: 45 }, (_, index) => ({
+      ...SESSIONS[0],
+      session_id: String(index).padStart(64, "0"),
+      session_display_name: `Synthetic session ${index}`,
+    }));
+    const { transport, analyze } = createLocalTransport(true, largeRows);
+    renderLocalSources(transport);
+    await openAdvancedMaintenanceWithoutSessions();
+
+    expect(screen.getByText("Sessions (45)")).toBeVisible();
+    expect(screen.queryByText("Synthetic session 21")).toBeNull();
+    fireEvent.click(screen.getByText("Sessions (45)").closest("summary")!);
+    expect(await screen.findByText("Synthetic session 0")).toBeVisible();
+    expect(screen.queryByText("Synthetic session 20")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Synthetic session 20/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Earlier" }));
+
+    expect(screen.getByText(/1 selected on another page/)).toBeVisible();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search loaded projects" }), {
+      target: { value: "no matching project" },
+    });
+    expect(screen.getByText(/1 selected session outside the current project view/)).toBeVisible();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search loaded projects" }), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Import operational metrics" }));
+
+    await waitFor(() =>
+      expect(analyze).toHaveBeenCalledWith({
+        project_ids: [],
+        session_ids: [largeRows[20].session_id],
+        max_sessions: 10,
+      }),
+    );
+  });
+
+  it("pages many projects without broadening selection and provides a scope reset", async () => {
+    const manyRows = Array.from({ length: 25 }, (_, index) => ({
+      ...SESSIONS[0],
+      project_id: String(index).padStart(64, "0"),
+      session_id: `${String(index).padStart(63, "0")}a`,
+      project_display_name: `Synthetic Project ${index}`,
+      session_display_name: `Synthetic task ${index}`,
+    }));
+    const { transport, analyze } = createLocalTransport(true, manyRows);
+    renderLocalSources(transport);
+    await openAdvancedMaintenanceWithoutSessions();
+
+    expect(screen.getAllByRole("checkbox")).toHaveLength(12);
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Projects in local source maintenance" })).getByRole("button", { name: "Later" }));
+    expect(screen.getByText("Synthetic Project 12")).toBeVisible();
+    expect(screen.queryByText("Synthetic Project 0")).toBeNull();
+    expect(screen.getByText(/1 selected session outside the current project view/)).toBeVisible();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search loaded projects" }), {
+      target: { value: "Synthetic Project 20" },
+    });
+    expect(screen.getByText("Synthetic Project 20")).toBeVisible();
+    expect(screen.getByText(/1 selected session outside the current project view/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Import operational metrics" }));
+    await waitFor(() =>
+      expect(analyze).toHaveBeenCalledWith({
+        project_ids: [manyRows[0].project_id],
+        session_ids: [],
+        max_sessions: 10,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.getByText(/0 projects · 0 sessions selected/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Import operational metrics" })).toBeDisabled();
+  });
+
+  it("resets local search and pagination state when the transport owner changes", async () => {
+    const rows = Array.from({ length: 14 }, (_, index) => ({
+      ...SESSIONS[0],
+      project_id: String(index).padStart(64, "0"),
+      session_id: `${String(index).padStart(63, "0")}a`,
+      project_display_name: `Transport project ${index}`,
+      session_display_name: `Transport task ${index}`,
+    }));
+    const first = createLocalTransport(true, rows);
+    const view = renderLocalSources(first.transport);
+    await openAdvancedMaintenanceWithoutSessions();
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Projects in local source maintenance" })).getByRole("button", { name: "Later" }));
+
+    const replacementRows = rows.map((row) => ({
+      ...row,
+      project_display_name: row.project_display_name?.replace("Transport", "Replacement"),
+    }));
+    const replacement = createLocalTransport(true, replacementRows);
+    view.rerender(<LocalSources navigate={view.navigate} transport={replacement.transport} />);
+    const search = await screen.findByRole("searchbox", { name: "Search loaded projects" });
+    expect(search).toHaveValue("");
+    fireEvent.click((await screen.findByText("Advanced source maintenance")).closest("summary")!);
+    expect(screen.getByRole("checkbox", { name: /Replacement project 0/ })).toBeVisible();
+    expect(screen.queryByText("Replacement project 13")).toBeNull();
+    expect(screen.getByRole("button", { name: "Import operational metrics" })).toBeDisabled();
   });
 });

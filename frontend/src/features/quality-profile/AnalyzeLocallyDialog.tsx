@@ -681,7 +681,9 @@ export function AnalyzeLocallyDialog({
               </div>
               <div>
                 <dt>Coverage</dt>
-                <dd>{COACHING_ANALYSIS_PRESET.metricAttempts} metric attempts</dd>
+                <dd>
+                  {COACHING_ANALYSIS_PRESET.checkCount} checks · {COACHING_ANALYSIS_PRESET.supportedMeasurementPathCount} supported measurement paths · {COACHING_ANALYSIS_PRESET.sourceEvidenceGapKeys.length} need source evidence
+                </dd>
               </div>
               <div>
                 <dt>Bounded read</dt>
@@ -723,13 +725,28 @@ export function AnalyzeLocallyDialog({
               <section className="analysis-dialog__metrics" aria-labelledby={metricsTitleId}>
                 <div>
                   <p className="eyebrow">Selected metric set</p>
-                  <h3 id={metricsTitleId}>{preview.binding.metric_keys.length} version-bound metric attempts</h3>
+                  <h3 id={metricsTitleId}>{preview.binding.metric_keys.length} version-bound checks</h3>
                 </div>
                 <ul>
                   {preview.binding.metric_keys.map((key) => (
-                    <li key={key}><code>{key}</code></li>
+                    <li key={key}>
+                      <code>{key}</code>
+                      {COACHING_ANALYSIS_PRESET.sourceEvidenceGapKeys.includes(
+                        key as typeof COACHING_ANALYSIS_PRESET.sourceEvidenceGapKeys[number],
+                      ) && (
+                        <span>
+                          Needs source evidence: unavailable without typed, reviewed provider evidence
+                        </span>
+                      )}
+                    </li>
                   ))}
                 </ul>
+                <p>
+                  This exact attempt records the four source-evidence gaps as unavailable.
+                  A future analysis can resolve one only after a compatible typed-evidence
+                  adapter produces reviewed evidence. The current provider does not substitute
+                  agent prose, a model estimate, or a zero value.
+                </p>
               </section>
 
               <section className="analysis-dialog__preview" aria-labelledby={previewTitleId}>

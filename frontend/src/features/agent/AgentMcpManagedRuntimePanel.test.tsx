@@ -81,9 +81,11 @@ describe("AgentMcpManagedRuntimePanel", () => {
       return settled;
     });
     const onRuntimeChange = vi.fn();
+    const onAcceptanceEvidence = vi.fn();
 
     render(<AgentMcpManagedRuntimePanel
       binding={projectBinding()}
+      onAcceptanceEvidence={onAcceptanceEvidence}
       onRuntimeChange={onRuntimeChange}
       projectId={projectId}
       server={server}
@@ -100,6 +102,7 @@ describe("AgentMcpManagedRuntimePanel", () => {
     expect(await screen.findByText("Stopped")).toBeVisible();
     expect(await screen.findByRole("button", { name: "Start for this app run" })).toBeEnabled();
     expect(startMcpManagedHost).not.toHaveBeenCalled();
+    expect(onAcceptanceEvidence).not.toHaveBeenCalled();
     expect(screen.getByText(/This opens the reviewed remote endpoint/)).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Start for this app run" }));
@@ -116,6 +119,7 @@ describe("AgentMcpManagedRuntimePanel", () => {
         preview_digest: preview.preview_digest,
       }),
     );
+    expect(onAcceptanceEvidence).toHaveBeenNthCalledWith(1, { eventFloor: 0, kind: "host_started", status: ready });
 
     fireEvent.click(screen.getByRole("button", { name: "Stop host" }));
     await waitFor(() => expect(screen.getByText("Stopped")).toBeVisible());
@@ -125,6 +129,7 @@ describe("AgentMcpManagedRuntimePanel", () => {
       expect.objectContaining({ expected_instance_id: ready.instance_id }),
     );
     expect(await screen.findByText(/connection and tool-routing authority were removed/)).toBeVisible();
+    expect(onAcceptanceEvidence).toHaveBeenNthCalledWith(2, { kind: "host_stopped", status: settled });
     expect(onRuntimeChange).toHaveBeenCalledTimes(2);
   });
 
@@ -324,8 +329,10 @@ describe("AgentMcpManagedRuntimePanel", () => {
   });
 
   it("reports a local output-limit start failure without rendering private process output", async () => {
+    const onAcceptanceEvidence = vi.fn();
     render(<AgentMcpManagedRuntimePanel
       binding={projectBinding()}
+      onAcceptanceEvidence={onAcceptanceEvidence}
       projectId={projectId}
       server={server}
       transport={{
@@ -348,6 +355,7 @@ describe("AgentMcpManagedRuntimePanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start for this app run" }));
     expect(await screen.findByText(/owned tree was stopped/)).toBeVisible();
     expect(screen.queryByText(/EXAMPLE_PRIVATE_PROCESS_OUTPUT_CANARY/)).toBeNull();
+    expect(onAcceptanceEvidence).not.toHaveBeenCalled();
   });
 
   it("never renders a hostile status code even when a component transport is bypassed", async () => {

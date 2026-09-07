@@ -71,7 +71,9 @@ function safeId(sequence: number): string {
 
 function syntheticApplicationUpdateStatus(): ApplicationUpdateStatus {
   return {
-    contract_version: "application-update-status.v1",
+    contract_version: "application-update-status.v3",
+    instance_id: "0".repeat(32),
+    revision: 0,
     contains_private_data: false,
     installed_version: "0.1.0",
     channel: "stable",
@@ -85,7 +87,10 @@ function syntheticApplicationUpdateStatus(): ApplicationUpdateStatus {
     can_check: false,
     can_stage: false,
     can_cancel: false,
+    can_retry: false,
     can_apply: false,
+    can_verify: false,
+    package_review: { state: "not_configured", reason_code: null, checked_at: null },
   };
 }
 
@@ -469,6 +474,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       return copy(syntheticApplicationUpdateStatus());
     },
     async checkApplicationUpdate() {
+      return copy(syntheticApplicationUpdateStatus());
+    },
+    async verifyApplicationUpdate() {
       return copy(syntheticApplicationUpdateStatus());
     },
     async getUserPresenceCapability() {

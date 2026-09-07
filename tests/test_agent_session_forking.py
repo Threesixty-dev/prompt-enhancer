@@ -91,6 +91,7 @@ def _retained_source(tmp_path: Path):
         chat=_chat,
         active_model=lambda: "example-model",
         model_ready=lambda alias: alias == "example-model",
+        fetcher=lambda _url: "synthetic public page",
         catalog=catalog,
         clock=lambda: T0,
     )

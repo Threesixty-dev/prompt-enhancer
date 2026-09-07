@@ -158,6 +158,9 @@ import type {
   AgentAttachmentUpload,
   WorkspaceFolderPick,
   WorkspaceFolderPickerCapability,
+  ApplicationUpdateAction,
+  ApplicationUpdateMutationRequest,
+  ApplicationUpdateStatus,
 } from "./contracts";
 import {
   AgentOrchestrationPayloadError,
@@ -899,6 +902,7 @@ export type SafeTransportReasonCode =
   | "runtime_context_unsupported"
   | "runtime_activation_superseded"
   | "runtime_shutdown_in_progress"
+  | "web_fetch_unavailable"
   | "runtime_spawn_failed"
   | "runtime_not_healthy"
   | "runtime_capability_probe_failed"
@@ -1186,6 +1190,7 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "runtime_context_unsupported",
   "runtime_activation_superseded",
   "runtime_shutdown_in_progress",
+  "web_fetch_unavailable",
   "runtime_spawn_failed",
   "runtime_not_healthy",
   "runtime_capability_probe_failed",
@@ -3721,6 +3726,39 @@ export function createHttpTransport(options: {
     };
   }
 
+  async function applicationUpdateMutation(
+    action: ApplicationUpdateAction,
+    payload: ApplicationUpdateMutationRequest,
+    signal?: AbortSignal,
+  ): Promise<ApplicationUpdateStatus> {
+    if (
+      !Number.isSafeInteger(payload.expected_revision)
+      || payload.expected_revision < 0
+      || !/^[0-9a-f]{32}$/u.test(payload.expected_instance_id)
+    ) {
+      throw new TransportError("Application update request was invalid", 422);
+    }
+    const value = await request<unknown>(
+      `/v1/application-updates/${action}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+      signal,
+      false,
+      true,
+    );
+    try {
+      return parseApplicationUpdateStatus(value);
+    } catch (error) {
+      if (error instanceof ApplicationUpdatePayloadError) {
+        throw new TransportError(error.message, 200);
+      }
+      throw error;
+    }
+  }
+
   return {
     runtimeKind: "local_loopback",
     async getApplicationUpdateStatus(signal) {
@@ -3740,22 +3778,20 @@ export function createHttpTransport(options: {
         throw error;
       }
     },
-    async checkApplicationUpdate(signal) {
-      const value = await request<unknown>(
-        "/v1/application-updates/check",
-        { method: "POST" },
-        signal,
-        false,
-        true,
-      );
-      try {
-        return parseApplicationUpdateStatus(value);
-      } catch (error) {
-        if (error instanceof ApplicationUpdatePayloadError) {
-          throw new TransportError(error.message, 200);
-        }
-        throw error;
-      }
+    async checkApplicationUpdate(payload, signal) {
+      return applicationUpdateMutation("check", payload, signal);
+    },
+    async stageApplicationUpdate(payload, signal) {
+      return applicationUpdateMutation("stage", payload, signal);
+    },
+    async cancelApplicationUpdate(payload, signal) {
+      return applicationUpdateMutation("cancel", payload, signal);
+    },
+    async retryApplicationUpdate(payload, signal) {
+      return applicationUpdateMutation("retry", payload, signal);
+    },
+    async verifyApplicationUpdate(payload, signal) {
+      return applicationUpdateMutation("verify", payload, signal);
     },
     async getUserPresenceCapability(signal) {
       await ensureBrowserSession(signal);

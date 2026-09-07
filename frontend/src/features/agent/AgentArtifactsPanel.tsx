@@ -286,6 +286,7 @@ export function AgentArtifactsPanel({
   onCaptureCurrent,
   onOpenFile,
   onOpenSourceTurn,
+  onViewerReady,
   onLoadMore,
   onRevealFile,
   onRefresh,
@@ -308,6 +309,7 @@ export function AgentArtifactsPanel({
   onCaptureCurrent?: (path: string) => void;
   onOpenFile?: (path: string) => void;
   onOpenSourceTurn?: (turnId: string) => boolean;
+  onViewerReady?: () => void;
   onLoadMore?: () => void;
   onRevealFile?: (path: string) => void;
   onRefresh: () => void;
@@ -334,6 +336,8 @@ export function AgentArtifactsPanel({
   const [downloadError, setDownloadError] = useState("");
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
+  const onViewerReadyRef = useRef(onViewerReady);
+  const reportedViewerKey = useRef<string | null>(null);
   const [exportNotice, setExportNotice] = useState("");
   const [sourceTurnNotice, setSourceTurnNotice] = useState("");
   const [lifecycleDialog, setLifecycleDialog] = useState<LifecycleDialogState | null>(null);
@@ -341,6 +345,10 @@ export function AgentArtifactsPanel({
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const viewerRef = useRef<HTMLElement | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    onViewerReadyRef.current = onViewerReady;
+  }, [onViewerReady]);
   const [viewerScope, setViewerScope] = useState<string | null>(null);
   const scopeKey = `${projectId}:${sessionId}`;
   const downloadRequest = useRef<DownloadRequest | null>(null);
@@ -356,6 +364,30 @@ export function AgentArtifactsPanel({
     resetKey: `${scopeKey}:${view}`,
   });
   const visibleArtifacts = artifacts.slice(artifactPage.start, artifactPage.end);
+
+  useEffect(() => {
+    if (
+      viewer.phase !== "ready"
+      || preview.phase !== "ready"
+      || viewerScope !== scopeKey
+    ) return;
+    const kind = preview.version.preview_kind;
+    const previewReady = kind === "text"
+      ? preview.availability === "available" && preview.text !== null
+      : kind === "document"
+        ? preview.availability === "available" && preview.document !== null
+        : kind === "image" || kind === "pdf"
+          ? mediaRender.phase === "ready"
+            && mediaRender.versionId === preview.version.version_id
+            && mediaRender.kind === kind
+          : preview.message === ""
+            && (preview.availability === "available" || preview.availability === "unchecked");
+    if (!previewReady) return;
+    const evidenceKey = `${scopeKey}:${viewer.artifact.artifact_id}:${viewer.artifact.revision}:${preview.version.version_id}`;
+    if (reportedViewerKey.current === evidenceKey) return;
+    reportedViewerKey.current = evidenceKey;
+    onViewerReadyRef.current?.();
+  }, [mediaRender, preview, scopeKey, viewer, viewerScope]);
 
   useEffect(() => () => {
     handledOpenRequest.current = null;
@@ -676,6 +708,7 @@ export function AgentArtifactsPanel({
     setPreview({ phase: "idle" });
     setMediaRender({ phase: "idle" });
     setImageZoom(1);
+    reportedViewerKey.current = null;
     setViewerScope(scopeKey);
     setViewer({ phase: "loading", artifact });
   }

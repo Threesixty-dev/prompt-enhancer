@@ -15,7 +15,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:local": "playwright test --config=playwright.local.config.ts",
+    "test:e2e:intercepted": "playwright test --config=playwright.intercepted.config.ts",
+    "test:e2e:loopback": "python ../tests/support/convergence_loopback_runner.py",
+    "test:e2e:loopback:browser": "playwright test --config=playwright.loopback.config.ts",
     "generate:api": "openapi-typescript ../docs/openapi.json -o src/shared/api/generated/openapi.ts",
     "check:api": "openapi-typescript ../docs/openapi.json -o src/shared/api/generated/openapi.ts --check"
   },

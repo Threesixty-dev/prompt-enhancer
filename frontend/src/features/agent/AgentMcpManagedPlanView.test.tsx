@@ -7,6 +7,7 @@ import {
   syntheticMcpManagedProbeReceipt,
   syntheticMcpManagedServer,
   syntheticMcpManagedServerList,
+  syntheticMcpManagedServerReceipt,
   syntheticMcpManagedToolSnapshot,
 } from "../../shared/api/mcpManagedServer.test-support";
 import { AgentMcpManagedPlanView } from "./AgentMcpManagedPlanView";
@@ -248,5 +249,59 @@ describe("AgentMcpManagedPlanView project authority", () => {
     expect(await screen.findByText(/tool schema was unsafe, unsupported, recursive, or over a safety limit/)).toBeVisible();
     expect(screen.queryByText(/EXAMPLE_PRIVATE_MCP_SCHEMA_CANARY/)).toBeNull();
     expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
+  });
+
+  it("emits project-admission evidence only after the exact mutation succeeds", async () => {
+    const currentBinding = binding();
+    const currentServer = reviewedServer([currentBinding]);
+    const nextBinding = {
+      ...currentBinding,
+      admitted_tool_ids: [snapshot.tools[0].tool_id],
+      revision: currentBinding.revision + 1,
+    };
+    const nextServer = {
+      ...currentServer,
+      project_bindings: [nextBinding],
+      revision: currentServer.revision + 1,
+    };
+    const setMcpManagedProjectBinding = vi.fn().mockResolvedValue(
+      syntheticMcpManagedServerReceipt(nextServer),
+    );
+    const onAcceptanceEvidence = vi.fn();
+    render(<AgentMcpManagedPlanView
+      onAcceptanceEvidence={onAcceptanceEvidence}
+      onBack={vi.fn()}
+      onServer={vi.fn()}
+      preferredProjectId={projectA}
+      secretVault={syntheticMcpManagedServerList().secret_vault}
+      server={currentServer}
+      transport={{
+        getMcpManagedToolSnapshot: vi.fn().mockResolvedValue(snapshot),
+        listAgentProjects: vi.fn().mockResolvedValue(projects),
+        setMcpManagedProjectBinding,
+      }}
+      userPresenceAvailable
+    />);
+
+    const tools = await screen.findByRole("group", { name: "Allowed reviewed tools" });
+    const choices = within(tools).getAllByRole("checkbox");
+    expect(choices).toHaveLength(2);
+    fireEvent.click(choices[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Save project admission" }));
+
+    await waitFor(() => expect(onAcceptanceEvidence).toHaveBeenCalledWith({
+      kind: "project_admission",
+      projectId: projectA,
+      server: nextServer,
+      toolSnapshot: snapshot,
+    }));
+    expect(setMcpManagedProjectBinding).toHaveBeenCalledWith(
+      currentServer.management_id,
+      projectA,
+      expect.objectContaining({
+        expected_revision: currentServer.revision,
+        admitted_tool_ids: [snapshot.tools[0].tool_id],
+      }),
+    );
   });
 });

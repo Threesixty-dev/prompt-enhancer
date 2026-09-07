@@ -68,4 +68,3 @@ Ratings on the Calibration page are an input only the owner can give.
 An agreement pair exists only when both the human rating and a stored model
 judgment are present for the same reviewed case. Judge completion must be
 verified from its receipts; it must not be assumed for every indexed session.
-

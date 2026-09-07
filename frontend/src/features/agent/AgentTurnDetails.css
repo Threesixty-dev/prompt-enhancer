@@ -1,5 +1,5 @@
 .agent-turn-details { min-width: 0; border: 1px solid var(--line); border-radius: 0.65rem; background: var(--surface-soft); color: var(--ink-800); font-size: 0.8rem; }
-.agent-turn-details > summary { display: grid; gap: 0.25rem; padding: 0.7rem 0.8rem; cursor: pointer; border-radius: inherit; }
+.agent-turn-details > summary { display: grid; gap: 0.25rem; padding: 0.7rem 0.8rem; scroll-margin-block: 4.5rem; cursor: pointer; border-radius: inherit; }
 .agent-turn-details__title { display: flex; flex-wrap: wrap; gap: 0.3rem 0.65rem; font-weight: 700; }
 .agent-turn-details__title > span { font-weight: 500; color: var(--ink-650); }
 .agent-turn-details__compact { color: var(--ink-650); line-height: 1.5; }

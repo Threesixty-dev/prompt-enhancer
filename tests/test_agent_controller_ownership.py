@@ -157,7 +157,7 @@ def test_explicit_app_restart_reconciles_only_non_live_controller_authority(
     assert updated.revision == 2
     assert updated.native_approval_inherited is False
     projected = service.list()
-    assert projected.contract_version == "agent-mcp-management.v1"
+    assert projected.contract_version == "agent-mcp-management.v2"
     assert projected.controller_ownerships.active_count == 1
     assert projected.controller_ownerships.ownerships == (updated,)
 

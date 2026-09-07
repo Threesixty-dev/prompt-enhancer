@@ -202,6 +202,7 @@ _STATUS = {
     "runtime_shutdown_in_progress": 409,
     "no_active_model": 409,
     "model_not_ready": 409,
+    "web_fetch_unavailable": 409,
     "approval_not_pending": 409,
     "approval_already_settled": 409,
     "agent_write_proposal_request_conflict": 409,

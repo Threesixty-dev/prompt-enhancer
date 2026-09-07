@@ -21,7 +21,7 @@
 .agent-mcp-project-tools > summary strong { overflow: hidden; color: var(--ink-750); font-size: var(--type-caption); text-overflow: ellipsis; white-space: nowrap; }
 .agent-mcp-project-tools > summary > span:last-child { color: var(--ink-500); transition: transform 140ms ease; }
 .agent-mcp-project-tools[open] > summary > span:last-child { transform: rotate(180deg); }
-.agent-mcp-project-tools__body { display: grid; gap: 0.48rem; padding: 0 0.62rem 0.62rem; border-top: 1px solid var(--line); }
+.agent-mcp-project-tools__body { display: grid; gap: 0.48rem; max-height: min(18rem, 40dvh); padding: 0 0.62rem 0.62rem; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); scrollbar-gutter: stable; }
 .agent-mcp-project-tools__body > p { margin: 0.5rem 0 0; color: var(--ink-650); font-size: var(--type-caption); line-height: 1.5; }
 .agent-mcp-project-tools__boundary { color: var(--ink-500) !important; }
 .agent-mcp-project-tools dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.34rem; margin: 0; }

@@ -2,11 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AgentHardeningSnapshot,
+  AgentMcpConnectionList,
   AgentRecoveryAction,
   AgentOrchestrationManifest,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { AgentMcpConnectionsPanel } from "./AgentMcpConnectionsPanel";
+import type {
+  ExternalControllerAcceptanceEvidence,
+  ExternalControllerAcceptanceRun,
+} from "./externalControllerAcceptance";
 import "./AgentControllerPanel.css";
 
 type ControllerTransport = Partial<Pick<
@@ -26,6 +31,11 @@ type Props = {
   transport: ControllerTransport;
   userPresenceAvailable: boolean;
   selectedProjectId?: string | null;
+  selectedSessionId?: string | null;
+  acceptanceRun?: ExternalControllerAcceptanceRun | null;
+  onAcceptanceEvidence?: (evidence: ExternalControllerAcceptanceEvidence) => void;
+  onAcceptanceObservation?: (catalog: AgentMcpConnectionList) => void;
+  onAcceptanceRunChange?: (run: ExternalControllerAcceptanceRun | null) => void;
 };
 
 type State = "checking" | "ready" | "unavailable";
@@ -88,7 +98,16 @@ function CommandRow({ command, label }: CommandRowProps) {
   );
 }
 
-export function AgentControllerPanel({ transport, userPresenceAvailable, selectedProjectId = null }: Props) {
+export function AgentControllerPanel({
+  transport,
+  userPresenceAvailable,
+  selectedProjectId = null,
+  selectedSessionId = null,
+  acceptanceRun = null,
+  onAcceptanceEvidence,
+  onAcceptanceObservation,
+  onAcceptanceRunChange,
+}: Props) {
   const [manifest, setManifest] = useState<AgentOrchestrationManifest | null>(null);
   const [state, setState] = useState<State>("checking");
   const [attempt, setAttempt] = useState(0);
@@ -201,7 +220,12 @@ export function AgentControllerPanel({ transport, userPresenceAvailable, selecte
           </p>
           <div className="agent-controller__details">
               <AgentMcpConnectionsPanel
+                acceptanceRun={acceptanceRun}
+                onAcceptanceEvidence={onAcceptanceEvidence}
+                onAcceptanceObservation={onAcceptanceObservation}
+                onAcceptanceRunChange={onAcceptanceRunChange}
                 selectedProjectId={selectedProjectId}
+                selectedSessionId={selectedSessionId}
                 transport={transport}
                 userPresenceAvailable={userPresenceAvailable}
               />

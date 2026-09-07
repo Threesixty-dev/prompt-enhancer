@@ -16,6 +16,7 @@ import { AGENT_WORKSPACE_MAX_FILE_BYTES } from "../../shared/api/agentWorkspaceC
 import { TransportError } from "../../shared/api/httpTransport";
 import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { Dialog } from "../../shared/ui/Dialog";
+import { Icon } from "../../shared/ui/Icon";
 import { AgentWorkspaceDiscoveryPanel } from "./AgentWorkspaceDiscoveryPanel";
 import { AgentArtifactCaptureDialog } from "./AgentArtifactCaptureDialog";
 import { AgentDiffViewer } from "./AgentDiffViewer";
@@ -1856,7 +1857,7 @@ export function AgentWorkspacePane({
                 tabIndex={entry.path === revealedPath ? -1 : undefined}
               >
                 {entry.kind === "directory" ? (
-                  <button disabled={loading || rootChanged} onClick={() => openFolder(entry.path)} type="button"><span aria-hidden="true">📁</span><span>{entry.name}</span></button>
+                  <button disabled={loading || rootChanged} onClick={() => openFolder(entry.path)} type="button"><Icon name="folder" /><span>{entry.name}</span></button>
                 ) : entry.kind === "file" ? (
                   <button
                     aria-label={entry.editable_candidate
@@ -1870,11 +1871,11 @@ export function AgentWorkspacePane({
                       : startArtifactCapture(entry.path)}
                     type="button"
                   >
-                    <span aria-hidden="true">📄</span><span>{entry.name}</span>
+                    <Icon name="file" /><span>{entry.name}</span>
                     {!entry.editable_candidate && <small>{artifactCaptureSupported ? "Add as output" : nonEditableReason(entry.byte_size)}</small>}
                   </button>
                 ) : (
-                  <span role="note"><span aria-hidden="true">⛔</span><span>{entry.name}</span><small>Unavailable — not opened or followed</small></span>
+                  <span role="note"><Icon name="lock" /><span>{entry.name}</span><small>Unavailable — not opened or followed</small></span>
                 )}
               </li>
             ))}

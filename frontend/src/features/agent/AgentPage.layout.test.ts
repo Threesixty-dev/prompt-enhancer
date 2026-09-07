@@ -95,13 +95,13 @@ describe("AgentPage layout contract", () => {
   it("does not let tall neighboring panels stretch the conversation below the viewport", () => {
     expect(agentPageCss).toMatch(/\.agent__layout\s*\{[^}]*align-items:\s*start;/);
     expect(agentPageCss).toMatch(/\.agent__workbench\s*\{[^}]*align-items:\s*start;[^}]*align-self:\s*start;/);
-    expect(agentPageCss).toMatch(/\.agent__main\s*\{[^}]*height:\s*clamp\(32rem,\s*calc\(100dvh\s*-\s*15rem\),\s*46rem\);/);
+    expect(agentPageCss).toMatch(/\.agent__main\s*\{[^}]*height:\s*clamp\(28rem,\s*calc\(100dvh\s*-\s*15rem\),\s*46rem\);/);
   });
 
   it("keeps the transcript as the shrinking scroll region and preserves full-height window mode", () => {
     expect(agentPageCss).toMatch(/\.agent__log\s*\{[^}]*overflow-y:\s*auto;[^}]*min-height:\s*0;/);
     expect(agentPageCss).toMatch(/\.agent__layout--window \.agent__main\s*\{\s*height:\s*100%;\s*}/);
-    expect(agentPageCss).toMatch(/\.agent\[data-active-session="true"\]:not\(\.agent--window\) \.agent__main,[\s\S]*?height:\s*clamp\(32rem,\s*calc\(100dvh\s*-\s*9\.5rem\),\s*50rem\);/);
+    expect(agentPageCss).toMatch(/\.agent\[data-active-session="true"\]:not\(\.agent--window\) \.agent__main,[\s\S]*?height:\s*clamp\(28rem,\s*calc\(100dvh\s*-\s*9\.5rem\),\s*50rem\);/);
   });
 
   it("keeps the conversation in place and promotes review to an overlay sheet below 1380 px", () => {

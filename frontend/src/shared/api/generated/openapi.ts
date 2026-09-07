@@ -1318,6 +1318,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/application-updates/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel */
+        post: operations["cancel_v1_application_updates_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/application-updates/check": {
         parameters: {
             query?: never;
@@ -1335,6 +1352,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/application-updates/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry */
+        post: operations["retry_v1_application_updates_retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/application-updates/stage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stage */
+        post: operations["stage_v1_application_updates_stage_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/application-updates/status": {
         parameters: {
             query?: never;
@@ -1346,6 +1397,23 @@ export interface paths {
         get: operations["status_v1_application_updates_status_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/application-updates/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify */
+        post: operations["verify_v1_application_updates_verify_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6177,15 +6245,19 @@ export interface components {
         AgentMcpConnectionList: {
             /** Active Count */
             active_count: number;
+            /** Activity Epoch */
+            activity_epoch: string;
             /** Connections */
             connections: components["schemas"]["AgentMcpConnection"][];
             /**
              * Contract Version
-             * @default agent-mcp-management.v1
+             * @default agent-mcp-management.v2
              * @constant
              */
-            contract_version: "agent-mcp-management.v1";
+            contract_version: "agent-mcp-management.v2";
             controller_ownerships: components["schemas"]["AgentControllerOwnershipList"];
+            /** Tool Activity Sequences */
+            tool_activity_sequences: components["schemas"]["AgentMcpToolActivitySequence"][];
         };
         /**
          * AgentMcpConnectionScope
@@ -6228,6 +6300,34 @@ export interface components {
              * @enum {string}
              */
             workspace_access: "project_only" | "none";
+        };
+        /**
+         * AgentMcpToolActivitySequence
+         * @description Content-free current-process cursor for exact controller evidence.
+         */
+        AgentMcpToolActivitySequence: {
+            /** Completed At */
+            completed_at?: string | null;
+            /** Connection Id */
+            connection_id: string;
+            /**
+             * Contract Version
+             * @default agent-mcp-tool-activity-sequence.v1
+             * @constant
+             */
+            contract_version: "agent-mcp-tool-activity-sequence.v1";
+            /** Credential Revision */
+            credential_revision: number;
+            /** Outcome */
+            outcome?: ("succeeded" | "failed") | null;
+            /** Sequence */
+            sequence: number;
+            /** Started At */
+            started_at?: string | null;
+            /** Tool Name */
+            tool_name?: string | null;
+            /** Tool Source */
+            tool_source?: ("external_client" | "native_self_test") | null;
         };
         /**
          * AgentMcpToolDescriptor
@@ -8085,6 +8185,13 @@ export interface components {
             /** Result Id */
             result_id: string;
         };
+        /** ApplicationUpdateActionRequest */
+        ApplicationUpdateActionRequest: {
+            /** Expected Instance Id */
+            expected_instance_id: string;
+            /** Expected Revision */
+            expected_revision: number;
+        };
         /**
          * ApplicationUpdateReason
          * @enum {string}
@@ -8095,7 +8202,7 @@ export interface components {
          * @description Owner-visible application update lifecycle without paths or URLs.
          * @enum {string}
          */
-        ApplicationUpdateState: "unconfigured" | "ready_to_check" | "checking" | "current" | "available" | "staging" | "staged" | "failed";
+        ApplicationUpdateState: "unconfigured" | "ready_to_check" | "checking" | "current" | "available" | "staging" | "staged" | "verifying" | "failed";
         /**
          * ApplicationUpdateStatus
          * @description Content-free snapshot rendered by the application shell.
@@ -8111,8 +8218,15 @@ export interface components {
             can_cancel: boolean;
             /** Can Check */
             can_check: boolean;
+            /** Can Retry */
+            can_retry: boolean;
             /** Can Stage */
             can_stage: boolean;
+            /**
+             * Can Verify
+             * @default false
+             */
+            can_verify: boolean;
             channel: components["schemas"]["UpdateChannel"];
             /**
              * Contains Private Data
@@ -8122,17 +8236,27 @@ export interface components {
             contains_private_data: false;
             /**
              * Contract Version
-             * @default application-update-status.v1
+             * @default application-update-status.v3
              * @constant
              */
-            contract_version: "application-update-status.v1";
+            contract_version: "application-update-status.v3";
             /** Downloaded Bytes */
             downloaded_bytes?: number | null;
             /** Installed Version */
             installed_version: string;
+            /** Instance Id */
+            instance_id: string;
             /** Last Checked At */
             last_checked_at?: string | null;
+            /**
+             * @default {
+             *       "state": "not_staged"
+             *     }
+             */
+            package_review: components["schemas"]["PackageReview"];
             reason_code?: components["schemas"]["ApplicationUpdateReason"] | null;
+            /** Revision */
+            revision: number;
             state: components["schemas"]["ApplicationUpdateState"];
             verification_code?: components["schemas"]["UpdateRejection"] | null;
         };
@@ -15346,6 +15470,19 @@ export interface components {
             /** Task Id */
             task_id: string;
         };
+        /** PackageReview */
+        PackageReview: {
+            /** Checked At */
+            checked_at?: string | null;
+            /** Reason Code */
+            reason_code?: ("unsupported_platform" | "unsupported_package" | "package_io_failed" | "package_changed" | "release_binding_mismatch" | "archive_invalid" | "manifest_invalid" | "identity_mismatch" | "signature_invalid" | "signature_unverifiable" | "signer_mismatch") | components["schemas"]["UpdateRejection"] | null;
+            state: components["schemas"]["PackageReviewState"];
+        };
+        /**
+         * PackageReviewState
+         * @enum {string}
+         */
+        PackageReviewState: "not_configured" | "not_staged" | "not_checked" | "checking" | "verified" | "rejected";
         /** PeerLink */
         PeerLink: {
             /**
@@ -24365,6 +24502,41 @@ export interface operations {
             };
         };
     };
+    cancel_v1_application_updates_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplicationUpdateActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationUpdateStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     check_v1_application_updates_check_post: {
         parameters: {
             query?: never;
@@ -24374,7 +24546,81 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplicationUpdateActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationUpdateStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_v1_application_updates_retry_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplicationUpdateActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationUpdateStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stage_v1_application_updates_stage_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplicationUpdateActionRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -24407,6 +24653,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationUpdateStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_v1_application_updates_verify_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplicationUpdateActionRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

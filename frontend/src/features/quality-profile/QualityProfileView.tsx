@@ -16,6 +16,7 @@ import type {
   SessionTextAnalysisCapability,
 } from "../../shared/api/contracts";
 import { parseSessionMetricReadinessReport } from "../../shared/api/httpTransport";
+import { METRIC_V2_PROVIDER_ADAPTER_GAP_KEYS } from "../../shared/api/metricOperabilityContract";
 import {
   promptTextCompatibilityBlocker,
   ProviderCompatibilityCard,
@@ -42,6 +43,28 @@ const STATE_LABELS: Record<QualityMetricState, string> = {
   "not-applicable": "Not applicable",
   "execution-error": "Execution error",
 };
+
+const PROVIDER_ADAPTER_GAP_KEYS = new Set<string>(
+  METRIC_V2_PROVIDER_ADAPTER_GAP_KEYS,
+);
+
+function isProviderAdapterUnavailable(metric: QualityMetricObservation): boolean {
+  if (!PROVIDER_ADAPTER_GAP_KEYS.has(metric.definition.key)) return false;
+  return ![
+    "observed",
+    "partial",
+    "not-selected",
+    "incompatible",
+    "not-applicable",
+    "execution-error",
+  ].includes(metric.state);
+}
+
+function stateLabel(metric: QualityMetricObservation): string {
+  return isProviderAdapterUnavailable(metric)
+    ? "Provider adapter unavailable"
+    : STATE_LABELS[metric.state];
+}
 
 const SIGNAL_LABELS: Record<string, string> = {
   "goal.action": "Requested action cue",
@@ -108,6 +131,9 @@ function explanationLine(metric: QualityMetricObservation): string | null {
   }
   if (metric.errorCode === "incompatible-provenance") {
     return "Stored observations use incompatible metric, provider, redactor, or estimator provenance. No combined value is shown and this state is not an execution failure.";
+  }
+  if (isProviderAdapterUnavailable(metric)) {
+    return "Unavailable with the current provider adapter. This contract needs typed, reviewed evidence links; agent prose, model estimates, and missing evidence never fill the value or become zero.";
   }
   if (
     metric.definition.key === "collaboration.exploration_conversion" &&
@@ -735,8 +761,8 @@ function QualityProfileViewOwned({
               <span>Deterministic English/Polish candidate rules, not model scores.</span>
             </div>
             <div>
-              <strong>Accuracy not calibrated</strong>
-              <span>Repeatable arithmetic does not establish that a detected cue is correct.</span>
+              <strong>Accuracy not established</strong>
+              <span>Repeatable arithmetic does not establish that a detected cue is correct. Any accuracy claim requires a representative independent human holdout.</span>
             </div>
             <div>
               <strong>Preview-window scope</strong>
@@ -782,7 +808,7 @@ function QualityProfileViewOwned({
                       <span>{metric.definition.question}</span>
                     </div>
                     <b>{metric.ratio === null ? "—" : formatPercent(metric.ratio)}</b>
-                    <small>{STATE_LABELS[metric.state]}</small>
+                    <small>{stateLabel(metric)}</small>
                   </header>
 
                   {metric.signals.length > 0 && (

@@ -127,4 +127,3 @@ titles and `provider_path_basename` projects, or `hook_event` for hook-carried
 labels) exactly like Codex labels, instead of landing in the plain
 `display_name` columns. Manual overrides keep precedence; nothing about what
 is read or shown changes.
-

@@ -19,6 +19,8 @@ describe("MetricOperabilityPanel", () => {
     expect(within(summary).getByText("Need project profile").closest("div")).toHaveTextContent("0");
     expect(screen.queryByRole("heading", { name: "Project profile needed" })).toBeNull();
     expect(within(summary).getByText("Need source adapter").closest("div")).toHaveTextContent("4");
+    expect(screen.getByRole("heading", { name: "Unavailable pending provider adapter" })).toBeVisible();
+    expect(screen.getByText(/are explicitly unavailable pending a provider adapter/i)).toBeVisible();
     expect(within(summary).getByText("Model-authored metrics").closest("div")).toHaveTextContent("0");
     expect(screen.getByText("Constraint precision").closest("li")).toHaveAttribute(
       "data-operability-state",

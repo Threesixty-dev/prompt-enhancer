@@ -139,6 +139,12 @@ class AppSettings(BaseModel):
         return self.home / "metrics.sqlite3"
 
     @property
+    def application_update_staging_dir(self) -> Path:
+        """Private fixed update-artifact staging root; never an install target."""
+
+        return self.home / "application-updates"
+
+    @property
     def agent_catalog_path(self) -> Path:
         """Sensitive owner-authored Agent project/session navigation metadata."""
 

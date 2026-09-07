@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import type { AgentArtifact, AgentArtifactLifecycleCounts, AgentArtifactListView, AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentMessageAttachment, AgentSessionForkReceipt, AgentSessionView, AgentSettings, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckResult, PromptEnhancerTransport } from "../../shared/api/contracts";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { AgentArtifact, AgentArtifactLifecycleCounts, AgentArtifactListView, AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentMcpConnectionList, AgentSessionForkReceipt, AgentSessionView, AgentSettings, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckResult, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { Dialog } from "../../shared/ui/Dialog";
 import { Icon } from "../../shared/ui/Icon";
@@ -14,24 +14,40 @@ import { TeamFoldersPanel } from "./TeamFoldersPanel";
 import { AgentWorkspacePane, type AgentFileOpenRequest } from "./AgentWorkspacePane";
 import { AgentSessionEffects } from "./AgentSessionEffects";
 import { AgentChangeSetPanel, type AgentChangeReviewRequest } from "./AgentChangeSetPanel";
-import { AgentTurnDetails, type AgentTurnRevisionMode } from "./AgentTurnDetails";
+import type { AgentTurnRevisionMode } from "./AgentTurnDetails";
 import { AgentPromptCheckResult, agentPromptContext } from "./AgentPromptCheck";
 import { AgentCatalogRail } from "./AgentCatalogRail";
-import { AgentCopyButton } from "./AgentCopyButton";
 import { AgentDiffViewer } from "./AgentDiffViewer";
-import { AgentMessageContent } from "./AgentMessageContent";
 import { AgentRuntimeControl } from "./AgentRuntimeControl";
 import { AgentArtifactsPanel, type AgentArtifactOpenRequest } from "./AgentArtifactsPanel";
 import { AgentComposerAttachments } from "./AgentComposerAttachments";
+import { AgentConversationHeader } from "./AgentConversationHeader";
+import {
+  coalesceLiveStreams,
+  compactTerminalDeltas,
+  RetainedHistoryView,
+  TranscriptEventRows,
+  type TurnRevisionBusy,
+} from "./AgentConversationTimeline";
 import { AgentControllerPanel } from "./AgentControllerPanel";
-import { AgentNativeAcceptancePanel } from "./AgentNativeAcceptancePanel";
+import { AgentNativeAcceptancePanel, type NativeAcceptanceRun } from "./AgentNativeAcceptancePanel";
 import { AgentMcpProjectToolsPanel } from "./AgentMcpProjectToolsPanel";
 import {
-  AgentMcpToolActivity,
-  collectAgentMcpCalls,
   mcpServerLabel,
   mcpToolLabel,
 } from "./AgentMcpToolActivity";
+import {
+  advanceTrustedMcpAcceptance,
+  observeTrustedMcpAgentEvents,
+  type TrustedMcpAcceptanceEvidence,
+  type TrustedMcpAcceptanceRun,
+} from "./trustedMcpAcceptance";
+import {
+  advanceExternalControllerAcceptance,
+  observeExternalControllerAcceptance,
+  type ExternalControllerAcceptanceEvidence,
+  type ExternalControllerAcceptanceRun,
+} from "./externalControllerAcceptance";
 import { AgentReadinessPanel } from "./AgentReadinessPanel";
 import { AgentReviewDrawer, type AgentReviewView } from "./AgentReviewDrawer";
 import {
@@ -44,6 +60,13 @@ import {
   type AgentCatalogSync,
   type AgentWindowSelectionOwner,
 } from "./agentWindowChannel";
+import {
+  approvalAction,
+  isExternalWriteProposal,
+  isExternalWriteTransactionProposal,
+  summarizeArguments,
+  TOOL_LABELS,
+} from "./agentEventPresentation";
 import "./AgentPage.css";
 
 const POLL_MS = 700;
@@ -60,7 +83,6 @@ const MAX_MODEL_START_POLLS = 20;
 const CONNECTION_POLL_MS = 3000;
 const REVIEW_DRAWER_MIN_PX = 352;
 const REVIEW_DRAWER_MAX_PX = 760;
-const TRANSCRIPT_EVENT_BATCH = 200;
 const ARTIFACT_SERVER_PAGE = 100;
 const CLOSING_SESSION_MESSAGE = "This session is closing and cannot accept new messages. Retry closing after its active action stops, or open a new session.";
 const COMMAND_CLEANUP_MESSAGE = "Command processes may still be running. Agent work is paused; inspect those processes before restarting the app. Copy your draft before restarting; it is not saved. Earlier command effects were not undone.";
@@ -128,63 +150,6 @@ type AgentConfirmationPrompt = {
   detail: string;
   confirmLabel: string;
 };
-const TOOL_LABELS: Record<string, string> = {
-  read_file: "Read file",
-  list_dir: "List folder",
-  search_text: "Search",
-  write_file: "Write file",
-  create_directory: "Create directory",
-  move_directory: "Move directory",
-  move_file: "Move file",
-  trash_file: "Move file to Recycle Bin",
-  run_command: "Run command",
-  fetch_url: "Fetch URL",
-};
-
-function summarizeArguments(tool: string | null | undefined, args: Record<string, unknown> | null | undefined): string {
-  if (!args) return "";
-  if (tool === "write_file" && Array.isArray(args.paths)) {
-    const paths = args.paths.filter((path): path is string => typeof path === "string");
-    const visible = paths.slice(0, 3).join(", ");
-    const createCount = typeof args.create_count === "number" ? args.create_count : null;
-    const editCount = typeof args.edit_count === "number" ? args.edit_count : null;
-    const operations = createCount != null && editCount != null
-      ? ` · ${createCount} create · ${editCount} edit`
-      : "";
-    return `${paths.length} files${operations}${visible ? `: ${visible}${paths.length > 3 ? ", …" : ""}` : ""}`;
-  }
-  if (tool === "read_file" || tool === "write_file" || tool === "create_directory" || tool === "trash_file") return String(args.path ?? "");
-  if (tool === "move_file" || tool === "move_directory") return `${String(args.source_path ?? "")} → ${String(args.target_path ?? "")}`;
-  if (tool === "list_dir") return String(args.path ?? ".");
-  if (tool === "search_text") return `"${String(args.query ?? "")}"${args.glob ? ` in ${String(args.glob)}` : ""}`;
-  if (tool === "run_command") return String(args.command ?? "");
-  if (tool === "fetch_url") return String(args.url ?? "");
-  return JSON.stringify(args).slice(0, 120);
-}
-
-function approvalAction(tool: string | null | undefined): string {
-  if (tool === "write_file") return "write";
-  if (tool === "create_directory") return "create";
-  if (tool === "move_file" || tool === "move_directory") return "move";
-  if (tool === "trash_file") return "move to Recycle Bin";
-  if (tool === "run_command") return "run";
-  if (tool === "fetch_url") return "fetch";
-  return "perform";
-}
-
-function isExternalWriteProposal(event: AgentEvent | null | undefined): boolean {
-  return event?.tool === "write_file"
-    && event.arguments?.source === "external_controller";
-}
-
-function isExternalWriteTransactionProposal(event: AgentEvent | null | undefined): boolean {
-  return isExternalWriteProposal(event)
-    && ["failure_atomic_existing_files", "failure_atomic_create_edit"].includes(
-      String(event?.arguments?.transaction ?? ""),
-    )
-    && Array.isArray(event?.arguments?.paths);
-}
-
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
@@ -198,7 +163,6 @@ type ModelFeedbackTarget = "selection" | "session";
 type ModelActionKind = "start" | "stop" | null;
 type SessionLookupState = "idle" | "loading" | "missing" | "error";
 type ConnectionState = "unverified" | "checking" | "connected" | "disconnected";
-type TurnRevisionBusy = { mode: AgentTurnRevisionMode; turnId: string };
 type TurnRevisionOperation = {
   controller: AbortController;
   expectedVisibleSessionId: string;
@@ -268,7 +232,7 @@ export async function readCompleteRetainedEvents(
 
 /**
  * Agent workspace: a local model works inside one folder through tools. Reads
- * are free; writes (with a diff), commands and web fetches pause for your
+ * are free; enabled protected actions pause for your
  * approval. Each chat explicitly chooses metadata-only or bounded local
  * history retention; approvals and reusable mutation authority never persist.
  */
@@ -312,6 +276,19 @@ export function AgentPage({
   const [artifactsRefreshKey, setArtifactsRefreshKey] = useState(0);
   const [artifactOpenRequest, setArtifactOpenRequest] = useState<AgentArtifactOpenRequest | null>(null);
   const [artifactTurnFocus, setArtifactTurnFocus] = useState<{ requestId: number; turnId: string } | null>(null);
+  const [artifactViewRevision, setArtifactViewRevision] = useState(0);
+  const [nativeAcceptanceRun, setNativeAcceptanceRun] = useState<NativeAcceptanceRun | null>(null);
+  const [trustedMcpAcceptanceRun, setTrustedMcpAcceptanceRun] = useState<TrustedMcpAcceptanceRun | null>(null);
+  const [externalControllerAcceptanceRun, setExternalControllerAcceptanceRun] = useState<ExternalControllerAcceptanceRun | null>(null);
+  const recordTrustedMcpAcceptanceEvidence = useCallback((evidence: TrustedMcpAcceptanceEvidence) => {
+    setTrustedMcpAcceptanceRun((run) => advanceTrustedMcpAcceptance(run, evidence));
+  }, []);
+  const observeExternalControllerEvidence = useCallback((catalog: AgentMcpConnectionList) => {
+    setExternalControllerAcceptanceRun((run) => observeExternalControllerAcceptance(run, catalog));
+  }, []);
+  const recordExternalControllerEvidence = useCallback((evidence: ExternalControllerAcceptanceEvidence) => {
+    setExternalControllerAcceptanceRun((run) => advanceExternalControllerAcceptance(run, evidence));
+  }, []);
   const artifactTurnFocusSequence = useRef(0);
   const artifactReadOwnerRef = useRef(0);
   const artifactPageControllerRef = useRef<AbortController | null>(null);
@@ -359,10 +336,19 @@ export function AgentPage({
     setSettingsTab("store");
     setSettingsOpen(true);
   }, []);
+  const openProjectTools = useCallback(() => {
+    setNewChatOpen(false);
+    setSettingsTab("connections");
+    setSettingsOpen(true);
+  }, []);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewView, setReviewView] = useState<AgentReviewView>("files");
   const [reviewWidth, setReviewWidth] = useState(520);
   const [events, setEvents] = useState<AgentEvent[]>([]);
+  const activeEventHead = useMemo(
+    () => events.reduce((head, event) => Math.max(head, event.seq), 0),
+    [events],
+  );
   const [models, setModels] = useState<LocalModelsOverview | null>(null);
   const [modelCatalogState, setModelCatalogState] = useState<ModelCatalogState>(
     transport.getLocalModels === undefined ? "unavailable" : "loading",
@@ -392,11 +378,9 @@ export function AgentPage({
   const [newSessionModelAlias, setNewSessionModelAlias] = useState("");
   const [allowWrites, setAllowWrites] = useState(false);
   const [allowCommands, setAllowCommands] = useState(false);
-  const [allowWeb, setAllowWeb] = useState(false);
   const [retainHistory, setRetainHistory] = useState(true);
   const [recoveryAllowWrites, setRecoveryAllowWrites] = useState(false);
   const [recoveryAllowCommands, setRecoveryAllowCommands] = useState(false);
-  const [recoveryAllowWeb, setRecoveryAllowWeb] = useState(false);
   const [authorityBusy, setAuthorityBusy] = useState(false);
   const [temperature, setTemperature] = useState(0.2);
   const [topP, setTopP] = useState(0.95);
@@ -897,7 +881,6 @@ export function AgentPage({
       setUserPresenceState("unavailable");
       setAllowWrites(false);
       setAllowCommands(false);
-      setAllowWeb(false);
       return;
     }
     const controller = new AbortController();
@@ -912,7 +895,6 @@ export function AgentPage({
         if (!available) {
           setAllowWrites(false);
           setAllowCommands(false);
-          setAllowWeb(false);
         }
       })
       .catch(() => {
@@ -920,7 +902,6 @@ export function AgentPage({
         setUserPresenceState("error");
         setAllowWrites(false);
         setAllowCommands(false);
-        setAllowWeb(false);
       });
     return () => controller.abort();
   }, [transport, userPresenceRetryNonce]);
@@ -966,6 +947,14 @@ export function AgentPage({
   const activeAgentProjectId = current?.settings.project_id
     ?? selectedCatalogSession?.project_id
     ?? selectedProjectId;
+
+  useEffect(() => {
+    setTrustedMcpAcceptanceRun((run) => observeTrustedMcpAgentEvents(run, {
+      events,
+      projectId: current?.settings.project_id ?? null,
+      sessionId: current?.session_id ?? null,
+    }));
+  }, [current?.session_id, current?.settings.project_id, events]);
 
   useEffect(() => () => promptCheckController.current?.abort(), []);
 
@@ -1649,6 +1638,53 @@ export function AgentPage({
             : lastActivity?.kind === "error"
               ? { detail: "The last run needs attention before retrying.", label: "Needs attention", tone: "error" }
               : { detail: "Ready for your next request.", label: "Ready", tone: "ready" };
+  const sessionModelStatus = current === null ? "" : commandCleanupBlocked
+    ? COMMAND_CLEANUP_MESSAGE
+    : current.closing
+      ? CLOSING_SESSION_MESSAGE
+      : connectionDisconnected
+        ? "The local app is disconnected. Reopen the protected Agent desktop window before sending."
+        : currentModelAction !== null
+          ? `${currentModelAction === "start" ? "Starting" : "Stopping"} the session model. Your draft will remain here while the runtime confirms the change.`
+          : runtimeControlBusy
+            ? "Changing the shared model runtime. This chat and its draft stay in place."
+            : modelCatalogState === "loading"
+              ? "Checking the session model…"
+              : modelCatalogState === "error"
+                ? "Model status could not be refreshed; it will be verified before the next turn."
+                : modelCatalogState === "unavailable"
+                  ? "The session model will be verified before the next turn."
+                  : currentModel === null
+                    ? currentModelAlias
+                      ? inlineRuntimeRecoveryAvailable
+                        ? "This chat's saved model is not installed. Choose a replacement in Model & context."
+                        : runtimeCoordinatorAvailable
+                          ? "This chat's saved model is not installed. Add or restore it on the Models page."
+                          : "The session model is not registered and cannot receive a message."
+                      : inlineRuntimeRecoveryAvailable
+                        ? "No model is bound to this chat. Choose one in Model & context, then start or bind it."
+                        : runtimeCoordinatorAvailable
+                          ? "No installed local model is available. Add one on the Models page."
+                          : "No local model is running for this session. Start one on the Models page."
+                    : currentModel.runtime.state === "running"
+                      ? `${currentModel.record.display_name} · running · ${current.closing ? "session closing" : responseStopping ? "stopping current response" : activeExternalProposal ? pending ? "external proposal awaiting review" : "applying reviewed external proposal" : current.running ? "response in progress" : "ready for messages"}`
+                      : `${currentModel.record.display_name} · ${runtimeStateLabel(currentModel.runtime.state)} · ${inlineRuntimeRecoveryAvailable ? "start or switch it in Model & context" : "start it before sending"}`;
+  const sessionModelState = currentModelAction === "start"
+    ? "starting"
+    : currentModelAction === "stop"
+      ? "stopping"
+      : currentModel?.runtime.state ?? modelCatalogState;
+  const sessionModelNoticeVisible = current !== null && (
+    !runtimeCoordinatorAvailable
+    || commandCleanupBlocked
+    || current.closing
+    || connectionDisconnected
+    || currentModelAction !== null
+    || runtimeControlBusy
+    || modelCatalogState !== "ready"
+    || currentModel?.runtime.state !== "running"
+    || (modelFeedbackTarget === "session" && Boolean(modelError || modelNotice))
+  );
   const handleWorkspaceDirty = useCallback((value: boolean) => setWorkspaceDirty(value), []);
   const handleWorkspaceApplied = useCallback(() => {
     setChangeSetRevision((value) => value + 1);
@@ -2077,7 +2113,6 @@ export function AgentPage({
       setWorkspaceDirty(false);
       setRecoveryAllowWrites(false);
       setRecoveryAllowCommands(false);
-      setRecoveryAllowWeb(false);
       clearPromptCheck();
       refreshAgentCatalog();
       followOutput.current = true;
@@ -2179,7 +2214,6 @@ export function AgentPage({
       refreshAgentCatalog();
       setRecoveryAllowWrites(false);
       setRecoveryAllowCommands(false);
-      setRecoveryAllowWeb(false);
       setConversationMessage("");
       setSavedHistoryState("idle");
       lastSeq.current = resumed.last_seq;
@@ -2292,7 +2326,7 @@ export function AgentPage({
         expected_catalog_revision: catalog.revision,
         allow_writes: recoveryAllowWrites,
         allow_commands: recoveryAllowCommands,
-        allow_web: recoveryAllowWeb,
+        allow_web: false,
       });
       setCurrent(rememberClosing(updated));
       setSessions((previous) => previous?.map((session) => (
@@ -2685,7 +2719,7 @@ export function AgentPage({
         instructions: instructions.trim() || null,
         allow_writes: protectedActionsAvailable && allowWrites,
         allow_commands: protectedActionsAvailable && allowCommands,
-        allow_web: protectedActionsAvailable && allowWeb,
+        allow_web: false,
         max_steps: 10,
         command_timeout_seconds: 120,
         retention_policy: retainHistory ? "local_history" : "metadata_only",
@@ -2734,6 +2768,8 @@ export function AgentPage({
           ? "That is not an existing folder. Use an absolute path, not a drive root."
           : "That folder is outside the allowed workspace roots.");
         workspaceInputRef.current?.focus();
+      } else if (reason === "web_fetch_unavailable") {
+        setCreateMessage("Web fetch is unavailable in this release. No chat or web action was started.");
       } else if (reason === "model_not_ready" || reason === "no_active_model") {
         void refreshModels();
         setModelError(reason === "model_not_ready"
@@ -3017,7 +3053,7 @@ export function AgentPage({
       <section aria-labelledby="agent-title" className="agent">
         <h1 id="agent-title">Agent workspace</h1>
         <p className="agent__note">The local agent is not available in this runtime.</p>
-        <p className="agent__note">Open the local Agent desktop application to select a folder, start a model and create a chat session. Protected file, command and web actions still need a separate native confirmation.</p>
+        <p className="agent__note">Open the local Agent desktop application to select a folder, start a model and create a chat session. Supported protected actions still need a separate native confirmation.</p>
       </section>
     );
   }
@@ -3254,7 +3290,7 @@ export function AgentPage({
                 <legend>Protected actions</legend>
                 <label className="agent__toggle"><input checked={allowWrites} onChange={(e) => setAllowWrites(e.currentTarget.checked)} type="checkbox" /><span>May write files (each write needs approval, diff shown)</span></label>
                 <label className="agent__toggle"><input checked={allowCommands} onChange={(e) => setAllowCommands(e.currentTarget.checked)} type="checkbox" /><span>May run commands (each command needs approval)</span></label>
-                <label className="agent__toggle"><input checked={allowWeb} onChange={(e) => setAllowWeb(e.currentTarget.checked)} type="checkbox" /><span>May fetch web pages (each fetch needs approval)</span></label>
+                <label className="agent__toggle"><input checked={false} disabled readOnly type="checkbox" /><span>Web fetch unavailable (no governed fetcher is installed in this release)</span></label>
               </fieldset>
               <div className="agent__permission-state">
                 <p
@@ -3364,13 +3400,26 @@ export function AgentPage({
                         <AgentReadinessPanel
                           onOpenConnections={() => setSettingsTab("connections")}
                           onOpenOwnerChecks={() => setSettingsTab("acceptance")}
+                          transport={transport}
+                          userPresenceAvailable={userPresenceAvailable}
                         />
                       </div>
                     )}
                     {settingsTab === "connections" && (
                       <div aria-labelledby={tabId("agent-settings", "connections")} id={tabPanelId("agent-settings", "connections")} role="tabpanel">
+                        <AgentMcpProjectToolsPanel
+                          onOpenStore={openMcpStore}
+                          projectId={current?.settings.project_id ?? selectedProjectId}
+                          refreshKey={mcpProjectionRevision}
+                          transport={transport}
+                        />
                         <AgentControllerPanel
-                          selectedProjectId={selectedProjectId}
+                          acceptanceRun={externalControllerAcceptanceRun}
+                          onAcceptanceEvidence={recordExternalControllerEvidence}
+                          onAcceptanceObservation={observeExternalControllerEvidence}
+                          onAcceptanceRunChange={setExternalControllerAcceptanceRun}
+                          selectedProjectId={current?.settings.project_id ?? selectedProjectId}
+                          selectedSessionId={current?.settings.project_id ? current.session_id : null}
                           transport={transport}
                           userPresenceAvailable={userPresenceAvailable}
                         />
@@ -3380,7 +3429,12 @@ export function AgentPage({
                       <div aria-labelledby={tabId("agent-settings", "store")} id={tabPanelId("agent-settings", "store")} role="tabpanel">
                         <Suspense fallback={<p role="status">Loading MCP Store…</p>}>
                           <AgentMcpStorePanel
+                            acceptanceRun={trustedMcpAcceptanceRun}
+                            activeEventHead={activeEventHead}
                             activeProjectId={activeAgentProjectId}
+                            activeSessionId={current?.session_id ?? null}
+                            onAcceptanceEvidence={recordTrustedMcpAcceptanceEvidence}
+                            onAcceptanceRunChange={setTrustedMcpAcceptanceRun}
                             onManagedStateChange={refreshMcpProjection}
                             transport={transport}
                             userPresenceAvailable={userPresenceAvailable}
@@ -3391,8 +3445,11 @@ export function AgentPage({
                     {settingsTab === "acceptance" && (
                       <div aria-labelledby={tabId("agent-settings", "acceptance")} id={tabPanelId("agent-settings", "acceptance")} role="tabpanel">
                         <AgentNativeAcceptancePanel
+                          acceptanceRun={nativeAcceptanceRun}
+                          artifactViewRevision={artifactViewRevision}
                           current={current}
                           events={events}
+                          onAcceptanceRunChange={setNativeAcceptanceRun}
                           onRuntimeStatus={setRuntimeCoordinator}
                           reviewOpen={workspaceVisible}
                           transport={transport}
@@ -3499,6 +3556,7 @@ export function AgentPage({
                       loading={artifactsLoading}
                       onLoadMore={() => { void loadMoreArtifacts(); }}
                       onOpenSourceTurn={openArtifactSourceTurn}
+                      onViewerReady={() => setArtifactViewRevision((value) => value + 1)}
                       onRefresh={() => setArtifactsRefreshKey((value) => value + 1)}
                       onViewChange={setArtifactView}
                       pageError={artifactPageError}
@@ -3597,40 +3655,17 @@ export function AgentPage({
                     <legend>Capabilities to re-enable</legend>
                     <label className="agent__toggle"><input checked={recoveryAllowWrites} onChange={(event) => setRecoveryAllowWrites(event.currentTarget.checked)} type="checkbox" /><span>File writes</span></label>
                     <label className="agent__toggle"><input checked={recoveryAllowCommands} onChange={(event) => setRecoveryAllowCommands(event.currentTarget.checked)} type="checkbox" /><span>Commands</span></label>
-                    <label className="agent__toggle"><input checked={recoveryAllowWeb} onChange={(event) => setRecoveryAllowWeb(event.currentTarget.checked)} type="checkbox" /><span>Web fetches</span></label>
+                    <label className="agent__toggle"><input checked={false} disabled readOnly type="checkbox" /><span>Web fetch unavailable in this release</span></label>
                   </fieldset>
                   <button className="button button--primary" disabled={!userPresenceAvailable || authorityBusy || transport.revalidateAgentAuthority === undefined} onClick={() => void revalidateRecoveredAuthority()} type="button">
                     {authorityBusy ? "Revalidating…" : userPresenceAvailable ? "Confirm and revalidate" : "Native confirmation required"}
                   </button>
                 </section>
               )}
-              <div className="agent__session-header">
-                <div className="agent__meta">
-                  <code>{current.settings.workspace}</code>
-                  <span>
-                    {current.model_alias ?? "no model"}
-                    {current.settings.parameters ? " · t=" + current.settings.parameters.temperature.toFixed(2) + " · " + String(current.settings.parameters.max_tokens) + " tok" + (current.settings.parameters.enable_thinking ? " · thinking" : "") : ""}
-                    {" · "}{current.settings.retention_policy === "local_history" ? "saved locally" : "metadata only"}
-                    {current.recovered ? " · recovered" : ""}
-                    {" · "}{current.settings.allow_writes ? "writes" : "no writes"} · {current.settings.allow_commands ? "commands" : "no commands"} · {current.settings.allow_web ? "web" : "no web"}
-                  </span>
-                </div>
-                <section aria-label="Agent activity status" className="agent__activity-overview">
-                  <div className="agent__run-state" data-tone={activityState.tone}>
-                    <span aria-hidden="true" className="agent__run-dot" />
-                    <span>
-                      <strong>{activityState.label}</strong>
-                      <small>{activityState.detail}</small>
-                    </span>
-                  </div>
-                  <div aria-label="Session activity facts" className="agent__run-facts">
-                    <span>{current.turns} {current.turns === 1 ? "turn" : "turns"}</span>
-                    <span>{toolCallCount} observed {toolCallCount === 1 ? "action" : "actions"}</span>
-                    <span data-reasoning={hasVisibleReasoning ? "visible" : reasoningEnabled ? "enabled" : "off"}>
-                      {hasVisibleReasoning ? "Reasoning visible" : reasoningEnabled ? "Reasoning enabled" : "Reasoning off"}
-                    </span>
-                  </div>
-                  <div className="agent__run-actions">
+              <AgentConversationHeader
+                actionCount={toolCallCount}
+                actions={(
+                  <>
                     <button
                       aria-expanded={workspaceVisible}
                       className="button button--ghost"
@@ -3643,50 +3678,41 @@ export function AgentPage({
                       }}
                       type="button"
                     >{workspaceVisible ? "Close files & review" : "Files & review"}</button>
+                    <button
+                      aria-controls="agent-settings-drawer"
+                      aria-expanded={settingsOpen && settingsTab === "connections"}
+                      aria-haspopup="dialog"
+                      className="button button--ghost"
+                      onClick={openProjectTools}
+                      type="button"
+                    >Project tools</button>
                     {current.closing && !commandCleanupBlocked && (
                       <button className="button button--ghost" disabled={connectionDisconnected} onClick={() => void closeSession(current.session_id)} type="button">Retry closing session</button>
                     )}
+                  </>
+                )}
+                activity={activityState}
+                details={(
+                  <div className="agent__meta">
+                    <code>{current.settings.workspace}</code>
+                    <span>
+                      {current.model_alias ?? "no model"}
+                      {current.settings.parameters ? " · t=" + current.settings.parameters.temperature.toFixed(2) + " · " + String(current.settings.parameters.max_tokens) + " tok" + (current.settings.parameters.enable_thinking ? " · thinking" : "") : ""}
+                      {" · "}{current.settings.retention_policy === "local_history" ? "saved locally" : "metadata only"}
+                      {current.recovered ? " · recovered" : ""}
+                      {" · "}{current.settings.allow_writes ? "writes" : "no writes"} · {current.settings.allow_commands ? "commands" : "no commands"} · {current.settings.allow_web ? "web" : "no web"}
+                    </span>
                     {!windowMode && (
                       <button className="button button--ghost" disabled={windowOpenBusy} onClick={() => void openCurrentWindow()} type="button">
                         {windowOpenBusy ? "Opening window…" : "Open separate window"}
                       </button>
                     )}
                   </div>
-                </section>
-                <div
-                  className="agent__model-readiness"
-                  data-state={currentModelAction === "start" ? "starting" : currentModelAction === "stop" ? "stopping" : currentModel?.runtime.state ?? modelCatalogState}
-                >
-                  <span id="agent-session-model-status" role="status">
-                    {commandCleanupBlocked ? COMMAND_CLEANUP_MESSAGE : current.closing
-                      ? CLOSING_SESSION_MESSAGE
-                      : connectionDisconnected
-                      ? "The local app is disconnected. Reopen the protected Agent desktop window before sending."
-                      : currentModelAction !== null
-                        ? `${currentModelAction === "start" ? "Starting" : "Stopping"} the session model. Your draft will remain here while the runtime confirms the change.`
-                      : modelCatalogState === "loading"
-                      ? "Checking the session model…"
-                      : modelCatalogState === "error"
-                        ? "Model status could not be refreshed; it will be verified before the next turn."
-                        : modelCatalogState === "unavailable"
-                          ? "The session model will be verified before the next turn."
-                          : currentModel === null
-                            ? currentModelAlias
-                              ? inlineRuntimeRecoveryAvailable
-                                ? "This chat's saved model is not installed. Choose a replacement in Model & context."
-                                : runtimeCoordinatorAvailable
-                                  ? "This chat's saved model is not installed. Add or restore it on the Models page."
-                                  : "The session model is not registered and cannot receive a message."
-                              : inlineRuntimeRecoveryAvailable
-                                ? "No model is bound to this chat. Choose one in Model & context, then start or bind it."
-                                : runtimeCoordinatorAvailable
-                                  ? "No installed local model is available. Add one on the Models page."
-                                  : "No local model is running for this session. Start one on the Models page."
-                            : currentModel.runtime.state === "running"
-                              ? `${currentModel.record.display_name} · running · ${current.closing ? "session closing" : responseStopping ? "stopping current response" : activeExternalProposal ? pending ? "external proposal awaiting review" : "applying reviewed external proposal" : current.running ? "response in progress" : "ready for messages"}`
-                              : `${currentModel.record.display_name} · ${runtimeStateLabel(currentModel.runtime.state)} · ${inlineRuntimeRecoveryAvailable ? "start or switch it in Model & context" : "start it before sending"}`}
-                  </span>
-                  <div className="agent__model-actions">
+                )}
+                reasoningLabel={hasVisibleReasoning ? "Reasoning visible" : reasoningEnabled ? "Reasoning enabled" : "Reasoning off"}
+                reasoningState={hasVisibleReasoning ? "visible" : reasoningEnabled ? "enabled" : "off"}
+                runtimeActions={(
+                  <>
                     {!runtimeCoordinatorAvailable && currentModel && currentModel.runtime.state !== "running" && transport.activateLocalModel && (
                       <button
                         className="button button--ghost"
@@ -3730,21 +3756,24 @@ export function AgentPage({
                     {!inlineRuntimeRecoveryAvailable && modelCatalogState === "ready" && currentModel === null && (
                       <a className="button button--ghost" href="/models">Open Models</a>
                     )}
-                  </div>
-                  {!runtimeCoordinatorAvailable && current.running && currentModel?.runtime.state === "running" && transport.deactivateLocalModel && (
-                    <span className="agent__action-note">Stop the active response before stopping its model.</span>
-                  )}
-                  {modelFeedbackTarget === "session" && modelError && <p className="agent__error" role="alert">{modelError}</p>}
-                  {modelFeedbackTarget === "session" && modelNotice && <p className="agent__notice" role="status">{modelNotice}</p>}
-                </div>
-              </div>
-              </div>
-              <AgentMcpProjectToolsPanel
-                onOpenStore={openMcpStore}
-                projectId={current.settings.project_id ?? null}
-                refreshKey={mcpProjectionRevision}
-                transport={transport}
+                  </>
+                )}
+                runtimeFeedback={(
+                  <>
+                    {modelFeedbackTarget === "session" && modelError && <p className="agent__error" role="alert">{modelError}</p>}
+                    {modelFeedbackTarget === "session" && modelNotice && <p className="agent__notice" role="status">{modelNotice}</p>}
+                  </>
+                )}
+                runtimeNote={!runtimeCoordinatorAvailable && current.running && currentModel?.runtime.state === "running" && transport.deactivateLocalModel
+                  ? <span className="agent__action-note">Stop the active response before stopping its model.</span>
+                  : null}
+                runtimeState={sessionModelState}
+                runtimeStatus={sessionModelStatus}
+                showRuntimeNotice={sessionModelNoticeVisible}
+                turnCount={current.turns}
               />
+              </div>
+              <div className="agent__conversation-stage">
               <p className="sr-only" aria-live="polite">
                 {pending
                   ? `Approval needed for ${pending.mcp_tool ? mcpToolLabel(pending.mcp_tool) : TOOL_LABELS[pending.tool ?? ""] ?? pending.tool ?? "an agent action"}.`
@@ -3811,6 +3840,7 @@ export function AgentPage({
                         onLoadMore={() => { void loadMoreArtifacts(); }}
                         onOpenFile={openReceiptFile}
                         onOpenSourceTurn={openArtifactSourceTurn}
+                        onViewerReady={() => setArtifactViewRevision((value) => value + 1)}
                         onRevealFile={revealArtifactFile}
                         onRefresh={() => setArtifactsRefreshKey((value) => value + 1)}
                         onReviewChanges={reviewArtifactChanges}
@@ -3923,6 +3953,7 @@ export function AgentPage({
                   </div>
                 </div>
               )}
+              </div>
               <form aria-label="Message composer" className="agent__compose" onSubmit={(event) => { event.preventDefault(); void send(); }}>
                 <div className="agent__compose-head">
                   <label className="agent__compose-label" htmlFor="agent-message">Message to the agent</label>
@@ -4021,10 +4052,11 @@ export function AgentPage({
                   {promptCheckNotice && <p className="agent__status">{promptCheckNotice}</p>}
                 </div>
                 {promptCheckResult && <AgentPromptCheckResult onUseRewrite={usePromptRewrite} result={promptCheckResult} />}
+                {conversationMessage && <p className="agent__error" id="agent-message-error" role="alert">{conversationMessage}</p>}
               </form>
             </>
           )}
-          {conversationMessage && <p className="agent__error" id="agent-message-error" role="alert">{conversationMessage}</p>}
+          {!current && conversationMessage && <p className="agent__error" id="agent-message-error" role="alert">{conversationMessage}</p>}
           </section>
         </div>
       </div>
@@ -4055,523 +4087,4 @@ export function AgentPage({
       </Dialog>
     </section>
   );
-}
-
-function RetainedHistoryView({
-  artifactsPanel,
-  events,
-  focusTurnRequest,
-  exportBusy,
-  forkBusy,
-  forkSupported,
-  message,
-  onClear,
-  onExport,
-  onFork,
-  onReviseTurn,
-  onNewChat,
-  onResume,
-  resumeBusy,
-  session,
-  state,
-  turnRevisionBusy,
-}: {
-  artifactsPanel: ReactNode;
-  events: AgentEvent[];
-  focusTurnRequest: { requestId: number; turnId: string } | null;
-  exportBusy: boolean;
-  forkBusy: boolean;
-  forkSupported: boolean;
-  message: string;
-  onClear: () => void;
-  onExport: () => void;
-  onFork: (throughEventSeq?: number) => void;
-  onReviseTurn?: (turnId: string, mode: AgentTurnRevisionMode) => void;
-  onNewChat: (trigger: HTMLButtonElement) => void;
-  onResume: () => void;
-  resumeBusy: boolean;
-  session: AgentCatalogSession;
-  state: "idle" | "loading" | "ready" | "error";
-  turnRevisionBusy: TurnRevisionBusy | null;
-}) {
-  const [branchPoint, setBranchPoint] = useState("latest");
-  useEffect(() => setBranchPoint("latest"), [session.session_id]);
-  let lastUser = 0;
-  let lastDone = 0;
-  for (const event of events) {
-    if (event.kind === "user") lastUser = event.seq;
-    if (event.kind === "done") lastDone = event.seq;
-  }
-  const interrupted = lastUser > lastDone;
-  const donePoints = events.filter((event) => event.kind === "done");
-  return (
-    <article className="agent__retained" aria-labelledby="agent-retained-title">
-      <header className="agent__retained-head">
-        <div>
-          <span className="agent__history-stub-badge">Saved locally · {session.turn_count} {session.turn_count === 1 ? "turn" : "turns"}</span>
-          {session.lineage && (
-            <span className="agent__history-stub-badge">
-              Branch · {session.lineage.copied_turn_count} copied {session.lineage.copied_turn_count === 1 ? "turn" : "turns"}
-            </span>
-          )}
-          <h2 id="agent-retained-title">{session.title}</h2>
-          <p><code>{session.workspace}</code> · {session.model_alias ?? "No saved model"}</p>
-        </div>
-        <div className="agent__history-stub-actions">
-          <button className="button button--primary" disabled={state !== "ready" || resumeBusy || Boolean(session.archived_at)} onClick={onResume} type="button">
-            {resumeBusy ? "Resuming…" : session.archived_at ? "Restore chat before resuming" : "Resume chat"}
-          </button>
-          <button className="button button--ghost" disabled={state !== "ready" || exportBusy} onClick={onExport} type="button">
-            {exportBusy ? "Exporting…" : "Export JSON"}
-          </button>
-        </div>
-      </header>
-      <p className="agent__retained-truth">
-        Visible messages and bounded receipts were retained locally. Approval IDs, approval decisions, raw tool arguments/output, and reusable mutation authority were not restored.
-      </p>
-      {forkSupported && (
-        <div className="agent__branch-controls">
-          <label>
-            <span>Branch point</span>
-            <select
-              aria-label="Branch point"
-              disabled={state !== "ready" || forkBusy}
-              onChange={(event) => setBranchPoint(event.currentTarget.value)}
-              value={branchPoint}
-            >
-              <option value="latest">Latest completed turn</option>
-              <option value="0">Before the first turn</option>
-              {donePoints.map((event, index) => (
-                <option key={event.seq} value={String(event.seq)}>
-                  After turn {index + 1}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="button button--ghost"
-            disabled={state !== "ready" || forkBusy || Boolean(session.archived_at)}
-            onClick={() => onFork(branchPoint === "latest" ? undefined : Number(branchPoint))}
-            type="button"
-          >{forkBusy ? "Creating branch…" : "Fork chat"}</button>
-          <small>Creates an inactive local branch with retained history only. Protected authority is never copied.</small>
-        </div>
-      )}
-      {interrupted && state === "ready" && (
-        <p className="agent__retained-warning" role="status">The last turn was interrupted before a settled receipt. No completion status was invented.</p>
-      )}
-      {state === "loading" ? (
-        <p className="agent__status" role="status">Loading retained conversation…</p>
-      ) : state === "error" ? (
-        <p className="agent__error" role="alert">{message || "Retained history is unavailable."}</p>
-      ) : state === "ready" ? (
-        <div className="agent__log agent__log--retained" role="log" aria-live="off">
-          <header className="agent__log-head">
-            <span><small>Retained conversation</small><strong>Messages and settled activity</strong></span>
-            <span className="agent__activity-badge" data-tone="idle">Saved</span>
-          </header>
-          <div aria-label="Retained agent activity" className="agent__timeline" role="region">
-            {events.length === 0 && <p className="agent__status">No conversation turn was started in this chat.</p>}
-            <TranscriptEventRows
-              key={session.session_id}
-              events={events}
-              fileActionsDisabled
-              focusTurnRequest={focusTurnRequest}
-              interrupted={interrupted}
-              onOpenFile={() => undefined}
-              onReviseTurn={onReviseTurn}
-              reasoningEnabled
-              revisionActionsDisabled={state !== "ready" || forkBusy || Boolean(session.archived_at) || turnRevisionBusy !== null}
-              turnRevisionBusy={turnRevisionBusy}
-            />
-            {artifactsPanel}
-          </div>
-        </div>
-      ) : null}
-      {message && state !== "error" && <p className="agent__status" role="status">{message}</p>}
-      <footer className="agent__history-stub-actions">
-        <button className="button button--ghost" onClick={(event) => onNewChat(event.currentTarget)} type="button">New chat in this project</button>
-        <button className="button button--ghost" onClick={onClear} type="button">Clear selection</button>
-      </footer>
-    </article>
-  );
-}
-
-type LiveStreamView = { firstSeq: number; content: string; reasoning: string };
-
-function transcriptStartIndex(
-  events: readonly AgentEvent[],
-  windowEnd: number,
-): number {
-  const cutoff = Math.max(0, windowEnd - TRANSCRIPT_EVENT_BATCH);
-  if (cutoff === 0) return 0;
-  // Include a nearby user message so a bounded transcript usually begins at a
-  // turn boundary without allowing one pathological turn to mount all history.
-  const earliestBoundary = Math.max(0, cutoff - 50);
-  for (let index = cutoff; index >= earliestBoundary; index -= 1) {
-    if (events[index]?.kind === "user") return index;
-  }
-  return cutoff;
-}
-
-function TranscriptEventRows({
-  events,
-  fileActionsDisabled,
-  focusTurnRequest,
-  liveStreams,
-  onOpenFile,
-  onReviseTurn,
-  interrupted = false,
-  reasoningEnabled,
-  revisionActionsDisabled = false,
-  stopping = false,
-  turnRevisionBusy = null,
-}: {
-  events: AgentEvent[];
-  fileActionsDisabled: boolean;
-  focusTurnRequest?: { requestId: number; turnId: string } | null;
-  liveStreams?: Map<string, LiveStreamView>;
-  onOpenFile: (path: string) => void;
-  onReviseTurn?: (turnId: string, mode: AgentTurnRevisionMode) => void;
-  interrupted?: boolean;
-  reasoningEnabled: boolean;
-  revisionActionsDisabled?: boolean;
-  stopping?: boolean;
-  turnRevisionBusy?: TurnRevisionBusy | null;
-}) {
-  const [windowEnd, setWindowEnd] = useState(events.length);
-  const previousEventCount = useRef(events.length);
-  useEffect(() => {
-    const previous = previousEventCount.current;
-    previousEventCount.current = events.length;
-    setWindowEnd((value) => (
-      value >= previous ? events.length : Math.min(value, events.length)
-    ));
-  }, [events.length]);
-  useEffect(() => {
-    if (focusTurnRequest === null || focusTurnRequest === undefined) return;
-    const targetIndex = events.findIndex((event) => (
-      event.kind === "done" && event.turn_id === focusTurnRequest.turnId
-    ));
-    if (targetIndex < 0) return;
-    setWindowEnd(Math.min(events.length, targetIndex + 1));
-  }, [focusTurnRequest?.requestId]);
-  useEffect(() => {
-    if (focusTurnRequest === null || focusTurnRequest === undefined) return;
-    const frame = window.requestAnimationFrame(() => {
-      const target = document.getElementById(`agent-turn-${focusTurnRequest.turnId}`);
-      if (!(target instanceof HTMLDetailsElement)) return;
-      target.open = true;
-      if (typeof target.scrollIntoView === "function") target.scrollIntoView({ block: "center" });
-      target.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [focusTurnRequest?.requestId, windowEnd]);
-  const effectiveWindowEnd = events.length !== previousEventCount.current
-    ? windowEnd >= previousEventCount.current
-      ? events.length
-      : Math.min(windowEnd, events.length)
-    : windowEnd;
-  const boundedEnd = Math.max(0, Math.min(events.length, effectiveWindowEnd));
-  const start = transcriptStartIndex(events, boundedEnd);
-  const visible = events.slice(start, boundedEnd);
-  const mcpCalls = collectAgentMcpCalls(events);
-  const visibleMcpAnchor = new Map<string, number>();
-  for (const event of visible) {
-    const callId = event.call_id ?? null;
-    if (callId && mcpCalls.has(callId) && !visibleMcpAnchor.has(callId)) {
-      visibleMcpAnchor.set(callId, event.seq);
-    }
-  }
-  const sourceUsers = new Map<string, AgentEvent>();
-  for (const event of events) {
-    if (event.kind === "user" && event.turn_id) sourceUsers.set(event.turn_id, event);
-  }
-  const firstVisibleDelta = new Map<string, number>();
-  for (const event of visible) {
-    if (event.kind === "assistant_delta" && event.stream_id && !firstVisibleDelta.has(event.stream_id)) {
-      firstVisibleDelta.set(event.stream_id, event.seq);
-    }
-  }
-
-  return (
-    <>
-      {(start > 0 || boundedEnd < events.length) && (
-        <nav aria-label="Agent activity pages" className="agent__transcript-window">
-          <span aria-live="polite">
-            Showing activity {(start + 1).toLocaleString("en-US")}–{boundedEnd.toLocaleString("en-US")} of {events.length.toLocaleString("en-US")} events.
-          </span>
-          <span className="agent__transcript-window-actions">
-            {start > 0 && (
-              <button
-                className="button button--ghost"
-                onClick={() => setWindowEnd(start)}
-                type="button"
-              >Earlier {Math.min(TRANSCRIPT_EVENT_BATCH, start).toLocaleString("en-US")}</button>
-            )}
-            {boundedEnd < events.length && (
-              <button
-                className="button button--ghost"
-                onClick={() => setWindowEnd(Math.min(
-                  events.length,
-                  boundedEnd + TRANSCRIPT_EVENT_BATCH,
-                ))}
-                type="button"
-              >Later</button>
-            )}
-            {boundedEnd < events.length && (
-              <button
-                className="button button--ghost"
-                onClick={() => setWindowEnd(events.length)}
-                type="button"
-              >Latest</button>
-            )}
-          </span>
-        </nav>
-      )}
-      {visible.map((event, index) => {
-        const globalIndex = start + index;
-        const mcpCall = event.call_id ? mcpCalls.get(event.call_id) : undefined;
-        if (mcpCall) {
-          return visibleMcpAnchor.get(mcpCall.callId) === event.seq
-            ? <AgentMcpToolActivity call={mcpCall} interrupted={interrupted} key={`mcp-${mcpCall.callId}`} stopping={stopping} />
-            : null;
-        }
-        // A tool-only completion is a handoff, not an empty answer. Keep
-        // stopped/failed or genuinely empty final replies visible.
-        if (event.kind === "assistant" && event.stream_status === "complete"
-          && !event.text?.trim() && !event.reasoning?.trim()
-          && events[globalIndex + 1]?.kind === "tool_call") return null;
-        if (event.kind !== "assistant_delta") {
-          return (
-            <EventRow
-              key={event.seq}
-              event={event}
-              fileActionsDisabled={fileActionsDisabled}
-              onOpenFile={onOpenFile}
-              onReviseTurn={onReviseTurn}
-              reasoningEnabled={reasoningEnabled}
-              revisionActionsDisabled={revisionActionsDisabled}
-              sourceUser={event.turn_id ? sourceUsers.get(event.turn_id) : undefined}
-              turnRevisionBusy={turnRevisionBusy}
-            />
-          );
-        }
-        if (!event.stream_id || liveStreams === undefined) return null;
-        const live = liveStreams.get(event.stream_id);
-        return live && firstVisibleDelta.get(event.stream_id) === event.seq
-          ? <LiveAssistant key={event.stream_id} content={live.content} reasoning={live.reasoning} onOpenFile={onOpenFile} />
-          : null;
-      })}
-    </>
-  );
-}
-
-function compactTerminalDeltas(events: AgentEvent[]): AgentEvent[] {
-  const terminalIds = new Set(
-    events
-      .filter((event) => event.kind === "assistant" && event.stream_id)
-      .map((event) => event.stream_id as string),
-  );
-  return events.filter((event) => event.kind !== "assistant_delta" || !event.stream_id || !terminalIds.has(event.stream_id));
-}
-
-function coalesceLiveStreams(events: AgentEvent[]): Map<string, LiveStreamView> {
-  const terminalIds = new Set(
-    events
-      .filter((event) => event.kind === "assistant" && event.stream_id)
-      .map((event) => event.stream_id as string),
-  );
-  const live = new Map<string, LiveStreamView>();
-  for (const event of events) {
-    if (event.kind !== "assistant_delta" || !event.stream_id || terminalIds.has(event.stream_id) || !event.text) continue;
-    const current = live.get(event.stream_id) ?? { firstSeq: event.seq, content: "", reasoning: "" };
-    if (event.stream_phase === "reasoning") current.reasoning += event.text;
-    else current.content += event.text;
-    live.set(event.stream_id, current);
-  }
-  return live;
-}
-
-function LiveAssistant({ content, reasoning, onOpenFile }: { content: string; reasoning: string; onOpenFile: (path: string) => void }) {
-  return (
-    <article className="agent__turn agent__turn--assistant agent__turn--live" aria-label="Agent response streaming">
-      <header><span>Agent</span><span className="agent__event-badge">Streaming</span></header>
-      {reasoning && <ReasoningPanel content={reasoning} live />}
-      {content && <AgentMessageContent content={content} onOpenWorkspaceFile={onOpenFile} />}
-    </article>
-  );
-}
-
-function ReasoningPanel({ content, live = false }: { content: string; live?: boolean }) {
-  return (
-    <details className="agent__reasoning" open={live || undefined}>
-      <summary><span>Model reasoning</span><small>{live ? "live · model-provided" : "model-provided · expand"}</small></summary>
-      <p className="agent__reasoning-truth">Only reasoning text explicitly exposed by the model is shown. Hidden chain of thought is not reconstructed.</p>
-      {!live && <AgentCopyButton className="agent__reasoning-copy" label="Copy model reasoning" value={content} />}
-      <AgentMessageContent content={content} variant="reasoning" />
-    </details>
-  );
-}
-
-function formatAttachmentBytes(value: number): string {
-  return value < 1024 * 1024
-    ? `${Math.ceil(value / 1024)} KB`
-    : `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function attachmentDetail(attachment: AgentMessageAttachment): string {
-  if (attachment.kind === "image" && attachment.width && attachment.height) {
-    return `${attachment.width} × ${attachment.height}`;
-  }
-  if (attachment.kind === "audio" && attachment.duration_ms !== null && attachment.duration_ms !== undefined) {
-    return `${Math.max(1, Math.round(attachment.duration_ms / 1000))} s`;
-  }
-  if (attachment.kind === "document" && attachment.document_format) {
-    const projected = attachment.projected_characters === null
-      || attachment.projected_characters === undefined
-      ? "projection size unknown"
-      : `${attachment.projected_characters.toLocaleString()} projected characters`;
-    const truncated = attachment.projection_truncated ? " · truncated" : "";
-    const omitted = attachment.omitted_features.length > 0
-      ? ` · omitted ${attachment.omitted_features.join(", ")}`
-      : "";
-    return `${attachment.document_format.toUpperCase()} · ${projected}${truncated}${omitted}`;
-  }
-  return attachment.media_type;
-}
-
-function MessageAttachments({ attachments }: { attachments: AgentMessageAttachment[] }) {
-  return (
-    <ul aria-label="Message attachments" className="agent__message-attachments">
-      {attachments.map((attachment) => (
-        <li key={attachment.attachment_id}>
-          <span aria-hidden="true" className="agent__attachment-kind">
-            {attachment.kind === "image" ? "Image" : attachment.kind === "audio" ? "Audio" : "Document"}
-          </span>
-          <span>
-            <strong>{attachment.display_name}</strong>
-            <small>{attachmentDetail(attachment)} · {formatAttachmentBytes(attachment.byte_size)} · context cost unknown</small>
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function EventRow({
-  event,
-  reasoningEnabled,
-  onOpenFile,
-  onReviseTurn,
-  fileActionsDisabled,
-  revisionActionsDisabled,
-  sourceUser,
-  turnRevisionBusy,
-}: {
-  event: AgentEvent;
-  reasoningEnabled: boolean;
-  onOpenFile: (path: string) => void;
-  onReviseTurn?: (turnId: string, mode: AgentTurnRevisionMode) => void;
-  fileActionsDisabled: boolean;
-  revisionActionsDisabled: boolean;
-  sourceUser?: AgentEvent;
-  turnRevisionBusy: TurnRevisionBusy | null;
-}) {
-  if (event.kind === "done") return event.turn_summary && event.turn_id
-    ? <AgentTurnDetails
-        summary={event.turn_summary}
-        turnId={event.turn_id}
-        onOpenFile={onOpenFile}
-        fileActionsDisabled={fileActionsDisabled}
-        onRevise={onReviseTurn && sourceUser?.text?.trim()
-          ? (mode) => onReviseTurn(event.turn_id as string, mode)
-          : undefined}
-        revisionBusyMode={turnRevisionBusy?.turnId === event.turn_id ? turnRevisionBusy.mode : null}
-        revisionDisabled={revisionActionsDisabled}
-        sourceHasAttachments={Boolean(sourceUser?.attachments.length)}
-      />
-    : <p className="agent__status">Turn details were not reported for this run.</p>;
-  if (event.kind === "user") return (
-    <article className="agent__turn agent__turn--user">
-      <header><span>You</span>{event.text && <AgentCopyButton label="Copy message" value={event.text} />}</header>
-      {event.text ? <AgentMessageContent content={event.text} variant="user" /> : null}
-      {event.attachments.length > 0 ? <MessageAttachments attachments={event.attachments} /> : null}
-    </article>
-  );
-  if (event.kind === "assistant") {
-    const status = event.stream_status === "stopped" ? "Stopped" : event.stream_status === "failed" ? "Interrupted" : "Complete";
-    return (
-      <article className="agent__turn agent__turn--assistant" data-stream-status={event.stream_status ?? "whole"}>
-        <header><span>Agent</span><span className="agent__event-badge">{status}</span>{event.text && <AgentCopyButton label="Copy agent response" value={event.text} />}</header>
-        {event.reasoning && <ReasoningPanel content={event.reasoning} />}
-        {!event.reasoning && reasoningEnabled && <p className="agent__reasoning-inline">No separate reasoning trace was exposed for this response.</p>}
-        {event.text ? <AgentMessageContent content={event.text} onOpenWorkspaceFile={fileActionsDisabled ? undefined : onOpenFile} /> : !event.reasoning ? <p className="agent__status">No assistant text was completed.</p> : null}
-      </article>
-    );
-  }
-  if (event.kind === "assistant_delta") return null;
-  if (event.kind === "tool_call") {
-    return (
-      <article aria-label={`Agent action: ${TOOL_LABELS[event.tool ?? ""] ?? event.tool ?? "tool"}`} className="agent__tool" data-tool={event.tool ?? ""}>
-        <span className="agent__event-badge">{isExternalWriteTransactionProposal(event) ? "Controller change set" : isExternalWriteProposal(event) ? "Controller proposal" : "Action"}</span>
-        <span className="agent__tool-name">{TOOL_LABELS[event.tool ?? ""] ?? event.tool}</span>
-        <code>{summarizeArguments(event.tool, event.arguments as Record<string, unknown> | null)}</code>
-      </article>
-    );
-  }
-  if (event.kind === "tool_result") {
-    const label = event.tool_state ? { succeeded: "Completed", failed: "Failed", not_approved: "Not approved", cancelled: "Cancelled", unverified: "Effect unverified" }[event.tool_state]
-      : event.ok === true ? "Completed" : event.ok === false ? "Failed" : "Outcome unknown";
-    const receipt = event.execution_receipt;
-    const approvalLabel = receipt ? {
-      not_required: "Not required",
-      not_requested: "Not requested",
-      approved: "Approved",
-      denied: "Denied",
-      timed_out: "Timed out",
-      cancelled_before_decision: "Cancelled before decision",
-    }[receipt.approval_state] : null;
-    const evidenceLabel = receipt ? {
-      read_only_observation: "Read-only observation",
-      verified_workspace_effect: "Verified workspace effect",
-      unverified_workspace_effect: "Unverified workspace effect",
-      untracked_external_effect: "Untracked external effect",
-      no_effect: "No effect",
-      unknown: "Effect unknown",
-    }[receipt.evidence_state] : null;
-    const elapsedLabel = !receipt
-      ? null
-      : receipt.elapsed_ms == null
-      ? "Elapsed unknown"
-      : receipt.elapsed_ms < 1_000
-      ? `${Number(receipt.elapsed_ms.toFixed(receipt.elapsed_ms < 10 ? 1 : 0))} ms`
-      : `${Number((receipt.elapsed_ms / 1_000).toFixed(2))} s`;
-    return (
-      <details className="agent__result" data-ok={event.ok == null ? "unknown" : event.ok ? "true" : "false"}>
-        <summary>
-          <span className="agent__event-badge">{label}</span>
-          <span>{TOOL_LABELS[event.tool ?? ""] ?? event.tool}</span>
-          {receipt ? (
-            <span className="agent__result-facts" aria-label="Action execution facts">
-              <span className="agent__result-fact" title="Elapsed from action request to terminal result; approval waiting is included.">{elapsedLabel}</span>
-              <span className="agent__result-fact" title="Native approval outcome">{approvalLabel}</span>
-              <span className="agent__result-fact" title="Effect evidence state">{evidenceLabel}</span>
-            </span>
-          ) : <span className="agent__result-facts agent__result-facts--legacy">Execution details unavailable</span>}
-        </summary>
-        {event.text ? (
-          <div className="agent__result-body">
-            <AgentCopyButton label={`Copy ${TOOL_LABELS[event.tool ?? ""] ?? event.tool ?? "tool"} output`} value={event.text} />
-            <pre>{event.text}</pre>
-          </div>
-        ) : <p className="agent__status">No raw tool output was included in this event.</p>}
-      </details>
-    );
-  }
-  if (event.kind === "approval_required") return <p className="agent__activity-event" data-tone="attention"><span className="agent__event-badge">{isExternalWriteTransactionProposal(event) ? "Controller change set" : isExternalWriteProposal(event) ? "Controller proposal" : "Approval"}</span>Waiting for your decision: {TOOL_LABELS[event.tool ?? ""] ?? event.tool}</p>;
-  if (event.kind === "approval_resolved") return <p className="agent__activity-event" data-tone={event.ok ? "ready" : "attention"}><span className="agent__event-badge">{event.ok ? "Approved" : "Denied"}</span>{TOOL_LABELS[event.tool ?? ""] ?? event.tool}{event.text ? ` (${event.text})` : ""}</p>;
-  if (event.kind === "error") return <p className="agent__activity-event agent__error" data-tone="error" role="alert"><span className="agent__event-badge">Error</span>{event.text}</p>;
-  if (event.kind === "status") return <p className="agent__activity-event agent__status"><span className="agent__event-badge">Status</span>{event.text}</p>;
-  return null;
 }

@@ -25,6 +25,13 @@ function createMemoryPlatform(initialRoute: AppRoute = { name: "discovery" }): P
   };
 }
 
+function openLabsNavigation(): void {
+  const summary = [...document.querySelectorAll("summary")]
+    .find((candidate) => candidate.textContent?.trim() === "Labs");
+  expect(summary).toBeDefined();
+  fireEvent.click(summary!);
+}
+
 describe("scoped analytics and task flow routes", () => {
   it("round-trips the new routes through the platform paths", () => {
     expect(routePath({ name: "team" })).toBe("/team");
@@ -41,7 +48,8 @@ describe("scoped analytics and task flow routes", () => {
         runtime={createRuntimeComposition("synthetic_demo", createSyntheticTransport())}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Team analytics" }));
+    openLabsNavigation();
+    fireEvent.click(screen.getByRole("button", { name: "Team analytics (preview)" }));
     expect(await screen.findByRole(
       "heading",
       { level: 1, name: "Team analytics" },
@@ -49,7 +57,7 @@ describe("scoped analytics and task flow routes", () => {
     )).toBeVisible();
     expect(screen.getByLabelText("Current location").textContent).toContain("Scoped workspace");
     expect(await screen.findByRole("group", { name: "Analytics scope" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Team analytics" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Team analytics (preview)" })).toHaveAttribute("aria-current", "page");
   });
 
   it("navigates to Task flow and keeps the personal trail", async () => {
@@ -110,12 +118,13 @@ describe("social hub route", () => {
         runtime={createRuntimeComposition("synthetic_demo", createSyntheticTransport())}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Social" }));
+    openLabsNavigation();
+    fireEvent.click(screen.getByRole("button", { name: "Social hub (demo)" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Social hub" }, { timeout: 5_000 })).toBeVisible();
     expect(screen.getByLabelText("Current location").textContent).toContain("Social workspace");
     expect(await screen.findByRole("note", { name: "Fictional synthetic demo" })).toBeVisible();
     expect(await screen.findByRole("group", { name: "Local social state summary" })).toHaveTextContent("3 friends");
-    expect(screen.getByRole("button", { name: "Social" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Social hub (demo)" })).toHaveAttribute("aria-current", "page");
   });
 
   it("fails closed for Social in local-real mode even when a fixture social port is injected", async () => {

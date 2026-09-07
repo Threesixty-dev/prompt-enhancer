@@ -135,7 +135,7 @@ describe("App discovery navigation", () => {
     expect(container.querySelector("#main-content")).toHaveAttribute("tabindex", "-1");
     const primaryNavigation = screen.getByRole("navigation", { name: "Primary" });
     expect(primaryNavigation).toBeVisible();
-    expect(within(primaryNavigation).getAllByRole("group")).toHaveLength(4);
+    expect(within(primaryNavigation).getAllByRole("group")).toHaveLength(3);
     const navigationGlyphs = within(primaryNavigation).getAllByRole("button").map(
       (button) => button.querySelector("svg")?.innerHTML,
     );
@@ -151,7 +151,9 @@ describe("App discovery navigation", () => {
   it("keeps the content-free software update action in the desktop sidebar", async () => {
     const transport = createSyntheticTransport();
     const status = {
-      contract_version: "application-update-status.v1" as const,
+      contract_version: "application-update-status.v3" as const,
+      instance_id: "a".repeat(32),
+      revision: 1,
       contains_private_data: false as const,
       installed_version: "1.2.3",
       channel: "stable" as const,
@@ -165,7 +167,10 @@ describe("App discovery navigation", () => {
       can_check: true,
       can_stage: false,
       can_cancel: false,
-      can_apply: false,
+      can_retry: false,
+      can_apply: false as const,
+      can_verify: false,
+      package_review: { state: "not_configured" as const, reason_code: null, checked_at: null },
     };
     transport.getApplicationUpdateStatus = vi.fn(async () => status);
     transport.checkApplicationUpdate = vi.fn(async () => status);
@@ -174,6 +179,7 @@ describe("App discovery navigation", () => {
     const sidebar = screen.getByRole("complementary", { name: "Application" });
     const button = await within(sidebar).findByRole("button", { name: /software is current/i });
     fireEvent.click(button);
+    fireEvent.click(within(sidebar).getByRole("button", { name: /check for updates/i }));
 
     await waitFor(() => expect(transport.checkApplicationUpdate).toHaveBeenCalledOnce());
     expect(within(sidebar).getByRole("region", { name: "Software updates" })).toHaveAttribute(
@@ -188,7 +194,7 @@ describe("App discovery navigation", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Navigate Prompt Enhancer" });
     const update = within(dialog).getByRole("region", { name: "Software updates" });
-    expect(await within(update).findByRole("button", { name: /updates not connected/i })).toBeDisabled();
+    expect(await within(update).findByRole("button", { name: /updates not connected/i })).toBeEnabled();
     expect(within(dialog).getByText(/no automatic update traffic/i)).toBeVisible();
   });
 
@@ -241,7 +247,7 @@ describe("App discovery navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
     const dialog = screen.getByRole("dialog", { name: "Navigate Prompt Enhancer" });
     const mobileNavigation = within(dialog).getByRole("navigation", { name: "Mobile primary" });
-    expect(within(mobileNavigation).getAllByRole("group")).toHaveLength(4);
+    expect(within(mobileNavigation).getAllByRole("group")).toHaveLength(3);
     const overview = within(mobileNavigation).getByRole("button", { name: "Overview" });
     expect(overview).toHaveAttribute("aria-current", "page");
     await waitFor(() => expect(overview).toHaveFocus());
@@ -249,6 +255,22 @@ describe("App discovery navigation", () => {
     fireEvent.click(within(mobileNavigation).getByRole("button", { name: "Sessions" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
     expect(screen.queryByRole("dialog", { name: "Navigate Prompt Enhancer" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the controlled Labs disclosure state aligned with native toggles", () => {
+    render(<App runtime={syntheticRuntime()} platform={createMemoryPlatform()} />);
+
+    const navigation = screen.getByRole("navigation", { name: "Primary" });
+    const labs = navigation.querySelector("details");
+    const summary = labs?.querySelector("summary");
+    expect(labs).not.toBeNull();
+    expect(summary).not.toBeNull();
+    expect(labs).not.toHaveAttribute("open");
+
+    fireEvent.click(summary!);
+    expect(labs).toHaveAttribute("open");
+    fireEvent.click(summary!);
+    expect(labs).not.toHaveAttribute("open");
   });
 
   it("keeps reviewed-task progress visible after the mobile drawer closes", async () => {

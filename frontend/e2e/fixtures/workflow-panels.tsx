@@ -13,6 +13,9 @@ import { SessionTimelinePane } from "../../src/features/session-timeline/Session
 import { CalibrationCasePane } from "../../src/features/calibration/CalibrationCasePane";
 import { exampleCalibrationReview } from "../../src/features/calibration/calibrationFixtures.test-support";
 import { ModelJobStatusFixture } from "./model-job-status";
+import { SessionRadarCard } from "../../src/features/session-radar/SessionRadarCard";
+import { ModelEnsembleOverlay } from "../../src/features/model-ensemble/ModelEnsembleOverlay";
+import { checkpointHead, checkpointRun, checkpointTrajectory, CHECKPOINT_SESSION_A } from "../../src/features/model-ensemble/modelEnsembleCheckpointTour.test-fixtures";
 import "../../src/features/calibration/CalibrationPage.css";
 import type {
   AgentArtifact, AgentArtifactCapturePreview, AgentArtifactDetail, AgentArtifactExport, AgentArtifactPage, AgentArtifactPageQuery, AgentAttachment, AgentCatalogPageQuery, AgentCatalogSession, AgentCatalogSessionPage, AgentCatalogSessionPageQuery, AgentEvent, AgentHardeningSnapshot, AgentHistoryExport, AgentMcpClientSetup, AgentMcpConnectionList, AgentMessageAttachment, AgentProject, AgentProjectPage, AgentSessionContextStatus, AgentSessionForkReceipt, AgentSessionView, AgentWorkspaceFile, LocalModelCompatibilityCatalog, LocalModelPlacementAdmission, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, McpRegistryCatalog, McpRegistryServerReview, SessionTimeline,
@@ -256,7 +259,8 @@ const hardeningSnapshot: AgentHardeningSnapshot = {
   },
 };
 const agentMcpConnections: AgentMcpConnectionList = {
-  contract_version: "agent-mcp-management.v1",
+  contract_version: "agent-mcp-management.v2",
+  activity_epoch: "f".repeat(32),
   active_count: 1,
   connections: [{
     contract_version: "agent-mcp-connection.v4",
@@ -293,9 +297,21 @@ const agentMcpConnections: AgentMcpConnectionList = {
     ownerships: [],
     active_count: 0,
   },
+  tool_activity_sequences: [{
+    contract_version: "agent-mcp-tool-activity-sequence.v1",
+    connection_id: "c".repeat(32),
+    credential_revision: 1,
+    sequence: 1,
+    tool_name: "agent_open",
+    tool_source: "external_client",
+    started_at: "2040-01-01T00:05:01Z",
+    completed_at: "2040-01-01T00:05:01Z",
+    outcome: "succeeded",
+  }],
 };
 const agentMcpOwnershipConnections: AgentMcpConnectionList = {
-  contract_version: "agent-mcp-management.v1",
+  contract_version: "agent-mcp-management.v2",
+  activity_epoch: agentMcpConnections.activity_epoch,
   active_count: 2,
   connections: [
     agentMcpConnections.connections[0],
@@ -341,6 +357,20 @@ const agentMcpOwnershipConnections: AgentMcpConnectionList = {
       native_approval_inherited: false,
     }],
   },
+  tool_activity_sequences: [
+    agentMcpConnections.tool_activity_sequences[0],
+    {
+      contract_version: "agent-mcp-tool-activity-sequence.v1",
+      connection_id: "d".repeat(32),
+      credential_revision: 1,
+      sequence: 0,
+      tool_name: null,
+      tool_source: null,
+      started_at: null,
+      completed_at: null,
+      outcome: null,
+    },
+  ],
 };
 const agentMcpSetupEndpoint = "http://127.0.0.1:4173/mcp/agent";
 const agentMcpSetup: AgentMcpClientSetup = {
@@ -1955,6 +1985,26 @@ const liveTimeline: SessionTimeline = {
   counts: { events: 4, turns: 1, tools: 1, verifications_passed: 0, verifications_failed: 0, verifications_unknown: 0, tool_errors: 0 },
 };
 const liveTransport = { ...createSyntheticTransport(), getSessionTimeline: async () => liveTimeline };
+const radarMetricRows = [
+  ["prompt.task_definition_coverage", 0.92], ["prompt.problem_evidence_quality", 0.78],
+  ["prompt.context_sufficiency", 0.86], ["prompt.constraint_precision", 0.74],
+  ["prompt.acceptance_testability", 0.88], ["prompt.deliverable_contract", 0.81],
+  ["collaboration.ambiguity_resolution", 0.69], ["logic.requirement_action_traceability", 0.84],
+  ["logic.open_loop_closure", 0.76], ["outcome.first_pass_verification", 0.91],
+  ["outcome.verification_strategy_adequacy", 0.83], ["outcome.agent_claim_grounding", 0.89],
+].map(([metric_key, numeric_value]) => ({ metric_key, numeric_value, value_state: "known" as const }));
+const radarTransport = {
+  ...createSyntheticTransport(),
+  getSessionMetrics: async (sessionId: string) => ({ session_id: sessionId, metrics: radarMetricRows }),
+};
+const ensembleRun = checkpointRun("a".repeat(64), "a");
+const ensembleHead = checkpointHead(ensembleRun, CHECKPOINT_SESSION_A, "a");
+const ensembleTransport = {
+  ...createSyntheticTransport(),
+  getActiveModelEnsembleCanonicalHead: async () => ensembleHead,
+  getModelEnsembleSnapshot: async () => ensembleRun,
+  getModelEnsembleTrajectory: async () => checkpointTrajectory(ensembleRun, ensembleHead.watch.watch_id, "b".repeat(64)),
+};
 const scaleTimelineBase = Date.parse(at);
 const scaleTimeline: SessionTimeline = {
   ...liveTimeline,
@@ -2526,7 +2576,9 @@ fixtureRoot.render(
     {panel === "editor" && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={editorTransport} userPresenceAvailable />}
     {panel === "editor-inspection" && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={inspectionEditorTransport} userPresenceAvailable />}
     {editorWriteFailure && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={writeFailureEditorTransport} userPresenceAvailable />}
-    {panel === "live" && <LiveMiniWindow projectId={SYNTHETIC_QUALITY_PROJECT_ID} sessionId={SYNTHETIC_QUALITY_SESSION_ID} transport={liveTransport} />}
+    {panel === "live" && <div data-testid="live-tour"><p className="eyebrow" data-testid="synthetic-demo-badge">Synthetic demo · in-memory fixture</p><LiveMiniWindow projectId={SYNTHETIC_QUALITY_PROJECT_ID} sessionId={SYNTHETIC_QUALITY_SESSION_ID} transport={liveTransport} /></div>}
+    {panel === "radar" && <section data-testid="radar-tour"><p className="eyebrow">Synthetic demo · standalone measured session radar</p><SessionRadarCard sessionId={SYNTHETIC_QUALITY_SESSION_ID} transport={radarTransport} /></section>}
+    {panel === "ensemble" && <section data-testid="ensemble-tour"><p className="eyebrow">Synthetic demo · model ensemble live watch</p><ModelEnsembleOverlay transport={ensembleTransport} /></section>}
     {panel === "scale-timeline" && <SessionTimelinePane sessionId={SYNTHETIC_QUALITY_SESSION_ID} transport={scaleTimelineTransport} />}
     {panel === "team-folders" && <TeamFoldersPanel transport={transport} />}
     {panel === "prompt-check" && <PromptCheckPage transport={transport} navigate={() => undefined} />}

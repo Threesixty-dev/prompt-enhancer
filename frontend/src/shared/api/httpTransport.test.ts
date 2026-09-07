@@ -2921,7 +2921,8 @@ describe("local agent model-readiness transport", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
       .mockResolvedValueOnce(privateJsonResponse({
-        contract_version: "agent-mcp-management.v1",
+        contract_version: "agent-mcp-management.v2",
+        activity_epoch: "f".repeat(32),
         connections: [connection],
         active_count: 1,
         controller_ownerships: {
@@ -2929,6 +2930,17 @@ describe("local agent model-readiness transport", () => {
           ownerships: [],
           active_count: 0,
         },
+        tool_activity_sequences: [{
+          contract_version: "agent-mcp-tool-activity-sequence.v1",
+          connection_id: connection.connection_id,
+          credential_revision: connection.credential_revision,
+          sequence: 0,
+          tool_name: null,
+          tool_source: null,
+          started_at: null,
+          completed_at: null,
+          outcome: null,
+        }],
       }))
       .mockResolvedValueOnce(privateJsonResponse(clientSetup))
       .mockResolvedValueOnce(privateJsonResponse(credential))
@@ -4914,7 +4926,9 @@ describe("local agent workspace transport", () => {
 
 describe("application update transport", () => {
   const currentStatus = {
-    contract_version: "application-update-status.v1",
+    contract_version: "application-update-status.v3",
+    instance_id: "a".repeat(32),
+    revision: 1,
     contains_private_data: false,
     installed_version: "1.2.3",
     channel: "stable",
@@ -4928,7 +4942,10 @@ describe("application update transport", () => {
     can_check: true,
     can_stage: false,
     can_cancel: false,
+    can_retry: false,
     can_apply: false,
+    can_verify: false,
+    package_review: { state: "not_configured", reason_code: null, checked_at: null },
   } as const;
 
   it("reads local status and checks only through browser CSRF authentication", async () => {
@@ -4941,8 +4958,9 @@ describe("application update transport", () => {
       origin: "http://127.0.0.1:4173",
     });
 
+    const fence = { expected_revision: 1, expected_instance_id: "a".repeat(32) };
     await expect(transport.getApplicationUpdateStatus!()).resolves.toEqual(currentStatus);
-    await expect(transport.checkApplicationUpdate!()).resolves.toEqual(currentStatus);
+    await expect(transport.checkApplicationUpdate!(fence)).resolves.toEqual(currentStatus);
 
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
       "/auth/session",
@@ -4957,7 +4975,9 @@ describe("application update transport", () => {
     });
     expect((fetchMock.mock.calls[2][1] as RequestInit).headers).toMatchObject({
       "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+      "Content-Type": "application/json",
     });
+    expect((fetchMock.mock.calls[2][1] as RequestInit).body).toBe(JSON.stringify(fence));
   });
 
   it("rejects malformed update status without retaining unknown fields", async () => {
@@ -4978,6 +4998,38 @@ describe("application update transport", () => {
       status: 200,
     });
     expect(String(error)).not.toContain("EXAMPLE_PRIVATE_UPDATE_CANARY");
+  });
+
+  it("fences every mutating update action with the v2 coordinator identity", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockImplementation(() => Promise.resolve(privateJsonResponse(currentStatus)));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const fence = { expected_revision: 1, expected_instance_id: "a".repeat(32) };
+
+    await transport.checkApplicationUpdate!(fence);
+    await transport.stageApplicationUpdate!(fence);
+    await transport.cancelApplicationUpdate!(fence);
+    await transport.retryApplicationUpdate!(fence);
+    await transport.verifyApplicationUpdate!(fence);
+
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      "/v1/application-updates/check",
+      "/v1/application-updates/stage",
+      "/v1/application-updates/cancel",
+      "/v1/application-updates/retry",
+      "/v1/application-updates/verify",
+    ]);
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect((call[1] as RequestInit).body).toBe(JSON.stringify(fence));
+      expect((call[1] as RequestInit).headers).toMatchObject({
+        "Content-Type": "application/json",
+        "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+      });
+    }
   });
 });
 

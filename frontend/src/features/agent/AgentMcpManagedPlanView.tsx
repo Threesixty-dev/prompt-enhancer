@@ -23,7 +23,12 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { AgentMcpAcceptancePanel } from "./AgentMcpAcceptancePanel";
 import { AgentMcpManagedRuntimePanel } from "./AgentMcpManagedRuntimePanel";
+import type {
+  TrustedMcpAcceptanceEvidence,
+  TrustedMcpAcceptanceRun,
+} from "./trustedMcpAcceptance";
 
 type ManagedTransport = Partial<Pick<
   PromptEnhancerTransport,
@@ -338,7 +343,12 @@ function compatibilityFailureMessage(error: unknown): string {
 }
 
 export function AgentMcpManagedPlanView({
+  acceptanceRun = null,
+  activeEventHead = 0,
+  activeSessionId = null,
   onBack,
+  onAcceptanceEvidence,
+  onAcceptanceRunChange,
   onRuntimeChange,
   onServer,
   preferredProjectId = null,
@@ -347,7 +357,12 @@ export function AgentMcpManagedPlanView({
   transport,
   userPresenceAvailable,
 }: {
+  acceptanceRun?: TrustedMcpAcceptanceRun | null;
+  activeEventHead?: number;
+  activeSessionId?: string | null;
   onBack: () => void;
+  onAcceptanceEvidence?: (evidence: TrustedMcpAcceptanceEvidence) => void;
+  onAcceptanceRunChange?: (run: TrustedMcpAcceptanceRun | null) => void;
   onRuntimeChange?: () => void;
   onServer: (server: McpManagedServer) => void;
   preferredProjectId?: string | null;
@@ -803,6 +818,12 @@ export function AgentMcpManagedPlanView({
       });
       mutationRequestIds.current.delete(retryKey);
       onServer(receipt.server);
+      onAcceptanceEvidence?.({
+        kind: "project_admission",
+        projectId: selectedProject,
+        server: receipt.server,
+        toolSnapshot,
+      });
       setMessage(`${admittedTools.length} reviewed tool${admittedTools.length === 1 ? "" : "s"} allowed for this project. The host remains stopped and routing remains inactive.`);
     } catch {
       setMessage("The project plan was not saved. Refresh the managed record before retrying.");
@@ -813,6 +834,7 @@ export function AgentMcpManagedPlanView({
     allPermissionsGranted,
     admittedTools,
     onServer,
+    onAcceptanceEvidence,
     projectSelectionChanged,
     selectedProject,
     server,
@@ -1026,6 +1048,7 @@ export function AgentMcpManagedPlanView({
       });
       mutationRequestIds.current.delete(retryKey);
       onServer(receipt.server);
+      onAcceptanceEvidence?.({ kind: "lifecycle", receipt });
       setMessage(action === "install" && receipt.server.installation_kind === "local_package"
         ? "Local package installed from its verified checksum. The bounded compatibility process stopped with verified process-tree cleanup; no host, retained connection, or tool authority remains."
         : action === "install"
@@ -1042,6 +1065,7 @@ export function AgentMcpManagedPlanView({
   }, [
     busy,
     lifecyclePreview,
+    onAcceptanceEvidence,
     onServer,
     retryRequestId,
     server.management_id,
@@ -1098,6 +1122,7 @@ export function AgentMcpManagedPlanView({
       });
       mutationRequestIds.current.delete(retryKey);
       onServer(receipt.server);
+      onAcceptanceEvidence?.({ kind: "update", receipt });
       setMessage("The exact target was checksum-verified, probed in isolation, and published. Its process tree is stopped; one verified rollback generation is retained.");
     } catch {
       setMessage("The update did not commit. Reload the exact preview; any ambiguous filesystem state remains blocked for explicit recovery.");
@@ -1105,7 +1130,7 @@ export function AgentMcpManagedPlanView({
     } finally {
       setBusy(null);
     }
-  }, [busy, onServer, retryRequestId, server.management_id, transport.applyMcpManagedLocalUpdate, updatePreview, userPresenceAvailable]);
+  }, [busy, onAcceptanceEvidence, onServer, retryRequestId, server.management_id, transport.applyMcpManagedLocalUpdate, updatePreview, userPresenceAvailable]);
 
   const applyRollback = useCallback(async () => {
     const mutate = transport.applyMcpManagedLocalRollback;
@@ -1122,6 +1147,7 @@ export function AgentMcpManagedPlanView({
       });
       mutationRequestIds.current.delete(retryKey);
       onServer(receipt.server);
+      onAcceptanceEvidence?.({ kind: "rollback", receipt });
       setMessage("The two verified package generations were atomically exchanged without starting a process. The superseded generation remains available for a reversible rollback.");
     } catch {
       setMessage("Rollback was not confirmed. Reload the exact preview or use the recovery journal if the operation is blocked.");
@@ -1129,7 +1155,7 @@ export function AgentMcpManagedPlanView({
     } finally {
       setBusy(null);
     }
-  }, [busy, onServer, retryRequestId, rollbackPreview, server.management_id, transport.applyMcpManagedLocalRollback, userPresenceAvailable]);
+  }, [busy, onAcceptanceEvidence, onServer, retryRequestId, rollbackPreview, server.management_id, transport.applyMcpManagedLocalRollback, userPresenceAvailable]);
 
   const cleanupRollback = useCallback(async () => {
     const mutate = transport.cleanupMcpManagedLocalRollback;
@@ -1146,6 +1172,7 @@ export function AgentMcpManagedPlanView({
       });
       mutationRequestIds.current.delete(retryKey);
       onServer(receipt.server);
+      onAcceptanceEvidence?.({ kind: "rollback_cleanup", receipt });
       setMessage(receipt.filesystem_changed
         ? "The exact retained rollback generation was verified and removed. The current package stayed installed and no process started."
         : "The retained generation was already absent; its durable record was finalized without starting a process.");
@@ -1155,7 +1182,7 @@ export function AgentMcpManagedPlanView({
     } finally {
       setBusy(null);
     }
-  }, [busy, onServer, retryRequestId, rollbackCleanupPreview, server.management_id, transport.cleanupMcpManagedLocalRollback, userPresenceAvailable]);
+  }, [busy, onAcceptanceEvidence, onServer, retryRequestId, rollbackCleanupPreview, server.management_id, transport.cleanupMcpManagedLocalRollback, userPresenceAvailable]);
 
   const recoverOperation = useCallback(async () => {
     const mutate = transport.recoverMcpManagedLocalOperation;
@@ -1232,6 +1259,17 @@ export function AgentMcpManagedPlanView({
         <div><dt>Tool routing</dt><dd>{server.tool_routing_state}</dd></div>
         <div><dt>Plan digest</dt><dd><code>{server.plan_revision.slice(0, 12)}</code></dd></div>
       </dl>
+
+      {onAcceptanceRunChange !== undefined && (
+        <AgentMcpAcceptancePanel
+          activeProjectId={preferredProjectId}
+          activeSessionId={activeSessionId}
+          eventHead={activeEventHead}
+          onRunChange={onAcceptanceRunChange}
+          run={acceptanceRun}
+          server={server}
+        />
+      )}
 
       {server.option_kind === "local_package" && server.installation_state === "not_installed" && (
         <section className="agent-mcp-managed__section" aria-labelledby="agent-mcp-managed-configuration-inspection-title">
@@ -1615,7 +1653,9 @@ export function AgentMcpManagedPlanView({
           </div>
         )}
         <AgentMcpManagedRuntimePanel
+          acceptanceEventHead={activeEventHead}
           binding={selectedBinding}
+          onAcceptanceEvidence={onAcceptanceEvidence}
           onRuntimeChange={onRuntimeChange}
           projectId={selectedProject}
           server={server}

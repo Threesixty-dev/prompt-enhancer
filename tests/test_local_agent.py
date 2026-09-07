@@ -1819,7 +1819,7 @@ def test_live_delta_pressure_never_evicts_durable_events(tmp_path: Path, monkeyp
         )
     retained = service.events(view.session_id).events
     assert [(item.kind, item.text) for item in retained if item.kind != "assistant_delta"] == [
-        ("status", "Session ready in project/ - reads are free; writes, commands and fetches wait for your approval."),
+        ("status", "Session ready in project/ - reads are free; every enabled protected action waits for separate approval."),
         ("status", "durable"),
     ]
 
@@ -2002,8 +2002,11 @@ def test_session_guards(tmp_path: Path) -> None:
     with pytest.raises(LocalAgentError) as outside:
         service.create(AgentSettings(workspace=str(Path(tmp_path).anchor)))
     assert outside.value.code in {"workspace_not_allowed", "workspace_is_a_drive_root"}
-    view = service.create(AgentSettings(workspace=str(root), allow_web=True))
-    assert any(t["function"]["name"] == "fetch_url" for t in tool_schemas(view.settings))
+    with pytest.raises(LocalAgentError) as unavailable_web:
+        service.create(AgentSettings(workspace=str(root), allow_web=True))
+    assert unavailable_web.value.code == "web_fetch_unavailable"
+    view = service.create(AgentSettings(workspace=str(root)))
+    assert all(t["function"]["name"] != "fetch_url" for t in tool_schemas(view.settings))
     with pytest.raises(LocalAgentError) as no_model:
         service.send(view.session_id, SendMessage(text="hello"))
     assert no_model.value.code == "no_active_model"
@@ -2226,6 +2229,14 @@ def test_http_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         f"/v1/agent/sessions/{runtime_race_id}", headers=headers
     ).status_code == 204
     active_alias[0] = "stub"
+    unsupported_web = client.post(
+        "/v1/agent/sessions",
+        headers=headers,
+        json={"workspace": str(root), "allow_web": True},
+    )
+    assert unsupported_web.status_code == 409
+    assert unsupported_web.json() == {"detail": {"code": "web_fetch_unavailable"}}
+    assert service.list() == ()
     created = client.post("/v1/agent/sessions", headers=headers, json={"workspace": str(root), "title": "demo"})
     assert created.status_code == 201, created.text
     session_id = created.json()["session_id"]

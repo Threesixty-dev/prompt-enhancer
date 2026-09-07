@@ -6,6 +6,7 @@ import type {
 } from "../../shared/api/contracts";
 import {
   SYNTHETIC_QUALITY_SESSION_ID,
+  SYNTHETIC_CURRENT_SESSION_QUALITY_RUN,
   SYNTHETIC_SESSION_METRIC_READINESS,
   SYNTHETIC_SESSION_QUALITY_RUN,
 } from "../../shared/api/syntheticFixtures";
@@ -91,6 +92,13 @@ const SYNTHETIC_EXACT_COMPATIBILITY: ProviderCompatibilityStatus = {
 };
 
 describe("QualityProfileView", () => {
+  it("does not present repeatable rule output as an accuracy claim", () => {
+    render(<QualityProfileView profile={promptProfile()} />);
+
+    expect(screen.getByText("Accuracy not established")).toBeInTheDocument();
+    expect(screen.getByText(/representative independent human holdout/i)).toBeInTheDocument();
+  });
+
   it("keeps an open analysis review bound to the transport captured by its opener", () => {
     const first = analysisFlow();
     const second = analysisFlow();
@@ -580,6 +588,56 @@ describe("QualityProfileView", () => {
     expect(
       screen.queryByText(/profile comparison and sharing are blocked/i),
     ).not.toBeInTheDocument();
+  });
+
+  it("labels an unresolved provider-adapter contract as unavailable without inventing a value", () => {
+    const detail = structuredClone(SYNTHETIC_CURRENT_SESSION_QUALITY_RUN);
+    const metric = detail.results.find(
+      (result) => result.key === "outcome.agent_claim_grounding",
+    )!;
+    metric.value_state = "unknown";
+    metric.numeric_value = null;
+    metric.fraction = null;
+    metric.observed_count = 0;
+    metric.eligible_count = 0;
+    metric.coverage = 0;
+    metric.explanation_code = "objective_verification_stream_required";
+    const profile = createQualityMetricProfile(
+      "reasoning",
+      detail,
+      SYNTHETIC_QUALITY_SESSION_ID,
+    )!;
+
+    render(<QualityProfileView profile={profile} />);
+
+    const card = screen.getByText("Agent claim grounding").closest("article")!;
+    expect(within(card).getByText("Provider adapter unavailable")).toBeInTheDocument();
+    expect(within(card).getByText(/agent prose, model estimates, and missing evidence never fill the value or become zero/i)).toBeInTheDocument();
+    expect(within(card).getByText("—")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["observed", "Rule candidate"],
+    ["partial", "Partial rule candidate"],
+    ["not-selected", "Not selected"],
+    ["incompatible", "Incompatible provenance"],
+  ] as const)("keeps a %s provider-gap status instead of relabeling it unavailable", (state, label) => {
+    const detail = structuredClone(SYNTHETIC_CURRENT_SESSION_QUALITY_RUN);
+    const profile = createQualityMetricProfile(
+      "reasoning",
+      detail,
+      SYNTHETIC_QUALITY_SESSION_ID,
+    )!;
+    const metric = profile.latest.metrics.find(
+      (candidate) => candidate.definition.key === "outcome.agent_claim_grounding",
+    )!;
+    metric.state = state;
+
+    render(<QualityProfileView profile={profile} />);
+
+    const card = screen.getByText("Agent claim grounding").closest("article")!;
+    expect(within(card).getByText(label)).toBeInTheDocument();
+    expect(within(card).queryByText("Provider adapter unavailable")).toBeNull();
   });
 
   it("does not allow sharing a no-run profile", () => {

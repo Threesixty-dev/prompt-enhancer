@@ -7,6 +7,7 @@ from pathlib import Path
 import hashlib
 import json
 import subprocess
+from threading import Event, Thread
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
@@ -515,6 +516,7 @@ def test_initialize_notification_and_tool_call_follow_streamable_http_contract(
     assert activity.last_tool_name == "agent_discover"
     assert activity.last_tool_outcome == "succeeded"
     assert activity.last_tool_source == "external_client"
+    assert service.list().tool_activity_sequences[0].sequence == 1
 
     self_test_headers = _headers(private.bearer_token)
     self_test_headers[AGENT_MCP_SELF_TEST_HEADER] = AGENT_MCP_SELF_TEST_HEADER_VALUE
@@ -534,6 +536,61 @@ def test_initialize_notification_and_tool_call_follow_streamable_http_contract(
     assert failed_activity.last_tool_name == "unknown_tool"
     assert failed_activity.last_tool_outcome == "failed"
     assert failed_activity.last_tool_source == "native_self_test"
+    assert service.list().tool_activity_sequences[0].sequence == 2
+
+
+def test_tool_admission_is_visible_before_the_blocking_http_call_completes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    entered = Event()
+    release = Event()
+    original_call = _SyntheticSurface.call
+
+    def blocking_call(self, name: str, arguments):  # noqa: ANN001
+        entered.set()
+        if not release.wait(timeout=5):
+            raise RuntimeError("synthetic release timeout")
+        return original_call(self, name, arguments)
+
+    monkeypatch.setattr(_SyntheticSurface, "call", blocking_call)
+    client, service, _now, _surface_requests = _harness(tmp_path)
+    private = _credential(service)
+    responses = []
+
+    def invoke() -> None:
+        responses.append(client.post(
+            "/mcp/agent",
+            headers=_headers(private.bearer_token),
+            json={
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {"name": "agent_discover", "arguments": {}},
+            },
+        ))
+
+    request_thread = Thread(target=invoke, daemon=True)
+    request_thread.start()
+    try:
+        assert entered.wait(timeout=3)
+        admitted = service.list().tool_activity_sequences[0]
+        assert admitted.sequence == 1
+        assert admitted.tool_name == "agent_discover"
+        assert admitted.tool_source == "external_client"
+        assert admitted.started_at == T0
+        assert admitted.completed_at is None
+        assert admitted.outcome is None
+        assert service.list().connections[0].last_tool_at is None
+    finally:
+        release.set()
+        request_thread.join(timeout=5)
+
+    assert not request_thread.is_alive()
+    assert responses[0].status_code == 200
+    completed = service.list().tool_activity_sequences[0]
+    assert completed.completed_at == T0
+    assert completed.outcome == "succeeded"
 
 
 def test_lifecycle_tool_is_scoped_per_connection(tmp_path: Path) -> None:
