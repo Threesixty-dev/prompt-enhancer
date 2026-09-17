@@ -550,8 +550,56 @@ def test_schema_twenty_three_migrates_without_inventing_ownership(
 ) -> None:
     database, _now, service = _seed(tmp_path)
     assert service.list().controller_ownerships.ownerships == ()
+
+    expected_rows = {
+        "projects": (PROJECT_A, PROJECT_B),
+        "sessions": ((SESSION_A, PROJECT_A),),
+        "connections": (
+            (CONNECTION_A, PROJECT_A),
+            (CONNECTION_B, PROJECT_A),
+            (CONNECTION_OTHER_PROJECT, PROJECT_B),
+        ),
+    }
+
+    def preserved_rows(connection: sqlite3.Connection) -> dict[str, tuple]:
+        return {
+            "projects": tuple(
+                row[0]
+                for row in connection.execute(
+                    "SELECT project_id FROM agent_projects ORDER BY project_id"
+                )
+            ),
+            "sessions": tuple(
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT session_id,project_id FROM agent_catalog_sessions "
+                    "ORDER BY session_id"
+                )
+            ),
+            "connections": tuple(
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT connection_id,scope_project_id FROM agent_mcp_connections "
+                    "ORDER BY connection_id"
+                )
+            ),
+        }
+
     with sqlite3.connect(database.path) as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
+        # Schemas 32/31 must be absent from a genuine v23 fixture. Leaving these
+        # current tables behind makes the forward migration fail on duplicate DDL.
+        connection.execute(
+            "DROP TABLE IF EXISTS agent_artifact_directory_move_resolutions"
+        )
+        connection.execute(
+            "DROP TABLE IF EXISTS agent_artifact_directory_move_intent_children"
+        )
+        connection.execute(
+            "DROP TABLE IF EXISTS agent_artifact_directory_move_intents"
+        )
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_fts")
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_messages")
         connection.execute(
             "DROP TRIGGER IF EXISTS mcp_managed_tool_call_receipts_immutable"
         )
@@ -578,6 +626,39 @@ def test_schema_twenty_three_migrates_without_inventing_ownership(
         )
         connection.execute("PRAGMA user_version=23")
 
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert tables.isdisjoint(
+            {
+                "agent_controller_ownerships",
+                "mcp_managed_tool_call_receipts",
+                "mcp_managed_host_action_receipts",
+                "mcp_managed_host_cleanup_blocks",
+                "mcp_managed_local_configuration_inspections",
+                "mcp_managed_tool_call_claims",
+                "agent_catalog_migration_checksums",
+                "agent_message_search_messages",
+                "agent_message_search_fts",
+                "agent_artifact_directory_move_intents",
+                "agent_artifact_directory_move_intent_children",
+                "agent_artifact_directory_move_resolutions",
+            }
+        )
+        assert "scope_project_id" in {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(agent_mcp_connections)")
+        }
+        assert connection.execute(
+            "SELECT MIN(version),MAX(version),COUNT(*) "
+            "FROM agent_catalog_schema_migrations"
+        ).fetchone() == (1, 23, 23)
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert preserved_rows(connection) == expected_rows
+
     migrated = AgentCatalogSqliteDatabase(database.path)
     assert migrated.initialize() == AGENT_CATALOG_SCHEMA_VERSION
     restarted = _connection_service(migrated, now=[T0], ids=("6" * 32,))
@@ -589,6 +670,7 @@ def test_schema_twenty_three_migrates_without_inventing_ownership(
         assert connection.execute("PRAGMA user_version").fetchone()[0] == (
             AGENT_CATALOG_SCHEMA_VERSION
         )
+        assert preserved_rows(connection) == expected_rows
 
 
 class _SyntheticOwnedController:
