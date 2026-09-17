@@ -72,6 +72,10 @@ __pycache__/
 htmlcov/
 dist/
 build/
+!/frontend/src/build/
+/frontend/src/build/*
+!/frontend/src/build/viteModuleInputInventory.ts
+!/frontend/src/build/viteModuleInputInventory.test.ts
 *.egg-info/
 
 # JavaScript / frontend
