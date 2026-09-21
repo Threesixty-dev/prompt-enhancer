@@ -6647,5 +6647,71 @@
       "sha256": "19be82a457da0c5d6ea619dde0d0bee4899a3d839a7416fc6b526305ea5d03c7",
       "size_bytes": 8375
     }
-  ]
+  ],
+  "reconciliation_addendum_2026_09_21": {
+    "contract": "b00b-worktree-reconciliation-addendum.v1",
+    "observed_date": "2026-09-21",
+    "observation_scope": "Pre-B00b-documentation working-tree observation.",
+    "source_commit": "fa95747cb8c7e73d0ac9656abd1a4d8e4d6dc044",
+    "custody_refresh": {
+      "result": "blocked_network_timeout",
+      "historical_visibility": "PRIVATE (historical observation only)",
+      "current_visibility": "unknown"
+    },
+    "current_status": {
+      "entry_count": 662,
+      "modified": 241,
+      "untracked": 421,
+      "all_646_original_entries_still_pending": true,
+      "removed_original_entries": 0,
+      "new_entries": 16,
+      "category_counts": {
+        "beta_implementation": 163,
+        "beta_tests_build_tooling": 417,
+        "documentation": 56,
+        "generated_output": 10,
+        "interrupted_or_incomplete": 2,
+        "unrelated_work": 14
+      }
+    },
+    "classification_binding": {
+      "original_entries": "All 646 original entries retain their dated classifications and historical hashes.",
+      "current_snapshot": "All 662 current entries are classified in the external pre-documentation snapshot; classification is triage, not content approval, test evidence or staging permission.",
+      "worktree_reconciliation_sha256": "f17ec9e34679122a8ba328b5246bca343338962a8b432160f3090d082c6af1d9",
+      "backend_evidence_index_sha256": "64e8a6a2172e771ff9a40f998208eb00034e29e21fee933a0f449b8aef2f032b",
+      "self_document_limitation": "The external digest binds the pre-documentation observation. This JSON cannot embed a digest of its own final post-addendum bytes."
+    },
+    "newly_classified_entries": [
+      {"path": "frontend/src/features/agent/AgentControllerPanel.test.tsx", "category": "beta_tests_build_tooling"},
+      {"path": "frontend/src/shared/api/agentMcpEndpointSelfTest.test.ts", "category": "beta_tests_build_tooling"},
+      {"path": "frontend/src/shared/api/agentMcpEndpointSelfTest.ts", "category": "beta_implementation"},
+      {"path": "frontend/src/shared/api/agentOrchestrationContract.test.ts", "category": "beta_tests_build_tooling"},
+      {"path": "frontend/src/shared/api/agentOrchestrationContract.ts", "category": "beta_implementation"},
+      {"path": "frontend/src/shared/api/agentOrchestrationFixtures.test-support.ts", "category": "beta_tests_build_tooling"},
+      {"path": "scripts/prepare_windows_stage_recipe.py", "category": "beta_tests_build_tooling"},
+      {"path": "src/prompt_enhancer/application/agent_orchestration.py", "category": "beta_implementation"},
+      {"path": "tests/support/agent_mcp_integration_harness.py", "category": "beta_tests_build_tooling"},
+      {"path": "tests/support/direct_agent_mcp_probe.py", "category": "beta_tests_build_tooling"},
+      {"path": "tests/test_agent_controller_cli.py", "category": "beta_tests_build_tooling"},
+      {"path": "tests/test_agent_controller_client.py", "category": "beta_tests_build_tooling"},
+      {"path": "tests/test_agent_mcp.py", "category": "beta_tests_build_tooling"},
+      {"path": "tests/test_agent_mcp_integration.py", "category": "beta_tests_build_tooling"},
+      {"path": "tests/test_agent_orchestration.py", "category": "beta_tests_build_tooling"},
+      {"path": "tests/test_direct_agent_mcp_probe.py", "category": "beta_tests_build_tooling"}
+    ],
+    "stage_recipe_validation": {
+      "result": "23 unique tests passed; 69 phase passes; zero failures, skips or retries; cleanup confirmed; all 983 bound inputs unchanged.",
+      "runner_receipt_sha256": "2e96d7482629bc71fd6d53a3567f68501d9327ecb0934f5500a23a38ff1503ea",
+      "journal_sha256": "cd31e014903718d45e9f8a2244e90339cb58943dab8db28567d6771d9dbf09f6",
+      "source_manifest_sha256": "ae4785ad05659f74dbcbe659b9ca6bd1ae71a331263a3bb999be9380263bea82",
+      "limitation": "Synthetic recipe-unit evidence only; the untracked recipe/dependency closure is not a coherent recipe-only commit and this is not package, native, model or release acceptance."
+    },
+    "privacy_validation": {
+      "batch_id": "b00b-privacy-01",
+      "result": "8 unique tests passed (full-checkout scanner plus seven canaries); zero failures, skips or retries; 27.750 seconds; cleanup confirmed; bound source unchanged.",
+      "runner_receipt_sha256": "b074deb51f345c2e634ed576590f564d169e520a91d422d316644670223a08c1",
+      "full_git_diff_check_exit_code": 0
+    },
+    "source_control_disposition": "The reviewed commit scope is exactly this inventory and the authoritative readiness ledger. Any resulting local commit is identified by Git history and handoff rather than embedded here. Product/test groups remain held and no publication is authorized or claimed."
+  }
 }

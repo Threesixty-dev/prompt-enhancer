@@ -1,6 +1,6 @@
 # Product feature and readiness matrix
 
-Updated 2026-09-17 for checkpoint B00. This is the authoritative beta ledger,
+Updated 2026-09-21 for checkpoint B00. This is the authoritative beta ledger,
 not a release certification. The filename is retained to preserve existing links.
 It distinguishes code present in this working tree from a product a new user can
 install, sign into, or buy. The repository's synthetic fixtures and local tests
@@ -339,17 +339,146 @@ them blindly or weaken exhaustive coverage. A separately scoped repair must make
 the selected controller-route contract and its explicit private/UI exclusions
 truthful; no production or orchestration-test change was made here.
 
-The real-listener `tests/test_agent_mcp_integration.py` remains deliberately held:
-all three tests first attempt personal port 8766 before ephemeral fallback, and
-one uses direct `subprocess.run` rather than the shared owned-process helper. The
-passing five-module MCP batch above is fixture/in-process evidence only and does
-not absorb those listener/process risks.
+At this review point, the real-listener `tests/test_agent_mcp_integration.py` was
+deliberately held: all three tests first attempted personal port 8766 before
+ephemeral fallback, and one used direct `subprocess.run` rather than the shared
+owned-process helper. The passing five-module MCP batch above was
+fixture/in-process evidence only and did not absorb those listener/process risks.
+That historical hold was repaired and closed by B00a below.
 
-After root review, cached-diff inspection and a passing privacy scan, exactly the
-receipt plugin and its focused test were committed locally as
+### B00 route-contract and metric validation — September 21
+
+The known orchestration coverage failure is closed in the current dirty source
+tree. local-agent-orchestration.v23 truthfully declares a selected surface of 72
+Agent routes plus five controller runtime routes. The route test partitions all
+75 actual Agent routes across every OpenAPI HTTP verb into those 72 declared controller
+routes and three explicit non-controller exclusions: web-fetch capability
+metadata, private body-only message search, and UI-only session-parameter
+control. Server and frontend validators reject those excluded paths; controller
+and MCP regressions refuse message search. No callable route, permission, native
+approval boundary or runtime-selection authority was added. The server,
+frontend parser/self-test, generated OpenAPI and API types moved together to
+v23; v22 clients require a matching update.
+
+These are independent scoped receipts and are **not** added to the historical
+488-pass baseline subtotal:
+
+| Receipt | Result | Scope / limit |
+| --- | --- | --- |
+| route-contract-20260921-01 | 139 passed, zero failed/skipped in 142.391s | Current-tree unit, in-process API, controller, MCP and OpenAPI selection; 955 bound input hashes unchanged; source-inputs SHA-256 ac9fdde7673e3c4b9692543f844053a40cf25ad0267eb9d3613c8223db0bd103; journal 5dda7c22f3106d3c312fe70775afd84bd97349d97b1e841038ad8b85e8282361. |
+| route-ui-20260921-01 | 264 component tests passed in 38.781s; app TypeScript passed in 28.25s | Frontend contract/controller/MCP/transport scope; 748 input hashes unchanged; source-inputs SHA-256 5554bcecb9ab730e2cf8ac34eacea69c95aa8c5ff3a26f5bfd69c5c4ec4e4fa1; headless runner used no config cache and TypeScript state was external. |
+| route-api-types-20260921-01 | check:api passed in 9.406s | Generated API type equality for the scoped contract change; input hashes unchanged. |
+| metric-truth-20260921-01 | 50 tests across nine modules passed in 76.484s | Unknown versus zero, denominators/coverage, timestamp basis, provenance, SQLite/API/publication and 20-contract operability; journal f801add48dfd4564d5d06383319f3e36824e6d2bbef811c26e3849c40a2f2e86. |
+| metric-ui-20260921-01 | 72 component tests passed in 50s | Metric, radar and coverage rendering only. |
+| metric-browser-20260921-01 | 12 headless Chromium fixture tests passed in 13.578s; zero failed/flaky/skipped | Narrow 360px and desktop 1440px, keyboard, zero/unknown, stale/retry and cancellation; isolated port 14873 was released. |
+
+The scoped totals are 189 backend tests, 336 component tests and 12 browser
+tests; they are not a full quality gate. All owned processes were hidden and
+cleaned up. No native-window monitor 2/3 acceptance, model/GPU, real provider
+read, app restart, hook, package, release candidate or Blueprint/workflow
+implementation was exercised. Metric evidence used an immutable prior snapshot
+whose 952 backend and 748 frontend inputs were compared with current inputs
+before this repair; only an unrelated reviewed ownership fixture differed. The
+current-tree source integration base was HEAD
+fa95747cb8c7e73d0ac9656abd1a4d8e4d6dc044; there is no RC or artifact digest.
+Receipt route-final-privacy-20260921-01 records the full current-checkout privacy
+scan passing with zero findings in 27.953s, exit 0 and confirmed cleanup.
+git diff --check also passed; nothing was staged, committed or pushed, and 660
+pending files remained after this slice.
+
+### B00a held Agent MCP integration harness safety — September 21
+
+B00a is closed. The held Agent MCP integration harness now continuously owns an
+OS-assigned loopback socket from reservation through server startup, requires an
+explicit validated probe endpoint, and runs child probes through the shared
+hidden, bounded owned-process boundary. Synthetic child homes, provider roots,
+caches and temporary paths are isolated. No user runtime or personal port was
+contacted, and no product source behavior changed.
+
+These current-checkout receipts are independent scoped evidence and are not
+added to the historical 488-pass baseline subtotal:
+
+| Receipt | Result | Scope / limit |
+| --- | --- | --- |
+| `b00a-regression-01` | 6 passed, zero failed/skipped in 9.437s | Listener handoff/setup-failure, explicit endpoint, no-redirect/bounded response, and owned-process success/nonzero/overflow/spawn/timeout cleanup regressions; runner receipt SHA-256 `68a1653cf12ec4ad9857fd8f865ee0f4dfd6379f0a73b582a3bc369c6bf8ac56`. |
+| `b00a-integration-01` | 4 passed, zero failed/skipped in 59.594s | Exact real owned-loopback Agent MCP selection, including authentication, revocation/negative behavior, stdio protocol and reviewed synthetic workspace transactions; runner receipt SHA-256 `2d81b6fcea3c4d7c1103c05b8554cf68f4fc50da75b5265909dd8c53dcbcc627`. |
+| `b00a-privacy-01` | 8 passed, zero failed/skipped in 42.406s | Full-checkout privacy scanner plus its seven canary tests; runner receipt SHA-256 `1a38a860eb11a844ba4f413617dd48cdda428a6521420aaf73f50030325ced03`. |
+
+All 18 tests passed on their initial execution with no corrections or retries;
+owned cleanup was confirmed. The runner's bound files were unchanged within
+each batch. A separate before/after hash covered 983 files total: the
+source/test/script Python files plus `pyproject.toml` and `uv.lock`; both trees were SHA-256
+`290b71157da83767e186ece757589492cccc82c3c151803bd6c54ddd53578a4e` at
+HEAD `fa95747cb8c7e73d0ac9656abd1a4d8e4d6dc044`. This is source/test evidence,
+not a release artifact. A read-only pre-edit/current reproduction also confirmed
+that the old probe accepted a missing endpoint while the repaired probe rejected
+it before socket use; no network was executed.
+
+The integration tests issue presence capabilities directly from the in-process
+test approval manager. They do **not** prove a genuine native approval dialog,
+packaged application, model/GPU path or release candidate. There is no artifact
+digest, commit or push for B00a. B00 remains blocked: the next bounded checkpoint
+is B00b, the unresolved baseline/failure inventory and reviewed custody work.
+B01 and W00–W08, including the required Blueprint-style workflows, remain not
+started.
+
+Historically, before B00a, root review, cached-diff inspection and a passing
+privacy scan led to exactly the receipt plugin and its focused test being
+committed locally as
 `d070f79cba823d47ef55edb956df3beacd132ea7`. Nothing was pushed. This coherent
 two-file tooling commit makes failure evidence durable; it does not accept the
 whole dirty baseline, complete the backend suite, or advance W00.
+
+### B00b baseline evidence reconciliation — September 21
+
+B00b's finite reconciliation is complete; **B00 remains blocked and is not
+accepted**. The pre-documentation observation has 662 pending entries: all 646
+September 16 entries remain pending with their dated classifications, plus 16
+newly classified paths. Totals are 241 modified and 421 untracked: 163 beta
+implementation, 417 tests/build tooling, 56 documentation, 10 generated output,
+two interrupted/incomplete and 14 unrelated-work entries. Classification is
+triage, not content approval, test evidence or staging permission. The existing
+[B00 inventory](beta-b00-worktree-inventory-2026-09-16.json) contains the dated
+addendum; the complete external snapshot is SHA-256
+`f17ec9e34679122a8ba328b5246bca343338962a8b432160f3090d082c6af1d9`.
+
+The external 24-receipt backend index is SHA-256
+`64e8a6a2172e771ff9a40f998208eb00034e29e21fee933a0f449b8aef2f032b`.
+The interrupted 7,606-test legacy run still has only 3,668 passed, 25 failed and
+seven skipped phase-report counts. No final journal exists, so its exact failure
+and skip IDs, unique outcomes and unexecuted set are unavailable. All 25 old
+failed reports remain unknown. The two failure IDs in later journals belong to
+separate selections and do not identify or reduce that count. A separate
+post-timeout observation confirmed owned-tree and isolated-port cleanup only; it
+does not turn the timeout or any test into a pass.
+
+The one approved current selection, `tests/test_windows_stage_recipe.py`, passed
+23 unique synthetic tests on its first run: 69 passed phase reports, zero
+failures/skips/retries, completed termination, no active ID, confirmed cleanup
+and all 983 bound inputs unchanged. Receipt SHA-256 is
+`2e96d7482629bc71fd6d53a3567f68501d9327ecb0934f5500a23a38ff1503ea`;
+journal `cd31e014903718d45e9f8a2244e90339cb58943dab8db28567d6771d9dbf09f6`;
+input manifest `ae4785ad05659f74dbcbe659b9ca6bd1ae71a331263a3bb999be9380263bea82`.
+This is recipe-unit evidence, not a coherent recipe-only commit or package,
+native, model/GPU, installation or release acceptance.
+
+The final B00b privacy batch `b00b-privacy-01` passed eight unique tests—the
+full-checkout scanner and seven canaries—with zero failures, skips or retries in
+27.750s. Cleanup was confirmed and the bound source was unchanged. Runner
+receipt SHA-256 is
+`b074deb51f345c2e634ed576590f564d169e520a91d422d316644670223a08c1`.
+The full `git diff --check` also exited 0. These checks cover the observed dirty
+checkout and documentation diff; they do not accept the whole baseline.
+
+Both read-only custody-refresh interfaces timed out. Historical PRIVATE remains
+historical, current visibility is unknown, and no publication or visibility
+mutation occurred. Current coverage beyond the bound B00a/B00b selections is
+unverified; full-suite collection/rerun, personal provider/app state, fixed user
+ports, native windows, model/GPU and package/release paths remain safety-held.
+Product/test commits remain held across route/generated-contract/untracked
+dependency boundaries. The reviewed commit scope is exactly this ledger and the
+dated inventory addendum. Any resulting local commit is identified by Git history
+and handoff rather than embedded here; no publication is authorized or claimed.
 
 ### Evidence corrections that supersede older wording
 
@@ -383,7 +512,7 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | Classified/preserved; frontend custody group committed locally; remaining source groups outstanding | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / repository + source baseline | Resolve exact baseline blockers, review/stage coherent groups only after gates; stop for owner review. |
+| B00: recoverable, private, reviewed baseline | Required | B00b classified/preserved 662 pending entries; frontend custody group committed locally; remaining source groups outstanding | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / 25 legacy failed reports remain unmapped; custody refresh network-blocked | Obtain current custody evidence, add fresh bounded backend coverage and review/stage coherent groups only after gates. |
 | B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
 | B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
 | B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
@@ -404,11 +533,17 @@ their original code/artifact scope and cannot close these rows automatically.
 1. **B00 / P1 — incomplete backend baseline and missing failure index:** 7,606
    tests collected; the 30-minute run ended with last-saved counts of 25 failed
    reports and no final per-test receipt. The durable incremental recorder is now
-   implemented and validated. Current deduplicated selections have 488 passes
-   and one exact orchestration-contract failure; the old 25 failed reports remain
-   unmapped. Continue bounded incremental coverage to obtain exact actionable
-   failures. Do not increase the timeout, blindly repeat the full suite, infer
-   causes from counts, or broaden into unrelated product implementation.
+   implemented and validated. Historical deduplicated selections have 488 passes;
+   the exact orchestration-contract failure is closed by the independent September
+   21 receipts above, while the old 25 failed reports remain unmapped and cannot
+   be recovered from counts. B00a closed
+   the held MCP harness defects with 6 regression, 4 real owned-listener integration
+   and 8 privacy tests passing under bounded cleanup. B00b reconciled the 662-entry
+   classification and existing receipts; its one approved recipe selection passed
+   23 tests, but this does not complete the current backend baseline. Continue
+   fresh bounded coverage and reviewed custody.
+   Do not increase the timeout, blindly repeat the full suite, infer causes from
+   counts, or broaden into unrelated product implementation.
 2. **B00 — browser evidence boundary:** all four identified failures now pass
    after the bounded fixture/spec repair above. Six original skips remain skips;
    the full suite was not repeated after changing only these test inputs. Record
