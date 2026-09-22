@@ -17,6 +17,8 @@ import type {
   TaskAnalysisResponse,
   TaskRevision,
   TaskReviewResponse,
+  AgentMessageSearchRequest,
+  AgentMessageSearchResult,
 } from "./contracts";
 import type { SyntheticRuntimeTransport } from "../platform/runtimeMode";
 import {
@@ -623,6 +625,7 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async updateAgentProject() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async deleteAgentProject() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async listAgentCatalogSessions() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async searchAgentSavedMessages() { throw new TransportError("Saved-message search is unavailable in synthetic preview", 404); },
     async getAgentCatalogSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async updateAgentCatalogSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async deleteAgentCatalogSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
@@ -644,6 +647,7 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async getAgentSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async getAgentSessionContext() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async switchAgentSessionModel() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async updateAgentSessionParameters() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async revalidateAgentAuthority() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async deleteAgentSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async listAgentAttachments() { throw new TransportError("Agent attachments are unavailable in synthetic preview", 404); },

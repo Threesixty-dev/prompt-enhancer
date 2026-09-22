@@ -1,9 +1,10 @@
-"""Authenticated, content-free requirement-verification evidence routes.
+"""Authenticated requirement-verification evidence routes.
 
 Objective-verifier results arrive only as complete app-issued keyed records.
 Explicit acceptance is a separate measurement authority and therefore also
 requires the owned native browser user-presence dependency supplied by the
-composition root.
+composition root. Durable evidence is content-free; the native-only review
+route returns one expiring local clause solely for the explicit human review.
 """
 
 from __future__ import annotations
@@ -31,7 +32,20 @@ from ...application.analysis.requirement_verification_persistence import (
     RequirementVerificationNotFoundError,
     RequirementVerificationPersistenceError,
     RequirementVerificationResultAppendCommand,
+    ObservedCheckResultIssueCommand,
+    ObservedCheckAuthorityProvenance,
     RequirementVerificationStaleWindowError,
+)
+from ...application.analysis.requirement_verification_review import (
+    OBSERVED_CHECK_ISSUE_CONFIRMATION,
+    OBSERVED_CHECK_REVIEW_CONFIRMATION,
+    ObservedCheckCandidateManifest,
+    ObservedCheckCriterionReview,
+    REQUIREMENT_VERIFICATION_REVIEW_CONFIRMATION,
+    RequirementVerificationOpportunityReview,
+    RequirementVerificationReviewConflictError,
+    RequirementVerificationReviewUnavailableError,
+    RequirementVerificationReviewService,
 )
 from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, StrictModel
 from .browser_session import BROWSER_SESSION_COOKIE, CSRF_HEADER
@@ -70,6 +84,18 @@ class RequirementVerificationEvidenceCommand(Protocol):
         idempotency_key: str,
     ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]: ...
 
+    def append_observed_check_result(
+        self,
+        *,
+        session_id: str,
+        command: ObservedCheckResultIssueCommand,
+        idempotency_key: str,
+    ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]: ...
+
+    def observed_check_provenance(
+        self, session_id: str, authority_record_id: str
+    ) -> ObservedCheckAuthorityProvenance: ...
+
 
 class RequirementVerificationEvidenceSnapshotDto(StrictModel):
     """Public snapshot with no persistence command or raw-content fields."""
@@ -100,6 +126,42 @@ class RequirementVerificationEvidenceSnapshotDto(StrictModel):
 class RequirementVerificationEvidenceMutationDto(StrictModel):
     snapshot: RequirementVerificationEvidenceSnapshotDto
     applied: bool
+
+
+class RequirementVerificationReviewCommand(StrictModel):
+    expected_source_run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    through_revision: int = Field(ge=0, le=MAX_REQUIREMENT_VERIFICATION_REVISIONS)
+    expected_predecessor_authority_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    confirmation: Literal[REQUIREMENT_VERIFICATION_REVIEW_CONFIRMATION]
+
+
+class ObservedCheckPreflightCommand(StrictModel):
+    expected_source_run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    through_revision: int = Field(ge=0, le=MAX_REQUIREMENT_VERIFICATION_REVISIONS)
+    expected_predecessor_authority_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+
+
+class ObservedCheckReviewCommand(ObservedCheckPreflightCommand):
+    candidate_manifest_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    confirmation: Literal[OBSERVED_CHECK_REVIEW_CONFIRMATION]
+
+
+class ObservedCheckIssueRequest(StrictModel):
+    expected_source_run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    source_window_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    through_revision: int = Field(ge=0, le=MAX_REQUIREMENT_VERIFICATION_REVISIONS)
+    expected_predecessor_authority_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    candidate_manifest_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    review_receipt_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    review_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    full_criterion_coverage_acknowledged: Literal[True]
+    confirmation: Literal[OBSERVED_CHECK_ISSUE_CONFIRMATION]
 
 
 class RequirementVerificationServiceErrorDetailDto(StrictModel):
@@ -292,6 +354,7 @@ def create_requirement_verification_evidence_router(
     require_local_auth: Callable[..., None],
     require_user_confirmation: Callable[..., None],
     service: RequirementVerificationEvidenceCommand,
+    review_service: RequirementVerificationReviewService | None = None,
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
@@ -302,6 +365,171 @@ def create_requirement_verification_evidence_router(
         prefix="/v1",
         tags=["requirement-verification-evidence"],
     )
+
+    @native_router.post(
+        "/sessions/{session_id}/requirement-verification-evidence/"
+        "opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/review",
+        response_model=RequirementVerificationOpportunityReview,
+        responses=_native_acceptance_error_responses(),
+        dependencies=[Depends(require_user_confirmation)],
+        openapi_extra=_NATIVE_ACCEPTANCE_OPENAPI_EXTRA,
+    )
+    def review_opportunity(
+        command: RequirementVerificationReviewCommand,
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        opportunity_set_fingerprint: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        opportunity_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> RequirementVerificationOpportunityReview:
+        response.headers.update(_PRIVATE_HEADERS)
+        if review_service is None:
+            raise HTTPException(503, detail="user-presence confirmation is unavailable", headers=_PRIVATE_HEADERS)
+        try:
+            return review_service.open(
+                session_id=session_id,
+                opportunity_set_fingerprint=opportunity_set_fingerprint,
+                opportunity_id=opportunity_id,
+                expected_source_run_id=command.expected_source_run_id,
+                through_revision=command.through_revision,
+                expected_predecessor_authority_id=command.expected_predecessor_authority_id,
+            )
+        except RequirementVerificationReviewConflictError:
+            raise HTTPException(409, detail={"code": "requirement_verification_evidence_conflict", "message": "requirement-verification authority changed"}, headers=_PRIVATE_HEADERS) from None
+        except RequirementVerificationReviewUnavailableError:
+            raise HTTPException(503, detail={"code": "requirement_verification_evidence_persistence_failed", "message": "requirement-verification evidence is unavailable"}, headers=_PRIVATE_HEADERS) from None
+        except Exception:
+            raise HTTPException(503, detail={"code": "requirement_verification_evidence_persistence_failed", "message": "requirement-verification evidence is unavailable"}, headers=_PRIVATE_HEADERS) from None
+
+    @router.post(
+        "/sessions/{session_id}/requirement-verification-evidence/"
+        "opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/"
+        "observed-checks/preflight",
+        response_model=ObservedCheckCandidateManifest,
+        responses=_read_error_responses(),
+    )
+    def observed_check_preflight(
+        command: ObservedCheckPreflightCommand,
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        opportunity_set_fingerprint: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        opportunity_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ObservedCheckCandidateManifest:
+        response.headers.update(_PRIVATE_HEADERS)
+        if review_service is None:
+            raise HTTPException(503, detail={"code": "requirement_verification_evidence_persistence_failed", "message": "requirement-verification evidence is unavailable"}, headers=_PRIVATE_HEADERS)
+        try:
+            return review_service.observed_candidates(
+                session_id=session_id,
+                opportunity_set_fingerprint=opportunity_set_fingerprint,
+                opportunity_id=opportunity_id,
+                expected_source_run_id=command.expected_source_run_id,
+                through_revision=command.through_revision,
+                expected_predecessor_authority_id=command.expected_predecessor_authority_id,
+            )
+        except RequirementVerificationReviewConflictError:
+            raise HTTPException(409, detail={"code": "requirement_verification_evidence_conflict", "message": "requirement-verification authority changed"}, headers=_PRIVATE_HEADERS) from None
+        except RequirementVerificationReviewUnavailableError:
+            raise HTTPException(503, detail={"code": "requirement_verification_evidence_persistence_failed", "message": "requirement-verification evidence is unavailable"}, headers=_PRIVATE_HEADERS) from None
+
+    @native_router.post(
+        "/sessions/{session_id}/requirement-verification-evidence/"
+        "opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/"
+        "observed-checks/{candidate_id}/review",
+        response_model=ObservedCheckCriterionReview,
+        responses=_native_acceptance_error_responses(),
+        dependencies=[Depends(require_user_confirmation)],
+        openapi_extra=_NATIVE_ACCEPTANCE_OPENAPI_EXTRA,
+    )
+    def review_observed_check(
+        command: ObservedCheckReviewCommand,
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        opportunity_set_fingerprint: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        opportunity_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        candidate_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ObservedCheckCriterionReview:
+        response.headers.update(_PRIVATE_HEADERS)
+        if review_service is None:
+            raise HTTPException(503, detail="user-presence confirmation is unavailable", headers=_PRIVATE_HEADERS)
+        try:
+            return review_service.open_observed_check(
+                session_id=session_id,
+                opportunity_set_fingerprint=opportunity_set_fingerprint,
+                opportunity_id=opportunity_id,
+                candidate_id=candidate_id,
+                expected_source_run_id=command.expected_source_run_id,
+                through_revision=command.through_revision,
+                expected_predecessor_authority_id=command.expected_predecessor_authority_id,
+                candidate_manifest_fingerprint=command.candidate_manifest_fingerprint,
+            )
+        except RequirementVerificationReviewConflictError:
+            raise HTTPException(409, detail={"code": "requirement_verification_evidence_conflict", "message": "requirement-verification authority changed"}, headers=_PRIVATE_HEADERS) from None
+        except RequirementVerificationReviewUnavailableError:
+            raise HTTPException(503, detail={"code": "requirement_verification_evidence_persistence_failed", "message": "requirement-verification evidence is unavailable"}, headers=_PRIVATE_HEADERS) from None
+
+    @native_router.post(
+        "/sessions/{session_id}/requirement-verification-evidence/"
+        "opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/"
+        "observed-checks/{candidate_id}/issue",
+        response_model=RequirementVerificationEvidenceMutationDto,
+        responses={201: {"model": RequirementVerificationEvidenceMutationDto}, **_native_acceptance_error_responses()},
+        dependencies=[Depends(require_user_confirmation)],
+        openapi_extra=_NATIVE_ACCEPTANCE_OPENAPI_EXTRA,
+    )
+    def issue_observed_check(
+        command: ObservedCheckIssueRequest,
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        opportunity_set_fingerprint: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        opportunity_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        candidate_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=MIN_REQUIREMENT_VERIFICATION_IDEMPOTENCY_KEY_LENGTH, max_length=MAX_REQUIREMENT_VERIFICATION_IDEMPOTENCY_KEY_LENGTH, pattern=SAFE_VERSION_PATTERN.pattern)],
+    ) -> RequirementVerificationEvidenceMutationDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            result, applied = service.append_observed_check_result(
+                session_id=session_id,
+                command=ObservedCheckResultIssueCommand(
+                    opportunity_set_fingerprint=opportunity_set_fingerprint,
+                    opportunity_id=opportunity_id,
+                    candidate_id=candidate_id,
+                    **command.model_dump(mode="python"),
+                ),
+                idempotency_key=idempotency_key,
+            )
+        except (RequirementVerificationConflictError, RequirementVerificationDefinitionsOutOfDateError, RequirementVerificationInputError, RequirementVerificationNotFoundError, RequirementVerificationPersistenceError, RequirementVerificationStaleWindowError) as error:
+            raise _failure(error) from None
+        response.status_code = 201 if applied else 200
+        return RequirementVerificationEvidenceMutationDto(
+            snapshot=RequirementVerificationEvidenceSnapshotDto.from_snapshot(result),
+            applied=applied,
+        )
+
+    @router.get(
+        "/sessions/{session_id}/requirement-verification-evidence/"
+        "objective-results/{authority_record_id}/observed-check-provenance",
+        response_model=ObservedCheckAuthorityProvenance,
+        responses=_read_error_responses(),
+    )
+    def observed_check_provenance(
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        authority_record_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ObservedCheckAuthorityProvenance:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            return service.observed_check_provenance(
+                session_id, authority_record_id
+            )
+        except (
+            RequirementVerificationConflictError,
+            RequirementVerificationDefinitionsOutOfDateError,
+            RequirementVerificationInputError,
+            RequirementVerificationNotFoundError,
+            RequirementVerificationPersistenceError,
+            RequirementVerificationStaleWindowError,
+        ) as error:
+            raise _failure(error) from None
 
     @router.post(
         "/sessions/{session_id}/requirement-verification-evidence/"
@@ -471,5 +699,9 @@ __all__ = (
     "RequirementVerificationServiceErrorDetailDto",
     "RequirementVerificationServiceErrorDto",
     "RequirementVerificationEvidenceSnapshotDto",
+    "RequirementVerificationReviewCommand",
+    "ObservedCheckIssueRequest",
+    "ObservedCheckPreflightCommand",
+    "ObservedCheckReviewCommand",
     "create_requirement_verification_evidence_router",
 )

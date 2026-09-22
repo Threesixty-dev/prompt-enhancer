@@ -18,6 +18,43 @@
   display: block;
 }
 
+.metric-operability--state button,
+.metric-operability__notice button,
+.metric-operability__refresh {
+  width: fit-content;
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid var(--teal-700);
+  border-radius: 9px;
+  color: var(--teal-700);
+  background: transparent;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.metric-operability--state button:focus-visible,
+.metric-operability__notice button:focus-visible,
+.metric-operability__refresh:focus-visible {
+  outline: 2px solid var(--teal-700);
+  outline-offset: 2px;
+}
+
+.metric-operability__notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  color: var(--ink-700);
+  background: var(--surface-soft);
+}
+
+.metric-operability__refresh {
+  justify-self: start;
+}
+
 .metric-operability--state strong {
   color: var(--ink-900);
   margin-bottom: 5px;

@@ -36,6 +36,8 @@ from ...application.agent_catalog import (
     AgentCatalogSessionPage,
     AgentCatalogSessionList,
     AgentCatalogSessionRecord,
+    AgentMessageSearchPage,
+    AgentMessageSearchRequest,
     AgentHistoryExport,
     AgentSessionForkReceipt,
     AgentProjectList,
@@ -61,6 +63,7 @@ from ...application.agent_orchestration import (
     agent_orchestration_manifest,
 )
 from ...application.agent_session_context import AgentSessionContextStatus
+from ...application.governed_web_fetch import AgentWebFetchCapability
 from ...application.local_agent import (
     AgentEvents,
     AgentLifecycleProposal,
@@ -77,6 +80,7 @@ from ...application.local_agent import (
     RevalidateAgentAuthority,
     SendMessage,
     SwitchAgentSessionModel,
+    UpdateAgentSessionParameters,
 )
 from ...application.local_agent_changes import (
     AgentChangeDiff,
@@ -234,12 +238,17 @@ _STATUS = {
     "agent_catalog_session_not_found": 404,
     "agent_catalog_session_conflict": 409,
     "agent_catalog_session_revision_conflict": 409,
+    "agent_session_parameters_conflict": 409,
     "agent_catalog_session_live": 409,
     "too_many_agent_catalog_sessions": 409,
     "agent_catalog_page_invalid": 422,
     "agent_catalog_page_snapshot_required": 422,
     "agent_catalog_page_snapshot_conflict": 409,
     "agent_catalog_page_out_of_range": 409,
+    "agent_message_search_snapshot_conflict": 409,
+    "agent_message_search_page_out_of_range": 409,
+    "agent_message_search_unavailable": 503,
+    "agent_message_search_corrupt": 503,
     "agent_catalog_session_archived": 409,
     "agent_history_not_retained": 409,
     "agent_history_revision_conflict": 409,
@@ -485,6 +494,12 @@ def create_local_agent_router(
         response.headers["Cache-Control"] = "no-store, private"
         response.headers["Pragma"] = "no-cache"
         return agent_orchestration_manifest()
+
+    @router.get("/web-fetch-capability", response_model=AgentWebFetchCapability)
+    def web_fetch_capability(response: Response) -> AgentWebFetchCapability:
+        """Content-free availability only; it never grants per-fetch authority."""
+        _private(response)
+        return service.web_fetch_capability()
 
     @router.get("/projects", response_model=AgentProjectList)
     def list_projects(
@@ -1007,6 +1022,22 @@ def create_local_agent_router(
             }
         )
 
+    @router.post(
+        "/catalog/sessions/message-search",
+        response_model=AgentMessageSearchPage,
+    )
+    def search_catalog_messages(
+        payload: AgentMessageSearchRequest,
+        response: Response,
+    ) -> AgentMessageSearchPage:
+        # The query is body-only and this response is private. Do not add this
+        # operation to the orchestration/MCP surface or an export contract.
+        _private(response)
+        try:
+            return _catalog(service).search_messages(request=payload)
+        except AgentCatalogError as error:
+            raise _catalog_failure(error) from None
+
     @router.get("/catalog/sessions/page", response_model=AgentCatalogSessionPage)
     def page_catalog_sessions(
         response: Response,
@@ -1153,6 +1184,19 @@ def create_local_agent_router(
     ) -> AgentSessionView:
         try:
             return service.switch_model(session_id, payload)
+        except LocalAgentError as error:
+            raise _failure(error) from None
+
+    @router.put(
+        "/sessions/{session_id}/parameters",
+        response_model=AgentSessionView,
+    )
+    def update_session_parameters(
+        session_id: Annotated[str, Path(pattern=_SESSION_ID)],
+        payload: UpdateAgentSessionParameters,
+    ) -> AgentSessionView:
+        try:
+            return service.update_parameters(session_id, payload)
         except LocalAgentError as error:
             raise _failure(error) from None
 

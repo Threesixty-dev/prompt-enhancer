@@ -17,9 +17,9 @@ It reports the exact counts below and is private/non-cacheable.
 
 | Gate | Count |
 |---|---:|
-| Shipped measured path when its evidence exists | 16 |
+| Shipped measured path when its evidence exists | 18 |
 | Task-profile configuration still required | 0 |
-| Provider/extractor or release composition still required | 4 |
+| Provider/extractor or release composition still required | 2 |
 | Experimental model-estimate path | 8 |
 | Metrics for which a model may author the measured value | 0 |
 
@@ -41,17 +41,36 @@ It reports the exact counts below and is private/non-cacheable.
 | `logic.decomposition_coverage` | Native-confirmed complete user-clause classification plus active-requirement-to-plan evidence | Available when evidence exists | Yes |
 | `logic.hypothesis_test_linkage` | Typed opportunity, link, and outcome receipts | Provider adapter required | No |
 | `logic.decision_rationale_coverage` | Documented decision semantic units | Available when evidence exists | Yes |
-| `logic.requirement_action_traceability` | Native-reviewed r6 active requirements plus an app-issued complete safe-action manifest, ephemeral redacted action details, and reviewed links/outcomes | Provider adapter required (no promoted provider yet proves the complete review surface) | No |
+| `logic.requirement_action_traceability` | Native-reviewed r6 active requirements plus an app-issued complete safe-action manifest, ephemeral redacted action details, and reviewed links/outcomes | Available when evidence exists for the scoped complete-Claude-transcript, confirmed-plan, native-reviewed-link path | No |
 | `logic.open_loop_closure` | Explicit plan-to-superseding-action link | Available when evidence exists | No |
 | `outcome.agent_claim_grounding` | Typed opportunity, link, and outcome receipts | Provider adapter required | No |
 | `outcome.verification_strategy_adequacy` | Documented verification-strategy semantic units | Available when evidence exists | No |
 | `outcome.first_pass_verification` | Reviewed task plus task-scoped verification receipt | Available when evidence exists | No |
-| `outcome.verified_requirement_coverage` | Typed opportunity, link, and outcome receipts | Provider adapter required | No |
+| `outcome.verified_requirement_coverage` | Reviewed compatible Codex source, native-reviewed requirement plan, observed check, and fresh sealed analysis | Available when evidence exists | No |
 
 “Available when evidence exists” includes honest `unknown`, `pending`, and
 `not_applicable` outcomes. For example, a collaboration family needs a
 natively confirmed complete enumeration before it has a denominator, and
 first-pass verification needs exactly one reviewed task owning the session.
+
+## Current v6 boundary (2026-09-08)
+
+Migration 62 now extends only the exact action-proposal source-authority
+trigger: an otherwise valid current R8 seal is admitted alongside R6 and R7,
+while all earlier migrations and checksums remain immutable. The prerequisite
+requirement-plan ordering is also established before reviewed action-proposal
+composition. These corrections preserve the authority boundary; they do not
+constitute real provider proof, model execution, or release promotion. The
+native interaction used for this bounded proof was synthetic/faked.
+
+The current catalog is `metric-operability-v6` at **18/0/2**: 18 conditional
+paths available when required evidence exists, zero task-profile gaps, and two
+explicit provider-adapter gaps. The reviewed-verification path requires a
+complete compatible Codex source, a native-reviewed requirement plan, an
+observed check, and a fresh sealed analysis; a provider-reported check is not
+a human coverage acknowledgment. Historical v5 partitions remain recorded in
+the earlier checkpoints. The guided reviewed-proposal UX was historically
+missing at CP27; the CP29–34 guided forms and review surfaces now exist.
 
 ## Local agent evidence files
 
@@ -150,11 +169,16 @@ installation-keyed authority sidecar. Only decisions explicitly captured at the
 55-to-56 upgrade receive the one-time trusted-upgrade receipt; normal reads fail
 closed instead of manufacturing a missing receipt.
 
-This contract, API, and native review UI exist, but the release count above
-deliberately remains 16/0/4 until at least one production provider proves a
-complete safe-event enumeration and exact redacted descriptor surface. Codex's
-current resumable snapshots remain incomplete, so UI composition alone is not a
-shipped-path claim.
+## Historical CP27 note
+
+At CP27, the typed contract/API and partial review surface existed, but the
+guided reviewed-proposal UX was still missing. The v5 17/0/3 partition was a
+bounded composition state backed by synthetic proof; no real model was run and
+the native interaction was faked, so it was not a provider, native, or release
+promotion. CP29–34 subsequently delivered the guided forms and review
+surfaces; the current v6 map above is still conditional and does not claim
+provider, native, or release acceptance. Codex's current resumable snapshots
+remain incomplete.
 
 Extending this file format is not a shortcut around evidence authority. The
 task-profile workflow is a separate, closed, native-confirmed editor: it stores an
@@ -173,7 +197,7 @@ encoders estimate factor evidence; the optional deep judge adjudicates selected
 disagreements. All model outputs remain uncalibrated and product-ineligible.
 The sealed measured publication is computed only from deterministic reviewed
 structure or typed receipts, so switching to a larger model cannot fill one of
-the four remaining provider/extractor or release-composition gaps above.
+the two remaining provider/extractor or release-composition gaps above.
 
 The live factor router is deliberately smaller than the historical ten-slot
 compatibility graph:

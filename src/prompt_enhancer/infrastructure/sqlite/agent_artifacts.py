@@ -21,6 +21,7 @@ from ...application.agent_artifacts import (
     AgentArtifactLifecycleCounts,
     AgentArtifactListView,
     AgentArtifactVersion,
+    DirectoryArtifactMoveIntent,
     UpdateAgentArtifact,
 )
 from ...application.agent_catalog import AgentCatalogError, AgentRetentionPolicy
@@ -664,6 +665,188 @@ class SqliteAgentArtifactRepository:
             if head is None:
                 raise AgentArtifactError("agent_artifact_storage_unavailable")
             return head
+
+    def create_directory_move_intent(
+        self, *, intent: DirectoryArtifactMoveIntent
+    ) -> None:
+        """Durably record a pre-filesystem, content-free exact-child plan."""
+        with self._write_lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._session(connection, intent.project_id, intent.session_id)
+                for child in intent.children:
+                    row = connection.execute(
+                        _HEAD_SELECT + " WHERE artifact.artifact_id=? AND artifact.session_id=? AND session.project_id=?",
+                        (child.artifact_id, intent.session_id, intent.project_id),
+                    ).fetchone()
+                    if row is None:
+                        raise AgentArtifactError("agent_artifact_relocation_conflict")
+                    artifact = self._artifact(row)
+                    if (
+                        artifact.lifecycle_state == "removed"
+                        or artifact.revision != child.expected_artifact_revision
+                        or artifact.path != child.source_path
+                        or artifact.latest_version.sha256 != child.sha256
+                        or artifact.latest_version.byte_size != child.byte_size
+                    ):
+                        raise AgentArtifactError("agent_artifact_relocation_conflict")
+                    target = connection.execute(
+                        "SELECT 1 FROM agent_artifacts WHERE session_id=? AND relative_path=?",
+                        (intent.session_id, child.target_path),
+                    ).fetchone()
+                    if target is not None:
+                        raise AgentArtifactError("agent_artifact_relocation_target_conflict")
+                connection.execute(
+                    "INSERT INTO agent_artifact_directory_move_intents(intent_id,project_id,session_id,source_path,target_path,source_device,source_inode,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                    (intent.intent_id, intent.project_id, intent.session_id, intent.source_path, intent.target_path, intent.source_directory_identity[0], intent.source_directory_identity[1], _iso(datetime.now(UTC))),
+                )
+                connection.executemany(
+                    "INSERT INTO agent_artifact_directory_move_intent_children(intent_id,ordinal,artifact_id,expected_artifact_revision,source_path,target_path,sha256,byte_size) VALUES(?,?,?,?,?,?,?,?)",
+                    tuple((intent.intent_id, ordinal, child.artifact_id, child.expected_artifact_revision, child.source_path, child.target_path, child.sha256, child.byte_size) for ordinal, child in enumerate(intent.children)),
+                )
+                connection.execute("COMMIT")
+            except AgentArtifactError:
+                if connection.in_transaction: connection.execute("ROLLBACK")
+                raise
+            except sqlite3.Error:
+                if connection.in_transaction: connection.execute("ROLLBACK")
+                raise AgentArtifactError("agent_artifact_storage_unavailable") from None
+
+    def get_directory_move_intent(
+        self, *, project_id: str, session_id: str, intent_id: str
+    ) -> DirectoryArtifactMoveIntent | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT source_path,target_path,source_device,source_inode FROM agent_artifact_directory_move_intents WHERE intent_id=? AND project_id=? AND session_id=?",
+                (intent_id, project_id, session_id),
+            ).fetchone()
+            if row is None:
+                return None
+            rows = connection.execute(
+                "SELECT artifact_id,expected_artifact_revision,source_path,target_path,sha256,byte_size FROM agent_artifact_directory_move_intent_children WHERE intent_id=? ORDER BY ordinal",
+                (intent_id,),
+            ).fetchall()
+        from ...application.agent_artifacts import DirectoryArtifactMoveChild
+        return DirectoryArtifactMoveIntent(
+            intent_id=intent_id, project_id=project_id, session_id=session_id,
+            source_path=str(row["source_path"]), target_path=str(row["target_path"]),
+            source_directory_identity=(int(row["source_device"]), int(row["source_inode"])),
+            children=tuple(DirectoryArtifactMoveChild(**dict(child)) for child in rows),
+        )
+
+    def list_pending_directory_move_intents(
+        self, *, project_id: str, session_id: str, limit: int
+    ) -> tuple[DirectoryArtifactMoveIntent, ...]:
+        if limit < 1 or limit > 100:
+            raise AgentArtifactError("agent_artifact_relocation_conflict")
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT intent_id FROM agent_artifact_directory_move_intents intent WHERE project_id=? AND session_id=? AND NOT EXISTS(SELECT 1 FROM agent_artifact_directory_move_resolutions resolution WHERE resolution.intent_id=intent.intent_id) ORDER BY intent_id LIMIT ?",
+                (project_id, session_id, limit),
+            ).fetchall()
+        return tuple(
+            intent for row in rows
+            if (intent := self.get_directory_move_intent(project_id=project_id, session_id=session_id, intent_id=str(row["intent_id"]))) is not None
+        )
+
+    def count_pending_directory_move_intents(
+        self, *, project_id: str, session_id: str
+    ) -> int:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM agent_artifact_directory_move_intents intent WHERE project_id=? AND session_id=? AND NOT EXISTS(SELECT 1 FROM agent_artifact_directory_move_resolutions resolution WHERE resolution.intent_id=intent.intent_id)",
+                (project_id, session_id),
+            ).fetchone()
+        return int(row["count"])
+
+    def count_unverified_directory_move_intents(
+        self, *, project_id: str, session_id: str
+    ) -> int:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM agent_artifact_directory_move_resolutions resolution JOIN agent_artifact_directory_move_intents intent ON intent.intent_id=resolution.intent_id WHERE intent.project_id=? AND intent.session_id=? AND resolution.resolution='unverified'",
+                (project_id, session_id),
+            ).fetchone()
+        return int(row["count"])
+
+    def resolve_directory_move_intent(
+        self, *, intent: DirectoryArtifactMoveIntent, resolution: str
+    ) -> None:
+        if resolution not in {"cancelled", "unverified"}:
+            raise AgentArtifactError("agent_artifact_relocation_conflict")
+        with self._write_lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                stored = self.get_directory_move_intent(project_id=intent.project_id, session_id=intent.session_id, intent_id=intent.intent_id)
+                if stored != intent:
+                    raise AgentArtifactError("agent_artifact_relocation_conflict")
+                existing = connection.execute("SELECT resolution FROM agent_artifact_directory_move_resolutions WHERE intent_id=?", (intent.intent_id,)).fetchone()
+                if existing is not None:
+                    if str(existing["resolution"]) != resolution:
+                        raise AgentArtifactError("agent_artifact_relocation_conflict")
+                    connection.execute("COMMIT")
+                    return
+                connection.execute("INSERT INTO agent_artifact_directory_move_resolutions(intent_id,resolution,advanced_count,resolved_at) VALUES(?,?,0,?)", (intent.intent_id, resolution, _iso(datetime.now(UTC))))
+                connection.execute("COMMIT")
+            except AgentArtifactError:
+                if connection.in_transaction: connection.execute("ROLLBACK")
+                raise
+            except sqlite3.Error:
+                if connection.in_transaction: connection.execute("ROLLBACK")
+                raise AgentArtifactError("agent_artifact_storage_unavailable") from None
+
+    def relocate_directory_versions(
+        self, *, intent: DirectoryArtifactMoveIntent,
+        versions: tuple[AgentArtifactVersion, ...], titles: tuple[str, ...],
+        kinds: tuple[AgentArtifactKind, ...],
+    ) -> int:
+        if not (len(intent.children) == len(versions) == len(titles) == len(kinds)):
+            raise AgentArtifactError("agent_artifact_relocation_conflict")
+        with self._write_lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._session(connection, intent.project_id, intent.session_id)
+                resolved = connection.execute(
+                    "SELECT resolution,advanced_count FROM agent_artifact_directory_move_resolutions WHERE intent_id=?", (intent.intent_id,)
+                ).fetchone()
+                stored_intent = self.get_directory_move_intent(
+                    project_id=intent.project_id, session_id=intent.session_id, intent_id=intent.intent_id
+                )
+                if stored_intent is None or stored_intent != intent:
+                    raise AgentArtifactError("agent_artifact_relocation_conflict")
+                if resolved is not None:
+                    if str(resolved["resolution"]) != "completed":
+                        raise AgentArtifactError("agent_artifact_relocation_unverified")
+                    connection.execute("COMMIT")
+                    return int(resolved["advanced_count"])
+                stored: list[tuple[AgentArtifact, AgentArtifactVersion, str, AgentArtifactKind]] = []
+                version_total = int(connection.execute("SELECT COUNT(*) FROM agent_artifact_versions version JOIN agent_artifacts artifact ON artifact.artifact_id=version.artifact_id WHERE artifact.session_id=?", (intent.session_id,)).fetchone()[0])
+                if version_total + len(intent.children) > MAX_AGENT_ARTIFACT_VERSIONS_PER_SESSION:
+                    raise AgentArtifactError("agent_artifact_version_limit_reached")
+                for child, version, _title, kind in zip(intent.children, versions, titles, kinds, strict=True):
+                    row = connection.execute(_HEAD_SELECT + " WHERE artifact.artifact_id=? AND artifact.session_id=? AND session.project_id=?", (child.artifact_id, intent.session_id, intent.project_id)).fetchone()
+                    if row is None: raise AgentArtifactError("agent_artifact_relocation_conflict")
+                    source = self._artifact(row)
+                    if (source.lifecycle_state == "removed" or source.revision != child.expected_artifact_revision or source.path != child.source_path or source.latest_version.sha256 != child.sha256 or source.latest_version.byte_size != child.byte_size or version.artifact_id != child.artifact_id or version.path != child.target_path or version.provenance != "reviewed_move" or version.sha256 != child.sha256 or version.byte_size != child.byte_size):
+                        raise AgentArtifactError("agent_artifact_relocation_conflict")
+                    collision = connection.execute("SELECT artifact_id FROM agent_artifacts WHERE session_id=? AND relative_path=?", (intent.session_id, child.target_path)).fetchone()
+                    if collision is not None: raise AgentArtifactError("agent_artifact_relocation_target_conflict")
+                    title = (child.target_path.rsplit("/", 1)[-1] if source.title == child.source_path.rsplit("/", 1)[-1] else source.title)
+                    stored.append((source, version.model_copy(update={"version_number": source.version_count + 1}), title, kind))
+                for source, version, _title, _kind in stored:
+                    connection.execute("INSERT INTO agent_artifact_versions(version_id,artifact_id,version_number,created_at,relative_path,media_type,preview_kind,provenance,sha256,byte_size,source_turn_id,source_event_seq) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (version.version_id, version.artifact_id, version.version_number, _iso(max(source.updated_at, version.created_at)), version.path, version.media_type, version.preview_kind, version.provenance, version.sha256, version.byte_size, None, None))
+                for source, version, title, kind in stored:
+                    updated = connection.execute("UPDATE agent_artifacts SET title=?,artifact_kind=?,relative_path=?,updated_at=?,revision=revision+1,latest_version_number=? WHERE artifact_id=? AND session_id=? AND revision=? AND relative_path=?", (title, kind, version.path, _iso(version.created_at), version.version_number, source.artifact_id, intent.session_id, source.revision, source.path))
+                    if updated.rowcount != 1: raise AgentArtifactError("agent_artifact_relocation_conflict")
+                connection.execute("INSERT INTO agent_artifact_directory_move_resolutions(intent_id,resolution,advanced_count,resolved_at) VALUES(?,'completed',?,?)", (intent.intent_id, len(stored), _iso(datetime.now(UTC))))
+                connection.execute("COMMIT")
+            except AgentArtifactError:
+                if connection.in_transaction: connection.execute("ROLLBACK")
+                raise
+            except sqlite3.Error:
+                if connection.in_transaction: connection.execute("ROLLBACK")
+                raise AgentArtifactError("agent_artifact_storage_unavailable") from None
+            return len(stored)
 
     def get_artifact(
         self,

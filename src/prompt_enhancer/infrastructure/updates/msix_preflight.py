@@ -115,6 +115,9 @@ class MsixPackagePreflight:
             return _rejected(MsixPreflightReason.PACKAGE_IO_FAILED)
         try:
             path_snapshot = _path_components(package_path)
+            path_leaf = package_path.lstat()
+            if _leaf_snapshot(path_leaf) != path_snapshot[0]:
+                return _rejected(MsixPreflightReason.PACKAGE_CHANGED)
             descriptor = _open_readonly(package_path)
         except OSError:
             return _rejected(MsixPreflightReason.PACKAGE_IO_FAILED)
@@ -122,7 +125,7 @@ class MsixPackagePreflight:
             before = os.fstat(descriptor)
             if (
                 not _ordinary_file(before)
-                or _leaf_snapshot(before) != path_snapshot[0]
+                or not _same_path_and_open_file(path_leaf, before)
             ):
                 return _rejected(MsixPreflightReason.PACKAGE_CHANGED)
             if before.st_size != artifact.size_bytes:
@@ -253,7 +256,33 @@ def _ordinary_file(metadata: os.stat_result) -> bool:
     )
 
 
+def _same_path_and_open_file(path: os.stat_result, descriptor: os.stat_result) -> bool:
+    if os.name != "nt":
+        return _leaf_snapshot(path) == _leaf_snapshot(descriptor)
+    # CPython 3.13 Windows path stat aliases ctime to birthtime; descriptor
+    # stat can expose change time. Keep raw ctime in same-API snapshots below.
+    # https://docs.python.org/3.13/library/os.html#os.stat_result
+    def snapshot(value: os.stat_result) -> tuple[int, ...]:
+        return (
+            value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+            value.st_size, value.st_mtime_ns,
+            getattr(value, "st_birthtime_ns", value.st_ctime_ns),
+            getattr(value, "st_file_attributes", 0),
+        )
+
+    return (
+        bool(path.st_ino and descriptor.st_ino)
+        and _ordinary_file(path) and _ordinary_file(descriptor)
+        and snapshot(path) == snapshot(descriptor)
+    )
+
+
 def _same_file(first: os.stat_result, second: os.stat_result) -> bool:
+    if (not _ordinary_file(first) or not _ordinary_file(second)
+            or first.st_mode != second.st_mode
+            or getattr(first, "st_file_attributes", 0) != getattr(second, "st_file_attributes", 0)
+            or getattr(first, "st_birthtime_ns", None) != getattr(second, "st_birthtime_ns", None)):
+        return False
     return (
         first.st_dev,
         first.st_ino,
@@ -301,21 +330,40 @@ def _bounded_zip_central_directory(descriptor: int, *, size: int) -> bool:
     central_size, central_offset, comment_size = fields[5:8]
     if marker + 22 + comment_size != len(tail):
         return False
-    if (disk != 0 or central_disk != 0 or disk_entries != entries
-            or entries == 0xFFFF or central_size == 0xFFFFFFFF
-            or central_offset == 0xFFFFFFFF):
-        return False
     eocd_offset = size - window + marker
+    boundary = eocd_offset
+    locator = b""
+    if eocd_offset >= 20:
+        os.lseek(descriptor, eocd_offset - 20, os.SEEK_SET)
+        locator = _read_exact(descriptor, 20)
+    if locator.startswith(b"PK\x06\x07"):
+        # APPNOTE 6.3.10 §§4.3.14–16: bounded ZIP64 v1 only. Extension
+        # sectors and split archives are deliberately outside this profile.
+        _, locator_disk, zip64_offset, disks = struct.unpack("<4sLQL", locator)
+        if locator_disk != 0 or disks != 1 or zip64_offset + 56 != eocd_offset - 20:
+            return False
+        os.lseek(descriptor, zip64_offset, os.SEEK_SET)
+        record = struct.unpack("<4sQ2H2L4Q", _read_exact(descriptor, 56))
+        signature, record_size, made, needed, z_disk, z_central_disk, z_disk_entries, z_entries, z_size, z_offset = record
+        if (signature != b"PK\x06\x06" or record_size != 44 or needed != 45
+                or z_disk != 0 or z_central_disk != 0 or z_disk_entries != z_entries):
+            return False
+        classic = (disk, central_disk, disk_entries, entries, central_size, central_offset)
+        resolved = (z_disk, z_central_disk, z_disk_entries, z_entries, z_size, z_offset)
+        sentinels = (0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF)
+        if any(old != sentinel and old != new for old, new, sentinel in zip(classic, resolved, sentinels)):
+            return False
+        entries, central_size, central_offset = z_entries, z_size, z_offset
+        boundary = zip64_offset
+    elif (disk != 0 or central_disk != 0 or disk_entries != entries
+            or entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF):
+        return False
     if (
         entries > _MAX_ARCHIVE_ENTRIES
         or central_size > _MAX_CENTRAL_DIRECTORY_BYTES
-        or central_offset + central_size != eocd_offset
+        or central_offset + central_size != boundary
     ):
         return False
-    if eocd_offset >= 20:
-        os.lseek(descriptor, eocd_offset - 20, os.SEEK_SET)
-        if _read_exact(descriptor, 20).startswith(b"PK\x06\x07"):
-            return False
     os.lseek(descriptor, central_offset, os.SEEK_SET)
     central_directory = _read_exact(descriptor, central_size)
     return _valid_central_directory(
@@ -343,7 +391,7 @@ def _valid_central_directory(
     expected_entries: int,
     central_offset: int,
 ) -> bool:
-    """Require exact, non-ZIP64 central records before ``ZipFile`` parses them."""
+    """Require bounded, exact central records before ``ZipFile`` parses them."""
 
     position = 0
     entries = 0
@@ -355,32 +403,47 @@ def _valid_central_directory(
         name_size, extra_size, comment_size, disk_start = fields[10:14]
         local_offset = fields[16]
         record_size = 46 + name_size + extra_size + comment_size
-        if (
-            position + record_size > len(value)
-            or disk_start != 0
-            or compressed_size == 0xFFFFFFFF
-            or uncompressed_size == 0xFFFFFFFF
-            or local_offset == 0xFFFFFFFF
-            or local_offset >= central_offset
-            or _contains_zip64_extra(value[position + 46 + name_size:position + 46 + name_size + extra_size])
-        ):
+        if position + record_size > len(value):
+            return False
+        extra = value[position + 46 + name_size:position + 46 + name_size + extra_size]
+        resolved = _resolve_zip64_extra(extra, uncompressed_size, compressed_size, local_offset, disk_start)
+        if resolved is None:
+            return False
+        uncompressed_size, compressed_size, local_offset, disk_start = resolved
+        if (disk_start != 0 or local_offset >= central_offset
+                or compressed_size > central_offset - local_offset
+                or uncompressed_size > _MAX_MEMBER_BYTES):
             return False
         position += record_size
         entries += 1
     return position == len(value) and entries == expected_entries
 
 
-def _contains_zip64_extra(value: bytes) -> bool:
+def _resolve_zip64_extra(value: bytes, *fields: int) -> tuple[int, ...] | None:
+    # APPNOTE §4.5.3: only sentinel fields occur, in this exact order.
+    widths = (8, 8, 8, 4)
+    sentinels = (0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFF)
+    required = [index for index, (field, sentinel) in enumerate(zip(fields, sentinels)) if field == sentinel]
+    result = list(fields)
+    seen = False
     position = 0
     while position < len(value):
         if position + 4 > len(value):
-            return True
+            return None
         header_id, length = struct.unpack_from("<HH", value, position)
         position += 4
-        if position + length > len(value) or header_id == 0x0001:
-            return True
+        if position + length > len(value):
+            return None
+        if header_id == 0x0001:
+            if seen or not required or length != sum(widths[index] for index in required):
+                return None
+            seen = True
+            cursor = position
+            for index in required:
+                result[index] = int.from_bytes(value[cursor:cursor + widths[index]], "little")
+                cursor += widths[index]
         position += length
-    return False
+    return tuple(result) if seen == bool(required) else None
 
 
 def _verify_identity(

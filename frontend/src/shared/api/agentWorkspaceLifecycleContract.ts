@@ -16,6 +16,7 @@ const ID = /^[0-9a-f]{32}$/u;
 const REVISION = /^[0-9a-f]{64}$/u;
 const MAX_FILE_BYTES = 256_000;
 const MAX_DIFF_CHARS = 60_000;
+const MAX_DIRECTORY_MOVE_ARTIFACT_VERSIONS = 100;
 const LINE_ENDINGS = new Set(["lf", "crlf", "none"]);
 
 export class AgentWorkspaceLifecyclePayloadError extends Error {}
@@ -223,12 +224,29 @@ export function parseAgentWorkspaceDirectoryMoveResult(
   preview: AgentWorkspaceDirectoryMovePreview,
 ): AgentWorkspaceDirectoryMoveApplyResult {
   const raw = record(value);
-  exactKeys(raw, ["applied", "contents_reviewed", "contract_version", "operation", "session_id", "source_path", "target_path"]);
+  exactKeys(raw, [
+    "applied",
+    "artifact_projection",
+    "artifact_versions_advanced",
+    "contents_reviewed",
+    "contract_version",
+    "operation",
+    "session_id",
+    "source_path",
+    "target_path",
+  ]);
   if (
     raw.contract_version !== CONTRACT_VERSION
     || raw.operation !== "directory_moved"
     || raw.applied !== true
     || raw.contents_reviewed !== false
+    || !["not_applicable", "complete", "recovery_required"].includes(raw.artifact_projection as string)
+    || !Number.isSafeInteger(raw.artifact_versions_advanced)
+    || (raw.artifact_versions_advanced as number) < 0
+    || (raw.artifact_versions_advanced as number) > MAX_DIRECTORY_MOVE_ARTIFACT_VERSIONS
+    || (raw.artifact_projection === "complete"
+      ? (raw.artifact_versions_advanced as number) < 1
+      : raw.artifact_versions_advanced !== 0)
   ) {
     throw new AgentWorkspaceLifecyclePayloadError("workspace directory move result was invalid");
   }
@@ -240,6 +258,8 @@ export function parseAgentWorkspaceDirectoryMoveResult(
     contents_reviewed: false,
     operation: "directory_moved",
     applied: true,
+    artifact_projection: raw.artifact_projection as AgentWorkspaceDirectoryMoveApplyResult["artifact_projection"],
+    artifact_versions_advanced: raw.artifact_versions_advanced as number,
   };
 }
 

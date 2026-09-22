@@ -5,6 +5,7 @@ import type {
   AgentArtifactCapturePreview,
   AgentArtifactDetail,
   AgentEvent,
+  AgentWorkspaceDirectoryMoveApplyResult,
   AgentWorkspaceFile,
   AgentWorkspaceTransactionApplyCommand,
   AgentWorkspaceTransactionApplyResult,
@@ -124,7 +125,7 @@ function transport() {
       contents_reviewed: false as const,
       expires_at: "2026-08-20T22:00:00Z",
     })),
-    applyAgentWorkspaceDirectoryMove: vi.fn(async () => ({
+    applyAgentWorkspaceDirectoryMove: vi.fn(async (): Promise<AgentWorkspaceDirectoryMoveApplyResult> => ({
       contract_version: "local-agent-workspace-lifecycle.v1" as const,
       session_id: SESSION,
       source_path: "src",
@@ -132,6 +133,8 @@ function transport() {
       contents_reviewed: false as const,
       operation: "directory_moved" as const,
       applied: true as const,
+      artifact_projection: "complete" as const,
+      artifact_versions_advanced: 2,
     })),
     previewAgentWorkspaceMove: vi.fn(async () => ({
       contract_version: "local-agent-workspace-lifecycle.v1" as const,
@@ -340,6 +343,50 @@ describe("workspace inspection truth", () => {
     ));
     expect(captured).toHaveBeenCalledOnce();
     expect(screen.getByText(/large\.log is now available as a verified chat artifact/u)).toBeVisible();
+  });
+
+  it("refreshes saved artifacts without claiming success when a capture receipt is lost", async () => {
+    const capturePreview: AgentArtifactCapturePreview = {
+      contract_version: "agent-artifact-capture-preview.v1",
+      project_id: PROJECT,
+      session_id: SESSION,
+      path: "large.log",
+      title: "large.log",
+      kind: "text",
+      media_type: "text/plain; charset=utf-8",
+      preview_kind: "text",
+      sha256: "8".repeat(64),
+      byte_size: 300_000,
+      requires_native_confirmation: true,
+      file_content_included: false,
+    };
+    const api = {
+      ...transport(),
+      previewAgentArtifactCapture: vi.fn(async () => capturePreview),
+      captureAgentArtifact: vi.fn(async () => { throw new Error("synthetic connection lost after request"); }),
+    };
+    const uncertain = vi.fn();
+    const captured = vi.fn();
+    render(
+      <AgentWorkspacePane
+        onArtifactCaptured={captured}
+        onCaptureUncertain={uncertain}
+        pendingWrite={null}
+        projectId={PROJECT}
+        sessionId={SESSION}
+        transport={api}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /large\.log — add as generated output/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Review output" }));
+    await screen.findByRole("button", { name: "Add verified output" });
+    fireEvent.click(screen.getByRole("button", { name: "Add verified output" }));
+
+    expect(await screen.findByText(/Capture outcome is unknown/i)).toBeVisible();
+    expect(uncertain).toHaveBeenCalledOnce();
+    expect(captured).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Add verified output" })).toBeDisabled();
   });
 
   it("opens an exact reviewed-path capture request once without reading the file", async () => {
@@ -671,6 +718,7 @@ describe("workspace inspection truth", () => {
     fireEvent.click(within(review).getByRole("button", { name: "Move reviewed folder" }));
 
     await screen.findByText(/moved and verified folder src to archive\/src/iu);
+    expect(screen.getByText(/artifact tracking updated for 2 moved files/iu)).toBeVisible();
     expect(api.previewAgentWorkspaceDirectoryMove).toHaveBeenCalledWith(
       SESSION,
       { source_path: "src", target_path: "archive/src" },
@@ -688,6 +736,63 @@ describe("workspace inspection truth", () => {
     );
     expect(applied).toHaveBeenCalledWith("archive/src");
     expect(screen.getByLabelText("archive/src")).toBeVisible();
+  });
+
+  it("reports unresolved artifact tracking after a verified folder move without offering a retry move", async () => {
+    const api = transport();
+    api.applyAgentWorkspaceDirectoryMove.mockResolvedValueOnce({
+      contract_version: "local-agent-workspace-lifecycle.v1" as const,
+      session_id: SESSION,
+      source_path: "src",
+      target_path: "archive/src",
+      contents_reviewed: false as const,
+      operation: "directory_moved" as const,
+      applied: true as const,
+      artifact_projection: "recovery_required" as const,
+      artifact_versions_advanced: 0,
+    });
+    render(<AgentWorkspacePane pendingWrite={null} sessionId={SESSION} transport={api} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "src" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Move folder" }));
+    fireEvent.change(screen.getByLabelText("New workspace-relative folder path"), {
+      target: { value: "archive/src" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review folder move" }));
+    const review = await screen.findByRole("region", { name: "Folder move review" });
+    fireEvent.click(within(review).getByRole("button", { name: "Move reviewed folder" }));
+
+    expect(await screen.findByText(/artifact tracking is unresolved and requires recovery/iu)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /recover|retry.*move/iu })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("archive/src")).toBeVisible();
+  });
+
+  it("reports when artifact tracking is not applicable after a verified folder move", async () => {
+    const api = transport();
+    api.applyAgentWorkspaceDirectoryMove.mockResolvedValueOnce({
+      contract_version: "local-agent-workspace-lifecycle.v1" as const,
+      session_id: SESSION,
+      source_path: "src",
+      target_path: "archive/src",
+      contents_reviewed: false as const,
+      operation: "directory_moved" as const,
+      applied: true as const,
+      artifact_projection: "not_applicable" as const,
+      artifact_versions_advanced: 0,
+    });
+    render(<AgentWorkspacePane pendingWrite={null} sessionId={SESSION} transport={api} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "src" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Move folder" }));
+    fireEvent.change(screen.getByLabelText("New workspace-relative folder path"), {
+      target: { value: "archive/src" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review folder move" }));
+    const review = await screen.findByRole("region", { name: "Folder move review" });
+    fireEvent.click(within(review).getByRole("button", { name: "Move reviewed folder" }));
+
+    expect(await screen.findByText(/no tracked artifacts needed updating for this move/iu)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /recover|retry.*move/iu })).not.toBeInTheDocument();
   });
 
   it("refuses a folder move into its own subtree before requesting authority", async () => {

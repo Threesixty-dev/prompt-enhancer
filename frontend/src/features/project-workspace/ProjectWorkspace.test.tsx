@@ -207,6 +207,7 @@ const storedMetrics = [
 function qualityDetail(): SessionAnalysisRunResponse {
   const detail = structuredClone(SYNTHETIC_SESSION_QUALITY_RUN);
   detail.run.session_id = sessionId;
+  detail.run.provider = "codex";
   return detail;
 }
 
@@ -249,42 +250,11 @@ function qualityPreview(
 function metricReadinessReport(
   requestedSessionId = sessionId,
 ): SessionMetricReadinessReport {
-  return {
-    session_id: requestedSessionId,
-    provider: "codex",
-    preset_id: "coaching_profile_v1",
-    analysis_profile_key: "coaching_profile",
-    analysis_profile_version: 1,
-    metric_pack_key: "experimental.redacted-text.coaching",
-    metric_pack_version: 3,
-    capability_report: {
-      provider: "codex",
-      surface: "text_window",
-      catalog_version: "coaching-evidence-capabilities-v1",
-      compatibility_state: "exact",
-      provider_version: "example-provider-1",
-      decoder_key: "codex_app_server",
-      decoder_version: "example-adapter-1",
-      checked_at: "2040-01-01T10:00:00Z",
-      capabilities: [
-        "request_text",
-        "response_text",
-        "plan_text",
-        "action_evidence",
-        "decision_evidence",
-        "feedback_text",
-        "objective_verification",
-      ].map((capability) => ({
-        capability,
-        state: "supported" as const,
-        reason_code: "verified_by_compatible_decoder" as const,
-      })),
-      structurally_attemptable_metric_count: 20,
-      structurally_unsupported_metric_count: 0,
-      structurally_unknown_metric_count: 0,
-    },
-    metrics: [],
-  } as SessionMetricReadinessReport;
+  const report = structuredClone(SYNTHETIC_SESSION_METRIC_READINESS);
+  report.session_id = requestedSessionId;
+  report.provider = "codex";
+  report.capability_report.provider = "codex";
+  return report;
 }
 
 function coachingProjection(): SessionCoachingProjection {
@@ -453,9 +423,11 @@ function workspaceTransport() {
 describe("ProjectWorkspace", () => {
   it("keeps a failed stored-metric read content-free and retries the same session", async () => {
     const { transport, getSessionMetrics } = workspaceTransport();
-    getSessionMetrics
-      .mockRejectedValueOnce(new Error("SYNTHETIC_PRIVATE_METRIC_FAILURE"))
-      .mockResolvedValueOnce({ session_id: sessionId, metrics: storedMetrics });
+    let retryEnabled = false;
+    getSessionMetrics.mockImplementation(async (requestedSessionId: string) => {
+      if (!retryEnabled) throw new Error("SYNTHETIC_PRIVATE_METRIC_FAILURE");
+      return { session_id: requestedSessionId, metrics: storedMetrics };
+    });
 
     render(
       <ProjectWorkspace
@@ -468,10 +440,12 @@ describe("ProjectWorkspace", () => {
     expect(await screen.findByText("Stored metrics for this session could not be loaded.")).toBeVisible();
     expect(document.body).not.toHaveTextContent("SYNTHETIC_PRIVATE_METRIC_FAILURE");
     const readsBeforeRetry = getSessionMetrics.mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    retryEnabled = true;
+    fireEvent.click(screen.getByRole("button", { name: "Retry stored metrics" }));
 
     expect(await screen.findByText("Tool result count")).toBeVisible();
     await waitFor(() => expect(getSessionMetrics).toHaveBeenCalledTimes(readsBeforeRetry + 1));
+    expect(getSessionMetrics).toHaveBeenLastCalledWith(sessionId, expect.any(AbortSignal));
     await waitFor(() => {
       expect(screen.queryByText("Stored metrics for this session could not be loaded.")).not.toBeInTheDocument();
     });
@@ -1350,7 +1324,9 @@ describe("ProjectWorkspace", () => {
       await screen.findByText("The local compatibility check could not be completed."),
     ).toBeVisible();
     expect(analyze).toBeDisabled();
-    expect(screen.getByText(/has not been checked/i)).toBeVisible();
+    expect(
+      document.getElementById(analyze.getAttribute("aria-describedby") ?? ""),
+    ).toHaveTextContent(/has not been checked/i);
     expect(document.body.textContent).not.toContain("PRIVATE-COMPATIBILITY-CANARY");
   });
 
@@ -1434,7 +1410,10 @@ describe("ProjectWorkspace", () => {
       await screen.findByRole("heading", { name: "Goal cue coverage" }),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "Analyze locally" })).toBeDisabled();
-    expect(screen.getByText(/incompatible with prompt-text analysis/i)).toBeVisible();
+    const analyze = screen.getByRole("button", { name: "Analyze locally" });
+    expect(
+      document.getElementById(analyze.getAttribute("aria-describedby") ?? ""),
+    ).toHaveTextContent(/incompatible with prompt-text analysis/i);
     fireEvent.click(screen.getByText("Methods & details"));
     expect(
       screen.getByRole("heading", { name: "Goal cue coverage" }),
@@ -1511,6 +1490,120 @@ describe("ProjectWorkspace", () => {
         screen.queryByRole("dialog", { name: "Ready to analyze" }),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it("does not adopt a completed approval after its immutable-detail await loses the selected owner", async () => {
+    const { transport, getSessionMetricReadiness } = workspaceTransport();
+    const detail = deferred<SessionAnalysisRunResponse>();
+    const getDetail = vi.fn(() => detail.promise);
+    transport.approveSessionQualityAnalysisPreview = vi.fn(async () => ({
+      run_id: qualityDetail().run.run_id,
+      status: "completed" as const,
+      result_count: 10,
+      applied: true,
+      analysis_profile_key: "coaching_profile" as const,
+      analysis_profile_version: 1 as const,
+    }));
+    transport.getSessionQualityAnalysisRun = getDetail;
+    const view = render(
+      <ProjectWorkspace
+        navigate={vi.fn()}
+        route={{ name: "session_metrics", projectId, sessionId, category: "reasoning" }}
+        transport={transport}
+      />,
+    );
+
+    await openLegacyQualityProfile();
+    const analyze = await screen.findByRole("button", { name: "Analyze locally" });
+    await waitFor(() => expect(analyze).toBeEnabled());
+    fireEvent.click(analyze);
+    const dialog = screen.getByRole("dialog", { name: "Ready to analyze" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Prepare redacted preview" }));
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Approve once and analyze" }));
+    await waitFor(() => expect(getDetail).toHaveBeenCalledTimes(1));
+    const readinessCallsBeforeOwnerChange = getSessionMetricReadiness.mock.calls.length;
+
+    view.rerender(
+      <ProjectWorkspace
+        navigate={vi.fn()}
+        route={{ name: "session_metrics", projectId, sessionId: secondSessionId, category: "reasoning" }}
+        transport={transport}
+      />,
+    );
+    await act(async () => {
+      detail.resolve(qualityDetail());
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("Analysis completed and stored locally. The latest metric profile is now shown.")).not.toBeInTheDocument();
+    expect(getSessionMetricReadiness).toHaveBeenCalledTimes(readinessCallsBeforeOwnerChange);
+  });
+
+  it("keeps a current approved result and readiness refresh fenced from a late superseded quality read", async () => {
+    const old = workspaceTransport();
+    const lateQuality = deferred<SessionAnalysisRunResponse>();
+    old.transport.getLatestSessionQualityAnalysis = vi.fn(() => lateQuality.promise);
+    const next = workspaceTransport();
+    const getDetail = vi.fn(async () => qualityDetail());
+    next.transport.approveSessionQualityAnalysisPreview = vi.fn(async () => ({
+      run_id: qualityDetail().run.run_id,
+      status: "completed" as const,
+      result_count: 10,
+      applied: true,
+      analysis_profile_key: "coaching_profile" as const,
+      analysis_profile_version: 1 as const,
+    }));
+    next.transport.getSessionQualityAnalysisRun = getDetail;
+    const route: ProjectWorkspaceRoute = {
+      name: "session_metrics",
+      projectId,
+      sessionId,
+      category: "reasoning",
+    };
+    const view = render(<ProjectWorkspace navigate={vi.fn()} route={route} transport={old.transport} />);
+
+    await openLegacyQualityProfile();
+    await screen.findByRole("button", { name: "Cancel quality loading" });
+    view.rerender(<ProjectWorkspace navigate={vi.fn()} route={route} transport={next.transport} />);
+    const legacyLabel = await screen.findByText("Legacy coaching profile");
+    const legacyDetails = legacyLabel.closest("details");
+    if (!legacyDetails?.hasAttribute("open")) fireEvent.click(legacyLabel);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Analyze locally" })).toBeEnabled());
+    const analyze = screen.getByRole("button", { name: "Analyze locally" });
+    fireEvent.click(analyze);
+    const dialog = screen.getByRole("dialog", { name: "Ready to analyze" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Prepare redacted preview" }));
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Approve once and analyze" }));
+    expect(await screen.findByText("Analysis completed and stored locally. The latest metric profile is now shown.")).toBeVisible();
+    const readinessCallsAfterApproval = next.getSessionMetricReadiness.mock.calls.length;
+
+    await act(async () => {
+      lateQuality.resolve(qualityDetail());
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Analysis completed and stored locally. The latest metric profile is now shown.")).toBeVisible();
+    expect(screen.getByText("Coherent metric pack v1")).toBeVisible();
+    expect(next.getSessionMetricReadiness).toHaveBeenCalledTimes(readinessCallsAfterApproval);
+  });
+
+  it("rejects an immutable quality run from a foreign provider without rendering it", async () => {
+    const { transport } = workspaceTransport();
+    const foreign = qualityDetail();
+    foreign.run.provider = "synthetic";
+    transport.getLatestSessionQualityAnalysis = vi.fn(async () => foreign);
+    render(
+      <ProjectWorkspace
+        navigate={vi.fn()}
+        route={{ name: "session_metrics", projectId, sessionId, category: "reasoning" }}
+        transport={transport}
+      />,
+    );
+
+    await openLegacyQualityProfile();
+
+    expect(await screen.findByRole("button", { name: "Retry quality loading" })).toBeVisible();
+    expect(screen.queryByText("Coherent metric pack v1")).not.toBeInTheDocument();
   });
 
   it("does not fetch result detail after a binding mismatch and prepares retry for the same session", async () => {
@@ -1786,7 +1879,7 @@ describe("ProjectWorkspace", () => {
     );
 
     expect(
-      await screen.findByText("The project-scoped catalog response was inconsistent."),
+      await screen.findByText("The project-scoped catalog response was inconsistent. Refresh project sessions to establish a new base."),
     ).toBeVisible();
     expect(aggregate).not.toHaveBeenCalled();
     expect(screen.queryByText("Coherent metric pack v1")).not.toBeInTheDocument();

@@ -22,6 +22,7 @@ from .contracts import (
     OrganizationSpendPolicy,
     RemoteAnalysisApproval,
     SignedBillingWebhook,
+    StripeSubscriptionBinding,
     SpendHold,
     SpendPolicy,
     TenantAccountBinding,
@@ -88,6 +89,18 @@ class IdentityStore(Protocol):
 
 class WebhookVerifier(Protocol):
     def verify(self, webhook: SignedBillingWebhook) -> bool: ...
+
+
+class StripeSubscriptionBindingStore(Protocol):
+    def stripe_subscription_binding(
+        self, customer_pseudonym: str, subscription_pseudonym: str
+    ) -> StripeSubscriptionBinding | None: ...
+
+    def save_stripe_subscription_binding(self, binding: StripeSubscriptionBinding) -> None: ...
+
+    def stripe_subscription_canceled(self, subscription_pseudonym: str) -> bool: ...
+
+    def tombstone_stripe_subscription(self, subscription_pseudonym: str) -> None: ...
 
 
 class BillingStore(Protocol):
@@ -180,6 +193,7 @@ __all__ = [
     "PseudonymFactory",
     "PayloadPseudonymizer",
     "SubjectPseudonymizer",
+    "StripeSubscriptionBindingStore",
     "TransactionBoundary",
     "WebhookVerifier",
 ]

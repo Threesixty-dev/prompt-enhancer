@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useCallback, useState, type ComponentProps } from "react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
+  AgentProject,
   AgentControllerOwnership,
   AgentMcpClientSetup,
   AgentMcpConnection,
@@ -20,6 +21,8 @@ import {
   observeExternalControllerAcceptance,
   type ExternalControllerAcceptanceRun,
 } from "./externalControllerAcceptance";
+
+type PanelTransport = ComponentProps<typeof AgentMcpConnectionsPanel>["transport"];
 
 const CONNECTION_ID = "a".repeat(32);
 const PROJECT_ID = "b".repeat(32);
@@ -102,6 +105,33 @@ const clientSetup: AgentMcpClientSetup = {
   provider_configuration_changed: false,
 };
 
+function ownershipRecord(
+  overrides: Partial<AgentControllerOwnership> = {},
+): AgentControllerOwnership {
+  return {
+    contract_version: "agent-controller-ownership.v1",
+    project_id: PROJECT_ID,
+    project_name: "Synthetic project",
+    session_id: SESSION_ID,
+    session_title: "Synthetic controlled chat",
+    owner_connection_id: CONNECTION_ID,
+    owner_label: activeConnection.label,
+    owner_client_kind: "codex",
+    operation: "turn",
+    state: "reconnecting",
+    cursor: 7,
+    last_seq: 8,
+    approval_pending: false,
+    ownership_started_at: "2026-08-28T12:00:00+00:00",
+    owner_since: "2026-08-28T12:00:00+00:00",
+    updated_at: "2026-08-28T12:05:00+00:00",
+    revision: 4,
+    handoff: null,
+    native_approval_inherited: false,
+    ...overrides,
+  };
+}
+
 function list(
   connections: AgentMcpConnection[] = [],
   ownerships: AgentControllerOwnership[] = [],
@@ -132,6 +162,25 @@ function list(
     };
     }),
   };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settleValue) => {
+    resolve = settleValue;
+  });
+  return { promise, resolve };
+}
+
+// Drains the transport promises and the React work they queue without waiting
+// on wall-clock time, so a test can hold a deterministic fake clock and still
+// observe committed output. React's async act drains the microtask queue.
+async function settle(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 }
 
 function selfTestJson(value: unknown): Response {
@@ -188,7 +237,7 @@ function endpointSelfTestFetch() {
         structuredContent: {
           contract_version: "prompt-enhancer-agent-mcp.v24",
           tool: "agent_discover",
-          result: { contract_version: "local-agent-orchestration.v22" },
+          result: { contract_version: "local-agent-orchestration.v23" },
         },
       },
     }));
@@ -285,7 +334,7 @@ describe("AgentMcpConnectionsPanel", () => {
       "verified file move advances a matching card under the same identity",
     );
     expect(outputGuidance).toHaveTextContent(
-      "Directory moves do not yet advance artifact cards",
+      "A verified directory move reports whether artifact tracking was updated or requires recovery",
     );
     expect(outputGuidance).toHaveTextContent(
       "Proposal content and approval data are not retained",
@@ -856,6 +905,430 @@ describe("AgentMcpConnectionsPanel", () => {
     )).not.toBeInTheDocument());
   });
 
+  it("reports an unknown release outcome instead of claiming the control was kept", async () => {
+    const ownership = ownershipRecord();
+    const listAgentMcpConnections = vi.fn()
+      .mockResolvedValue(list([activeConnection], [ownership]));
+    const releaseAgentControllerOwnership = vi.fn()
+      .mockRejectedValue(new Error("synthetic transport"));
+    render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        selectedSessionId={SESSION_ID}
+        transport={{ listAgentMcpConnections, releaseAgentControllerOwnership }}
+        userPresenceAvailable
+      />,
+    );
+
+    const ownerCard = await screen.findByLabelText(
+      "External control for Synthetic controlled chat",
+    );
+    fireEvent.click(within(ownerCard).getByRole("button", { name: "Release settled control" }));
+
+    const failure = await screen.findByText(/The release request failed without a receipt/);
+    // A rejected request and a successful backend mutation whose response was
+    // lost look identical here, so the panel may not claim either outcome.
+    expect(failure).toHaveTextContent("its outcome is unknown");
+    expect(failure).toHaveTextContent(
+      "may have released this external control or may still hold it",
+    );
+    expect(failure).not.toHaveTextContent("External control was not released");
+    expect(failure).not.toHaveTextContent("The record remains visible");
+    // This re-read applied, so the list below is the observable answer.
+    expect(failure).toHaveTextContent("were re-read just now");
+    expect(failure).toHaveTextContent(
+      "Whether this control is still held is what the ownership list below now shows",
+    );
+    expect(failure).toHaveTextContent(
+      "Finish or stop the live chat, resolve any native approval, and confirm cleanup before retrying",
+    );
+  });
+
+  it("leaves the release record's presence unknown when its own re-read fails", async () => {
+    const ownership = ownershipRecord();
+    const listAgentMcpConnections = vi.fn()
+      .mockResolvedValueOnce(list([activeConnection], [ownership]))
+      .mockRejectedValue(new Error("synthetic transport"));
+    const releaseAgentControllerOwnership = vi.fn()
+      .mockRejectedValue(new Error("synthetic transport"));
+    render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        selectedSessionId={SESSION_ID}
+        transport={{ listAgentMcpConnections, releaseAgentControllerOwnership }}
+        userPresenceAvailable
+      />,
+    );
+
+    const ownerCard = await screen.findByLabelText(
+      "External control for Synthetic controlled chat",
+    );
+    fireEvent.click(within(ownerCard).getByRole("button", { name: "Release settled control" }));
+
+    const failure = await screen.findByText(/The release request failed without a receipt/);
+    expect(failure).toHaveTextContent("its outcome is unknown");
+    expect(failure).toHaveTextContent("could not be re-read, so it is stale");
+    expect(failure).toHaveTextContent(
+      "Until it is re-read, whether this record is still listed is unknown here",
+    );
+    expect(failure).not.toHaveTextContent("were re-read just now");
+    expect(failure).toHaveTextContent(
+      "Finish or stop the live chat, resolve any native approval, and confirm cleanup before retrying",
+    );
+    // The failed background re-read keeps the last known record on screen.
+    expect(screen.getByLabelText("External control for Synthetic controlled chat"))
+      .toBeVisible();
+  });
+
+  it("announces the exact owner-presence reason on every disabled native control", async () => {
+    const ownership = ownershipRecord();
+    const transport = {
+      listAgentMcpConnections: vi.fn().mockResolvedValue(list([activeConnection], [ownership])),
+      rotateAgentMcpConnection: vi.fn(),
+      revokeAgentMcpConnection: vi.fn(),
+      releaseAgentControllerOwnership: vi.fn(),
+    };
+    const panel = (userPresenceAvailable: boolean) => (
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        selectedSessionId={SESSION_ID}
+        transport={transport}
+        userPresenceAvailable={userPresenceAvailable}
+      />
+    );
+
+    const { rerender } = render(panel(false));
+
+    expect(await screen.findByText("Synthetic Codex connection")).toBeVisible();
+    const rotate = screen.getByRole("button", { name: "Rotate" });
+    const revoke = screen.getByRole("button", { name: "Revoke" });
+    const release = screen.getByRole("button", { name: "Release settled control" });
+    // Panel-wide region copy is not announced with a button, so each disabled
+    // control carries its own exact block instead.
+    expect(rotate).toBeDisabled();
+    expect(rotate).toHaveAccessibleDescription(
+      /Owner presence is unproven, so this app cannot rotate a credential/,
+    );
+    expect(revoke).toBeDisabled();
+    expect(revoke).toHaveAccessibleDescription(
+      /Owner presence is unproven, so this app cannot revoke a credential/,
+    );
+    // This ownership is settleable, so settlement is not what blocks Release.
+    expect(release).toBeDisabled();
+    expect(release).toHaveAccessibleDescription(/Owner presence is unproven/);
+    expect(release.getAttribute("title")).toContain("Owner presence is unproven");
+    expect(release.getAttribute("title")).not.toContain("objectively settled");
+
+    rerender(panel(true));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Rotate" })).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Rotate" })).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("button", { name: "Revoke" })).not.toHaveAttribute("aria-describedby");
+    const enabledRelease = screen.getByRole("button", { name: "Release settled control" });
+    expect(enabledRelease).toBeEnabled();
+    expect(enabledRelease).not.toHaveAttribute("aria-describedby");
+    expect(enabledRelease.getAttribute("title")).toContain("objectively settled");
+    expect(transport.rotateAgentMcpConnection).not.toHaveBeenCalled();
+    expect(transport.revokeAgentMcpConnection).not.toHaveBeenCalled();
+    expect(transport.releaseAgentControllerOwnership).not.toHaveBeenCalled();
+  });
+
+  it("describes direct creation and replacement only while they are disabled", async () => {
+    const expiredConnection: AgentMcpConnection = {
+      ...activeConnection,
+      state: "expired",
+      expires_at: "2026-08-27T12:00:00+00:00",
+    };
+    const createAgentMcpConnection = vi.fn();
+    render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={{
+          listAgentMcpConnections: vi.fn().mockResolvedValue(list([expiredConnection])),
+          createAgentMcpConnection,
+        }}
+        userPresenceAvailable
+      />,
+    );
+
+    expect(await screen.findByText("Synthetic Codex connection")).toBeVisible();
+    const create = screen.getByRole("button", { name: "Create direct connection" });
+    const replacement = screen.getByRole("button", { name: "Prepare replacement" });
+    expect(create).toBeEnabled();
+    expect(create).not.toHaveAttribute("aria-describedby");
+    expect(replacement).toBeEnabled();
+    expect(replacement).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("explains project loading and recovery blocks for both direct actions", async () => {
+    const projects = deferred<{ projects: never[] }>();
+    render(
+      <AgentMcpConnectionsPanel
+        transport={{
+          listAgentMcpConnections: vi.fn().mockResolvedValue(list([{
+            ...activeConnection,
+            state: "expired",
+          }])),
+          listAgentProjects: vi.fn().mockReturnValue(projects.promise),
+          createAgentMcpConnection: vi.fn(),
+        }}
+        userPresenceAvailable
+      />,
+    );
+    const connection = await screen.findByText("Synthetic Codex connection");
+    const card = connection.closest("article") as HTMLElement;
+    expect(within(card).getByRole("button", { name: "Prepare replacement" }))
+      .toHaveAccessibleDescription(/projects are still loading/);
+    expect(screen.getByRole("button", { name: "Create direct connection" }))
+      .toHaveAccessibleDescription(/projects are still loading/);
+    projects.resolve({ projects: [] });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create direct connection" }))
+      .toHaveAccessibleDescription(/No active Agent project is available/));
+    expect(within(card).getByRole("button", { name: "Prepare replacement" }))
+      .toHaveAccessibleDescription(/No active Agent project is available/);
+  });
+
+  it("explains that project loading errors must be retried", async () => {
+    let rejectProjects!: (error: Error) => void;
+    const retryProjects = deferred<{ projects: AgentProject[] }>();
+    const projectFailure = new Promise<{ projects: AgentProject[] }>((_, reject) => {
+      rejectProjects = reject;
+    });
+    const listAgentProjects = vi.fn()
+      .mockReturnValueOnce(projectFailure)
+      .mockReturnValueOnce(retryProjects.promise);
+    render(
+      <AgentMcpConnectionsPanel
+        transport={{
+          listAgentMcpConnections: vi.fn().mockResolvedValue(list([{
+            ...activeConnection,
+            state: "expired",
+          }])),
+          listAgentProjects,
+          createAgentMcpConnection: vi.fn(),
+        }}
+        userPresenceAvailable
+      />,
+    );
+    const connection = await screen.findByText("Synthetic Codex connection");
+    rejectProjects(new Error("synthetic project failure"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create direct connection" }))
+      .toHaveAccessibleDescription(/could not be loaded\. Use Retry projects/));
+    const card = connection.closest("article") as HTMLElement;
+    expect(within(card).getByRole("button", { name: "Prepare replacement" }))
+      .toHaveAccessibleDescription(/could not be loaded\. Use Retry projects/);
+    fireEvent.click(screen.getByRole("button", { name: "Retry projects" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create direct connection" }))
+      .toHaveAccessibleDescription(/projects are still loading/));
+    retryProjects.resolve({
+      projects: [{
+        contract_version: "agent-catalog.v2",
+        project_id: PROJECT_ID,
+        name: "Synthetic project",
+        created_at: "2026-08-28T12:00:00+00:00",
+        updated_at: "2026-08-28T12:00:00+00:00",
+        revision: 1,
+        pinned: false,
+        archived_at: null,
+        session_count: 0,
+        is_default: false,
+      }],
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create direct connection" }))
+      .toBeEnabled());
+    expect(within(card).getByRole("button", { name: "Prepare replacement" })).toBeEnabled();
+  });
+
+  it("discards a stale project retry when the selected project changes", async () => {
+    let rejectInitial!: (error: Error) => void;
+    const initialFailure = new Promise<{ projects: AgentProject[] }>((_, reject) => {
+      rejectInitial = reject;
+    });
+    const staleRetry = deferred<{ projects: AgentProject[] }>();
+    const selectedRetry = deferred<{ projects: AgentProject[] }>();
+    const secondProjectId = "e".repeat(32);
+    const project = (projectId: string): AgentProject => ({
+      contract_version: "agent-catalog.v2",
+      project_id: projectId,
+      name: "Synthetic selected project",
+      created_at: "2026-08-28T12:00:00+00:00",
+      updated_at: "2026-08-28T12:00:00+00:00",
+      revision: 1,
+      pinned: false,
+      archived_at: null,
+      session_count: 0,
+      is_default: false,
+    });
+    const listAgentProjects = vi.fn()
+      .mockReturnValueOnce(initialFailure)
+      .mockReturnValueOnce(staleRetry.promise)
+      .mockReturnValueOnce(selectedRetry.promise);
+    const transport = {
+      listAgentMcpConnections: vi.fn().mockResolvedValue(list([activeConnection])),
+      listAgentProjects,
+      createAgentMcpConnection: vi.fn(),
+    };
+    const { rerender } = render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={transport}
+        userPresenceAvailable
+      />,
+    );
+    rejectInitial(new Error("synthetic project failure"));
+    await screen.findByRole("button", { name: "Retry projects" });
+    fireEvent.click(screen.getByRole("button", { name: "Retry projects" }));
+    rerender(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={secondProjectId}
+        transport={transport}
+        userPresenceAvailable
+      />,
+    );
+    selectedRetry.resolve({ projects: [project(secondProjectId)] });
+    await waitFor(() => expect(screen.getByLabelText("Project scope")).toHaveValue(secondProjectId));
+    staleRetry.resolve({ projects: [project(PROJECT_ID)] });
+    await settle();
+    expect(screen.getByLabelText("Project scope")).toHaveValue(secondProjectId);
+  });
+
+  it("uses native presence, transport, then busy as the direct-action reason priority", async () => {
+    const expiredConnection: AgentMcpConnection = {
+      ...activeConnection,
+      state: "expired",
+      expires_at: "2026-08-27T12:00:00+00:00",
+    };
+    const createAgentMcpConnection = vi.fn();
+    const { rerender } = render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={{ listAgentMcpConnections: vi.fn().mockResolvedValue(list([expiredConnection])) }}
+        userPresenceAvailable={false}
+      />,
+    );
+    expect(await screen.findByText("Synthetic Codex connection")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Create direct connection" }))
+      .toHaveAccessibleDescription(/Owner presence is unproven, so this app cannot create/);
+    expect(screen.getByRole("button", { name: "Prepare replacement" }))
+      .toHaveAccessibleDescription(/Owner presence is unproven, so this app cannot prepare/);
+
+    rerender(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={{ listAgentMcpConnections: vi.fn().mockResolvedValue(list([expiredConnection])) }}
+        userPresenceAvailable
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create direct connection" }))
+      .toHaveAccessibleDescription(/does not expose direct connection creation/));
+    expect(screen.getByRole("button", { name: "Prepare replacement" }))
+      .toHaveAccessibleDescription(/does not expose direct connection creation/);
+
+    const rotateCall = deferred<AgentMcpConnectionCredential>();
+    const busyExpiredConnection: AgentMcpConnection = {
+      ...activeConnection,
+      connection_id: "d".repeat(32),
+      label: "Synthetic expired connection",
+      state: "expired",
+    };
+    const listAgentMcpConnections = vi.fn().mockResolvedValue(
+      list([activeConnection, busyExpiredConnection]),
+    );
+    rerender(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={{ listAgentMcpConnections, createAgentMcpConnection, rotateAgentMcpConnection: vi.fn().mockReturnValue(rotateCall.promise) }}
+        userPresenceAvailable
+      />,
+    );
+    expect(await screen.findByText("Synthetic Codex connection")).toBeVisible();
+    const activeCard = screen.getByText("Synthetic Codex connection").closest("article") as HTMLElement;
+    fireEvent.click(within(activeCard).getByRole("button", { name: "Rotate" }));
+    expect(await screen.findByRole("button", { name: "Create direct connection" })).toHaveAccessibleDescription(
+      /Another native connection action is still running here/,
+    );
+    const expiredCard = screen.getByText("Synthetic expired connection").closest("article") as HTMLElement;
+    expect(within(expiredCard).getByRole("button", { name: "Prepare replacement" }))
+      .toHaveAccessibleDescription(/Another native connection action is still running here/);
+    rotateCall.resolve(privateCredential);
+    await settle();
+  });
+
+  it("announces the exact record-state and approval reasons that block native actions", async () => {
+    const revokedConnection: AgentMcpConnection = {
+      ...activeConnection,
+      state: "revoked",
+      revoked_at: "2026-08-29T12:00:00+00:00",
+    };
+    const listAgentMcpConnections = vi.fn()
+      .mockResolvedValueOnce(list([revokedConnection], [ownershipRecord({ state: "running" })]))
+      .mockResolvedValue(list([revokedConnection], [ownershipRecord({
+        state: "waiting_native_approval",
+        approval_pending: true,
+      })]));
+    render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        selectedSessionId={SESSION_ID}
+        transport={{
+          listAgentMcpConnections,
+          rotateAgentMcpConnection: vi.fn(),
+          revokeAgentMcpConnection: vi.fn(),
+          releaseAgentControllerOwnership: vi.fn(),
+        }}
+        userPresenceAvailable
+      />,
+    );
+
+    expect(await screen.findByText("Synthetic Codex connection")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Rotate" })).toHaveAccessibleDescription(
+      /This connection is revoked, and only an active credential can be rotated/,
+    );
+    expect(screen.getByRole("button", { name: "Revoke" })).toHaveAccessibleDescription(
+      /already revoked permanently/,
+    );
+    const running = screen.getByRole("button", { name: "Release settled control" });
+    expect(running).toHaveAccessibleDescription(/This live chat is running\./);
+    expect(running).toHaveAccessibleDescription(/absent or objectively settled/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh connection status" }));
+
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Release settled control" }),
+    ).toHaveAccessibleDescription(/A native approval is still pending for this chat/));
+  });
+
+  it("separates the running native action from the panel-wide busy block", async () => {
+    const rotateCall = deferred<AgentMcpConnectionCredential>();
+    const listAgentMcpConnections = vi.fn().mockResolvedValue(list([activeConnection]));
+    const rotateAgentMcpConnection = vi.fn().mockReturnValue(rotateCall.promise);
+    render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={{
+          listAgentMcpConnections,
+          rotateAgentMcpConnection,
+          revokeAgentMcpConnection: vi.fn(),
+        }}
+        userPresenceAvailable
+      />,
+    );
+
+    expect(await screen.findByText("Synthetic Codex connection")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
+
+    const rotating = await screen.findByRole("button", { name: "Rotating…" });
+    expect(rotating).toBeDisabled();
+    expect(rotating).toHaveAccessibleDescription(/This rotation is still running/);
+    expect(screen.getByRole("button", { name: "Revoke" })).toHaveAccessibleDescription(
+      /Another native connection action is still running here/,
+    );
+
+    rotateCall.resolve(privateCredential);
+    await settle();
+    expect(document.body).not.toHaveTextContent(TOKEN);
+  });
+
   it("guides a page-owned external lifecycle proof and ignores the local self-test", async () => {
     const localReceipt: AgentMcpConnection = {
       ...activeConnection,
@@ -1001,5 +1474,440 @@ describe("AgentMcpConnectionsPanel", () => {
       "then create it through native confirmation",
     );
     expect(createAgentMcpConnection).not.toHaveBeenCalled();
+  });
+
+  it("drops a superseded background read instead of replaying older activity evidence", async () => {
+    const busyConnection: AgentMcpConnection = {
+      ...activeConnection,
+      connection_id: "d".repeat(32),
+      label: "Unrelated synthetic controller",
+    };
+    const unrelatedOwnership: AgentControllerOwnership = {
+      contract_version: "agent-controller-ownership.v1",
+      project_id: PROJECT_ID,
+      project_name: "Synthetic project",
+      session_id: "e".repeat(32),
+      session_title: "Unrelated controlled chat",
+      owner_connection_id: busyConnection.connection_id,
+      owner_label: busyConnection.label,
+      owner_client_kind: "codex",
+      operation: "turn",
+      state: "running",
+      cursor: 3,
+      last_seq: 3,
+      approval_pending: false,
+      ownership_started_at: "2026-08-28T12:00:00+00:00",
+      owner_since: "2026-08-28T12:00:00+00:00",
+      updated_at: "2026-08-28T12:00:00+00:00",
+      revision: 2,
+      handoff: null,
+      native_approval_inherited: false,
+    };
+    const discovered: AgentMcpConnection = {
+      ...activeConnection,
+      last_used_at: "2026-08-28T12:05:00+00:00",
+      last_tool_at: "2026-08-28T12:05:01+00:00",
+      last_tool_name: "agent_discover",
+      last_tool_outcome: "succeeded",
+      last_tool_source: "external_client",
+    };
+    const stale = deferred<AgentMcpConnectionList>();
+    const fresh = deferred<AgentMcpConnectionList>();
+    const listAgentMcpConnections = vi.fn()
+      .mockResolvedValueOnce(list([activeConnection, busyConnection], [unrelatedOwnership], [0, 0]))
+      .mockReturnValueOnce(stale.promise)
+      .mockReturnValueOnce(fresh.promise)
+      .mockResolvedValue(list([discovered, busyConnection], [unrelatedOwnership], [1, 0]));
+
+    function Harness() {
+      const [run, setRun] = useState<ExternalControllerAcceptanceRun | null>(null);
+      const observeAcceptance = useCallback((catalog: AgentMcpConnectionList) => {
+        setRun((current) => observeExternalControllerAcceptance(current, catalog));
+      }, []);
+      return (
+        <AgentMcpConnectionsPanel
+          acceptanceRun={run}
+          onAcceptanceObservation={observeAcceptance}
+          onAcceptanceRunChange={setRun}
+          selectedProjectId={PROJECT_ID}
+          selectedSessionId={SESSION_ID}
+          transport={{ listAgentMcpConnections }}
+          userPresenceAvailable
+        />
+      );
+    }
+
+    // The clock only moves when this test moves it: the controller poll fires
+    // exactly twice, so the ordered read count cannot drift under load.
+    vi.useFakeTimers();
+    try {
+      render(<Harness />);
+      await settle();
+      const proofCard = screen.getByText("Synthetic Codex connection").closest("article");
+      expect(proofCard).not.toBeNull();
+      expect(listAgentMcpConnections).toHaveBeenCalledTimes(1);
+      fireEvent.click(within(proofCard!).getByRole("button", {
+        name: "Begin external lifecycle proof",
+      }));
+      expect(screen.getByText(/call only agent_discover/)).toBeVisible();
+
+      // Two ordered controller polls overlap: the first response is still in
+      // flight when the newer one arrives with the external agent_discover.
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      expect(listAgentMcpConnections).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      expect(listAgentMcpConnections).toHaveBeenCalledTimes(3);
+
+      fresh.resolve(list([discovered, busyConnection], [unrelatedOwnership], [1, 0]));
+      await settle();
+      expect(screen.getByText(/call agent_catalog list_chats/)).toBeVisible();
+
+      stale.resolve(list([activeConnection, busyConnection], [unrelatedOwnership], [0, 0]));
+      await settle();
+
+      expect(listAgentMcpConnections).toHaveBeenCalledTimes(3);
+      expect(screen.getByText(/call agent_catalog list_chats/)).toBeVisible();
+      expect(screen.getByText("External client connected").closest("li"))
+        .toHaveAttribute("data-state", "passed");
+      expect(screen.queryByText("Restart required")).not.toBeInTheDocument();
+      expect(screen.queryByText(/More than one controller action occurred/))
+        .not.toBeInTheDocument();
+      expect(screen.getByText(/Last tool/)).toHaveTextContent("agent_discover");
+      expect(screen.getByText(/Last MCP request/)).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps another connection's one-time setup when an unrelated connection is revoked", async () => {
+    const otherConnection: AgentMcpConnection = {
+      ...activeConnection,
+      connection_id: "d".repeat(32),
+      label: "Older synthetic client",
+    };
+    const revokedOther: AgentMcpConnection = {
+      ...otherConnection,
+      state: "revoked",
+      revoked_at: "2026-08-29T12:00:00+00:00",
+      revision: 2,
+    };
+    const listAgentMcpConnections = vi.fn()
+      .mockResolvedValueOnce(list([otherConnection]))
+      .mockResolvedValueOnce(list([activeConnection, otherConnection]))
+      .mockResolvedValueOnce(list([activeConnection, revokedOther]))
+      .mockResolvedValue(list([
+        { ...activeConnection, state: "revoked", revoked_at: "2026-08-29T12:05:00+00:00", revision: 2 },
+        revokedOther,
+      ]));
+    const createAgentMcpConnection = vi.fn().mockResolvedValue(privateCredential);
+    const revokeAgentMcpConnection = vi.fn().mockResolvedValue(revokedOther);
+    render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={{
+          listAgentMcpConnections,
+          createAgentMcpConnection,
+          revokeAgentMcpConnection,
+        }}
+        userPresenceAvailable
+      />,
+    );
+
+    expect(await screen.findByText("Older synthetic client")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Create direct connection" }));
+    expect(await screen.findByText("One-time private setup")).toBeVisible();
+
+    const otherCard = screen.getByText("Older synthetic client").closest("article");
+    expect(otherCard).not.toBeNull();
+    fireEvent.click(within(otherCard!).getByRole("button", { name: "Revoke" }));
+
+    expect(await screen.findByText(/belongs to a different connection and is unchanged/))
+      .toBeVisible();
+    expect(revokeAgentMcpConnection).toHaveBeenCalledWith(
+      otherConnection.connection_id,
+      { expected_revision: 1 },
+    );
+    expect(screen.getByText("One-time private setup")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Copy token" }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(TOKEN));
+    expect(document.body).not.toHaveTextContent(TOKEN);
+
+    const ownRevoke = () => within(
+      screen.getByText("Synthetic Codex connection").closest("article") as HTMLElement,
+    ).getByRole("button", { name: "Revoke" });
+    await waitFor(() => expect(ownRevoke()).toBeEnabled());
+    fireEvent.click(ownRevoke());
+
+    await waitFor(() => expect(
+      screen.queryByText("One-time private setup"),
+    ).not.toBeInTheDocument());
+    expect(screen.getByText("Connection revoked. Its credential no longer works.")).toBeVisible();
+  });
+
+  it("never claims an unproven rotation or revocation and re-reads the exact current revision", async () => {
+    const listAgentMcpConnections = vi.fn()
+      .mockResolvedValueOnce(list([activeConnection]))
+      .mockResolvedValueOnce(list([{ ...activeConnection, revision: 5, credential_revision: 2 }]))
+      .mockResolvedValueOnce(list([{ ...activeConnection, revision: 6, credential_revision: 2 }]))
+      .mockResolvedValue(list([{
+        ...activeConnection,
+        state: "revoked",
+        revoked_at: "2026-08-29T12:00:00+00:00",
+        revision: 7,
+        credential_revision: 2,
+      }]));
+    const rotateAgentMcpConnection = vi.fn().mockRejectedValue(new Error("synthetic transport"));
+    const revokeAgentMcpConnection = vi.fn()
+      .mockRejectedValueOnce(new Error("synthetic transport"))
+      .mockResolvedValueOnce({
+        ...activeConnection,
+        state: "revoked",
+        revoked_at: "2026-08-29T12:00:00+00:00",
+        revision: 7,
+      });
+    render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={{
+          listAgentMcpConnections,
+          rotateAgentMcpConnection,
+          revokeAgentMcpConnection,
+        }}
+        userPresenceAvailable
+      />,
+    );
+
+    expect(await screen.findByText("Synthetic Codex connection")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
+
+    const rotateFailure = await screen.findByText(/The rotate request failed/);
+    expect(rotateFailure).toHaveTextContent("Rotation itself is unproven");
+    expect(rotateFailure).toHaveTextContent("were re-read just now");
+    expect(rotateAgentMcpConnection).toHaveBeenCalledWith(
+      CONNECTION_ID,
+      expect.objectContaining({ expected_revision: 1 }),
+    );
+    expect(screen.queryByText("One-time private setup")).not.toBeInTheDocument();
+    await waitFor(() => expect(listAgentMcpConnections).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Revoke" })).toBeEnabled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    const revokeFailure = await screen.findByText(/The revoke request failed/);
+    expect(revokeFailure).toHaveTextContent("not proven revoked");
+    expect(revokeFailure).toHaveTextContent("were re-read just now");
+    expect(revokeAgentMcpConnection).toHaveBeenNthCalledWith(
+      1,
+      CONNECTION_ID,
+      { expected_revision: 5 },
+    );
+    await waitFor(() => expect(listAgentMcpConnections).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Revoke" })).toBeEnabled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(await screen.findByText(/credential no longer works/)).toBeVisible();
+    expect(revokeAgentMcpConnection).toHaveBeenNthCalledWith(
+      2,
+      CONNECTION_ID,
+      { expected_revision: 6 },
+    );
+    expect(document.body).not.toHaveTextContent(TOKEN);
+  });
+
+  it("calls the recovery status stale when its own re-read fails and keeps retry usable", async () => {
+    const listAgentMcpConnections = vi.fn()
+      .mockResolvedValueOnce(list([activeConnection]))
+      .mockRejectedValueOnce(new Error("synthetic transport"))
+      .mockResolvedValue(list([{ ...activeConnection, revision: 9, credential_revision: 2 }]));
+    const rotateAgentMcpConnection = vi.fn().mockRejectedValue(new Error("synthetic transport"));
+    render(
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={{ listAgentMcpConnections, rotateAgentMcpConnection }}
+        userPresenceAvailable
+      />,
+    );
+
+    expect(await screen.findByText("Synthetic Codex connection")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
+
+    const failure = await screen.findByText(/The rotate request failed/);
+    expect(failure).toHaveTextContent("Rotation itself is unproven");
+    expect(failure).toHaveTextContent("could not be re-read, so it is stale");
+    expect(failure).not.toHaveTextContent("were re-read just now");
+    expect(listAgentMcpConnections).toHaveBeenCalledTimes(2);
+    // The failed recovery read keeps the last known catalog visible instead of
+    // blanking it, and leaves the explicit re-read available.
+    expect(screen.getByText("Synthetic Codex connection")).toBeVisible();
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Refresh connection status" }),
+    ).toBeEnabled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh connection status" }));
+    await waitFor(() => expect(listAgentMcpConnections).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Rotate" })).toBeEnabled());
+    expect(document.body).not.toHaveTextContent(TOKEN);
+  });
+
+  it("discards a replaced transport's in-flight read instead of publishing its catalog", async () => {
+    const oldRead = deferred<AgentMcpConnectionList>();
+    const oldConnection: AgentMcpConnection = {
+      ...activeConnection,
+      label: "Transport A connection",
+    };
+    const newConnection: AgentMcpConnection = {
+      ...activeConnection,
+      connection_id: "d".repeat(32),
+      label: "Transport B connection",
+    };
+    const transportA = { listAgentMcpConnections: vi.fn().mockReturnValue(oldRead.promise) };
+    const transportB = {
+      listAgentMcpConnections: vi.fn().mockResolvedValue(list([newConnection])),
+    };
+    const onAcceptanceObservation = vi.fn();
+    const panel = (transport: PanelTransport) => (
+      <AgentMcpConnectionsPanel
+        onAcceptanceObservation={onAcceptanceObservation}
+        selectedProjectId={PROJECT_ID}
+        transport={transport}
+        userPresenceAvailable
+      />
+    );
+
+    const { rerender } = render(panel(transportA));
+    expect(screen.getByText("Loading direct connections…")).toBeVisible();
+
+    rerender(panel(transportB));
+    expect(await screen.findByText("Transport B connection")).toBeVisible();
+    expect(onAcceptanceObservation).toHaveBeenCalledTimes(1);
+
+    // Transport A answers only now. Its catalog belongs to the previous backend
+    // identity and is never repainted or observed in this generation.
+    oldRead.resolve(list([oldConnection]));
+    await settle();
+
+    expect(screen.queryByText("Transport A connection")).not.toBeInTheDocument();
+    expect(screen.getByText("Transport B connection")).toBeVisible();
+    expect(onAcceptanceObservation).toHaveBeenCalledTimes(1);
+    expect(onAcceptanceObservation).toHaveBeenCalledWith(expect.objectContaining({
+      connections: [newConnection],
+    }));
+    expect(transportA.listAgentMcpConnections).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards a replaced transport's completed mutation instead of publishing its credential", async () => {
+    const oldCreate = deferred<AgentMcpConnectionCredential>();
+    const oldConnection: AgentMcpConnection = {
+      ...activeConnection,
+      label: "Transport A connection",
+    };
+    const newConnection: AgentMcpConnection = {
+      ...activeConnection,
+      connection_id: "d".repeat(32),
+      label: "Transport B connection",
+    };
+    const transportA = {
+      listAgentMcpConnections: vi.fn().mockResolvedValue(list([oldConnection])),
+      createAgentMcpConnection: vi.fn().mockReturnValue(oldCreate.promise),
+    };
+    const transportB = {
+      listAgentMcpConnections: vi.fn().mockResolvedValue(list([newConnection])),
+      createAgentMcpConnection: vi.fn(),
+    };
+    const panel = (transport: PanelTransport) => (
+      <AgentMcpConnectionsPanel
+        selectedProjectId={PROJECT_ID}
+        transport={transport}
+        userPresenceAvailable
+      />
+    );
+
+    const { rerender } = render(panel(transportA));
+    expect(await screen.findByText("Transport A connection")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Create direct connection" }));
+    await waitFor(() => expect(transportA.createAgentMcpConnection).toHaveBeenCalledTimes(1));
+
+    rerender(panel(transportB));
+    expect(await screen.findByText("Transport B connection")).toBeVisible();
+
+    // The old backend mints its credential after the swap. Showing it here would
+    // attach a previous identity's secret and setup to the current one.
+    oldCreate.resolve(privateCredential);
+    await settle();
+
+    expect(screen.queryByText("One-time private setup")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connection created/)).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(TOKEN);
+    expect(document.body).not.toHaveTextContent(ENDPOINT);
+    // No post-mutation read reached the replaced transport either.
+    expect(transportA.listAgentMcpConnections).toHaveBeenCalledTimes(1);
+    expect(transportB.createAgentMcpConnection).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Create direct connection" })).toBeEnabled();
+  });
+
+  it("publishes no catalog or release evidence from a mutation that completes after unmount", async () => {
+    const ownership: AgentControllerOwnership = {
+      contract_version: "agent-controller-ownership.v1",
+      project_id: PROJECT_ID,
+      project_name: "Synthetic project",
+      session_id: SESSION_ID,
+      session_title: "Synthetic controlled chat",
+      owner_connection_id: CONNECTION_ID,
+      owner_label: activeConnection.label,
+      owner_client_kind: "codex",
+      operation: "turn",
+      state: "reconnecting",
+      cursor: 7,
+      last_seq: 8,
+      approval_pending: false,
+      ownership_started_at: "2026-08-28T12:00:00+00:00",
+      owner_since: "2026-08-28T12:00:00+00:00",
+      updated_at: "2026-08-28T12:05:00+00:00",
+      revision: 4,
+      handoff: null,
+      native_approval_inherited: false,
+    };
+    const release = deferred<Record<string, unknown>>();
+    const listAgentMcpConnections = vi.fn().mockResolvedValue(list([activeConnection], [ownership]));
+    const releaseAgentControllerOwnership = vi.fn().mockReturnValue(release.promise);
+    const onAcceptanceEvidence = vi.fn();
+    const onAcceptanceObservation = vi.fn();
+    const { unmount } = render(
+      <AgentMcpConnectionsPanel
+        onAcceptanceEvidence={onAcceptanceEvidence}
+        onAcceptanceObservation={onAcceptanceObservation}
+        selectedProjectId={PROJECT_ID}
+        selectedSessionId={SESSION_ID}
+        transport={{ listAgentMcpConnections, releaseAgentControllerOwnership }}
+        userPresenceAvailable
+      />,
+    );
+
+    const ownerCard = await screen.findByLabelText(
+      "External control for Synthetic controlled chat",
+    );
+    fireEvent.click(within(ownerCard).getByRole("button", { name: "Release settled control" }));
+    await waitFor(() => expect(releaseAgentControllerOwnership).toHaveBeenCalledTimes(1));
+    // An owned chat is polled while mounted, so compare against the exact
+    // pre-unmount counts rather than a wall-clock-dependent total.
+    const readsBeforeUnmount = listAgentMcpConnections.mock.calls.length;
+    const observationsBeforeUnmount = onAcceptanceObservation.mock.calls.length;
+
+    unmount();
+    release.resolve({
+      contract_version: "agent-controller-ownership.v1",
+      project_id: PROJECT_ID,
+      session_id: SESSION_ID,
+      released_connection_id: CONNECTION_ID,
+      released_revision: ownership.revision,
+      released_at: "2026-08-28T12:06:00+00:00",
+      released_by: "native",
+      session_settled: true,
+      native_approval_inherited: false,
+    });
+    await settle();
+
+    expect(onAcceptanceEvidence).not.toHaveBeenCalled();
+    expect(onAcceptanceObservation).toHaveBeenCalledTimes(observationsBeforeUnmount);
+    expect(listAgentMcpConnections).toHaveBeenCalledTimes(readsBeforeUnmount);
   });
 });

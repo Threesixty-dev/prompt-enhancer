@@ -26,6 +26,11 @@ import time
 from typing import Any, Literal
 import unicodedata
 
+from .governed_web_fetch import (
+    GovernedWebFetchError,
+    GovernedWebFetcher,
+    PreparedWebFetch,
+)
 from .local_agent_limits import (
     DEFAULT_COMMAND_SECONDS,
     LocalAgentError,
@@ -57,7 +62,7 @@ from .local_agent_receipts import (
 )
 from .local_command_process import minimal_environment, run_with_tree_kill
 from .local_workspace_glob import WorkspaceGlob
-from .local_workspace_io import InspectedEntry, WorkspaceIO, check_workspace_cancellation, is_link_or_reparse
+from .local_workspace_io import InspectedEntry, WorkspaceIO, _same_path_and_descriptor, check_workspace_cancellation, is_link_or_reparse
 from .runtime_cancellation import (
     RuntimeCleanupUnconfirmed,
     RuntimeCooperativeStop,
@@ -365,7 +370,7 @@ class WorkspaceTools:
         *,
         command_timeout: int = DEFAULT_COMMAND_SECONDS,
         runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
-        fetcher: Callable[[str], str] | None = None,
+        fetcher: Callable[[str], str] | GovernedWebFetcher | None = None,
     ) -> None:
         lexical_root = Path(os.path.abspath(os.fspath(root.expanduser())))
         if not lexical_root.is_dir() or not _path_components_are_safe(lexical_root):
@@ -1093,6 +1098,12 @@ class WorkspaceTools:
             metadata.st_nlink,
         )
 
+    @staticmethod
+    def _path_matches_descriptor(path: os.stat_result, descriptor: os.stat_result) -> bool:
+        if os.name == "nt":
+            return _same_path_and_descriptor(path, descriptor)
+        return WorkspaceTools._metadata_revision(path) == WorkspaceTools._metadata_revision(descriptor)
+
     def _read_open_descriptor(
         self,
         descriptor: int,
@@ -1246,7 +1257,7 @@ class WorkspaceTools:
                         )
                     if (
                         path_metadata is None
-                        or self._metadata_revision(path_metadata) != self._metadata_revision(target_metadata)
+                        or not self._path_matches_descriptor(path_metadata, target_metadata)
                         or not self._matches_reviewed_file(baseline, target_metadata, prepared)
                     ):
                         return _PublicationResult(
@@ -1312,7 +1323,7 @@ class WorkspaceTools:
                         )
                     if (
                         latest_path is None
-                        or self._metadata_revision(latest_path) != self._metadata_revision(latest_metadata)
+                        or not self._path_matches_descriptor(latest_path, latest_metadata)
                         or not self._matches_reviewed_file(latest_payload, latest_metadata, prepared)
                     ):
                         return _PublicationResult(
@@ -1341,7 +1352,7 @@ class WorkspaceTools:
                         if (
                             current is not None
                             and current_metadata is not None
-                            and self._metadata_revision(current) == self._metadata_revision(current_metadata)
+                            and self._path_matches_descriptor(current, current_metadata)
                             and staged is not None
                             and self._identity(staged) == stage_identity
                             and self._windows_path_metadata(backup_path) is None
@@ -1422,7 +1433,7 @@ class WorkspaceTools:
                                 restored_path = self._windows_path_metadata(target)
                                 if (
                                     restored_path is not None
-                                    and self._metadata_revision(restored_path) == self._metadata_revision(restored_metadata)
+                                    and self._path_matches_descriptor(restored_path, restored_metadata)
                                     and restored_payload == displaced_payload
                                 ):
                                     published_descriptor = self._open_windows_target(recovery_path)
@@ -1442,12 +1453,12 @@ class WorkspaceTools:
                         )
                     baseline_still_exact = (
                         backup_metadata is not None
-                        and self._metadata_revision(backup_metadata) == self._metadata_revision(displaced_metadata)
+                        and self._path_matches_descriptor(backup_metadata, displaced_metadata)
                         and self._matches_reviewed_file(displaced_payload, displaced_metadata, prepared)
                     )
                     proposed_is_exact = (
                         published_path is not None
-                        and self._metadata_revision(published_path) == self._metadata_revision(published_metadata)
+                        and self._path_matches_descriptor(published_path, published_metadata)
                         and self._identity(published_metadata) == stage_identity
                         and published_payload == proposed
                     )
@@ -1474,7 +1485,7 @@ class WorkspaceTools:
                                 )
                                 if (
                                     restored_path is not None
-                                    and self._metadata_revision(restored_path) == self._metadata_revision(restored_metadata)
+                                    and self._path_matches_descriptor(restored_path, restored_metadata)
                                     and restored_payload == displaced_payload
                                 ):
                                     published_descriptor = self._open_windows_target(recovery_path)
@@ -1520,7 +1531,7 @@ class WorkspaceTools:
                     published_path = self._windows_path_metadata(target)
                     if (
                         published_path is None
-                        or self._metadata_revision(published_path) != self._metadata_revision(published_metadata)
+                        or not self._path_matches_descriptor(published_path, published_metadata)
                         or self._identity(published_metadata) != stage_identity
                         or published_payload != proposed
                     ):
@@ -2980,8 +2991,7 @@ class WorkspaceTools:
                         )
                         if (
                             source_metadata is None
-                            or self._metadata_revision(source_metadata)
-                            != self._metadata_revision(metadata)
+                            or not self._path_matches_descriptor(source_metadata, metadata)
                             or self._identity(metadata) != prepared.source_identity
                             or hashlib.sha256(payload).hexdigest()
                             != prepared.source_sha256
@@ -3397,8 +3407,7 @@ class WorkspaceTools:
                     )
                 if (
                     path_metadata is None
-                    or self._metadata_revision(path_metadata)
-                    != self._metadata_revision(metadata)
+                    or not self._path_matches_descriptor(path_metadata, metadata)
                     or self._identity(metadata) != published_identity
                     or hashlib.sha256(payload).hexdigest()
                     != reviewed.proposed_sha256
@@ -3698,11 +3707,32 @@ class WorkspaceTools:
             _command_text(f"exit {completed.returncode}", completed.stdout, completed.stderr,
                 truncated=getattr(completed, "output_truncated", False)), untracked_command=True)
 
-    def fetch_url(self, url: str) -> ToolOutcome:
+    def prepare_fetch_url(self, url: str) -> PreparedWebFetch | None:
+        """Normalize a governed target before native approval or DNS."""
+        prepare = getattr(self._fetcher, "prepare", None)
+        return prepare(url) if callable(prepare) else None
+
+    def fetch_url(
+        self, url: str, prepared: PreparedWebFetch | None = None
+    ) -> ToolOutcome:
         if self._fetcher is None:
             return ToolOutcome(False, "web access is not available in this session")
         try:
-            return ToolOutcome(True, self._fetcher(url)[:MAX_TOOL_RESULT_CHARS])
+            fetch = getattr(self._fetcher, "fetch", None)
+            if prepared is not None and callable(fetch):
+                result = fetch(prepared, cancellation=current_runtime_cancellation())
+                return ToolOutcome(True, result.text[:MAX_TOOL_RESULT_CHARS])
+            if callable(self._fetcher):
+                return ToolOutcome(True, self._fetcher(url)[:MAX_TOOL_RESULT_CHARS])
+            return ToolOutcome(False, "web access is not available in this session")
+        except GovernedWebFetchError as error:
+            if error.code == "web_fetch_cleanup_unconfirmed":
+                return ToolOutcome(
+                    False,
+                    "the prior governed web fetch is still cleaning up; wait before another fetch",
+                    error.code,
+                )
+            return ToolOutcome(False, "the governed web fetch was refused", error.code)
         except Exception as error:  # noqa: BLE001 - reported to the model
             return ToolOutcome(False, f"fetch failed: {error.__class__.__name__}")
 

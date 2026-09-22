@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentMetricEvidencePreview,
   MetricLifecycleProposal,
@@ -164,7 +164,10 @@ export function MetricEvidenceFilePanel({
     return () => controller.abort();
   }, [capabilities, reloadToken, sessionId, sourceRunId, transport]);
 
-  useEffect(() => {
+  // Focus is committed in the same commit that renders the surface, never in a later passive
+  // pass: a deferred focus move leaves one painted frame in which the person's keystrokes and
+  // an assistive technology's reading position still belong to the replaced control.
+  useLayoutEffect(() => {
     if (pendingDecision !== null) {
       decisionActionRef.current?.focus();
     } else if (restoreDecisionFocusRef.current) {
@@ -196,11 +199,11 @@ export function MetricEvidenceFilePanel({
     return () => window.clearTimeout(timer);
   }, [busy, preview, stateBinding, stateTransport]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (preview !== null) previewRef.current?.focus();
   }, [preview]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (notice !== "" && focusNoticeOnUpdateRef.current) {
       noticeRef.current?.focus();
       focusNoticeOnUpdateRef.current = false;

@@ -930,7 +930,13 @@ describe("AgentMcpStorePanel", () => {
 
     await screen.findByText("Synthetic A");
     fireEvent.click(screen.getByRole("button", { name: "Review Synthetic A" }));
-    expect(await screen.findByRole("button", { name: "Save setup plan" })).toBeDisabled();
+    const save = await screen.findByRole("button", { name: "Save setup plan" });
+    expect(save).toBeDisabled();
+    const reasonId = save.getAttribute("aria-describedby");
+    expect(reasonId).toBeTruthy();
+    expect(document.getElementById(reasonId!)).toHaveTextContent(/native owner confirmation is unavailable/i);
+    expect(screen.getAllByText(/continue setup in the owned native Agent window/i)).toHaveLength(2);
+    expect(screen.getByText(/When that gate is available, save one exact supported option first/i)).toBeVisible();
     expect(createMcpManagedServer).not.toHaveBeenCalled();
   });
 

@@ -3,10 +3,11 @@
 All sources below are isolated synthetic fixtures. No provider home is read.
 """
 from contextlib import closing
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 import hashlib
 import json
 import sqlite3
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 import pytest
@@ -21,14 +22,41 @@ from prompt_enhancer.application.analysis.calibration_ratings import (
     RatingLabel, RatingSubmission,
 )
 from prompt_enhancer.application.analysis.model_judge import JUDGE_PROMPT_VERSION, render_window
+from prompt_enhancer.application.analysis.text_contracts import (
+    EphemeralRedactedMessage,
+    TextLanguage,
+    TextMessageKind,
+    TextRole,
+)
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
-from prompt_enhancer.database import Database, DatabaseError, _MIGRATION_1
+from prompt_enhancer.database import Database, DatabaseError, SCHEMA_VERSION, _MIGRATION_1
 from prompt_enhancer.domain import DataTier, Provider
 from prompt_enhancer.infrastructure.sqlite import migrations
 from prompt_enhancer.interfaces.http.browser_session import CSRF_HEADER
-from tests.test_calibration_ratings import _transcript
-from tests.test_structured_model_replies import NOW, SESSION, _window
+from test_calibration_ratings import _transcript
+
+
+SESSION = "a" * 64
+NOW = datetime(2026, 8, 26, 10, tzinfo=UTC)
+
+
+def _window():
+    return SimpleNamespace(
+        session_id=SESSION,
+        provider=Provider.SYNTHETIC,
+        analysis_window_fingerprint="b" * 64,
+        messages=(
+            EphemeralRedactedMessage(
+                message_id="c" * 64,
+                sequence=0,
+                role=TextRole.USER,
+                kind=TextMessageKind.REQUEST,
+                language=TextLanguage.ENGLISH,
+                text="Review the example module; report the checks performed.",
+            ),
+        ),
+    )
 
 
 def _case(**changes):
@@ -270,5 +298,5 @@ def test_v60_migration_keeps_historical_labels_unbound_without_backfilling(tmp_p
     assert judgment.case_fingerprint is judgment.case_version is None
     assert judgment.window_fingerprint == "b" * 64
     with closing(sqlite3.connect(path)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 61
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

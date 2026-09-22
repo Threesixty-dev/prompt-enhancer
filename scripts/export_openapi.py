@@ -486,6 +486,24 @@ class _SchemaRequirementActionEvidenceService:
 
 class _SchemaRequirementVerificationEvidenceService:
     """Non-executing stand-in for content-free verification evidence routes."""
+    review_service = None
+
+
+class _SchemaClaimGroundingReviewService:
+    """Non-executing stand-in for native-gated claim-grounding review routes."""
+
+    pass
+
+
+class _SchemaClaimGroundingLinkReviewService:
+    """Non-executing stand-in for native-gated claim-link review routes."""
+
+    def candidate_manifest(self, **_kwargs: object) -> object:
+        raise RuntimeError("schema-only service cannot resolve claim-link candidates")
+
+
+class _SchemaClaimGroundingCensusService:
+    """Non-executing stand-in for durable claim-grounding census routes."""
 
     pass
 
@@ -596,6 +614,9 @@ def _build_schema_app(*, include_control_plane: bool):
         requirement_plan_evidence_service=_SchemaRequirementPlanEvidenceService(),  # type: ignore[arg-type]
         requirement_action_evidence_service=_SchemaRequirementActionEvidenceService(),  # type: ignore[arg-type]
         requirement_verification_evidence_service=_SchemaRequirementVerificationEvidenceService(),  # type: ignore[arg-type]
+        claim_grounding_review_service=_SchemaClaimGroundingReviewService(),  # type: ignore[arg-type]
+        claim_grounding_link_review_service=_SchemaClaimGroundingLinkReviewService(),  # type: ignore[arg-type]
+        claim_grounding_census_service=_SchemaClaimGroundingCensusService(),  # type: ignore[arg-type]
         annotation_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         shared_folder_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         peer_folder_client=_SchemaAnnotationSurface(),  # type: ignore[arg-type]

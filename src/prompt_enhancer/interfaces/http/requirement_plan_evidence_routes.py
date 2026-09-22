@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationError, model_validator
 
 from ...application.analysis.requirement_plan_evidence import (
     MAX_REQUIREMENT_PLAN_EVIDENCE_BYTES,
@@ -22,6 +22,8 @@ from ...application.analysis.requirement_plan_evidence import (
     RequirementPlanDefinitionsOutOfDateError,
     RequirementPlanEvidenceContract,
     RequirementPlanEvidencePreview,
+    RequirementPlanGuidedAuthoringCommand,
+    RequirementPlanGuidedAuthoringReview,
     RequirementPlanInputError,
     RequirementPlanNotFoundError,
     RequirementPlanPersistenceError,
@@ -30,6 +32,7 @@ from ...application.analysis.requirement_plan_evidence import (
     RequirementPlanProposalPageSnapshot,
     RequirementPlanProposalReview,
     RequirementPlanProposalView,
+    RequirementPlanReviewContextMissingError,
     RequirementPlanStaleWindowError,
 )
 from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, StrictModel
@@ -55,6 +58,40 @@ _EVIDENCE_FILE_REQUEST_BODY = {
 }
 
 
+def _inline_local_schema_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Keep the raw-body endpoint's published schema valid without $defs refs."""
+
+    definitions = dict(schema.pop("$defs", {}))
+
+    def resolve(value: Any) -> Any:
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        reference = value.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            target = definitions.get(reference.removeprefix("#/$defs/"))
+            if isinstance(target, dict):
+                return resolve(dict(target))
+        return {key: resolve(item) for key, item in value.items()}
+
+    return resolve(schema)
+
+
+_GUIDED_AUTHORING_REQUEST_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": _inline_local_schema_refs(
+                    RequirementPlanGuidedAuthoringCommand.model_json_schema()
+                )
+            }
+        },
+    }
+}
+
+
 class RequirementPlanEvidenceCommand(Protocol):
     def contract(self, session_id: str) -> RequirementPlanEvidenceContract: ...
 
@@ -71,6 +108,24 @@ class RequirementPlanEvidenceCommand(Protocol):
         confirmation: str,
         idempotency_key: str,
         now: datetime | None = None,
+    ) -> tuple[RequirementPlanProposalView, bool]: ...
+
+    def open_guided_authoring(
+        self,
+        *,
+        session_id: str,
+        expected_source_run_id: str,
+        source_window_fingerprint: str,
+        manifest_fingerprint: str,
+        expected_predecessor_confirmation_id: str | None,
+    ) -> RequirementPlanGuidedAuthoringReview: ...
+
+    def create_guided_proposal(
+        self,
+        *,
+        session_id: str,
+        command: RequirementPlanGuidedAuthoringCommand,
+        idempotency_key: str,
     ) -> tuple[RequirementPlanProposalView, bool]: ...
 
     def decide(
@@ -180,6 +235,16 @@ class RequirementPlanReviewCommand(StrictModel):
     confirmation: Literal["open_exact_local_requirement_plan_clause_review"]
 
 
+class RequirementPlanGuidedAuthoringReviewCommand(StrictModel):
+    expected_source_run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    source_window_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    manifest_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    expected_predecessor_confirmation_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    confirmation: Literal["open_exact_local_requirement_plan_guided_authoring"]
+
+
 class RequirementPlanProposalPageDto(StrictModel):
     session_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     proposals: tuple[RequirementPlanProposalDto, ...] = Field(
@@ -261,11 +326,41 @@ async def _bounded_body(request: Request) -> bytes:
     return bytes(payload)
 
 
+async def _bounded_guided_authoring_body(request: Request) -> bytes:
+    """Bound a local JSON graph before model validation can retain it."""
+
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
+    if media_type != "application/json":
+        raise HTTPException(
+            415,
+            detail={
+                "code": "requirement_plan_guided_authoring_media_type_required",
+                "message": "guided requirement-plan authoring requires JSON",
+            },
+            headers=_PRIVATE_HEADERS,
+        )
+    payload = bytearray()
+    async for chunk in request.stream():
+        payload.extend(chunk)
+        if len(payload) > MAX_REQUIREMENT_PLAN_EVIDENCE_BYTES:
+            raise HTTPException(
+                413,
+                detail={
+                    "code": "requirement_plan_guided_authoring_too_large",
+                    "message": "guided requirement-plan authoring exceeds the local graph limit",
+                },
+                headers=_PRIVATE_HEADERS,
+            )
+    return bytes(payload)
+
+
 def _failure(error: Exception) -> HTTPException:
     if isinstance(error, RequirementPlanDefinitionsOutOfDateError):
         status, message = 409, "requirement-plan definitions are out of date"
     elif isinstance(error, RequirementPlanInputError):
         status, message = 422, "requirement-plan evidence is invalid"
+    elif isinstance(error, RequirementPlanReviewContextMissingError):
+        status, message = 404, "requirement-plan review context is missing or expired"
     elif isinstance(error, RequirementPlanNotFoundError):
         status, message = 404, "requirement-plan evidence authority was not found"
     elif isinstance(error, (RequirementPlanStaleWindowError, RequirementPlanConflictError)):
@@ -390,6 +485,83 @@ def create_requirement_plan_evidence_router(
             payload_sha256=view.proposal.payload_sha256,
             proposal=RequirementPlanProposalDto.from_view(view),
             applied=applied,
+        )
+
+    @router.post(
+        "/sessions/{session_id}/requirement-plan-evidence/guided-authoring/review",
+        response_model=RequirementPlanGuidedAuthoringReview,
+        dependencies=[Depends(require_user_confirmation)],
+    )
+    def open_guided_authoring(
+        payload: RequirementPlanGuidedAuthoringReviewCommand,
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> RequirementPlanGuidedAuthoringReview:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            return service.open_guided_authoring(
+                session_id=session_id,
+                expected_source_run_id=payload.expected_source_run_id,
+                source_window_fingerprint=payload.source_window_fingerprint,
+                manifest_fingerprint=payload.manifest_fingerprint,
+                expected_predecessor_confirmation_id=(
+                    payload.expected_predecessor_confirmation_id
+                ),
+            )
+        except (
+            RequirementPlanInputError,
+            RequirementPlanNotFoundError,
+            RequirementPlanPersistenceError,
+            RequirementPlanStaleWindowError,
+            RequirementPlanConflictError,
+        ) as error:
+            raise _failure(error) from None
+
+    @router.post(
+        "/sessions/{session_id}/requirement-plan-evidence/guided-authoring/proposals",
+        response_model=RequirementPlanProposalOutcomeDto,
+        openapi_extra=_GUIDED_AUTHORING_REQUEST_BODY,
+        responses={
+            201: {
+                "model": RequirementPlanProposalOutcomeDto,
+                "description": "A new inert guided requirement-plan proposal was created.",
+            }
+        },
+    )
+    async def create_guided_proposal(
+        request: Request,
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        idempotency_key: Annotated[
+            str,
+            Header(alias="Idempotency-Key", pattern=SAFE_VERSION_PATTERN.pattern),
+        ],
+    ) -> RequirementPlanProposalOutcomeDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            command = RequirementPlanGuidedAuthoringCommand.model_validate_json(
+                await _bounded_guided_authoring_body(request)
+            )
+            view, applied = service.create_guided_proposal(
+                session_id=session_id,
+                command=command,
+                idempotency_key=idempotency_key,
+            )
+        except ValidationError:
+            raise _failure(
+                RequirementPlanInputError("guided requirement-plan graph is invalid")
+            ) from None
+        except (
+            RequirementPlanInputError,
+            RequirementPlanNotFoundError,
+            RequirementPlanPersistenceError,
+            RequirementPlanStaleWindowError,
+            RequirementPlanConflictError,
+        ) as error:
+            raise _failure(error) from None
+        response.status_code = 201 if applied else 200
+        return RequirementPlanProposalOutcomeDto(
+            proposal=RequirementPlanProposalDto.from_view(view), applied=applied
         )
 
     @router.post(

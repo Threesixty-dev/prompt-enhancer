@@ -16,6 +16,7 @@ from threading import Lock
 from typing import Protocol
 
 from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTERN
+from ..runtime_cancellation import RuntimeCleanupUnconfirmed, RuntimeCooperativeStop
 from ..persistence import (
     AnalysisRunStatus,
     SessionAnalysisCompletionAuthority,
@@ -1212,6 +1213,12 @@ class SessionTextAnalysisService:
             return context
         except TextSourceReadError as error:
             raise SessionTextAnalysisSourceError(error.reason) from None
+        except RuntimeCooperativeStop:
+            # Automation resolves this at the queue-owned durable deadline or
+            # shutdown boundary; it is not a provider availability result.
+            raise
+        except RuntimeCleanupUnconfirmed:
+            raise
         except Exception:
             raise SessionTextAnalysisSourceError(
                 TextSourceFailureReason.PROVIDER_UNAVAILABLE

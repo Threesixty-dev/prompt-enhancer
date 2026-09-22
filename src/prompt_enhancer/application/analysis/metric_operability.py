@@ -44,7 +44,7 @@ from .provider_evidence import CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES
 from .semantic_units import EXTRACTABLE_SEMANTIC_UNIT_KINDS
 
 
-METRIC_OPERABILITY_CATALOG_VERSION = "metric-operability-v4"
+METRIC_OPERABILITY_CATALOG_VERSION = "metric-operability-v6"
 
 
 class MetricMeasuredPath(StrEnum):
@@ -58,6 +58,7 @@ class MetricMeasuredPath(StrEnum):
     SEMANTIC_UNIT_EXTRACTOR = "semantic_unit_extractor"
     REVIEWED_REQUIREMENT_PLAN = "reviewed_requirement_plan"
     REVIEWED_REQUIREMENT_ACTION = "reviewed_requirement_action"
+    REVIEWED_REQUIREMENT_VERIFICATION = "reviewed_requirement_verification"
 
 
 class MetricShippedPathState(StrEnum):
@@ -81,6 +82,7 @@ class MetricNextStepCode(StrEnum):
     COMPOSE_REQUIREMENT_ACTION_EVIDENCE = (
         "compose_requirement_action_evidence"
     )
+    ISSUE_REVIEWED_OBSERVED_CHECK = "issue_reviewed_observed_check"
 
 
 class MetricOperabilityEntry(StrictModel):
@@ -180,13 +182,20 @@ def _entry(contract: MetricContractV2) -> MetricOperabilityEntry:
         state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
         next_step = MetricNextStepCode.CONFIRM_REQUIREMENT_PLAN_EVIDENCE
     elif key == "logic.requirement_action_traceability":
-        # R8 is the current publication identity. Keep the path unavailable in
-        # this catalog until a production provider proves a complete safe-event
-        # and redacted-descriptor review surface; UI composition alone is not
-        # operability.
+        # A complete compatible Claude transcript supplies the redacted action
+        # descriptor review surface. Hook-only or incomplete histories cannot
+        # provide the complete candidate-and-descriptor review surface.
         measured_path = MetricMeasuredPath.REVIEWED_REQUIREMENT_ACTION
-        state = MetricShippedPathState.PROVIDER_ADAPTER_REQUIRED
+        state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
         next_step = MetricNextStepCode.COMPOSE_REQUIREMENT_ACTION_EVIDENCE
+    elif key == "outcome.verified_requirement_coverage":
+        # This is deliberately distinct from safe-event capabilities.  The
+        # descriptor names the complete Codex source, native-review, observed
+        # check, persistence, and fresh-seal chain; a session remains unknown
+        # whenever any one of those exact conditions is absent.
+        measured_path = MetricMeasuredPath.REVIEWED_REQUIREMENT_VERIFICATION
+        state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
+        next_step = MetricNextStepCode.ISSUE_REVIEWED_OBSERVED_CHECK
     elif contract.denominator_basis is DenominatorBasis.RUBRIC_FACTORS:
         measured_path = MetricMeasuredPath.FOCUS_RUBRIC
         state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS

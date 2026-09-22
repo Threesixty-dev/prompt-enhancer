@@ -22,6 +22,7 @@ from prompt_enhancer.application.jobs import (
     AnalysisJobState,
 )
 from prompt_enhancer.application.persistence import AnalysisRunStatus
+from prompt_enhancer.application.runtime_cancellation import RuntimeCooperativeStop
 from prompt_enhancer.domain import DataTier, Provider
 
 
@@ -195,6 +196,49 @@ def test_automation_handler_preserves_fixed_cooperative_deadline_reason() -> Non
         )
 
     assert raised.value.reason_code == "automation_publication_deadline_exceeded"
+
+
+def test_automation_handler_resolves_scoped_source_stop_through_deadline_context() -> None:
+    class StoppingAnalysis:
+        def run_preset(self, **_values: object) -> SessionTextAnalysisOutcome:
+            raise RuntimeCooperativeStop("automation_publication_deadline_exceeded")
+
+    class DeadlineContext(RecordingContext):
+        def publication_checkpoint(self) -> None:
+            self.publication_checkpoints += 1
+            raise AnalysisJobCooperativeStop(
+                "automation_publication_deadline_exceeded"
+            )
+
+    context = DeadlineContext()
+    with pytest.raises(AnalysisJobCooperativeStop) as raised:
+        SessionQualityAutomationHandler(StoppingAnalysis())(  # type: ignore[arg-type]
+            _job(ONE_METRIC),
+            context,  # type: ignore[arg-type]
+        )
+
+    assert raised.value.reason_code == "automation_publication_deadline_exceeded"
+    assert context.publication_committed is False
+
+
+def test_automation_handler_keeps_shutdown_source_stop_retry_safe() -> None:
+    class StoppingAnalysis:
+        def run_preset(self, **_values: object) -> SessionTextAnalysisOutcome:
+            raise RuntimeCooperativeStop("application_shutdown")
+
+    class ShutdownContext(RecordingContext):
+        def publication_checkpoint(self) -> None:
+            self.publication_checkpoints += 1
+            raise AnalysisJobExecutionError("application_shutdown", retryable=True)
+
+    with pytest.raises(AnalysisJobExecutionError) as raised:
+        SessionQualityAutomationHandler(StoppingAnalysis())(  # type: ignore[arg-type]
+            _job(ONE_METRIC),
+            ShutdownContext(),  # type: ignore[arg-type]
+        )
+
+    assert raised.value.code == "application_shutdown"
+    assert raised.value.retryable is True
 
 
 class GrantRepository:

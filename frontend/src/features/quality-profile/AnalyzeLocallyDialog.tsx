@@ -742,7 +742,7 @@ export function AnalyzeLocallyDialog({
                   ))}
                 </ul>
                 <p>
-                  This exact attempt records the four source-evidence gaps as unavailable.
+                  This exact attempt records {COACHING_ANALYSIS_PRESET.sourceEvidenceGapKeys.length} source-evidence {COACHING_ANALYSIS_PRESET.sourceEvidenceGapKeys.length === 1 ? "gap" : "gaps"} as unavailable.
                   A future analysis can resolve one only after a compatible typed-evidence
                   adapter produces reviewed evidence. The current provider does not substitute
                   agent prose, a model estimate, or a zero value.

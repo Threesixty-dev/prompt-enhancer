@@ -305,6 +305,22 @@
   50% { opacity: 1; }
 }
 
+/* Below the two-column desktop layout, the composer can sit below the visual
+   viewport even while its conversation card remains scrollable. Anchor the
+   open menu to the viewport with a bounded inset so its own sticky header,
+   actions, and scroll area remain reachable regardless of page position. */
+@media (max-width: 900px) {
+  .agent-runtime__composer-disclosure[open] { z-index: 50; }
+  .agent-runtime__composer-panel {
+    position: fixed;
+    inset-inline: max(0.75rem, env(safe-area-inset-left)) max(0.75rem, env(safe-area-inset-right));
+    top: max(0.75rem, env(safe-area-inset-top));
+    bottom: auto;
+    width: auto;
+    max-height: calc(100dvh - 1.5rem);
+  }
+}
+
 @media (max-width: 620px) {
   .agent-runtime--composer { width: 100%; }
   .agent-runtime__composer-disclosure > summary {

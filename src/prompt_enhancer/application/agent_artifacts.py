@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
+import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import struct
 from typing import Literal, Protocol
@@ -47,6 +48,13 @@ MAX_AGENT_ARTIFACT_VERSIONS_PER_SESSION = 2_000
 MAX_AGENT_ARTIFACT_BYTES = 24 * 1024 * 1024
 MAX_AGENT_ARTIFACT_LIST = 200
 MAX_AGENT_ARTIFACT_PAGE_SIZE = 100
+MAX_DIRECTORY_MOVE_ARTIFACTS = 100
+MAX_DIRECTORY_MOVE_ARTIFACT_BYTES = 64 * 1024 * 1024
+# Recovery is deliberately much smaller than the total retained-artifact
+# allowance.  A resumed chat must not turn an interrupted filesystem move into
+# unbounded workspace reads.
+MAX_DIRECTORY_MOVE_RECONCILIATION_INTENTS = 4
+MAX_DIRECTORY_MOVE_RECONCILIATION_BYTES = 64 * 1024 * 1024
 MAX_IMAGE_DIMENSION = 8_192
 MAX_IMAGE_PIXELS = 33_554_432
 
@@ -108,6 +116,60 @@ def _relative_path(value: str) -> str:
     ):
         raise ValueError("invalid artifact workspace path")
     return value
+
+
+class DirectoryArtifactMoveChild(StrictModel):
+    """Content-free evidence for one tracked child of a directory move."""
+
+    artifact_id: str = Field(pattern=_ID_PATTERN)
+    expected_artifact_revision: int = Field(strict=True, ge=1)
+    source_path: str = Field(min_length=1, max_length=1024)
+    target_path: str = Field(min_length=1, max_length=1024)
+    sha256: str = Field(pattern=_SHA_PATTERN)
+    byte_size: int = Field(strict=True, ge=0, le=MAX_AGENT_ARTIFACT_BYTES)
+
+    _source_path = field_validator("source_path")(_relative_path)
+    _target_path = field_validator("target_path")(_relative_path)
+
+
+class DirectoryArtifactMoveIntent(StrictModel):
+    """A durable, content-free pre-effect relocation plan."""
+
+    intent_id: str = Field(pattern=_ID_PATTERN)
+    project_id: str = Field(pattern=_ID_PATTERN)
+    session_id: str = Field(pattern=_ID_PATTERN)
+    source_path: str = Field(min_length=1, max_length=1024)
+    target_path: str = Field(min_length=1, max_length=1024)
+    source_directory_identity: tuple[int, int]
+    children: tuple[DirectoryArtifactMoveChild, ...] = Field(min_length=1, max_length=MAX_DIRECTORY_MOVE_ARTIFACTS)
+
+    _source_path = field_validator("source_path")(_relative_path)
+    _target_path = field_validator("target_path")(_relative_path)
+
+    @model_validator(mode="after")
+    def coherent_children(self) -> "DirectoryArtifactMoveIntent":
+        source_prefix, target_prefix = self.source_path + "/", self.target_path + "/"
+        if (
+            self.source_path == self.target_path
+            or len({child.artifact_id for child in self.children}) != len(self.children)
+            or len({child.source_path for child in self.children}) != len(self.children)
+            or len({child.target_path for child in self.children}) != len(self.children)
+            or any(not child.source_path.startswith(source_prefix) or not child.target_path.startswith(target_prefix) or child.target_path != target_prefix + child.source_path[len(source_prefix):] for child in self.children)
+            or sum(child.byte_size for child in self.children) > MAX_DIRECTORY_MOVE_ARTIFACT_BYTES
+        ):
+            raise ValueError("directory artifact move intent is incoherent")
+        return self
+
+
+class DirectoryArtifactMoveReconciliation(StrictModel):
+    """Content-free outcome of bounded directory-move recovery."""
+
+    completed: int = Field(default=0, ge=0, le=MAX_DIRECTORY_MOVE_RECONCILIATION_INTENTS)
+    cancelled: int = Field(default=0, ge=0, le=MAX_DIRECTORY_MOVE_RECONCILIATION_INTENTS)
+    #: Includes durable earlier unverified resolutions, so every later resume
+    #: can still tell the person that lineage was intentionally not advanced.
+    unverified: int = Field(default=0, ge=0)
+    deferred: bool = False
 
 
 def _optional_title(value: str | None) -> str | None:
@@ -506,6 +568,43 @@ class AgentArtifactRepository(Protocol):
         version: AgentArtifactVersion,
     ) -> AgentArtifact: ...
 
+    def create_directory_move_intent(
+        self, *, intent: DirectoryArtifactMoveIntent
+    ) -> None: ...
+
+    def get_directory_move_intent(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        intent_id: str,
+    ) -> DirectoryArtifactMoveIntent | None: ...
+
+    def list_pending_directory_move_intents(
+        self, *, project_id: str, session_id: str, limit: int
+    ) -> tuple[DirectoryArtifactMoveIntent, ...]: ...
+
+    def count_pending_directory_move_intents(
+        self, *, project_id: str, session_id: str
+    ) -> int: ...
+
+    def count_unverified_directory_move_intents(
+        self, *, project_id: str, session_id: str
+    ) -> int: ...
+
+    def resolve_directory_move_intent(
+        self, *, intent: DirectoryArtifactMoveIntent, resolution: Literal["cancelled", "unverified"]
+    ) -> None: ...
+
+    def relocate_directory_versions(
+        self,
+        *,
+        intent: DirectoryArtifactMoveIntent,
+        versions: tuple[AgentArtifactVersion, ...],
+        titles: tuple[str, ...],
+        kinds: tuple[AgentArtifactKind, ...],
+    ) -> int: ...
+
     def get_artifact(
         self,
         *,
@@ -829,32 +928,18 @@ class AgentArtifactService:
         kind, media_type, preview_kind = _classification(target_path, payload)
         created_at = self._clock()
         version = AgentArtifactVersion(
-            version_id=self._id(),
-            artifact_id=source.artifact_id,
-            version_number=source.version_count + 1,
-            created_at=created_at,
-            path=target_path,
-            media_type=media_type,
-            preview_kind=preview_kind,
-            provenance="reviewed_move",
-            sha256=expected_sha256,
+            version_id=self._id(), artifact_id=source.artifact_id,
+            version_number=source.version_count + 1, created_at=created_at,
+            path=target_path, media_type=media_type, preview_kind=preview_kind,
+            provenance="reviewed_move", sha256=expected_sha256,
             byte_size=expected_byte_size,
         )
-        title = (
-            _default_title(target_path)
-            if source.title == _default_title(source_path)
-            else source.title
-        )
+        title = _default_title(target_path) if source.title == _default_title(source_path) else source.title
         try:
             return self._repository.relocate_version(
-                project_id=project_id,
-                session_id=session_id,
-                source_path=source_path,
-                target_path=target_path,
-                expected_artifact_id=source.artifact_id,
-                expected_artifact_revision=source.revision,
-                title=title,
-                kind=kind,
+                project_id=project_id, session_id=session_id, source_path=source_path,
+                target_path=target_path, expected_artifact_id=source.artifact_id,
+                expected_artifact_revision=source.revision, title=title, kind=kind,
                 version=version,
             )
         except AgentArtifactError as error:
@@ -862,6 +947,183 @@ class AgentArtifactService:
                 raise
             raise AgentArtifactError("agent_artifact_relocation_unverified") from None
 
+    def prepare_reviewed_directory_move(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        workspace: Path,
+        source_path: str,
+        target_path: str,
+        source_directory_identity: tuple[int, int],
+    ) -> DirectoryArtifactMoveIntent | None:
+        """Persist a bounded exact-child plan before a topology-only move.
+
+        Only already tracked active heads are considered.  This does not read
+        or enumerate arbitrary directory contents and does not change the
+        directory lifecycle receipt's ``contents_reviewed`` meaning.
+        """
+        self._session(project_id, session_id)
+        try:
+            source_path, target_path = _relative_path(source_path), _relative_path(target_path)
+        except ValueError:
+            raise AgentArtifactError("agent_artifact_path_invalid") from None
+        self.sync_reviewed_writes(project_id=project_id, session_id=session_id)
+        artifacts, _ = self._repository.list_artifacts(
+            project_id=project_id, session_id=session_id, view="all",
+            limit=MAX_AGENT_ARTIFACTS_PER_SESSION,
+        )
+        prefix = source_path + "/"
+        candidates = tuple(
+            artifact for artifact in artifacts
+            if artifact.lifecycle_state != "removed" and artifact.path.startswith(prefix)
+        )
+        if not candidates:
+            return None
+        if (
+            len(candidates) > MAX_DIRECTORY_MOVE_ARTIFACTS
+            or sum(item.latest_version.byte_size for item in candidates)
+            > MAX_DIRECTORY_MOVE_ARTIFACT_BYTES
+        ):
+            raise AgentArtifactError("agent_artifact_directory_relocation_too_large")
+        children: list[DirectoryArtifactMoveChild] = []
+        for artifact in candidates:
+            # A saved head alone is not a directory-move receipt. Read its
+            # exact source now, before the filesystem effect, and bind it.
+            payload = self._read(workspace, artifact.path)
+            if (
+                len(payload) != artifact.latest_version.byte_size
+                or hashlib.sha256(payload).hexdigest() != artifact.latest_version.sha256
+            ):
+                raise AgentArtifactError("agent_artifact_relocation_unverified")
+            suffix = artifact.path[len(prefix):]
+            children.append(DirectoryArtifactMoveChild(
+                artifact_id=artifact.artifact_id,
+                expected_artifact_revision=artifact.revision,
+                source_path=artifact.path,
+                target_path=f"{target_path}/{suffix}",
+                sha256=artifact.latest_version.sha256,
+                byte_size=artifact.latest_version.byte_size,
+            ))
+        intent = DirectoryArtifactMoveIntent(
+            intent_id=self._id(), project_id=project_id, session_id=session_id,
+            source_path=source_path, target_path=target_path,
+            source_directory_identity=source_directory_identity, children=tuple(children),
+        )
+        self._repository.create_directory_move_intent(intent=intent)
+        return intent
+
+    def complete_reviewed_directory_move(
+        self,
+        *,
+        workspace: Path,
+        intent: DirectoryArtifactMoveIntent,
+    ) -> int:
+        """Read every planned target exactly, then atomically advance all heads."""
+        versions: list[AgentArtifactVersion] = []
+        titles: list[str] = []
+        kinds: list[AgentArtifactKind] = []
+        try:
+            metadata = os.stat(workspace / intent.target_path, follow_symlinks=False)
+        except OSError:
+            raise AgentArtifactError("agent_artifact_relocation_unverified") from None
+        if (int(metadata.st_dev), int(metadata.st_ino)) != intent.source_directory_identity:
+            raise AgentArtifactError("agent_artifact_relocation_unverified")
+        for child in intent.children:
+            try:
+                payload = self._read(workspace, child.target_path)
+            except AgentArtifactError:
+                raise AgentArtifactError("agent_artifact_relocation_unverified") from None
+            if len(payload) != child.byte_size or hashlib.sha256(payload).hexdigest() != child.sha256:
+                raise AgentArtifactError("agent_artifact_relocation_unverified")
+            kind, media_type, preview_kind = _classification(child.target_path, payload)
+            versions.append(AgentArtifactVersion(
+                version_id=self._id(), artifact_id=child.artifact_id,
+                version_number=1, created_at=self._clock(), path=child.target_path,
+                media_type=media_type, preview_kind=preview_kind,
+                provenance="reviewed_move", sha256=child.sha256,
+                byte_size=child.byte_size,
+            ))
+            titles.append(_default_title(child.target_path))
+            kinds.append(kind)
+        return self._repository.relocate_directory_versions(
+            intent=intent, versions=tuple(versions), titles=tuple(titles), kinds=tuple(kinds)
+        )
+
+    def reconcile_reviewed_directory_moves(
+        self, *, project_id: str, session_id: str, workspace: Path
+    ) -> DirectoryArtifactMoveReconciliation:
+        """Resolve only identity-proven pre-effect intents after interruption.
+
+        A source that still has its reviewed identity proves no move took
+        place; a target with that identity permits the normal exact per-child
+        readback.  Every mixed/unknown state is recorded as unverified.
+        """
+        pending_count = self._repository.count_pending_directory_move_intents(
+            project_id=project_id, session_id=session_id
+        )
+        candidates = self._repository.list_pending_directory_move_intents(
+            project_id=project_id,
+            session_id=session_id,
+            limit=MAX_DIRECTORY_MOVE_RECONCILIATION_INTENTS,
+        )
+        admitted: list[DirectoryArtifactMoveIntent] = []
+        admitted_bytes = 0
+        for intent in candidates:
+            intent_bytes = sum(child.byte_size for child in intent.children)
+            if admitted and admitted_bytes + intent_bytes > MAX_DIRECTORY_MOVE_RECONCILIATION_BYTES:
+                break
+            # Every persisted intent is capped at the same maximum while it is
+            # prepared.  Keep this explicit at the resume boundary too, so a
+            # malformed historic row cannot expand I/O admission.
+            if intent_bytes > MAX_DIRECTORY_MOVE_RECONCILIATION_BYTES:
+                break
+            admitted.append(intent)
+            admitted_bytes += intent_bytes
+
+        completed = 0
+        cancelled = 0
+        for intent in admitted:
+            try:
+                target = os.stat(workspace / intent.target_path, follow_symlinks=False)
+            except OSError:
+                target = None
+            if target is not None and (int(target.st_dev), int(target.st_ino)) == intent.source_directory_identity:
+                try:
+                    self.complete_reviewed_directory_move(workspace=workspace, intent=intent)
+                except AgentArtifactError as error:
+                    # A storage interruption is precisely the case this journal
+                    # exists to retry. Only failed evidence/CAS is terminally
+                    # unverified; never erase a recoverable batch intent.
+                    if error.code in {
+                        "agent_artifact_relocation_unverified",
+                        "agent_artifact_relocation_conflict",
+                        "agent_artifact_relocation_target_conflict",
+                    }:
+                        self._repository.resolve_directory_move_intent(intent=intent, resolution="unverified")
+                    else:
+                        raise
+                else:
+                    completed += 1
+                continue
+            try:
+                source = os.stat(workspace / intent.source_path, follow_symlinks=False)
+            except OSError:
+                source = None
+            resolution: Literal["cancelled", "unverified"] = (
+                "cancelled" if source is not None and (int(source.st_dev), int(source.st_ino)) == intent.source_directory_identity else "unverified"
+            )
+            self._repository.resolve_directory_move_intent(intent=intent, resolution=resolution)
+            if resolution == "cancelled":
+                cancelled += 1
+        return DirectoryArtifactMoveReconciliation(
+            completed=completed,
+            cancelled=cancelled,
+            unverified=self._repository.count_unverified_directory_move_intents(
+                project_id=project_id, session_id=session_id
+            ),
+            deferred=pending_count > len(admitted),
+        )
     def list_artifacts(
         self,
         *,

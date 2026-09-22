@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+import hashlib
 import json
 import logging
 import os
@@ -34,6 +36,8 @@ CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 PYTHON_HANDOFF = "PE_CONVERGENCE_PYTHON_HANDOFF"
 RECOVERY_PROJECT = "Recovery example project"
 RECOVERY_CHAT = "Recovered example chat"
+CATALOG_PAGE_SIZE = 100
+CATALOG_SEED_COUNT = CATALOG_PAGE_SIZE + 1
 
 sys.path.insert(0, str(REPOSITORY / "src"))
 
@@ -249,6 +253,275 @@ def _seed_retained_history(application: object, workspace: Path) -> None:
     service.shutdown()
 
 
+def _seed_cp34_native_unavailable(settings: object) -> tuple[str, str, str]:
+    """Create one sealed, fictional R8 run without a native-result authority.
+
+    The production bootstrap must use the same disposable pseudonym key as the
+    existing R8 fixture.  This keeps the normal repository fingerprint checks
+    active: it is not an identity-validation bypass.  The fixture records only
+    revision-zero reviewed opportunities and never invokes a model, provider,
+    command, native presence, or objective-result issuance path.
+    """
+
+    from prompt_enhancer.application.analysis.session_model_ensemble import (
+        SessionModelEnsembleOutcome,
+    )
+    from prompt_enhancer.config import prepare_app_home
+    from prompt_enhancer.privacy import _create_private_file
+
+    tests_directory = REPOSITORY / "tests"
+    if str(tests_directory) not in sys.path:
+        sys.path.insert(0, str(tests_directory))
+    from test_model_ensemble_r8_persistence import _r8_record, _r8_setup
+
+    # The temporary application directory is new for this runner invocation.
+    # Use the existing exclusive private-file helper, rather than overwriting
+    # or reading any owner key, before normal bootstrap loads it.
+    prepare_app_home(settings)  # type: ignore[arg-type]
+    _create_private_file(
+        settings.pseudonym_key_path,  # type: ignore[attr-defined]
+        bytes(range(32)),
+    )
+    (
+        database,
+        source,
+        plan_snapshot,
+        action_snapshot,
+        _verification_service,
+        verification_snapshot,
+    ) = _r8_setup(settings.home)  # type: ignore[attr-defined]
+    if database.path != settings.database_path:  # type: ignore[attr-defined]
+        raise RuntimeError("cp34_seed_database_path_mismatch")
+    if verification_snapshot.revision != 0 or verification_snapshot.evidence.verification_results:
+        raise RuntimeError("cp34_seed_must_not_issue_objective_result")
+    record = _r8_record(
+        source.session_id,
+        # The source setup uses ``e``; retain a different valid pseudonym.
+        run_character="d",
+        request_character="7",
+        plan_snapshot=plan_snapshot,
+        action_snapshot=action_snapshot,
+        verification_snapshot=verification_snapshot,
+    )
+    database.model_ensemble_repository().save_completed(record)
+    session = next(
+        (
+            item
+            for item in database.list_sessions(limit=20)
+            if item["session_id"] == source.session_id
+        ),
+        None,
+    )
+    if session is None or not isinstance(session.get("project_id"), str):
+        raise RuntimeError("cp34_seed_session_missing")
+    project_id = session["project_id"]
+
+    # Publish through the normal watch lease path. The dashboard reads this
+    # canonical head rather than an unowned standalone run. Disabling the
+    # completed watch leaves its sealed head readable while ensuring this
+    # synthetic fixture can never be claimed by a worker.
+    now = datetime(2043, 1, 2, tzinfo=UTC)
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "c" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=record.provider,
+        project_id=project_id,
+        session_id=source.session_id,
+        max_messages=25,
+        now=now,
+    )
+    claimed = watches.claim_due(
+        owner="b" * 64,
+        now=now,
+        lease_duration=timedelta(minutes=30),
+    )
+    if claimed is None:
+        raise RuntimeError("cp34_seed_watch_not_claimable")
+    _running, lease = claimed
+    watches.complete(
+        lease,
+        now=now + timedelta(seconds=1),
+        next_check_at=now + timedelta(days=1),
+        outcome=SessionModelEnsembleOutcome(run=record, applied=True),
+    )
+    head = watches.canonical_head(watch_id)
+    if head.head_run_id != record.run_id:
+        raise RuntimeError("cp34_seed_canonical_head_missing")
+    watches.disable(watch_id, now=now + timedelta(seconds=2))
+    retained_head = watches.canonical_head(watch_id)
+    if retained_head.head_run_id != record.run_id:
+        raise RuntimeError("cp34_seed_canonical_head_not_retained")
+    return source.session_id, project_id, record.run_id
+
+
+def _assert_cp34_seed_head(
+    http_app: object,
+    *,
+    session_id: str,
+    expected_run_id: str,
+) -> None:
+    """Read the published synthetic head without entering the app lifespan.
+
+    ``ASGITransport`` exercises the production browser-authenticated route but
+    does not start runtime lifecycle workers. This is a narrow preflight for
+    the seed and is intentionally callable independently of Playwright.
+    """
+
+    import asyncio
+
+    import httpx
+
+    async def read_head() -> None:
+        transport = httpx.ASGITransport(app=http_app)  # type: ignore[arg-type]
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://127.0.0.1",
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
+            bootstrap = await client.get(
+                "/auth/session",
+                headers={"Sec-Fetch-Site": "same-origin"},
+            )
+            if bootstrap.status_code != 200:
+                raise RuntimeError("cp34_seed_browser_auth_failed")
+            response = await client.get(
+                f"/v2/sessions/{session_id}/model-ensemble-head",
+            )
+        if response.status_code != 200:
+            raise RuntimeError("cp34_seed_head_route_unavailable")
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("head_run_id") != expected_run_id:
+            raise RuntimeError("cp34_seed_head_route_mismatch")
+        watch = payload.get("watch")
+        if not isinstance(watch, dict) or watch.get("session_id") != session_id:
+            raise RuntimeError("cp34_seed_head_session_mismatch")
+
+    asyncio.run(read_head())
+
+
+def verify_cp34_native_unavailable_seed() -> None:
+    """Exercise the CP34 seed and canonical read without starting a server.
+
+    This shares the loopback runner's disposable bootstrap guards, but does
+    not enter the ASGI lifespan, bind a listener, or launch Playwright.
+    """
+
+    from prompt_enhancer.application.local_models import HardwareSummary, LocalModelService
+    from prompt_enhancer.bootstrap import LocalApplication, bootstrap_local_application
+    from prompt_enhancer.config import AppSettings
+    from prompt_enhancer.infrastructure.providers.codex_app_server import (
+        CodexInstalledSchemaProbe,
+        CodexSchemaPreflightResult,
+        CodexSchemaPreflightStatus,
+    )
+
+    class IsolatedSettings(AppSettings):
+        @property
+        def local_models_dir(self) -> Path:
+            return self.home / "local-models"
+
+    RESULTS.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix="convergence-cp34-seed-",
+        dir=RESULTS,
+    ) as temporary:
+        root = Path(temporary)
+        with _isolated_environment(root):
+            settings = IsolatedSettings(
+                home=root / "application",
+                host="127.0.0.1",
+                port=8765,
+                session_reader_enabled=False,
+            )
+            models = LocalModelService(
+                settings.local_models_dir,
+                llama_server=lambda: None,
+                hardware=lambda _binary: HardwareSummary(),
+            )
+            originals = {
+                "claude_home": LocalApplication.__dict__["claude_home"],
+                "create_local_model_service": LocalApplication.__dict__["create_local_model_service"],
+                "create_codex_adapter": LocalApplication.__dict__["create_codex_adapter"],
+                "probe": CodexInstalledSchemaProbe.__dict__["probe"],
+            }
+
+            def provider_access_forbidden(*_args: object, **_kwargs: object) -> object:
+                raise RuntimeError("disposable_gate_provider_access_forbidden")
+
+            try:
+                LocalApplication.claude_home = lambda _self: root / "empty-provider"
+                LocalApplication.create_local_model_service = lambda _self: models
+                LocalApplication.create_codex_adapter = staticmethod(provider_access_forbidden)
+                CodexInstalledSchemaProbe.probe = lambda _self: CodexSchemaPreflightResult(
+                    status=CodexSchemaPreflightStatus.UNAVAILABLE,
+                )
+                session_id, _project_id, run_id = _seed_cp34_native_unavailable(settings)
+                application = bootstrap_local_application(settings)
+                http_app = application.create_http_app()
+                _assert_cp34_seed_head(
+                    http_app,
+                    session_id=session_id,
+                    expected_run_id=run_id,
+                )
+                watches = application.database.model_ensemble_watch_repository()
+                watch = watches.get_for_session(session_id)
+                if watch is None or watch.state.value != "disabled":
+                    raise RuntimeError("cp34_seed_watch_not_disabled")
+                if watches.claim_due(
+                    owner="a" * 64,
+                    now=datetime(2043, 1, 4, tzinfo=UTC),
+                    lease_duration=timedelta(minutes=30),
+                ) is not None:
+                    raise RuntimeError("cp34_seed_created_claimable_work")
+            finally:
+                LocalApplication.claude_home = originals["claude_home"]
+                LocalApplication.create_local_model_service = originals[
+                    "create_local_model_service"
+                ]
+                LocalApplication.create_codex_adapter = originals["create_codex_adapter"]
+                CodexInstalledSchemaProbe.probe = originals["probe"]
+                models.shutdown()
+
+
+def _catalog_id(label: str) -> str:
+    """Return a deterministic pseudonym for a disposable catalog fixture."""
+
+    return hashlib.sha256(
+        f"reserved-cp15-catalog:{label}".encode("utf-8")
+    ).hexdigest()
+
+
+def _seed_indexed_catalog(application: object) -> None:
+    """Seed only fictional metadata for the real analytics catalog paging gate."""
+
+    from prompt_enhancer.domain import Provider, SafeSession, SessionState
+
+    database = application.database  # type: ignore[attr-defined]
+    newest = datetime(2041, 1, 1, tzinfo=UTC)
+    for index in range(CATALOG_SEED_COUNT):
+        started_at = newest - timedelta(minutes=index)
+        database.persist_session(
+            SafeSession(
+                provider=Provider.SYNTHETIC,
+                installation_id=_catalog_id("installation"),
+                project_id=_catalog_id(f"project:{index:03}"),
+                session_id=_catalog_id(f"session:{index:03}"),
+                provider_version="synthetic-cp15-v1",
+                adapter_version="synthetic-cp15-v1",
+                source_schema_version="synthetic-cp15-v1",
+                started_at=started_at,
+                ended_at=None,
+                terminal_state=SessionState.UNKNOWN,
+                events_complete=False,
+                project_display_name=f"Catalog page {index + 1:03}",
+                session_display_name=f"Catalog session {index + 1:03}",
+            ),
+            (),
+        )
+
+
 @contextmanager
 def _isolated_environment(root: Path) -> Iterator[None]:
     names = (
@@ -272,7 +545,13 @@ def _isolated_environment(root: Path) -> Iterator[None]:
                 os.environ[name] = value
 
 
-def _run_browser_gate(origin: str, workspace: Path) -> int:
+def _run_browser_gate(
+    origin: str,
+    workspace: Path,
+    *,
+    verification_session_id: str,
+    verification_project_id: str,
+) -> int:
     node = _node_executable()
     if node is None or not PLAYWRIGHT_CLI.is_file():
         return 127
@@ -280,6 +559,8 @@ def _run_browser_gate(origin: str, workspace: Path) -> int:
     environment.update({
         "PE_CONVERGENCE_BASE_URL": origin,
         "PE_CONVERGENCE_WORKSPACE": str(workspace),
+        "PE_CP34_VERIFICATION_SESSION": verification_session_id,
+        "PE_CP34_VERIFICATION_PROJECT": verification_project_id,
         "FORCE_COLOR": "0",
     })
     environment.pop("NO_COLOR", None)
@@ -344,6 +625,9 @@ def run(*, build: bool = True) -> GateResult:
         application = None
         http_app = None
         models: LocalModelService | None = None
+        verification_session_id = ""
+        verification_project_id = ""
+        verification_run_id = ""
         with _isolated_environment(temporary_root):
             try:
                 settings = IsolatedSettings(
@@ -367,9 +651,20 @@ def run(*, build: bool = True) -> GateResult:
                 CodexInstalledSchemaProbe.probe = lambda _self: CodexSchemaPreflightResult(
                     status=CodexSchemaPreflightStatus.UNAVAILABLE,
                 )
+                (
+                    verification_session_id,
+                    verification_project_id,
+                    verification_run_id,
+                ) = _seed_cp34_native_unavailable(settings)
                 application = bootstrap_local_application(settings)
                 _seed_retained_history(application, workspace)
+                _seed_indexed_catalog(application)
                 http_app = application.create_http_app()
+                _assert_cp34_seed_head(
+                    http_app,
+                    session_id=verification_session_id,
+                    expected_run_id=verification_run_id,
+                )
                 configuration = uvicorn.Config(
                     http_app,
                     host="127.0.0.1",
@@ -406,7 +701,12 @@ def run(*, build: bool = True) -> GateResult:
                 if not startup_ready:
                     browser_exit = 1
                 else:
-                    browser_exit = _run_browser_gate(origin, workspace)
+                    browser_exit = _run_browser_gate(
+                        origin,
+                        workspace,
+                        verification_session_id=verification_session_id,
+                        verification_project_id=verification_project_id,
+                    )
                 server_thread_failed = failed.is_set()
             finally:
                 if server is not None:
@@ -463,8 +763,17 @@ def main() -> int:
         action="store_true",
         help="Use the already-built dashboard while iterating locally.",
     )
+    parser.add_argument(
+        "--verify-cp34-seed",
+        action="store_true",
+        help="Verify the disposable CP34 canonical-head seed without a server or browser.",
+    )
     arguments = parser.parse_args()
     try:
+        if arguments.verify_cp34_seed:
+            verify_cp34_native_unavailable_seed()
+            print("CONVERGENCE_CP34_SEED_RESULT=passed", flush=True)
+            return 0
         result = run(build=not arguments.skip_build)
     except Exception as error:
         print("CONVERGENCE_LOOPBACK_ERROR=" + json.dumps({

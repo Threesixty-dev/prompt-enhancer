@@ -1,0 +1,23 @@
+.requirement-verification-evidence { container-type: inline-size; display: grid; gap: .75rem; min-inline-size: 0; padding: 1rem; border: 1px solid var(--border-subtle, currentColor); border-radius: .75rem; background: var(--surface-raised, Canvas); color: var(--text-primary, CanvasText); }
+.requirement-verification-evidence > header { display: flex; justify-content: space-between; gap: .75rem; align-items: start; }
+.requirement-verification-evidence h4, .requirement-verification-evidence p { margin: 0; }
+.requirement-verification-evidence header > div { display: grid; gap: .2rem; }
+.requirement-verification-evidence__actions, .requirement-verification-evidence__details, .requirement-verification-evidence__error { display: grid; gap: .55rem; padding: .75rem; border-radius: .6rem; background: var(--surface, Canvas); }
+.requirement-verification-evidence__actions { border-inline-start: 3px solid var(--accent, Highlight); }
+.requirement-verification-evidence__error { border-inline-start: 3px solid var(--danger, currentColor); }
+.requirement-verification-evidence__details { border: 1px solid var(--border-subtle, currentColor); }
+.requirement-verification-evidence__requirements, .requirement-verification-evidence__review { display: grid; gap: .6rem; padding: .75rem; border: 1px solid var(--border-subtle, currentColor); border-radius: .6rem; }
+.requirement-verification-evidence__requirements h5, .requirement-verification-evidence__review h5 { margin: 0; }
+.requirement-verification-evidence__requirements ul { display: grid; gap: .45rem; padding: 0; margin: 0; list-style: none; }
+.requirement-verification-evidence__requirements li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
+.requirement-verification-evidence__review pre { max-block-size: 15rem; min-inline-size: 0; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; margin: 0; padding: .65rem; border-radius: .4rem; background: var(--surface-raised, Canvas); }
+.requirement-verification-evidence__review fieldset { display: grid; gap: .4rem; min-inline-size: 0; }
+.requirement-verification-evidence__review > button { justify-self: start; }
+.requirement-verification-evidence dl { display: grid; gap: .35rem; margin: 0; }
+.requirement-verification-evidence dl > div { display: grid; grid-template-columns: minmax(8rem, .35fr) minmax(0, 1fr); gap: .5rem; }
+.requirement-verification-evidence dd { margin: 0; min-inline-size: 0; overflow-wrap: anywhere; }
+.requirement-verification-evidence code { overflow-wrap: anywhere; }
+.requirement-verification-evidence details ul { padding-inline-start: 1.25rem; }
+.requirement-verification-evidence__absence { padding: .6rem; border-inline-start: 3px solid var(--border-subtle, currentColor); }
+.requirement-verification-evidence :where(button, summary):focus-visible { outline: 3px solid var(--focus-ring, Highlight); outline-offset: 3px; }
+@container (max-width: 32rem) { .requirement-verification-evidence dl > div { grid-template-columns: 1fr; gap: .15rem; } .requirement-verification-evidence__actions button, .requirement-verification-evidence__error button, .requirement-verification-evidence__review > button { inline-size: 100%; } .requirement-verification-evidence__requirements li { align-items: stretch; } }

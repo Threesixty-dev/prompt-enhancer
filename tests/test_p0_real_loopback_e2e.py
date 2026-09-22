@@ -30,6 +30,9 @@ from prompt_enhancer.application.analysis.text_source import (
     TextSourceAccessGrant,
 )
 from prompt_enhancer.application.automation import (
+    AUTOMATION_GRANT_LIFETIME,
+    AutomationGrantDraft,
+    AutomationGrantScope,
     AutomationGrantService,
     AutomationJobGuard,
     AutomationSessionCandidate,
@@ -37,12 +40,14 @@ from prompt_enhancer.application.automation import (
 )
 from prompt_enhancer.application.jobs import (
     AnalysisJobExecutionResult,
+    AnalysisJobIdentity,
     AnalysisJobKind,
     AnalysisJobService,
     AnalysisJobState,
     AnalysisJobWorker,
     PowerSourceState,
 )
+from prompt_enhancer.application.runtime_cancellation import raise_if_runtime_cancelled
 from prompt_enhancer.application.local_sources import CodexLocalSourceService
 from prompt_enhancer.application.persistence import SESSION_ANALYSIS_RUN_SCHEMA_VERSION
 from prompt_enhancer.application.providers import (
@@ -77,6 +82,12 @@ from prompt_enhancer.infrastructure.identifiers import LocalArtifactIdFactory
 from prompt_enhancer.infrastructure.verification import validation_only_capability
 from prompt_enhancer.infrastructure.providers.codex_app_server import (
     CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR,
+)
+from prompt_enhancer.infrastructure.providers.codex_app_server.client import (
+    CodexAppServerClient,
+)
+from prompt_enhancer.infrastructure.providers.codex_app_server.content_source import (
+    CodexTextAnalysisSource,
 )
 from prompt_enhancer.ingestion import IngestionService
 from prompt_enhancer.privacy import Pseudonymizer
@@ -949,3 +960,158 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
     assert compatibility_probe.calls == calls_before_cached_readiness + 2
     assert PRIVATE_CANARY not in caplog.text
     _assert_canary_not_persisted(tmp_path)
+
+
+def test_automation_deadline_stops_real_codex_source_before_publication(
+    tmp_path,
+) -> None:
+    """The queue-owned deadline reaches the real Codex source boundary.
+
+    This remains wholly synthetic: the indexed source metadata and transport
+    response are fictional, and the transport interrupts before a provider
+    thread payload is returned.  It proves the default application chain does
+    not turn an expired automation publication root into a source failure or a
+    fresh persisted analysis run.
+    """
+
+    database = Database(tmp_path / "deadline-source.sqlite3")
+    database.initialize()
+    pseudonymizer = Pseudonymizer(bytes(range(32)))
+    adapter = SyntheticCodexAdapter()
+    catalog = CodexLocalSourceService(
+        database,
+        IngestionService(database, pseudonymizer),
+        lambda _operational_history: adapter,
+        validation_only_capability(),
+    )
+    catalog.grant_local_history()
+    catalog.index(max_sessions=1)
+    session = database.list_sessions(provider=Provider.CODEX, limit=1)[0]
+    project_id = str(session["project_id"])
+    session_id = str(session["session_id"])
+
+    compatibility_clock = MutableClock(BASE_TIME)
+    compatibility_probe = ExactCompatibilityProbe(compatibility_clock)
+    descriptor = CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR
+    compatibility_catalog = ProviderCompatibilityCatalog(
+        ProviderCompatibilityService(
+            TrustedProviderRegistry((descriptor,)),
+            (compatibility_probe,),
+            clock=compatibility_clock,
+        ),
+        (descriptor,),
+    )
+    compatibility_policy = ProviderSurfaceCompatibilityPolicy(
+        compatibility_catalog,
+        surface=ProviderSurface.TEXT_WINDOW,
+        required_capabilities=descriptor.capabilities,
+    )
+
+    class MonotonicDeadline:
+        value = 100.0
+
+        def __call__(self) -> float:
+            return self.value
+
+    monotonic = MonotonicDeadline()
+
+    class DeadlineTransport:
+        def __init__(self) -> None:
+            self.requests: list[str] = []
+            self.closed = False
+
+        def _request(self, method: str, _params: dict[str, object]) -> object:
+            self.requests.append(method)
+            if method == "initialize":
+                return {"version": "0.144.5"}
+            assert method == "thread/list"
+            # The worker's durable root is 30 minutes from monotonic 100.
+            monotonic.value = 1900.0
+            raise_if_runtime_cancelled("synthetic_transport_wait_interrupted")
+            raise AssertionError("expired queue scope accepted a provider read")
+
+        def _notify(self, method: str, params: dict[str, object] | None = None) -> None:
+            assert (method, params) == ("initialized", {})
+
+        def close(self) -> None:
+            self.closed = True
+
+    transport = DeadlineTransport()
+    source = CodexTextAnalysisSource(
+        pseudonymizer,
+        client_factory=lambda: CodexAppServerClient(transport),
+    )
+    job_clock = MutableClock(BASE_TIME)
+    run_repository = database.session_analysis_run_repository()
+    analyses = SessionTextAnalysisService(
+        database,
+        run_repository,
+        lambda provider: source
+        if provider is Provider.CODEX
+        else (_ for _ in ()).throw(AssertionError("unsupported provider")),
+        compatibility_policy,
+        LocalArtifactIdFactory(pseudonymizer),
+        schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
+        clock=job_clock,
+    )
+    grant_id = "a" * 64
+    database.automation_grant_repository().create(
+        AutomationGrantDraft(
+            grant_id=grant_id,
+            scope=AutomationGrantScope(
+                provider=Provider.CODEX,
+                project_id=project_id,
+                metric_keys=("prompt.context_sufficiency",),
+            ),
+            created_at=job_clock(),
+            expires_at=job_clock() + AUTOMATION_GRANT_LIFETIME,
+        )
+    )
+    jobs = AnalysisJobService(database.analysis_job_repository(), clock=job_clock)
+    job = jobs.enqueue(
+        AnalysisJobIdentity(
+            kind=AnalysisJobKind.SESSION_QUALITY,
+            provider=Provider.CODEX,
+            project_id=project_id,
+            session_id=session_id,
+            input_fingerprint="1" * 64,
+            provenance_fingerprint="2" * 64,
+            metric_keys=("prompt.context_sufficiency",),
+            estimator_plan_version="synthetic-deadline-plan-v1",
+            redactor_version="synthetic-deadline-redactor-v1",
+            provider_schema_version="codex-consumed-schema-v1",
+            automation_grant_id=grant_id,
+        )
+    ).job
+    worker = AnalysisJobWorker(
+        database.analysis_job_repository(),
+        {
+            (AnalysisJobKind.SESSION_QUALITY, Provider.CODEX): (
+                SessionQualityAutomationHandler(analyses)
+            )
+        },
+        authorization_check=lambda _job: True,
+        fingerprint_resolver=lambda current: (
+            current.identity.input_fingerprint,
+            current.identity.provenance_fingerprint,
+        ),
+        clock=job_clock,
+        monotonic_clock=monotonic,
+        lease_duration=timedelta(seconds=5),
+        power_source=type(
+            "SyntheticExternalPower",
+            (),
+            {"current": lambda _self: PowerSourceState.EXTERNAL_POWER},
+        )(),
+        worker_id="b" * 64,
+    )
+
+    assert worker.run_once() is True
+    stopped = database.analysis_job_repository().get(job.job_id)
+    assert stopped is not None
+    assert stopped.state is AnalysisJobState.FAILED
+    assert stopped.terminal_reason_code == "automation_publication_deadline_exceeded"
+    assert stopped.attempt_count == 1
+    assert transport.requests == ["initialize", "thread/list"]
+    assert transport.closed is True
+    assert run_repository.list_for_session(session_id) == ()

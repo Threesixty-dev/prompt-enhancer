@@ -50,6 +50,7 @@ from prompt_enhancer.application.analysis.requirement_plan_evidence import (
     RequirementPlanProposalView,
     RequirementPlanProducer,
     RequirementPlanProducerReceipt,
+    RequirementPlanReviewContextMissingError,
     RequirementPlanSourceContract,
     RequirementPlanStaleWindowError,
     parse_requirement_plan_evidence_file,
@@ -438,6 +439,24 @@ def _service(
         review_contexts=selected.store,
         clock=clock,
     )
+
+
+def test_contract_distinguishes_missing_or_expired_ephemeral_review_context() -> None:
+    missing_source = _Source()
+    missing_source.store = InMemoryRequirementPlanReviewContextStore()
+    with pytest.raises(RequirementPlanReviewContextMissingError):
+        _service(_Repository(), missing_source).contract(SESSION)
+
+    wall_clock = [NOW]
+    monotonic_clock = [100.0]
+    expired_source = _Source(
+        clock=lambda: wall_clock[0],
+        monotonic_clock=lambda: monotonic_clock[0],
+    )
+    wall_clock[0] += timedelta(minutes=16)
+    monotonic_clock[0] += 16 * 60
+    with pytest.raises(RequirementPlanReviewContextMissingError):
+        _service(_Repository(), expired_source).contract(SESSION)
 
 
 def _decision_command(

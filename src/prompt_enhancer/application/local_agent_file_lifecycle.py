@@ -178,8 +178,19 @@ class WorkspaceDirectoryMoveApplyResult(StrictModel):
     source_path: str = Field(min_length=1, max_length=1024)
     target_path: str = Field(min_length=1, max_length=1024)
     contents_reviewed: Literal[False] = False
+    artifact_projection: Literal["not_applicable", "complete", "recovery_required"] = "not_applicable"
+    artifact_versions_advanced: int = Field(default=0, strict=True, ge=0, le=100)
     operation: Literal["directory_moved"] = "directory_moved"
     applied: Literal[True] = True
+
+    @model_validator(mode="after")
+    def coherent_artifact_projection(self) -> "WorkspaceDirectoryMoveApplyResult":
+        if (
+            self.artifact_projection in {"not_applicable", "recovery_required"}
+            and self.artifact_versions_advanced != 0
+        ) or (self.artifact_projection == "complete" and self.artifact_versions_advanced < 1):
+            raise ValueError("directory artifact projection is incoherent")
+        return self
 
 
 class WorkspaceFileTrashPreviewCommand(StrictModel):
@@ -629,6 +640,8 @@ class LocalAgentWorkspaceFileLifecycle:
         preview_id: str,
         tools: WorkspaceTools,
         command: WorkspaceDirectoryMoveApplyCommand,
+        *,
+        before_effect: Callable[[PreparedDirectoryMove], None] | None = None,
     ) -> WorkspaceDirectoryMoveApplyResult:
         capability = self._take(
             session_id, preview_id, _DirectoryMoveCapability
@@ -639,15 +652,16 @@ class LocalAgentWorkspaceFileLifecycle:
             and self._matches(capability.target_path, command.target_path)
         ):
             raise LocalAgentError("workspace_lifecycle_preview_mismatch")
-        outcome = tools.apply_prepared_directory_move(
-            PreparedDirectoryMove(
+        prepared = PreparedDirectoryMove(
                 source_path=capability.source_path,
                 target_path=capability.target_path,
                 source_identity=capability.source_identity,
                 source_parent_identity=capability.source_parent_identity,
                 target_parent_identity=capability.target_parent_identity,
-            )
         )
+        if before_effect is not None:
+            before_effect(prepared)
+        outcome = tools.apply_prepared_directory_move(prepared)
         if outcome.state != "verified":
             if outcome.state == "unverified":
                 self._block(session_id)
@@ -658,6 +672,7 @@ class LocalAgentWorkspaceFileLifecycle:
             session_id=session_id,
             source_path=capability.source_path,
             target_path=capability.target_path,
+            artifact_versions_advanced=0,
         )
 
     def preview_file_trash(

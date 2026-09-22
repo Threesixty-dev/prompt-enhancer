@@ -22,9 +22,13 @@ from prompt_enhancer.application.analysis.requirement_verification_persistence i
     RequirementVerificationConflictError,
     RequirementVerificationDefinitionsOutOfDateError,
     RequirementVerificationEvidenceService,
+    ObservedCheckResultIssueCommand,
     RequirementVerificationPersistenceError,
     RequirementVerificationResultAppendCommand,
     RequirementVerificationStaleWindowError,
+)
+from prompt_enhancer.application.analysis.requirement_verification_review import (
+    ObservedCheckCandidate, ObservedCheckCriterionReview,
 )
 from prompt_enhancer.database import Database, DatabaseInvariantError
 
@@ -88,6 +92,184 @@ def _objective_command(
         ),
         expected_predecessor_authority_id=predecessor,
     )
+
+
+class _ObservedCheckReview:
+    def __init__(self, review: ObservedCheckCriterionReview) -> None:
+        self.review = review
+        self.consumed: list[object] = []
+
+    def preview_observed_check(self, *, session_id: str, command: object):
+        assert session_id == self.review.session_id
+        return self.review, False
+
+    def consume_observed_check(self, *, session_id: str, command: object):
+        assert session_id == self.review.session_id
+        self.consumed.append(command)
+        return self.review
+
+
+def test_observed_check_issue_persists_server_derived_result_and_replays(tmp_path) -> None:
+    database, session_id, run, _confirmed = _reviewed_setup(tmp_path)
+    base = RequirementVerificationEvidenceService(
+        database.requirement_verification_evidence_repository(),
+        database.requirement_verification_current_plan_authority(),
+        ARTIFACT_IDS,
+        clock=lambda: NOW + timedelta(minutes=2),
+    )
+    issued, created = base.issue_current_opportunities(session_id)
+    assert created is True
+    opportunity = issued.evidence.opportunities.opportunities[0]
+    candidate_id = _id("observed-candidate")
+    review = ObservedCheckCriterionReview(
+        session_id=session_id,
+        opportunity_set_fingerprint=issued.evidence.opportunities.opportunity_set_fingerprint,
+        opportunity_id=opportunity.opportunity_id,
+        requirement_id=opportunity.requirement_id,
+        expected_source_run_id=run.run_id,
+        source_window_fingerprint=issued.evidence.opportunities.source_window_fingerprint,
+        requirement_plan_confirmation_id=issued.evidence.opportunities.requirement_plan_confirmation_id,
+        requirement_plan_proposal_id=issued.evidence.opportunities.requirement_plan_proposal_id,
+        through_revision=0,
+        candidate_manifest_fingerprint=_id("observed-manifest"),
+        candidate=ObservedCheckCandidate(
+            candidate_id=candidate_id,
+            observed_sequence=23,
+            observed_outcome="passed",
+            exit_code=0,
+            classifier_version="local-command-rules-v1",
+            normalizer_version="strict-shell-free-v2",
+            rule_id="test.pytest",
+        ),
+        requirement_text="Synthetic requirement.",
+        check_tool_name="commandExecution",
+        check_invocation_preview="pytest -q",
+        check_effect_preview="completed",
+        review_receipt_id=_id("observed-receipt"),
+        review_fingerprint=_id("observed-review"),
+        review_expires_at=NOW + timedelta(minutes=5),
+    )
+    reviewed = _ObservedCheckReview(review)
+    service = RequirementVerificationEvidenceService(
+        database.requirement_verification_evidence_repository(),
+        database.requirement_verification_current_plan_authority(),
+        ARTIFACT_IDS,
+        review_service=reviewed,  # type: ignore[arg-type]
+        clock=lambda: NOW + timedelta(minutes=3),
+    )
+    command = ObservedCheckResultIssueCommand(
+        opportunity_set_fingerprint=review.opportunity_set_fingerprint,
+        opportunity_id=review.opportunity_id,
+        candidate_id=candidate_id,
+        expected_source_run_id=review.expected_source_run_id,
+        source_window_fingerprint=review.source_window_fingerprint,
+        through_revision=review.through_revision,
+        candidate_manifest_fingerprint=review.candidate_manifest_fingerprint,
+        review_receipt_id=review.review_receipt_id,
+        review_fingerprint=review.review_fingerprint,
+        full_criterion_coverage_acknowledged=True,
+        confirmation="issue_exact_local_requirement_observed_check_result",
+    )
+    applied, wrote = service.append_observed_check_result(
+        session_id=session_id, command=command,
+        idempotency_key="synthetic-observed-check-issue-0001",
+    )
+    assert wrote is True
+    result = applied.evidence.verification_results[0]
+    assert result.method is RequirementVerificationMethod.TEST
+    assert result.outcome is RequirementVerificationOutcome.PASSED
+    assert result.observed_sequence == 23
+    assert candidate_id in result.receipt_reference_ids
+    assert reviewed.consumed == [command]
+    replayed, replayed_applied = service.append_observed_check_result(
+        session_id=session_id, command=command,
+        idempotency_key="synthetic-observed-check-issue-0001",
+    )
+    assert replayed_applied is False and replayed == applied
+    assert reviewed.consumed == [command]
+
+
+def test_observed_sidecar_insert_failure_rolls_back_the_parent_authority(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CP34c child insert shares its parent's SQLite transaction."""
+    database, session_id, run, _confirmed = _reviewed_setup(tmp_path)
+    base = _service(database)
+    issued, created = base.issue_current_opportunities(session_id)
+    assert created is True
+    opportunity = issued.evidence.opportunities.opportunities[0]
+    candidate_id = _id("observed-sidecar-rollback-candidate")
+    review = ObservedCheckCriterionReview(
+        session_id=session_id,
+        opportunity_set_fingerprint=issued.evidence.opportunities.opportunity_set_fingerprint,
+        opportunity_id=opportunity.opportunity_id,
+        requirement_id=opportunity.requirement_id,
+        expected_source_run_id=run.run_id,
+        source_window_fingerprint=issued.evidence.opportunities.source_window_fingerprint,
+        requirement_plan_confirmation_id=issued.evidence.opportunities.requirement_plan_confirmation_id,
+        requirement_plan_proposal_id=issued.evidence.opportunities.requirement_plan_proposal_id,
+        through_revision=0,
+        candidate_manifest_fingerprint=_id("observed-sidecar-rollback-manifest"),
+        candidate=ObservedCheckCandidate(
+            candidate_id=candidate_id,
+            observed_sequence=24,
+            observed_outcome="passed",
+            exit_code=0,
+            classifier_version="local-command-rules-v1",
+            normalizer_version="strict-shell-free-v2",
+            rule_id="test.pytest",
+        ),
+        requirement_text="Synthetic requirement.",
+        check_tool_name="commandExecution",
+        check_invocation_preview="pytest -q",
+        check_effect_preview="completed",
+        review_receipt_id=_id("observed-sidecar-rollback-receipt"),
+        review_fingerprint=_id("observed-sidecar-rollback-review"),
+        review_expires_at=NOW + timedelta(minutes=5),
+    )
+    reviewed = _ObservedCheckReview(review)
+    repository = database.requirement_verification_evidence_repository()
+
+    def fail_sidecar(*_args: object, **_kwargs: object) -> None:
+        raise sqlite3.IntegrityError("synthetic sidecar failure")
+
+    monkeypatch.setattr(repository, "_insert_observed_provenance_tx", fail_sidecar)
+    service = RequirementVerificationEvidenceService(
+        repository,
+        database.requirement_verification_current_plan_authority(),
+        ARTIFACT_IDS,
+        review_service=reviewed,  # type: ignore[arg-type]
+        clock=lambda: NOW + timedelta(minutes=3),
+    )
+    command = ObservedCheckResultIssueCommand(
+        opportunity_set_fingerprint=review.opportunity_set_fingerprint,
+        opportunity_id=review.opportunity_id,
+        candidate_id=candidate_id,
+        expected_source_run_id=review.expected_source_run_id,
+        source_window_fingerprint=review.source_window_fingerprint,
+        through_revision=review.through_revision,
+        candidate_manifest_fingerprint=review.candidate_manifest_fingerprint,
+        review_receipt_id=review.review_receipt_id,
+        review_fingerprint=review.review_fingerprint,
+        full_criterion_coverage_acknowledged=True,
+        confirmation="issue_exact_local_requirement_observed_check_result",
+    )
+
+    with pytest.raises(RequirementVerificationConflictError):
+        service.append_observed_check_result(
+            session_id=session_id,
+            command=command,
+            idempotency_key="synthetic-observed-sidecar-rollback-0001",
+        )
+
+    assert reviewed.consumed == [command]
+    with database._connection(readonly=True) as connection:  # type: ignore[attr-defined]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM requirement_verification_authority_records"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM requirement_verification_observed_check_provenance"
+        ).fetchone()[0] == 0
 
 
 def test_issue_append_replay_historical_snapshot_and_restart(tmp_path) -> None:

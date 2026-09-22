@@ -12,6 +12,9 @@ from prompt_enhancer.application.analysis.requirement_plan_evidence import (
     REQUIREMENT_PLAN_IMPORT_CONFIRMATION,
     RequirementPlanDecisionCommand,
     RequirementPlanDecisionKind,
+    RequirementPlanNotFoundError,
+    RequirementPlanPersistenceError,
+    RequirementPlanReviewContextMissingError,
 )
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.interfaces.http.browser_session import CSRF_HEADER
@@ -23,6 +26,14 @@ from test_requirement_plan_evidence_persistence import _payload, _setup
 
 
 TOKEN = "example_requirement_plan_api_token_do_not_use_123456789"
+
+
+class _ContractFailure:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def contract(self, _session_id: str):  # type: ignore[no-untyped-def]
+        raise self._error
 
 
 def _confirm_command(run_id: str, review: dict[str, object]) -> dict[str, object]:
@@ -73,6 +84,43 @@ def _private(response) -> None:  # type: ignore[no-untyped-def]
         response.text,
     )
     assert response.headers["pragma"] == "no-cache"
+
+
+def test_contract_reports_missing_or_expired_context_without_relabeling_other_failures(tmp_path) -> None:
+    database, session_id, _run, _repository, _service = _setup(tmp_path)
+    base = f"/v1/sessions/{session_id}/requirement-plan-evidence/contract"
+    cases = (
+        (
+            RequirementPlanReviewContextMissingError("synthetic missing context"),
+            404,
+            "requirement_plan_review_context_missing",
+            "requirement-plan review context is missing or expired",
+        ),
+        (
+            RequirementPlanNotFoundError("synthetic missing sealed publication"),
+            404,
+            "requirement_plan_evidence_not_found",
+            "requirement-plan evidence authority was not found",
+        ),
+        (
+            RequirementPlanPersistenceError("synthetic repository failure"),
+            503,
+            "requirement_plan_evidence_persistence_failed",
+            "requirement-plan evidence is unavailable",
+        ),
+    )
+    for error, status, code, message in cases:
+        app = create_app(
+            settings=AppSettings(home=tmp_path),
+            database=database,
+            api_token=TOKEN,
+            requirement_plan_evidence_service=_ContractFailure(error),
+        )
+        with TestClient(app, base_url="http://127.0.0.1") as client:
+            response = client.get(base, headers={API_TOKEN_HEADER: TOKEN})
+        _private(response)
+        assert response.status_code == status
+        assert response.json() == {"detail": {"code": code, "message": message}}
 
 
 def test_agent_file_is_inert_until_native_confirmed_then_paged(tmp_path) -> None:
@@ -417,6 +465,8 @@ def test_openapi_exposes_only_content_free_requirement_plan_contract(tmp_path) -
         "/v1/sessions/{session_id}/requirement-plan-evidence/contract",
         "/v1/sessions/{session_id}/requirement-plan-evidence/preview",
         "/v1/sessions/{session_id}/requirement-plan-evidence/import",
+        "/v1/sessions/{session_id}/requirement-plan-evidence/guided-authoring/review",
+        "/v1/sessions/{session_id}/requirement-plan-evidence/guided-authoring/proposals",
         "/v1/sessions/{session_id}/requirement-plan-evidence/proposals/{proposal_id}/review",
         "/v1/sessions/{session_id}/requirement-plan-evidence/proposals/{proposal_id}/decision",
         "/v1/sessions/{session_id}/requirement-plan-evidence/proposal-page",

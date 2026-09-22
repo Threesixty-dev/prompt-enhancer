@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentSessionContextStatus,
   AgentSessionView,
+  AgentCatalogSession,
   DeviceMode,
   LocalModelPlacementAdmission,
   LocalModelsOverview,
@@ -12,6 +13,7 @@ import type {
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { Icon } from "../../shared/ui/Icon";
+import { AgentGenerationSettings, type AgentGenerationParameters } from "./AgentGenerationSettings";
 import "./AgentRuntimeControl.css";
 
 type RuntimeControlTransport = Partial<Pick<
@@ -19,6 +21,7 @@ type RuntimeControlTransport = Partial<Pick<
   "getLocalRuntime" | "switchLocalRuntime" | "stopLocalRuntime"
   | "getLocalModelPlacement"
   | "getAgentCatalogSession" | "getAgentSessionContext" | "switchAgentSessionModel"
+  | "updateAgentSessionParameters" | "getAgentSession"
 >>;
 
 type Props = {
@@ -38,17 +41,30 @@ type Props = {
 
 type RuntimeReadRequest = {
   controller: AbortController;
+  timeout?: number | null;
   transport: RuntimeControlTransport;
 };
 
 type ContextReadRequest = RuntimeReadRequest & {
+  attempt: ContextAttempt;
   expectedTurnNumber: number | null;
   modelAlias: string | null;
   sessionId: string;
 };
 
+type ContextAttempt = {
+  deadline: number | null;
+  expired: boolean;
+  expiration: Promise<typeof CONTEXT_ATTEMPT_EXPIRED>;
+  expire: () => void;
+  expectedTurnNumber: number | null;
+  modelAlias: string | null;
+  sessionId: string;
+  transport: RuntimeControlTransport;
+};
+
 type RuntimeOperation = RuntimeReadRequest & {
-  kind: "apply" | "stop";
+  kind: "apply" | "stop" | "settings";
   lifecycle: number;
 };
 
@@ -56,9 +72,13 @@ type PlacementReadRequest = RuntimeReadRequest & {
   alias: string;
   contextSize: number;
 };
+type SettingsReadRequest = RuntimeReadRequest & { key: string; lifecycle: number; sessionId: string };
 
 const CONTEXT_OPTIONS = [4096, 8192, 16384, 32768, 65536] as const;
 const CONTEXT_PENDING_POLL_MS = 500;
+const CONTEXT_READ_TIMEOUT_MS = 10_000;
+const RUNTIME_READ_TIMEOUT_MS = 10_000;
+const CONTEXT_ATTEMPT_EXPIRED = Symbol("context-attempt-expired");
 
 function stateLabel(state: LocalRuntimeCoordinatorStatus["state"]): string {
   return {
@@ -135,10 +155,19 @@ function contextLabel(
   hasCurrentChat: boolean,
   contextReadFailed: boolean,
   contextLoading: boolean,
+  contextPendingExpired: boolean,
 ): string {
   if (!hasCurrentChat) return `${measuredContextLabel(runtime?.context)} · runtime`;
+  if (contextPendingExpired) {
+    if (sessionContext?.binding_state === "bound") {
+      return `${measuredContextLabel(sessionContext.context)} · turn ${sessionContext.turn_number} · last confirmed · refresh did not settle`;
+    }
+    return "Unknown · exact preflight did not settle · Refresh to retry";
+  }
   if (contextLoading && sessionContext === null) return "checking this chat's context evidence";
-  if (sessionContext === null) return contextReadFailed ? "context evidence unavailable" : "not measured for this chat";
+  if (sessionContext === null) return contextReadFailed
+    ? "Unknown · context evidence unavailable · Refresh to retry"
+    : "not measured for this chat";
   if (sessionContext.binding_state !== "bound") return unmeasuredContextLabel(sessionContext);
   const freshness = contextReadFailed
     ? " · last confirmed · refresh failed"
@@ -219,9 +248,13 @@ export function AgentRuntimeControl({
   const [sessionContext, setSessionContext] = useState<AgentSessionContextStatus | null>(null);
   const [contextReadFailed, setContextReadFailed] = useState(false);
   const [contextLoading, setContextLoading] = useState(false);
+  const [contextPendingExpired, setContextPendingExpired] = useState(false);
+  const [contextPendingPollKey, setContextPendingPollKey] = useState(0);
   const [placement, setPlacement] = useState<LocalModelPlacementAdmission | null>(null);
   const [placementLoading, setPlacementLoading] = useState(false);
   const [placementReadFailed, setPlacementReadFailed] = useState(false);
+  const [placementRefreshKey, setPlacementRefreshKey] = useState(0);
+  const [runtimeReadFailed, setRuntimeReadFailed] = useState(false);
   const [loading, setLoading] = useState(available);
   const [busy, setBusy] = useState(false);
   const [alias, setAlias] = useState("");
@@ -229,18 +262,27 @@ export function AgentRuntimeControl({
   const [contextSize, setContextSize] = useState(8192);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [settingsCatalog, setSettingsCatalog] = useState<AgentCatalogSession | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const settingsRead = useRef<SettingsReadRequest | null>(null);
+  const settingsIdentity = useRef("");
+  const settingsDisclosureToggleFromClick = useRef(false);
   const composerDetailsRef = useRef<HTMLDetailsElement | null>(null);
   const modelSelectRef = useRef<HTMLSelectElement | null>(null);
   const runtimeDraftDirty = useRef(false);
   const runtimeRead = useRef<RuntimeReadRequest | null>(null);
   const contextRead = useRef<ContextReadRequest | null>(null);
+  const contextAttempt = useRef<ContextAttempt | null>(null);
   const placementRead = useRef<PlacementReadRequest | null>(null);
   const contextIdentity = useRef("");
+  const contextRefreshDeferred = useRef(false);
   const operation = useRef<RuntimeOperation | null>(null);
   const lifecycle = useRef(0);
   const runtimeState = useRef<LocalRuntimeCoordinatorStatus | null>(null);
   const sessionContextState = useRef<AgentSessionContextStatus | null>(null);
   const currentModelAlias = current?.model_alias ?? current?.settings.model_alias ?? null;
+  const settingsParameters = current?.settings.parameters;
+  const settingsProjectId = current?.settings.project_id ?? null;
   const expectedContextTurnNumber = current === null
     ? null
     : current.turns;
@@ -258,10 +300,90 @@ export function AgentRuntimeControl({
     sessionId: current?.session_id ?? null,
     transport,
   };
+  const settingsKey = `${current?.session_id ?? ""}:${settingsProjectId ?? ""}`;
+  const settingsCatalogReady = settingsCatalog !== null
+    && settingsCatalog.session_id === current?.session_id
+    && settingsCatalog.project_id === settingsProjectId
+    && settingsIdentity.current === settingsKey
+    && transport.updateAgentSessionParameters !== undefined;
+  useEffect(() => {
+    if (settingsIdentity.current === settingsKey) return;
+    settingsIdentity.current = settingsKey;
+    settingsRead.current?.controller.abort();
+    if (settingsRead.current?.timeout != null) window.clearTimeout(settingsRead.current.timeout);
+    settingsRead.current = null;
+    setSettingsLoading(false);
+    setSettingsCatalog(null);
+  }, [settingsKey]);
   runtimeState.current = runtime;
   sessionContextState.current = sessionContext;
 
-  const refreshContext = useCallback(async (owner?: RuntimeOperation) => {
+  const matchesContextAttempt = useCallback((attempt: ContextAttempt) => (
+    requestContext.current.transport === attempt.transport
+    && requestContext.current.sessionId === attempt.sessionId
+    && requestContext.current.modelAlias === attempt.modelAlias
+    && requestContext.current.expectedTurnNumber === attempt.expectedTurnNumber
+  ), []);
+
+  const ownsContextAttempt = useCallback((attempt: ContextAttempt) => (
+    contextAttempt.current === attempt
+    && !attempt.expired
+    && matchesContextAttempt(attempt)
+  ), [matchesContextAttempt]);
+
+  const clearContextAttempt = useCallback((attempt: ContextAttempt | null, abortRead: boolean) => {
+    if (attempt === null) return;
+    if (attempt.deadline !== null) window.clearTimeout(attempt.deadline);
+    attempt.deadline = null;
+    attempt.expired = true;
+    attempt.expire();
+    if (abortRead && contextRead.current?.attempt === attempt) {
+      contextRead.current.controller.abort();
+      contextRead.current = null;
+    }
+    if (contextAttempt.current === attempt) contextAttempt.current = null;
+  }, []);
+
+  const startContextAttempt = useCallback((reset: boolean): ContextAttempt | null => {
+    const { expectedTurnNumber, modelAlias, sessionId, transport: requestTransport } = requestContext.current;
+    const existing = contextAttempt.current;
+    if (existing !== null && matchesContextAttempt(existing) && !reset) {
+      return existing.expired ? null : existing;
+    }
+    clearContextAttempt(existing, true);
+    if (sessionId === null || requestTransport.getAgentSessionContext === undefined) return null;
+    let resolveExpiration: (value: typeof CONTEXT_ATTEMPT_EXPIRED) => void = () => undefined;
+    const attempt: ContextAttempt = {
+      deadline: null,
+      expired: false,
+      expiration: new Promise<typeof CONTEXT_ATTEMPT_EXPIRED>((resolve) => { resolveExpiration = resolve; }),
+      expire: () => resolveExpiration(CONTEXT_ATTEMPT_EXPIRED),
+      expectedTurnNumber,
+      modelAlias,
+      sessionId,
+      transport: requestTransport,
+    };
+    contextAttempt.current = attempt;
+    setContextPendingExpired(false);
+    attempt.deadline = window.setTimeout(() => {
+      if (!ownsContextAttempt(attempt)) return;
+      attempt.deadline = null;
+      attempt.expired = true;
+      attempt.expire();
+      if (contextRead.current?.attempt === attempt) {
+        contextRead.current.controller.abort();
+        contextRead.current = null;
+      }
+      // A known bound receipt remains useful only as explicitly stale evidence;
+      // an unmeasured pending receipt stays unknown rather than becoming zero.
+      setContextReadFailed(false);
+      setContextPendingExpired(true);
+      setContextLoading(false);
+    }, CONTEXT_READ_TIMEOUT_MS);
+    return attempt;
+  }, [clearContextAttempt, matchesContextAttempt, ownsContextAttempt]);
+
+  const refreshContext = useCallback(async (owner?: RuntimeOperation, resetAttempt = false) => {
     const {
       expectedTurnNumber,
       modelAlias,
@@ -270,16 +392,27 @@ export function AgentRuntimeControl({
     } = requestContext.current;
     const getSessionContext = requestTransport.getAgentSessionContext;
     if (sessionId === null || getSessionContext === undefined) {
-      contextRead.current?.controller.abort();
-      contextRead.current = null;
+      clearContextAttempt(contextAttempt.current, true);
+      contextRefreshDeferred.current = false;
       sessionContextState.current = null;
       setSessionContext(null);
       setContextReadFailed(sessionId !== null && getSessionContext === undefined);
+      setContextPendingExpired(false);
       setContextLoading(false);
       return null;
     }
-    if (operation.current !== null && operation.current !== owner) return null;
+    if (operation.current !== null && operation.current !== owner) {
+      // A runtime operation owns context reads while it runs. Remember the
+      // skipped read so a chat identity change during the operation is measured
+      // once it settles instead of leaving the panel stuck on "checking".
+      contextRefreshDeferred.current = true;
+      return null;
+    }
+    contextRefreshDeferred.current = false;
+    const attempt = startContextAttempt(resetAttempt || owner !== undefined);
+    if (attempt === null) return null;
     const request: ContextReadRequest = {
+      attempt,
       controller: new AbortController(),
       expectedTurnNumber,
       modelAlias,
@@ -291,14 +424,15 @@ export function AgentRuntimeControl({
     setContextLoading(true);
     setContextReadFailed(false);
     try {
-      const value = await getSessionContext(sessionId, request.controller.signal);
+      const value = await Promise.race([
+        Promise.resolve().then(() => getSessionContext(sessionId, request.controller.signal)),
+        attempt.expiration,
+      ]);
+      if (value === CONTEXT_ATTEMPT_EXPIRED) return null;
       if (
         contextRead.current !== request
         || request.controller.signal.aborted
-        || requestContext.current.transport !== request.transport
-        || requestContext.current.sessionId !== request.sessionId
-        || requestContext.current.modelAlias !== request.modelAlias
-        || requestContext.current.expectedTurnNumber !== request.expectedTurnNumber
+        || !ownsContextAttempt(attempt)
       ) return null;
       const turnMatches = value.turn_number === null
         || value.turn_number === request.expectedTurnNumber;
@@ -313,24 +447,48 @@ export function AgentRuntimeControl({
         sessionContextState.current = null;
         setSessionContext(null);
         setContextReadFailed(true);
+        clearContextAttempt(attempt, false);
         return null;
       }
       const previous = sessionContextState.current;
-      if (previous?.session_id === value.session_id && previous.revision > value.revision) return previous;
+      if (previous?.session_id === value.session_id && previous.revision > value.revision) {
+        if (
+          previous.binding_state === "unmeasured"
+          && previous.unknown_reason === "turn_pending_preflight"
+        ) {
+          setContextPendingPollKey((key) => key + 1);
+        } else {
+          clearContextAttempt(attempt, false);
+        }
+        return previous;
+      }
       sessionContextState.current = value;
       setSessionContext(value);
       setContextReadFailed(false);
+      if (value.binding_state === "unmeasured" && value.unknown_reason === "turn_pending_preflight") {
+        // A lower/equal pending receipt can retain the same React state object.
+        // Tick separately so its next bounded poll is not lost to batched loading
+        // transitions, while the attempt deadline remains unchanged.
+        setContextPendingPollKey((key) => key + 1);
+      } else {
+        clearContextAttempt(attempt, false);
+      }
       return value;
     } catch {
       if (
         contextRead.current === request
         && !request.controller.signal.aborted
-        && requestContext.current.transport === request.transport
-        && requestContext.current.sessionId === request.sessionId
-        && requestContext.current.modelAlias === request.modelAlias
-        && requestContext.current.expectedTurnNumber === request.expectedTurnNumber
+        && ownsContextAttempt(attempt)
       ) {
+        if (
+          sessionContextState.current?.binding_state === "unmeasured"
+          && sessionContextState.current.unknown_reason === "turn_pending_preflight"
+        ) {
+          sessionContextState.current = null;
+          setSessionContext(null);
+        }
         setContextReadFailed(true);
+        clearContextAttempt(attempt, false);
       }
       return null;
     } finally {
@@ -339,12 +497,13 @@ export function AgentRuntimeControl({
         setContextLoading(false);
       }
     }
-  }, []);
+  }, [clearContextAttempt, ownsContextAttempt, startContextAttempt]);
 
   const refresh = useCallback(async (owner?: RuntimeOperation) => {
     const requestTransport = requestContext.current.transport;
     const getRuntime = requestTransport.getLocalRuntime;
     if (getRuntime === undefined) {
+      if (runtimeRead.current?.timeout != null) window.clearTimeout(runtimeRead.current.timeout);
       runtimeRead.current?.controller.abort();
       runtimeRead.current = null;
       setLoading(false);
@@ -353,13 +512,23 @@ export function AgentRuntimeControl({
     if (operation.current !== null && operation.current !== owner) return null;
     const request: RuntimeReadRequest = {
       controller: new AbortController(),
+      timeout: null,
       transport: requestTransport,
     };
+    if (runtimeRead.current?.timeout != null) window.clearTimeout(runtimeRead.current.timeout);
     runtimeRead.current?.controller.abort();
     runtimeRead.current = request;
     setLoading(true);
+    let timedOut = false;
     try {
-      const value = await getRuntime(request.controller.signal);
+      const timeout = new Promise<never>((_resolve, reject) => {
+        request.timeout = window.setTimeout(() => {
+          timedOut = true;
+          request.controller.abort();
+          reject(new Error("runtime status read timed out"));
+        }, RUNTIME_READ_TIMEOUT_MS);
+      });
+      const value = await Promise.race([getRuntime(request.controller.signal), timeout]);
       if (
         runtimeRead.current !== request
         || request.controller.signal.aborted
@@ -369,18 +538,25 @@ export function AgentRuntimeControl({
       if (previous !== null && previous.revision > value.revision) return previous;
       runtimeState.current = value;
       setRuntime(value);
+      setRuntimeReadFailed(false);
       callbacks.current.onRuntimeStatus?.(value);
       return value;
     } catch {
       if (
         runtimeRead.current === request
-        && !request.controller.signal.aborted
+        && (timedOut || !request.controller.signal.aborted)
         && requestContext.current.transport === request.transport
       ) {
-        setError("Runtime status is unavailable. Retry after the local service reconnects.");
+        // Keep the last confirmed snapshot so a deliberate Stop can still send
+        // its exact alias and revision, but do not present it as current
+        // evidence or permit a replacement/start from it.
+        setRuntimeReadFailed(true);
+        callbacks.current.onRuntimeStatus?.(null);
       }
       return null;
     } finally {
+      if (request.timeout != null) window.clearTimeout(request.timeout);
+      request.timeout = null;
       if (runtimeRead.current === request) {
         runtimeRead.current = null;
         setLoading(false);
@@ -395,30 +571,40 @@ export function AgentRuntimeControl({
     return () => {
       lifecycle.current += 1;
       if (runtimeRead.current?.transport === requestTransport) {
+        if (runtimeRead.current.timeout != null) window.clearTimeout(runtimeRead.current.timeout);
         runtimeRead.current.controller.abort();
         runtimeRead.current = null;
       }
-      if (contextRead.current?.transport === requestTransport) {
-        contextRead.current.controller.abort();
-        contextRead.current = null;
+      if (contextAttempt.current?.transport === requestTransport) {
+        clearContextAttempt(contextAttempt.current, true);
+        setContextLoading(false);
       }
       if (placementRead.current?.transport === requestTransport) {
         placementRead.current.controller.abort();
         placementRead.current = null;
       }
+      if (settingsRead.current?.transport === requestTransport) {
+        if (settingsRead.current.timeout != null) window.clearTimeout(settingsRead.current.timeout);
+        settingsRead.current.controller.abort();
+        settingsRead.current = null;
+        setSettingsLoading(false);
+      }
+      setSettingsCatalog(null);
       if (operation.current?.transport === requestTransport) {
         operation.current.controller.abort();
         operation.current = null;
         callbacks.current.onBusyChange(false);
       }
     };
-  }, [transport]);
+  }, [clearContextAttempt, transport]);
 
   useEffect(() => {
     runtimeRead.current?.controller.abort();
+    if (runtimeRead.current?.timeout != null) window.clearTimeout(runtimeRead.current.timeout);
     runtimeRead.current = null;
     runtimeState.current = null;
     setRuntime(null);
+    setRuntimeReadFailed(false);
     callbacks.current.onRuntimeStatus?.(null);
     setLoading(available);
     setNotice("");
@@ -433,11 +619,11 @@ export function AgentRuntimeControl({
     const changed = contextIdentity.current !== identity;
     contextIdentity.current = identity;
     if (changed) {
-      contextRead.current?.controller.abort();
-      contextRead.current = null;
+      clearContextAttempt(contextAttempt.current, true);
       sessionContextState.current = null;
       setSessionContext(null);
       setContextReadFailed(false);
+      setContextPendingExpired(false);
       setContextLoading(current !== null && transport.getAgentSessionContext !== undefined);
     }
     void refreshContext();
@@ -446,6 +632,7 @@ export function AgentRuntimeControl({
     current?.session_id,
     currentModelAlias,
     expectedContextTurnNumber,
+    clearContextAttempt,
     refreshContext,
     transport,
   ]);
@@ -455,6 +642,7 @@ export function AgentRuntimeControl({
       !current?.running
       || contextLoading
       || contextReadFailed
+      || contextPendingExpired
       || sessionContext?.binding_state !== "unmeasured"
       || sessionContext.unknown_reason !== "turn_pending_preflight"
     ) return;
@@ -463,6 +651,8 @@ export function AgentRuntimeControl({
   }, [
     contextLoading,
     contextReadFailed,
+    contextPendingExpired,
+    contextPendingPollKey,
     current?.running,
     refreshContext,
     sessionContext?.binding_state,
@@ -522,8 +712,8 @@ export function AgentRuntimeControl({
     placementRead.current?.controller.abort();
     placementRead.current = null;
     setPlacementReadFailed(false);
+    setPlacement(null);
     if (!alias || selected === null || getPlacement === undefined) {
-      setPlacement(null);
       setPlacementLoading(false);
       return;
     }
@@ -568,7 +758,7 @@ export function AgentRuntimeControl({
       request.controller.abort();
       if (placementRead.current === request) placementRead.current = null;
     };
-  }, [alias, contextSize, selected?.record.alias, transport]);
+  }, [alias, contextSize, selected?.record.alias, transport, placementRefreshKey]);
   const placementAdmission = placement
     ?? (selected?.placement?.context_size === contextSize ? selected.placement : null);
   useEffect(() => {
@@ -594,10 +784,11 @@ export function AgentRuntimeControl({
     .map((option) => `${placementLabel(option.device)} unavailable: ${placementReasonLabel(option.reason_code)}`)
     .join(" ") ?? "";
   const anyTurnRunning = Boolean(liveSessions?.some((session) => session.running));
-  const exactSelection = runtime?.state === "ready"
+  const matchesRuntimeSnapshot = runtime?.state === "ready"
     && runtime.served?.alias === alias
     && runtime.served.device === device
     && runtime.served.context_size === contextSize;
+  const exactSelection = matchesRuntimeSnapshot && !runtimeReadFailed;
   const chatNeedsRebind = Boolean(current && currentModelAlias !== alias);
   const transitionBlocked = runtime?.state === "draining"
     || runtime?.state === "unloading"
@@ -606,6 +797,7 @@ export function AgentRuntimeControl({
   const blocked = disabled
     || busy
     || loading
+    || runtimeReadFailed
     || anyTurnRunning
     || transitionBlocked
     || cleanupBlocked
@@ -625,6 +817,8 @@ export function AgentRuntimeControl({
     ? "Model changes are unavailable while this Agent session is disconnected, closing, or awaiting safe cleanup."
     : busy
       ? "Wait for the current model operation to finish."
+      : runtimeReadFailed
+        ? "Runtime status could not be refreshed. Apply stays disabled; use Refresh to retry the check."
       : loading || runtime === null
         ? "Wait for the shared runtime status to finish loading."
         : anyTurnRunning
@@ -653,6 +847,18 @@ export function AgentRuntimeControl({
           : cleanupBlocked
             ? "The runtime already has unconfirmed cleanup and cannot be stopped again."
             : "No shared model runtime is currently loaded.";
+  // The three selects share one gate pair (an in-flight operation, or a live
+  // response that owns the runtime). Describe that gate directly instead of
+  // reusing the Apply reason, which can be truthful for Apply and wrong here.
+  const selectionDisabled = busy || anyTurnRunning;
+  const selectionDisabledReason = operation.current?.kind === "stop"
+    ? "A runtime stop is in progress. Model, placement, and context choices reopen when it settles."
+    : "A model change is in progress. Model, placement, and context choices reopen when it settles.";
+  const selectionDisabledReasonId = !selectionDisabled
+    ? undefined
+    : busy
+      ? "agent-runtime-selection-disabled-reason"
+      : "agent-runtime-active-turn-hint";
   const applyDisabledReasonId = !applyDisabled
     ? undefined
     : anyTurnRunning
@@ -687,6 +893,7 @@ export function AgentRuntimeControl({
     const disclosure = composerDetailsRef.current;
     if (disclosure === null || !disclosure.open) return;
     disclosure.open = false;
+    settingsDisclosureToggleFromClick.current = false;
     if (restoreFocus) disclosure.querySelector<HTMLElement>("summary")?.focus({ preventScroll: true });
   }, []);
 
@@ -698,10 +905,14 @@ export function AgentRuntimeControl({
       closeComposerDisclosure(false);
     };
     const closeFromEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || composerDetailsRef.current?.open !== true) return;
+      const disclosure = composerDetailsRef.current;
+      if (event.key !== "Escape" || disclosure?.open !== true) return;
       event.preventDefault();
       event.stopPropagation();
-      closeComposerDisclosure(true);
+      // Return focus to the summary only when the keyboard user is still inside
+      // the popover. After tabbing back out to the composer, Escape must dismiss
+      // the popover without pulling focus away from the current field.
+      closeComposerDisclosure(disclosure.contains(document.activeElement));
     };
     document.addEventListener("pointerdown", closeFromOutside, true);
     document.addEventListener("keydown", closeFromEscape);
@@ -724,11 +935,188 @@ export function AgentRuntimeControl({
     }
   }
 
+  function isCurrentSettingsRead(request: SettingsReadRequest): boolean {
+    return settingsRead.current === request
+      && request.lifecycle === lifecycle.current
+      && requestContext.current.transport === request.transport
+      && requestContext.current.sessionId === request.sessionId
+      && settingsIdentity.current === request.key;
+  }
+
+  function ownsSettingsRead(request: SettingsReadRequest): boolean {
+    return isCurrentSettingsRead(request) && !request.controller.signal.aborted;
+  }
+
+  async function loadSettingsCatalog(owner?: RuntimeOperation, propagateFailure = false): Promise<AgentCatalogSession | null> {
+    const key = settingsKey;
+    // A disclosure can be reopened in the same event turn that replaces the
+    // chat. Effects have not necessarily run yet, so make the read boundary
+    // own the identity handoff rather than briefly retaining the previous
+    // chat's request or catalog.
+    const identityChanged = settingsIdentity.current !== key;
+    if (identityChanged) {
+      settingsIdentity.current = key;
+      settingsRead.current?.controller.abort();
+      if (settingsRead.current?.timeout != null) window.clearTimeout(settingsRead.current.timeout);
+      settingsRead.current = null;
+      setSettingsLoading(false);
+      setSettingsCatalog(null);
+    }
+    if (current === null || transport.getAgentCatalogSession === undefined || !identityChanged && settingsLoading || settingsRead.current !== null || (operation.current !== null && operation.current !== owner)) {
+      if (propagateFailure) throw new TransportError("Generation settings cannot reload right now", 409);
+      return null;
+    }
+    const sessionId = current.session_id;
+    const projectId = current.settings.project_id;
+    const request: SettingsReadRequest = {
+      controller: new AbortController(),
+      key,
+      lifecycle: lifecycle.current,
+      sessionId,
+      transport,
+      timeout: null,
+    };
+    settingsRead.current = request;
+    setSettingsLoading(true);
+    let timedOut = false;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      request.timeout = window.setTimeout(() => {
+        if (!ownsSettingsRead(request)) return;
+        timedOut = true;
+        request.controller.abort();
+        reject(new TransportError("Generation settings read timed out", 408));
+      }, RUNTIME_READ_TIMEOUT_MS);
+    });
+    try {
+      const record = await Promise.race([transport.getAgentCatalogSession(sessionId, request.controller.signal), deadline]);
+      if (ownsSettingsRead(request) && record.session_id === sessionId && record.project_id === projectId) {
+        setSettingsCatalog(record);
+        return record;
+      }
+      return null;
+    } catch (caught) {
+      if (isCurrentSettingsRead(request) && (timedOut || !request.controller.signal.aborted)) {
+        setError("Generation settings could not load. Retry after the current model operation finishes.");
+        if (propagateFailure) throw caught;
+      }
+      return null;
+    } finally {
+      if (settingsRead.current === request) {
+        if (request.timeout != null) window.clearTimeout(request.timeout);
+        settingsRead.current = null;
+        setSettingsLoading(false);
+      }
+    }
+  }
+
+  async function saveSettings(parameters: AgentGenerationParameters, expectedParameters: AgentGenerationParameters): Promise<boolean> {
+    if (current === null || disabled || current.running || current.closing || current.cleanup_unconfirmed || current.pending_approval_id !== null || current.history_write_failed || settingsCatalog === null || !settingsCatalogReady || transport.updateAgentSessionParameters === undefined || operation.current !== null || settingsLoading) {
+      throw new TransportError("Generation settings are not ready to save", 409);
+    }
+    const key = settingsKey;
+    const sessionId = current.session_id;
+    const expectedProjectId = settingsCatalog.project_id;
+    const expectedRevision = settingsCatalog.revision;
+    const request: RuntimeOperation = {
+      controller: new AbortController(),
+      kind: "settings",
+      lifecycle: lifecycle.current,
+      transport,
+    };
+    operation.current = request;
+    setBusy(true);
+    callbacks.current.onBusyChange(true);
+    try {
+      const updated = await transport.updateAgentSessionParameters(sessionId, {
+        expected_project_id: expectedProjectId,
+        expected_revision: expectedRevision,
+        expected_parameters: expectedParameters,
+        parameters,
+      }, request.controller.signal);
+      if (!ownsOperation(request) || settingsIdentity.current !== key || requestContext.current.sessionId !== sessionId) return false;
+      setSettingsCatalog((previous) => previous === null ? previous : { ...previous, revision: expectedRevision + 1 });
+      onSessionUpdated(updated);
+      return true;
+    } catch (caught) {
+      if (ownsOperation(request)) throw caught;
+      return false;
+    } finally {
+      settleOperation(request);
+    }
+  }
+
+  async function reloadSettings(): Promise<AgentGenerationParameters | null> {
+    if (current === null || transport.getAgentSession === undefined || operation.current !== null) {
+      throw new TransportError("Generation settings cannot reload right now", 409);
+    }
+    const key = settingsKey;
+    const sessionId = current.session_id;
+    const projectId = current.settings.project_id;
+    const request: RuntimeOperation = {
+      controller: new AbortController(),
+      kind: "settings",
+      lifecycle: lifecycle.current,
+      transport,
+    };
+    operation.current = request;
+    setBusy(true);
+    callbacks.current.onBusyChange(true);
+    const sessionController = new AbortController();
+    const abortSessionRead = () => sessionController.abort();
+    request.controller.signal.addEventListener("abort", abortSessionRead, { once: true });
+    let timeout: number | null = null;
+    try {
+      const catalog = await loadSettingsCatalog(request, true);
+      if (catalog === null || !ownsOperation(request) || settingsIdentity.current !== key) return null;
+      const deadline = new Promise<never>((_resolve, reject) => {
+        timeout = window.setTimeout(() => {
+          sessionController.abort();
+          reject(new TransportError("Generation settings reload timed out", 408));
+        }, RUNTIME_READ_TIMEOUT_MS);
+      });
+      const refreshed = await Promise.race([
+        transport.getAgentSession(sessionId, sessionController.signal),
+        deadline,
+      ]);
+      if (
+        !ownsOperation(request)
+        || sessionController.signal.aborted
+        || settingsIdentity.current !== key
+        || requestContext.current.sessionId !== sessionId
+        || refreshed.session_id !== sessionId
+        || refreshed.settings.project_id !== projectId
+      ) return null;
+      onSessionUpdated(refreshed);
+      return refreshed.settings.parameters;
+    } catch (caught) {
+      if (ownsOperation(request)) {
+        if (timeout !== null) window.clearTimeout(timeout);
+        if ((caught instanceof TransportError && caught.status === 408) || !sessionController.signal.aborted) {
+          setError("Generation settings could not load. Retry after the current model operation finishes.");
+          throw caught;
+        }
+      }
+      return null;
+    } finally {
+      if (timeout !== null) window.clearTimeout(timeout);
+      request.controller.signal.removeEventListener("abort", abortSessionRead);
+      settleOperation(request);
+    }
+  }
+
   function ownsOperation(request: RuntimeOperation): boolean {
     return operation.current === request
       && !request.controller.signal.aborted
       && request.lifecycle === lifecycle.current
       && requestContext.current.transport === request.transport;
+  }
+
+  function settleOperation(request: RuntimeOperation): void {
+    if (operation.current !== request) return;
+    operation.current = null;
+    setBusy(false);
+    callbacks.current.onBusyChange(false);
+    if (contextRefreshDeferred.current) void refreshContext();
   }
 
   async function applyRuntime(): Promise<void> {
@@ -741,6 +1129,10 @@ export function AgentRuntimeControl({
       || runtime === null
       || selected === null
     ) return;
+    if (current !== null && current.settings.parameters.max_tokens >= contextSize) {
+      setError("Reduce max output tokens below the selected context limit in Generation settings before applying this runtime.");
+      return;
+    }
     if (current && (
       requestTransport.getAgentCatalogSession === undefined
       || requestTransport.switchAgentSessionModel === undefined
@@ -762,6 +1154,7 @@ export function AgentRuntimeControl({
     const sessionSnapshot = current;
     const sessionModelSnapshot = currentModelAlias;
     const selectionAlreadyServed = exactSelection;
+    if (runtimeRead.current?.timeout != null) window.clearTimeout(runtimeRead.current.timeout);
     runtimeRead.current?.controller.abort();
     runtimeRead.current = null;
     contextRead.current?.controller.abort();
@@ -793,6 +1186,7 @@ export function AgentRuntimeControl({
         if (previous === null || next.revision >= previous.revision) {
           runtimeState.current = next;
           setRuntime(next);
+          setRuntimeReadFailed(false);
           callbacks.current.onRuntimeStatus?.(next);
         }
       }
@@ -814,7 +1208,7 @@ export function AgentRuntimeControl({
       runtimeDraftDirty.current = false;
       await onModelsRefresh();
       if (!ownsOperation(request)) return;
-      await refreshContext(request);
+      await refreshContext(request, true);
       if (!ownsOperation(request)) return;
       const sessionStillCurrent = sessionSnapshot !== null
         && requestContext.current.sessionId === sessionSnapshot.session_id;
@@ -831,15 +1225,11 @@ export function AgentRuntimeControl({
       setError(operationError(caught, switchedRuntime));
       await refresh(request);
       if (!ownsOperation(request)) return;
-      await refreshContext(request);
+      await refreshContext(request, true);
       if (!ownsOperation(request)) return;
       await onModelsRefresh();
     } finally {
-      if (operation.current === request) {
-        operation.current = null;
-        setBusy(false);
-        callbacks.current.onBusyChange(false);
-      }
+      settleOperation(request);
     }
   }
 
@@ -865,6 +1255,7 @@ export function AgentRuntimeControl({
     };
     const runtimeSnapshot = runtime;
     const servedAlias = served.alias;
+    if (runtimeRead.current?.timeout != null) window.clearTimeout(runtimeRead.current.timeout);
     runtimeRead.current?.controller.abort();
     runtimeRead.current = null;
     contextRead.current?.controller.abort();
@@ -886,6 +1277,7 @@ export function AgentRuntimeControl({
       if (previous === null || stopped.revision >= previous.revision) {
         runtimeState.current = stopped;
         setRuntime(stopped);
+        setRuntimeReadFailed(false);
         callbacks.current.onRuntimeStatus?.(stopped);
       }
       await onModelsRefresh();
@@ -898,11 +1290,7 @@ export function AgentRuntimeControl({
       if (!ownsOperation(request)) return;
       await onModelsRefresh();
     } finally {
-      if (operation.current === request) {
-        operation.current = null;
-        setBusy(false);
-        callbacks.current.onBusyChange(false);
-      }
+      settleOperation(request);
     }
   }
 
@@ -926,13 +1314,16 @@ export function AgentRuntimeControl({
     current !== null,
     contextReadFailed,
     contextLoading,
+    contextPendingExpired,
   );
   const displayedContextEvidence = current === null
     ? runtime?.context ?? null
     : sessionContext?.binding_state === "bound"
       ? sessionContext.context
       : null;
-  const contextStale = current !== null && contextReadFailed && sessionContext !== null;
+  const contextStale = current !== null
+    && (contextReadFailed || contextPendingExpired)
+    && sessionContext?.binding_state === "bound";
   const contextRefreshing = current !== null && contextLoading && sessionContext !== null;
   const contextPercentage = exactContextPercentage(displayedContextEvidence);
   const contextMeterValue = contextPercentage === null
@@ -941,6 +1332,10 @@ export function AgentRuntimeControl({
   const displayedContextTone = contextTone(displayedContextEvidence, contextStale || contextRefreshing);
   const contextEvidence = current === null
     ? "Runtime-wide last request"
+    : contextPendingExpired
+      ? sessionContext?.binding_state === "bound"
+        ? `Last confirmed · This chat · turn ${sessionContext.turn_number} · preflight did not settle`
+        : "Unresolved for this chat · Refresh to retry"
     : contextLoading && sessionContext === null
       ? "Checking this chat"
       : contextReadFailed && sessionContext === null
@@ -952,7 +1347,9 @@ export function AgentRuntimeControl({
             ? `Last confirmed · This chat · turn ${sessionContext.turn_number} · checking latest`
           : `This chat · turn ${sessionContext.turn_number}`
         : "Not measured for this chat";
-  const contextMeasurement = contextLoading && displayedContextEvidence === null
+  const contextMeasurement = contextPendingExpired && displayedContextEvidence === null
+    ? "Unknown · preflight did not settle"
+    : contextLoading && displayedContextEvidence === null
     ? "Checking"
     : displayedContextEvidence?.state === "known"
       ? contextStale
@@ -965,13 +1362,25 @@ export function AgentRuntimeControl({
           : "Unknown · no estimate";
   const contextAdmission = current === null
     ? runtime?.context.policy.replaceAll("_", " ") ?? "unknown"
+    : contextPendingExpired
+      ? "unresolved"
     : contextLoading && sessionContext === null
       ? "checking"
+      : contextReadFailed && sessionContext === null
+        ? "unavailable"
       : sessionContext?.binding_state === "bound"
         ? sessionContext.context?.policy.replaceAll("_", " ") ?? "unknown"
         : "not measured for this chat";
   const contextMessages: Array<{ role?: "alert" | "status"; text: string }> = [];
-  if (contextStale) {
+  const contextFailureMessage = "Context evidence could not be refreshed. It remains unknown; use Refresh to retry.";
+  const contextExpiryMessage = sessionContext?.binding_state === "bound"
+    ? "Showing last-confirmed context evidence because the latest preflight did not settle within 10 seconds. It is not presented as current; use Refresh to retry."
+    : "Exact context preflight did not settle within 10 seconds. Context remains unknown; use Refresh to retry.";
+  if (contextPendingExpired) {
+    contextMessages.push({ role: "status", text: contextExpiryMessage });
+  } else if (contextReadFailed && sessionContext === null) {
+    contextMessages.push({ role: "status", text: contextFailureMessage });
+  } else if (contextStale) {
     contextMessages.push({
       role: "status",
       text: "Showing last-confirmed context evidence because the latest refresh failed. It is not presented as current.",
@@ -1008,6 +1417,9 @@ export function AgentRuntimeControl({
       text: `Exact input occupies ${contextPercentage}% of the context limit. Remaining output capacity is becoming limited.`,
     });
   }
+  const composerEvidenceMessages = contextPendingExpired || contextReadFailed && sessionContext === null
+    ? []
+    : contextMessages;
 
   const runtimeActionLabel = busy
     ? operation.current?.kind === "stop" ? "Stopping…" : "Applying…"
@@ -1022,13 +1434,21 @@ export function AgentRuntimeControl({
     ?? runtime?.served?.alias
     ?? currentModelAlias
     ?? "Choose a model";
-  const compactRuntimeState = loading ? "Checking" : runtime ? stateLabel(runtime.state) : "Unavailable";
-  const compactSelectionState = runtime?.served && !exactSelection
+  const compactRuntimeState = loading ? "Checking" : runtimeReadFailed || runtime === null ? "Unavailable" : stateLabel(runtime.state);
+  const compactSelectionState = runtimeReadFailed
+    ? "Status unverified"
+    : runtime?.served && !exactSelection
     ? "Pending change"
     : runtime?.served && chatNeedsRebind
       ? "Chat binding pending"
       : compactRuntimeState;
-  const compactContextLabel = contextPercentage !== null
+  const compactContextLabel = contextPendingExpired
+    ? contextPercentage !== null
+      ? `${contextPercentage}% context · stale · Refresh`
+      : "Context unresolved · Refresh to retry"
+    : contextReadFailed && sessionContext === null
+      ? "Context unavailable · Refresh to retry"
+    : contextPercentage !== null
     ? `${contextPercentage}% context${contextStale ? " · stale" : contextRefreshing ? " · checking" : ""}`
     : contextLoading
       ? "Checking context"
@@ -1037,22 +1457,32 @@ export function AgentRuntimeControl({
         : current !== null && sessionContext?.binding_state === "unmeasured"
           ? "Context unmeasured"
           : "Context unknown";
-  const runtimeDecisionState = selected === null
+  const runtimeDecisionState = runtimeReadFailed
+    ? "blocked"
+    : selected === null
     ? "attention"
-    : exactSelection && !chatNeedsRebind
-      ? "current"
-      : applyDisabled
-        ? "blocked"
-        : "ready";
-  const runtimeDecisionMessage = selected === null
+    : livePlacementUnavailable
+      ? "blocked"
+      : exactSelection && !chatNeedsRebind
+        ? "current"
+        : applyDisabled
+          ? "blocked"
+          : "ready";
+  const runtimeDecisionMessage = runtimeReadFailed
+    ? "Runtime status could not be refreshed. Apply stays disabled; use Refresh to retry the check."
+    : selected === null
     ? "Choose an installed model. Nothing is loaded until you apply the selection."
-    : exactSelection && !chatNeedsRebind
-      ? "This chat already uses this model, placement, and context configuration."
-      : applyDisabled
-        ? applyDisabledReason
-        : runtime?.served
-          ? "Ready to switch the shared runtime and bind this chat after startup succeeds."
-          : "Ready to start this model and bind it to this chat after startup succeeds.";
+    : placementLoading
+      ? "Checking verified placement admission. Apply stays disabled until it returns."
+      : placementReadFailed
+        ? "Placement admission could not be refreshed. Apply stays disabled; use Refresh to retry the check."
+      : exactSelection && !chatNeedsRebind
+        ? "This chat already uses this model, placement, and context configuration."
+        : applyDisabled
+          ? applyDisabledReason
+          : runtime?.served
+            ? "Ready to switch the shared runtime and bind this chat after startup succeeds."
+            : "Ready to start this model and bind it to this chat after startup succeeds.";
 
   if (variant === "composer") {
     return (
@@ -1060,17 +1490,30 @@ export function AgentRuntimeControl({
         aria-busy={busy || loading || contextLoading || placementLoading}
         aria-label="Shared local model runtime"
         className="agent-runtime agent-runtime--composer"
-        data-state={runtime?.state ?? "loading"}
+        data-state={runtimeReadFailed ? "unavailable" : runtime?.state ?? "loading"}
         id="agent-runtime-controls"
       >
         <span aria-live="polite" className="sr-only" data-agent-runtime-announcer="true">
           {compactModelName}. {compactContextLabel}. {compactSelectionState}.
         </span>
-        <details className="agent-runtime__composer-disclosure" ref={composerDetailsRef}>
+        <details className="agent-runtime__composer-disclosure" onClick={() => {
+          if (!composerDetailsRef.current?.open) {
+            settingsDisclosureToggleFromClick.current = true;
+            void loadSettingsCatalog();
+          }
+        }} onToggle={(event) => {
+          if (!event.currentTarget.open) {
+            settingsDisclosureToggleFromClick.current = false;
+          } else if (settingsDisclosureToggleFromClick.current) {
+            settingsDisclosureToggleFromClick.current = false;
+          } else {
+            void loadSettingsCatalog();
+          }
+        }} ref={composerDetailsRef}>
           <summary
             aria-label={`Model and context settings. ${compactModelName}. ${compactContextLabel}. ${compactSelectionState}.`}
             data-context-tone={displayedContextTone}
-            data-pending-selection={!exactSelection || chatNeedsRebind ? "true" : "false"}
+            data-pending-selection={!matchesRuntimeSnapshot || chatNeedsRebind ? "true" : "false"}
           >
             <span aria-hidden="true" className="agent-runtime__composer-dot" />
             <span className="agent-runtime__composer-model">
@@ -1112,9 +1555,9 @@ export function AgentRuntimeControl({
             <label>
               <span>Model</span>
               <select
-                aria-describedby={applyDisabledReasonId}
+                aria-describedby={selectionDisabledReasonId}
                 aria-label="Model"
-                disabled={busy || anyTurnRunning}
+                disabled={selectionDisabled}
                 id="agent-runtime-model"
                 onChange={(event) => changeModelSelection(event.currentTarget.value)}
                 ref={modelSelectRef}
@@ -1130,7 +1573,7 @@ export function AgentRuntimeControl({
             <div className="agent-runtime__placement">
               <label>
                 <span>Placement</span>
-                <select aria-label="Model placement" disabled={busy || anyTurnRunning} onChange={(event) => {
+                <select aria-describedby={selectionDisabledReasonId} aria-label="Model placement" disabled={selectionDisabled} onChange={(event) => {
                   runtimeDraftDirty.current = true;
                   setDevice(event.currentTarget.value as DeviceMode);
                 }} value={device}>
@@ -1146,7 +1589,7 @@ export function AgentRuntimeControl({
               </label>
               <label>
                 <span>Context limit</span>
-                <select aria-label="Context limit" disabled={busy || anyTurnRunning} onChange={(event) => {
+                <select aria-describedby={selectionDisabledReasonId} aria-label="Context limit" disabled={selectionDisabled} onChange={(event) => {
                   runtimeDraftDirty.current = true;
                   setContextSize(Number(event.currentTarget.value));
                 }} value={contextSize}>
@@ -1168,10 +1611,30 @@ export function AgentRuntimeControl({
               </label>
             </div>
 
+            {current !== null && settingsParameters !== undefined && (
+              <AgentGenerationSettings
+                busy={busy || settingsLoading}
+                contextLimit={selected !== null ? contextSize : runtime?.served?.context_size ?? null}
+                disabled={disabled || current.closing || current.running || current.cleanup_unconfirmed || current.pending_approval_id !== null || current.history_write_failed}
+                modelProvided={selected !== null || currentModelAlias !== null}
+                onSave={saveSettings}
+                onReload={reloadSettings}
+                parameters={settingsParameters}
+                saveReady={settingsCatalogReady}
+                key={settingsKey}
+                retentionNote={current.settings.retention_policy === "local_history" ? "These settings are saved with this locally retained chat." : "These settings apply to this run only and are not retained after restart."}
+              />
+            )}
+
             <p className="agent-runtime__decision-note" data-state={runtimeDecisionState}>
               <Icon name="info" />
               <span>{runtimeDecisionMessage}</span>
             </p>
+            {(contextPendingExpired || contextReadFailed && sessionContext === null) && (
+              <p className="agent-runtime__context-note" role="status">
+                {contextPendingExpired ? contextExpiryMessage : contextFailureMessage}
+              </p>
+            )}
 
             <div className="agent-runtime__actions agent-runtime__composer-actions">
               <button
@@ -1182,8 +1645,9 @@ export function AgentRuntimeControl({
                 type="button"
               >{runtimeActionLabel}</button>
               <button className="button button--ghost" disabled={busy || loading} onClick={() => {
+                setPlacementRefreshKey((value) => value + 1);
                 void refresh();
-                void refreshContext();
+                void refreshContext(undefined, true);
               }} type="button">Refresh</button>
               <button
                 aria-describedby={stopDisabledReasonId}
@@ -1195,7 +1659,7 @@ export function AgentRuntimeControl({
             </div>
 
             <details className="agent-runtime__composer-evidence">
-              <summary>Context, compatibility &amp; runtime evidence</summary>
+              <summary><span>Context, compatibility &amp; runtime evidence</span>{runtimeReadFailed && <small> · last confirmed</small>}</summary>
               <div className="agent-runtime__composer-evidence-body">
                 <p className="agent-runtime__placement-note" data-state={selectedPlacement?.state ?? "unknown"}>
                   {placementLoading
@@ -1229,7 +1693,7 @@ export function AgentRuntimeControl({
                       <span style={{ width: `${contextMeterValue}%` }} />
                     </div>
                   )}
-                  {contextMessages.map((message, index) => (
+                  {composerEvidenceMessages.map((message, index) => (
                     <p className="agent-runtime__context-note" key={`${message.text}-${index}`} role={message.role}>{message.text}</p>
                   ))}
                 </div>
@@ -1259,12 +1723,15 @@ export function AgentRuntimeControl({
                 </details>
               </div>
             </details>
+            {selectionDisabledReasonId === "agent-runtime-selection-disabled-reason" && <span className="sr-only" id="agent-runtime-selection-disabled-reason">{selectionDisabledReason}</span>}
             {applyDisabledReasonId === "agent-runtime-apply-disabled-reason" && <span className="sr-only" id="agent-runtime-apply-disabled-reason">{applyDisabledReason}</span>}
             {stopDisabledReasonId === "agent-runtime-stop-disabled-reason" && <span className="sr-only" id="agent-runtime-stop-disabled-reason">{stopDisabledReason}</span>}
             {anyTurnRunning && <p className="agent-runtime__hint" id="agent-runtime-active-turn-hint">Finish or stop active responses before changing the shared runtime.</p>}
             {transitionBlocked && <p className="agent-runtime__hint" id="agent-runtime-transition-hint">Wait for the shared runtime transition to settle before starting another model operation.</p>}
             {cleanupBlocked && <p className="agent-runtime__hint" id="agent-runtime-cleanup-hint">Runtime cleanup is unconfirmed. Starting or switching stays disabled until cleanup is resolved.</p>}
             {runtime?.active_requests ? <p className="agent-runtime__hint">{runtime.active_requests} runtime request active.</p> : null}
+            {runtimeReadFailed && runtime?.served && <p className="agent-runtime__hint">Runtime status is unavailable. Stop will target the last confirmed {runtime.served.alias} runtime at revision {runtime.revision}; the local service will verify it again.</p>}
+            {runtimeReadFailed && <p className="agent-runtime__error" role="alert">Runtime status is unavailable. Retry after the local service reconnects.</p>}
             {error && <p className="agent-runtime__error" role="alert">{error}</p>}
             {notice && <p className="agent-runtime__notice" role="status">{notice}</p>}
           </div>
@@ -1274,20 +1741,21 @@ export function AgentRuntimeControl({
   }
 
   return (
-    <section aria-busy={busy || loading || contextLoading || placementLoading} aria-label="Shared local model runtime" className="agent-runtime" data-state={runtime?.state ?? "loading"} id="agent-runtime-controls">
+    <section aria-busy={busy || loading || contextLoading || placementLoading} aria-label="Shared local model runtime" className="agent-runtime" data-state={runtimeReadFailed ? "unavailable" : runtime?.state ?? "loading"} id="agent-runtime-controls">
       <header className="agent-runtime__head">
         <span>
           <small>Shared runtime</small>
           <strong>Model &amp; context</strong>
         </span>
-        <span className="agent-runtime__state">{loading ? "Checking" : runtime ? stateLabel(runtime.state) : "Unavailable"}</span>
+        <span className="agent-runtime__state">{loading ? "Checking" : runtimeReadFailed || runtime === null ? "Unavailable" : stateLabel(runtime.state)}</span>
       </header>
 
       <label>
         <span>Model</span>
         <select
+          aria-describedby={selectionDisabledReasonId}
           id="agent-runtime-model"
-          disabled={busy || anyTurnRunning}
+          disabled={selectionDisabled}
           onChange={(event) => changeModelSelection(event.currentTarget.value)}
           ref={modelSelectRef}
           value={alias}
@@ -1302,7 +1770,7 @@ export function AgentRuntimeControl({
       <div className="agent-runtime__placement">
         <label>
           <span>Placement</span>
-          <select disabled={busy || anyTurnRunning} onChange={(event) => {
+          <select aria-describedby={selectionDisabledReasonId} disabled={selectionDisabled} onChange={(event) => {
             runtimeDraftDirty.current = true;
             setDevice(event.currentTarget.value as DeviceMode);
           }} value={device}>
@@ -1318,7 +1786,7 @@ export function AgentRuntimeControl({
         </label>
         <label>
           <span>Context limit</span>
-          <select disabled={busy || anyTurnRunning} onChange={(event) => {
+          <select aria-describedby={selectionDisabledReasonId} disabled={selectionDisabled} onChange={(event) => {
             runtimeDraftDirty.current = true;
             setContextSize(Number(event.currentTarget.value));
           }} value={contextSize}>
@@ -1378,7 +1846,7 @@ export function AgentRuntimeControl({
       </div>
 
       <details className="agent-runtime__details">
-        <summary>Runtime details</summary>
+          <summary><span>Runtime details</span>{runtimeReadFailed && <small> · last confirmed</small>}</summary>
         <div className="agent-runtime__details-body">
           <dl className="agent-runtime__facts">
             <div><dt>Requested</dt><dd>{runtime?.requested?.alias ?? "None"}</dd></div>
@@ -1420,10 +1888,12 @@ export function AgentRuntimeControl({
           type="button"
         >Stop</button>
         <button className="button button--ghost" disabled={busy || loading} onClick={() => {
+          setPlacementRefreshKey((value) => value + 1);
           void refresh();
-          void refreshContext();
+          void refreshContext(undefined, true);
         }} type="button">Refresh</button>
       </div>
+      {selectionDisabledReasonId === "agent-runtime-selection-disabled-reason" && <span className="sr-only" id="agent-runtime-selection-disabled-reason">{selectionDisabledReason}</span>}
       {applyDisabledReasonId === "agent-runtime-apply-disabled-reason" && <span className="sr-only" id="agent-runtime-apply-disabled-reason">{applyDisabledReason}</span>}
       {stopDisabledReasonId === "agent-runtime-stop-disabled-reason" && <span className="sr-only" id="agent-runtime-stop-disabled-reason">{stopDisabledReason}</span>}
 
@@ -1431,6 +1901,8 @@ export function AgentRuntimeControl({
       {transitionBlocked && <p className="agent-runtime__hint" id="agent-runtime-transition-hint">Wait for the shared runtime transition to settle before starting another model operation.</p>}
       {cleanupBlocked && <p className="agent-runtime__hint" id="agent-runtime-cleanup-hint">Runtime cleanup is unconfirmed. Starting or switching stays disabled until cleanup is resolved.</p>}
       {runtime?.active_requests ? <p className="agent-runtime__hint">{runtime.active_requests} runtime request active.</p> : null}
+      {runtimeReadFailed && runtime?.served && <p className="agent-runtime__hint">Runtime status is unavailable. Stop will target the last confirmed {runtime.served.alias} runtime at revision {runtime.revision}; the local service will verify it again.</p>}
+      {runtimeReadFailed && <p className="agent-runtime__error" role="alert">Runtime status is unavailable. Retry after the local service reconnects.</p>}
       {error && <p className="agent-runtime__error" role="alert">{error}</p>}
       {notice && <p className="agent-runtime__notice" role="status">{notice}</p>}
     </section>

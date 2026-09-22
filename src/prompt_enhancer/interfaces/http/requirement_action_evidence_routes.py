@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response
 from pydantic import Field, model_validator
@@ -17,6 +17,7 @@ from ...application.analysis.requirement_action_evidence import (
     MAX_REQUIREMENT_ACTION_REQUIREMENTS,
     REQUIREMENT_ACTION_EVIDENCE_POLICY_VERSION,
     REQUIREMENT_ACTION_EVIDENCE_SCHEMA_VERSION,
+    REQUIREMENT_ACTION_GUIDED_AUTHORING_CONFIRMATION,
     REQUIREMENT_ACTION_REVIEW_CONFIRMATION,
     REQUIREMENT_ACTION_REVIEW_RUBRIC_VERSION,
     ConfirmedRequirementActionLink,
@@ -27,6 +28,8 @@ from ...application.analysis.requirement_action_evidence import (
     RequirementActionDefinitionsOutOfDateError,
     RequirementActionEvidenceContract,
     RequirementActionEvidencePreview,
+    RequirementActionGuidedAuthoringCommand,
+    RequirementActionGuidedAuthoringReview,
     RequirementActionInputError,
     RequirementActionNotFoundError,
     RequirementActionPersistenceError,
@@ -63,6 +66,39 @@ _EVIDENCE_FILE_REQUEST_BODY = {
 }
 
 
+def _inline_local_schema_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Publish a valid typed schema while bounding raw JSON before parsing."""
+    definitions = dict(schema.pop("$defs", {}))
+
+    def resolve(value: Any) -> Any:
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        reference = value.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            target = definitions.get(reference.removeprefix("#/$defs/"))
+            if isinstance(target, dict):
+                return resolve(dict(target))
+        return {key: resolve(item) for key, item in value.items()}
+
+    return resolve(schema)
+
+
+_GUIDED_AUTHORING_REQUEST_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": _inline_local_schema_refs(
+                    RequirementActionGuidedAuthoringCommand.model_json_schema()
+                )
+            }
+        },
+    }
+}
+
+
 class RequirementActionEvidenceCommand(Protocol):
     def contract(self, session_id: str) -> RequirementActionEvidenceContract: ...
 
@@ -88,6 +124,26 @@ class RequirementActionEvidenceCommand(Protocol):
         proposal_id: str,
         expected_source_run_id: str,
     ) -> RequirementActionProposalReview: ...
+
+    def open_guided_authoring(
+        self,
+        *,
+        session_id: str,
+        expected_source_run_id: str,
+        source_window_fingerprint: str,
+        requirement_plan_confirmation_id: str,
+        requirement_plan_evidence_fingerprint: str,
+        candidate_manifest_fingerprint: str,
+        expected_predecessor_confirmation_id: str | None,
+    ) -> RequirementActionGuidedAuthoringReview: ...
+
+    def create_guided_authoring_proposal(
+        self,
+        *,
+        session_id: str,
+        command: RequirementActionGuidedAuthoringCommand,
+        idempotency_key: str,
+    ) -> tuple[RequirementActionProposalView, bool]: ...
 
     def decide(
         self,
@@ -217,6 +273,18 @@ class RequirementActionReviewCommand(StrictModel):
     confirmation: Literal[REQUIREMENT_ACTION_REVIEW_CONFIRMATION]
 
 
+class RequirementActionGuidedAuthoringReviewCommand(StrictModel):
+    expected_source_run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    source_window_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    requirement_plan_confirmation_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    requirement_plan_evidence_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    candidate_manifest_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    expected_predecessor_confirmation_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    confirmation: Literal[REQUIREMENT_ACTION_GUIDED_AUTHORING_CONFIRMATION]
+
+
 class RequirementActionProposalPageDto(StrictModel):
     session_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     proposals: tuple[RequirementActionProposalDto, ...] = Field(
@@ -298,6 +366,20 @@ async def _bounded_body(request: Request) -> bytes:
                 headers=_PRIVATE_HEADERS,
             )
     return bytes(payload)
+
+
+async def _bounded_guided_json(request: Request) -> RequirementActionGuidedAuthoringCommand:
+    if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+        raise HTTPException(415, detail={"code": "requirement_action_json_required", "message": "guided requirement-action authoring requires JSON"}, headers=_PRIVATE_HEADERS)
+    payload = bytearray()
+    async for chunk in request.stream():
+        payload.extend(chunk)
+        if len(payload) > MAX_REQUIREMENT_ACTION_EVIDENCE_BYTES:
+            raise HTTPException(413, detail={"code": "requirement_action_evidence_too_large", "message": "guided requirement-action authoring exceeds the local limit"}, headers=_PRIVATE_HEADERS)
+    try:
+        return RequirementActionGuidedAuthoringCommand.model_validate_json(bytes(payload))
+    except Exception:
+        raise HTTPException(422, detail={"code": "requirement_action_guided_authoring_invalid", "message": "guided requirement-action authoring is invalid"}, headers=_PRIVATE_HEADERS) from None
 
 
 def _failure(error: Exception) -> HTTPException:
@@ -431,6 +513,82 @@ def create_requirement_action_evidence_router(
             payload_sha256=view.proposal.payload_sha256,
             proposal=RequirementActionProposalDto.from_view(view),
             applied=applied,
+        )
+
+    @router.post(
+        "/sessions/{session_id}/requirement-action-evidence/guided-authoring/review",
+        response_model=RequirementActionGuidedAuthoringReview,
+        dependencies=[Depends(require_user_confirmation)],
+    )
+    def open_guided_authoring(
+        payload: RequirementActionGuidedAuthoringReviewCommand,
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> RequirementActionGuidedAuthoringReview:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            return service.open_guided_authoring(
+                session_id=session_id,
+                expected_source_run_id=payload.expected_source_run_id,
+                source_window_fingerprint=payload.source_window_fingerprint,
+                requirement_plan_confirmation_id=(
+                    payload.requirement_plan_confirmation_id
+                ),
+                requirement_plan_evidence_fingerprint=(
+                    payload.requirement_plan_evidence_fingerprint
+                ),
+                candidate_manifest_fingerprint=(
+                    payload.candidate_manifest_fingerprint
+                ),
+                expected_predecessor_confirmation_id=(
+                    payload.expected_predecessor_confirmation_id
+                ),
+            )
+        except (
+            RequirementActionDefinitionsOutOfDateError,
+            RequirementActionInputError,
+            RequirementActionNotFoundError,
+            RequirementActionPersistenceError,
+            RequirementActionStaleWindowError,
+            RequirementActionConflictError,
+        ) as error:
+            raise _failure(error) from None
+
+    @router.post(
+        "/sessions/{session_id}/requirement-action-evidence/guided-authoring/proposals",
+        response_model=RequirementActionProposalOutcomeDto,
+        responses={201: {"model": RequirementActionProposalOutcomeDto}},
+        openapi_extra=_GUIDED_AUTHORING_REQUEST_BODY,
+    )
+    async def create_guided_authoring_proposal(
+        request: Request,
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        idempotency_key: Annotated[
+            str,
+            Header(alias="Idempotency-Key", pattern=SAFE_VERSION_PATTERN.pattern),
+        ],
+    ) -> RequirementActionProposalOutcomeDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        payload = await _bounded_guided_json(request)
+        try:
+            view, applied = service.create_guided_authoring_proposal(
+                session_id=session_id,
+                command=payload,
+                idempotency_key=idempotency_key,
+            )
+        except (
+            RequirementActionDefinitionsOutOfDateError,
+            RequirementActionInputError,
+            RequirementActionNotFoundError,
+            RequirementActionPersistenceError,
+            RequirementActionStaleWindowError,
+            RequirementActionConflictError,
+        ) as error:
+            raise _failure(error) from None
+        response.status_code = 201 if applied else 200
+        return RequirementActionProposalOutcomeDto(
+            proposal=RequirementActionProposalDto.from_view(view), applied=applied
         )
 
     @router.post(

@@ -413,7 +413,9 @@ describe("ProjectCatalog", () => {
     });
 
     expect(screen.queryByText("Example Observatory")).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expect(within(screen.getByRole("complementary", {
+      name: "Project aggregate selection",
+    })).getByRole("status")).toHaveTextContent(
       "1 hidden by the current filter",
     );
     expect(screen.getByRole("button", { name: "Combine selected" })).toBeEnabled();
@@ -446,7 +448,9 @@ describe("ProjectCatalog", () => {
     expect(screen.getByRole("complementary", {
       name: "Project aggregate selection",
     })).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expect(within(screen.getByRole("complementary", {
+      name: "Project aggregate selection",
+    })).getByRole("status")).toHaveTextContent(
       "Combining selected projects locally",
     );
     fireEvent.click(second);

@@ -20,11 +20,13 @@ from .....application.owned_process import (
 from .....application.runtime_cancellation import (
     RuntimeCooperativeStop,
     raise_if_runtime_cancelled,
+    runtime_remaining_seconds,
 )
 from ..errors import (
     CodexProtocolViolation,
     CodexResponseLimitError,
     CodexRequestRejected,
+    CodexTransportCleanupUnconfirmed,
     CodexTransportError,
     CodexTransportTimeout,
 )
@@ -232,6 +234,13 @@ class StdioJsonRpcTransport:
                 break
             except Empty:
                 continue
+        # A response can be dequeued at the same instant as the caller-owned
+        # cutoff.  Recheck before parsing or accepting provider data.
+        try:
+            raise_if_runtime_cancelled("codex_provider_request_cancelled")
+        except RuntimeCooperativeStop:
+            self._abort_for_runtime_stop()
+            raise
         if line is None:
             raise CodexTransportError("Codex App Server transport closed unexpectedly")
         if len(line) > self._response_json_line_bytes:
@@ -301,6 +310,11 @@ class StdioJsonRpcTransport:
 
     def _request(self, method: str, params: JsonObject) -> object:
         self._validate_request(method, params)
+        try:
+            raise_if_runtime_cancelled("codex_provider_request_cancelled")
+        except RuntimeCooperativeStop:
+            self._abort_for_runtime_stop()
+            raise
         self._start()
         with self._lock:
             self._request_id += 1
@@ -318,6 +332,17 @@ class StdioJsonRpcTransport:
                 and self._thread_read_policy is ThreadReadPolicy.TEXT_ANALYSIS
                 else self._limits.request_timeout_seconds
             )
+            # A caller-owned durable deadline can use a different monotonic
+            # clock origin from this transport.  Convert its remaining budget
+            # at the boundary instead of comparing raw cutoff values.
+            remaining_runtime_budget = runtime_remaining_seconds()
+            if remaining_runtime_budget is not None:
+                if remaining_runtime_budget <= 0:
+                    raise_if_runtime_cancelled()
+                    raise CodexTransportTimeout(
+                        "Codex App Server request timed out"
+                    )
+                timeout = min(timeout, remaining_runtime_budget)
             deadline = time.monotonic() + timeout
             while True:
                 payload = self._next_message(deadline=deadline)
@@ -413,7 +438,7 @@ class StdioJsonRpcTransport:
             reader.join(timeout=self._limits.shutdown_timeout_seconds)
             cleanup_confirmed = not reader.is_alive() and cleanup_confirmed
         if not cleanup_confirmed:
-            raise CodexTransportError(
+            raise CodexTransportCleanupUnconfirmed(
                 "Codex App Server cleanup could not be confirmed"
             ) from None
 

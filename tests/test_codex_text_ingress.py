@@ -31,6 +31,14 @@ from prompt_enhancer.application.analysis.text_source import (
     TextSourceFailureReason,
     TextSourceReadError,
 )
+from prompt_enhancer.application.runtime_cancellation import (
+    RuntimeCleanupUnconfirmed,
+    RuntimeCooperativeStop,
+)
+from prompt_enhancer.application.verification import (
+    OBSERVED_CHECK_COMPLETION_SCHEMA_VERSION,
+    ObservedCheckOutcome,
+)
 from prompt_enhancer.domain import DataTier, Provider
 from prompt_enhancer.infrastructure.language import (
     DETERMINISTIC_LANGUAGE_DETECTOR_VERSION,
@@ -63,6 +71,7 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.errors import (
     CodexSelectionLimitError,
     CodexScopeError,
     CodexThreadStructureLimitError,
+    CodexTransportCleanupUnconfirmed,
     CodexTransportError,
     CodexTransportTimeout,
 )
@@ -236,6 +245,255 @@ def _factory(
         return CodexAppServerClient(transport, text_limits=text_limits)
 
     return create
+
+
+def test_documented_pytest_completion_is_ephemeral_and_bound_into_the_source_window() -> None:
+    selection = _selection()
+
+    def read_with(exit_code: int) -> object:
+        payload = {
+            "thread": {
+                "id": "example-thread-alpha",
+                "turns": [
+                    {
+                        "id": "example-turn-observed-check",
+                        "items": [
+                            {
+                                "type": "userMessage",
+                                "id": "example-user-observed-check",
+                                "content": [{"type": "text", "text": "Verify."}],
+                            },
+                            {
+                                "type": "commandExecution",
+                                "id": "example-command-observed-check",
+                                "command": "pytest -q",
+                                "status": "completed",
+                                "exitCode": exit_code,
+                                # Generic tool success is intentionally not outcome authority.
+                                "success": False,
+                            },
+                            {
+                                "type": "agentMessage",
+                                "id": "example-agent-observed-check",
+                                "text": "Verification was observed.",
+                            },
+                        ],
+                    }
+                ],
+            }
+        }
+        transport = RecordingTransport(
+            [
+                {"serverInfo": {"version": "example-1.0"}},
+                _listed(),
+                payload,
+            ]
+        )
+        source = CodexTextAnalysisSource(
+            _pseudonymizer(),
+            client_factory=_factory(transport, []),
+        )
+        return source.read(
+            selection=selection,
+            grant=_grant(selection),
+            task_profile=_profile(),
+        )
+
+    passed = read_with(0)
+    failed = read_with(1)
+
+    assert passed.observed_check_completion_schema_version == (
+        OBSERVED_CHECK_COMPLETION_SCHEMA_VERSION
+    )
+    assert tuple(item.outcome for item in passed.observed_check_completions) == (
+        ObservedCheckOutcome.PASSED,
+    )
+    assert tuple(item.outcome for item in failed.observed_check_completions) == (
+        ObservedCheckOutcome.CHECK_FAILED,
+    )
+    assert passed.analysis_window_fingerprint != failed.analysis_window_fingerprint
+    assert "pytest -q" not in passed.model_dump_json()
+
+
+def test_scoped_stop_from_codex_transport_is_not_sanitized_as_provider_failure() -> None:
+    selection = _selection()
+    transport = RecordingTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(),
+            RuntimeCooperativeStop("automation_publication_deadline_exceeded"),
+        ]
+    )
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, []),
+    )
+
+    with pytest.raises(
+        RuntimeCooperativeStop,
+        match="^automation_publication_deadline_exceeded$",
+    ):
+        source.read(
+            selection=selection,
+            grant=_grant(selection),
+            task_profile=_profile(),
+        )
+
+    assert transport.closed is True
+
+
+@pytest.mark.parametrize(
+    "cleanup_error",
+    (
+        CodexTransportCleanupUnconfirmed("synthetic provider cleanup"),
+        RuntimeError("synthetic provider cleanup"),
+    ),
+)
+def test_unconfirmed_codex_helper_cleanup_is_not_reported_as_a_settled_stop(
+    cleanup_error: Exception,
+) -> None:
+    class CleanupUnconfirmedTransport(RecordingTransport):
+        def close(self) -> None:
+            self.closed = True
+            raise cleanup_error
+
+    selection = _selection()
+    transport = CleanupUnconfirmedTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(),
+            RuntimeCooperativeStop("automation_publication_deadline_exceeded"),
+        ]
+    )
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, []),
+    )
+
+    with pytest.raises(
+        RuntimeCleanupUnconfirmed,
+        match="^codex_provider_cleanup_unconfirmed$",
+    ):
+        source.read(
+            selection=selection,
+            grant=_grant(selection),
+            task_profile=_profile(),
+        )
+
+    assert transport.closed is True
+
+
+def test_incomplete_action_descriptor_surface_withholds_observed_check_candidates() -> None:
+    selection = _selection()
+    payload = _content_read()
+    command = next(
+        item
+        for item in payload["thread"]["turns"][0]["items"]
+        if item["type"] == "commandExecution"
+    )
+    command.update({"command": "pytest -q", "status": "completed", "exitCode": 0})
+    transport = RecordingTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(),
+            payload,
+        ]
+    )
+    context = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, []),
+    ).read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=_profile(),
+    )
+
+    # The retained unknown item makes the descriptor enumeration incomplete;
+    # a partial command surface cannot offer a selectable observed check.
+    assert context.action_descriptor_extraction_complete is False
+    assert context.observed_check_completions == ()
+
+
+def test_completion_status_and_exit_remain_source_bound_when_effect_preview_truncates() -> None:
+    selection = _selection()
+
+    def read_with(exit_code: int) -> object:
+        payload = {
+            "thread": {
+                "id": "example-thread-alpha",
+                "turns": [
+                    {
+                        "id": "example-turn-truncated-effect",
+                        "items": [
+                            {
+                                "type": "userMessage",
+                                "id": "example-user-truncated-effect",
+                                "content": [{"type": "text", "text": "Verify."}],
+                            },
+                            {
+                                "type": "commandExecution",
+                                "id": "example-command-truncated-effect",
+                                "command": "pytest -q",
+                                "status": "completed",
+                                "exitCode": exit_code,
+                                "aggregatedOutput": "bounded-synthetic-output-" * 1_000,
+                            },
+                        ],
+                    }
+                ],
+            }
+        }
+        transport = RecordingTransport(
+            [
+                {"serverInfo": {"version": "example-1.0"}},
+                _listed(),
+                payload,
+            ]
+        )
+        return CodexTextAnalysisSource(
+            _pseudonymizer(),
+            client_factory=_factory(transport, []),
+        ).read(
+            selection=selection,
+            grant=_grant(selection),
+            task_profile=_profile(),
+        )
+
+    passed = read_with(0)
+    failed = read_with(1)
+
+    assert passed.action_descriptors[0].result_or_effect_truncated is True
+    assert passed.observed_check_completions == ()
+    assert passed.analysis_window_fingerprint != failed.analysis_window_fingerprint
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"status": "not a safe status", "exitCode": 0},
+        {"command": "x" * 16_385, "status": "completed", "exitCode": 0},
+        {"status": "completed", "exitCode": True},
+    ],
+)
+def test_malformed_optional_completion_metadata_does_not_discard_the_action_descriptor(
+    mutation: dict[str, object],
+) -> None:
+    payload = _content_read()
+    command = next(
+        item
+        for item in payload["thread"]["turns"][0]["items"]
+        if item["type"] == "commandExecution"
+    )
+    command.update({"command": "pytest -q", **mutation})
+
+    thread = parse_text_thread_read(payload)
+
+    descriptor = next(
+        item
+        for item in thread.action_descriptors
+        if item.tool_name.get_secret_value() == "commandExecution"
+    )
+    assert descriptor.command_execution is None
 
 
 def test_text_source_is_explicit_read_only_allowlisted_and_repr_safe() -> None:

@@ -18,13 +18,13 @@ local runtime artifacts must never be added here.
 | Phase | Status | Current scope | Acceptance gate | Open blockers |
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
-| P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | Current operability: 16 shipped conditional paths, 0 task-profile configuration gaps, 4 provider/extractor or release-composition gaps, 8 experimental model paths, and zero model-authoritative measured metrics |
+| P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | Current v5 composition: 17 shipped conditional paths, 0 task-profile configuration gaps, 3 provider/extractor or release-composition gaps, 8 experimental model paths, and zero model-authoritative measured metrics; synthetic/faked native proof is not a provider, native, or release claim |
 | P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, reviewed local automation admission controls, crash-safe invalid estimator-automation reconciliation, a restart-durable strict first-claim result-publication cutoff for reviewed automated `session_quality` work, bounded large-thread preparation, and a normalized ten-model local shadow ensemble with chunk-level receipts and a separate radar | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated or product-eligible model ensemble, force-stopping runtime deadline, or product-enabled estimator |
 | P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, repository-issued synthetic comparison-stratum preparation and graph sealing, and bounded repository-sealed synthetic aggregation-validation receipts | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no Codex product source boundary exists; the new Claude Code hook surface supplies receiver-clock per-item timing (`EVENT_TIMING`) and a keyset-ordered ledger, but it is not yet reviewed as a product source boundary; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred; P3a contracts only | Optional cloud identity, pairing, entitlements, payments, and usage ledger. P3a adds development-only control-plane contracts, default-deny policy, signed content-free snapshot envelopes, cursored deltas, tombstones, audit evidence, and an in-memory adapter behind ports | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required. P3a adds no deployment: no production identity provider, no Ed25519 adapter, no PostgreSQL adapter, no credential issuance, no billing, and no producer pipeline |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
-## Current all-20 operability truth (2026-08-24)
+## Historical all-20 operability truth (2026-08-24)
 
 The versioned, authenticated
 [`metric-operability-v4`](metric-operability.md) catalog derives its result from
@@ -41,6 +41,33 @@ itself prove a complete production-provider evidence surface or calibrate a
 model path, so the release partition remains exactly 16/0/4 and no model stage
 may author any measured value. Older checkpoint counts below are retained as
 historical evidence and must not be read as the current release state.
+
+### CP27 current update (2026-09-08)
+
+The prerequisite service ordering for reviewed requirement-action composition
+is now corrected. Append-only migration 62 extends only the exact action-
+proposal source-authority trigger to admit a valid R8 seal in addition to R6
+and R7; earlier migration text and checksums remain immutable. Known linked
+coverage is 1/1 with full proof 2/2 (`81cb3c`); the initial false
+first-sealed-run behavior was caught in `8b3f23` and `b516ab`, and the old R8
+trigger defect was isolated in `efc7cf`.
+
+The current product catalog is v5 at 17/0/3. The seventeenth path is scoped to
+complete Claude transcript, confirmed-plan, and native-reviewed links; the
+guided proposal UX is still missing. Expanded core/catalog/API/hook/live
+verification is 37/37 (`080b75`), frontend is 289/289 (`4d4d5e`), backend
+owning coverage is 129/129 in 79.14s (`df59d8`), and the build is green
+(`d48bee`); API, strict-E2E, and bundle validation are green in `cabb47` with
+caps unchanged. Corrected browser coverage is 13/13 in 7.4s (`db9efd`), and
+built disposable loopback is 27/27 in 32.4s (`2d1f5e`) with startup, failure,
+listener, temporary-state, cleanup, and zero-runtime checks green. Schema
+upgrade coverage passed 51 cases (`688b79`), OpenAPI tests passed 6/6
+(`e7e17b`), and final privacy passed in 8.04s (`c07a6e`). The native
+interaction was faked and no real model was run, so no provider, native, or
+release claim is made.
+The CP28 Find-next composer-pointer defect remains queued and unfixed. No
+real model, native client, live database migration, restart, commit, or push is
+claimed.
 
 ### Reviewed task-profile and r5 evidence tranche (2026-08-21)
 
@@ -1684,7 +1711,7 @@ visual approval remain explicitly outside this evidence.
 | All-20 predictive sidecar | `local-probabilistic-radar-v1`; active `local-factor-router-v3` / `small-factor-router-v5`, historical v2 readable; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
 | Canonical all-20 measured publication | `metric.contract-v2.publication` v2; registry `all-20-factor-contracts-v2`; current projection `metric-contract-v2-projection-8`; schema v59 exact M58 revision binding plus `_r8` state/seal sidecars, inheriting sealed profile, requirement-plan, and requirement-action authority; r1-r7 rows remain readable | Canonical for new model-ensemble snapshots; r8 preserves nineteen r7 rows and replaces only verified-requirement coverage through objective projection v4, using the exact app-issued reviewed-r6 opportunity set and current objective-result or separately typed owned-native-acceptance authority; missing evidence remains nonnumeric and all model paths remain non-authoritative |
 | Per-metric evidence readiness | `metric.contract-v2.evidence-readiness` v1; catalog `metric-evidence-readiness-v2-7` | Derived on read from the exact sealed publication; adds no datum or persistence; includes r8 verification source/revision/bound reasons while preserving r7 requirement-action, r6 requirement-plan, r5 profile, r4 lifecycle, capability, and censoring distinctions |
-| All-20 operability catalog | `metric-operability-v4`; authenticated `GET /v1/metric-contracts/v2/operability-catalog` | Content-free release gate derived from the reviewed contracts and composed capabilities: 16 shipped conditional paths, 0 task-profile gaps, 4 provider/extractor or release-composition gaps, 8 experimental model paths, 0 model-authoritative metrics; the r8 binding is not a provider-readiness or calibration promotion |
+| All-20 operability catalog | `metric-operability-v5`; authenticated `GET /v1/metric-contracts/v2/operability-catalog` | Current content-free composition: 17 shipped conditional paths, 0 task-profile gaps, 3 provider/extractor or release-composition gaps, 8 experimental model paths, 0 model-authoritative metrics; the seventeenth path is scoped to complete Claude transcript, confirmed plan, and native-reviewed links, and the v5 composition is not a provider, native, model, or release promotion |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |

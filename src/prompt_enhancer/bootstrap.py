@@ -542,6 +542,7 @@ class LocalApplication:
         from .application.agent_attachments import AgentAttachmentService
         from .application.local_agent import LocalAgentService
         from .application.local_models import RuntimeCapabilities
+        from .infrastructure.governed_web_fetch import PublicHttpsTextFetcher
         from .infrastructure.sqlite.agent_attachments import (
             SqliteAgentAttachmentRepository,
         )
@@ -624,6 +625,7 @@ class LocalApplication:
             runtime_capabilities=runtime_capabilities,
             context_preflight=context_preflight,
             mcp_managed_runtime=mcp_managed_runtime_service,
+            fetcher=PublicHttpsTextFetcher(),
         )
 
     def create_shared_folder_services(self):
@@ -1236,18 +1238,37 @@ class LocalApplication:
             review_contexts=contexts,
         )
 
-    def create_requirement_verification_evidence_service(self):
+    def create_requirement_verification_evidence_service(self, review_contexts=None):
         """Construct restart-safe, content-free verification evidence authority."""
 
         from .application.analysis.requirement_verification_persistence import (
             RequirementVerificationEvidenceService,
         )
+        from .application.analysis.requirement_verification_review import (
+            RequirementVerificationReviewService,
+        )
+        from .application.analysis.requirement_plan_evidence import (
+            InMemoryRequirementPlanReviewContextStore,
+            SealedRunRequirementPlanSource,
+        )
         from .infrastructure.identifiers import LocalArtifactIdFactory
 
+        contexts = review_contexts or InMemoryRequirementPlanReviewContextStore()
+        repository = self.database.requirement_verification_evidence_repository()
+        plan_authority = self.database.requirement_verification_current_plan_authority()
+        review_service = RequirementVerificationReviewService(
+            repository,
+            plan_authority,
+            SealedRunRequirementPlanSource(
+                self.database.model_ensemble_repository(), contexts
+            ),
+            contexts,
+        )
         return RequirementVerificationEvidenceService(
-            self.database.requirement_verification_evidence_repository(),
-            self.database.requirement_verification_current_plan_authority(),
+            repository,
+            plan_authority,
             LocalArtifactIdFactory(self.pseudonymizer),
+            review_service=review_service,
         )
 
     def create_session_model_ensemble_service(
@@ -1439,6 +1460,7 @@ class LocalApplication:
             },
             authorization_check=guard.authorized,
             fingerprint_resolver=guard.fingerprints,
+            cancellation_signals=analysis_job_service.cancellation_signals,
             power_source=power_source,
             clock=clock,
             lease_duration=timedelta(minutes=5),
@@ -1574,7 +1596,71 @@ class LocalApplication:
             )
         )
         requirement_verification_evidence_service = (
-            self.create_requirement_verification_evidence_service()
+            self.create_requirement_verification_evidence_service(
+                requirement_plan_review_contexts
+            )
+        )
+        from .application.analysis.claim_grounding_review import (
+            ClaimGroundingReviewService,
+            CurrentClaimGroundingSourceResolver,
+        )
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+
+        claim_grounding_review_service = ClaimGroundingReviewService(
+            CurrentClaimGroundingSourceResolver(
+                self.database.model_ensemble_repository(),
+                requirement_plan_review_contexts,
+                LocalArtifactIdFactory(self.pseudonymizer),
+            ),
+            LocalArtifactIdFactory(self.pseudonymizer),
+        )
+        from .application.analysis.claim_grounding_census import (
+            DurableClaimGroundingCensusService,
+        )
+        from .application.analysis.metric_publication_v2 import (
+            metric_publication_v2_fingerprint,
+        )
+
+        class _LatestClaimGroundingPublicationAuthority:
+            def __init__(self, repository) -> None:  # type: ignore[no-untyped-def]
+                self._repository = repository
+
+            def expected_publication_fingerprint(self, *, session_id: str,
+                                                 source_run_id: str,
+                                                 source_window_fingerprint: str) -> str:
+                latest = self._repository.get_latest(session_id)
+                if (latest is None or latest.session_id != session_id
+                    or latest.run_id != source_run_id
+                    or latest.input_fingerprint != source_window_fingerprint
+                    or latest.receipt.metric_publication_v2 is None):
+                    raise ValueError("claim census source is unavailable")
+                return metric_publication_v2_fingerprint(latest.receipt.metric_publication_v2)
+
+        _claim_ids = LocalArtifactIdFactory(self.pseudonymizer)
+        claim_grounding_census_service = DurableClaimGroundingCensusService(
+            claim_grounding_review_service,
+            self.database.claim_grounding_census_repository(),
+            _LatestClaimGroundingPublicationAuthority(
+                self.database.model_ensemble_repository()
+            ),
+            _claim_ids,
+        )
+        from .application.analysis.claim_grounding_link_review import (
+            ClaimGroundingLinkReviewService,
+        )
+        from .application.analysis.claim_grounding_link_source import (
+            CurrentClaimGroundingLinkSourceResolver,
+        )
+
+        claim_grounding_link_review_service = ClaimGroundingLinkReviewService(
+            CurrentClaimGroundingLinkSourceResolver(
+                claim_grounding_census_service,
+                self.database.model_ensemble_repository(),
+                requirement_plan_review_contexts,
+                _claim_ids,
+            ),
+            requirement_plan_review_contexts,
+            _claim_ids,
         )
         requirement_action_evidence_service = (
             self.create_requirement_action_evidence_service(
@@ -1719,6 +1805,9 @@ class LocalApplication:
             requirement_verification_evidence_service=(
                 requirement_verification_evidence_service
             ),
+            claim_grounding_review_service=claim_grounding_review_service,
+            claim_grounding_link_review_service=claim_grounding_link_review_service,
+            claim_grounding_census_service=claim_grounding_census_service,
             task_analysis_service=self.create_task_analysis_service(),
             session_text_analysis_service=session_text_analysis_service,
             session_model_link_experiment_service=(

@@ -92,6 +92,18 @@ describe("AgentPage layout contract", () => {
     expect(appCss).toMatch(/\.app-shell--agent-focus \.mobile-shell-header__menu\s*\{[^}]*display:\s*inline-flex;/);
   });
 
+  it("keeps the open compact runtime menu above the mobile shell and below Agent drawers", () => {
+    const mobileHeaderLayer = appCss.match(/\.app-shell--agent-focus > \.mobile-shell-header\s*\{[^}]*z-index:\s*(\d+);/);
+    const compactRuntimeLayer = runtimeControlCss.match(/@media \(max-width:\s*900px\)\s*\{\s*\.agent-runtime__composer-disclosure\[open\]\s*\{[^}]*z-index:\s*(\d+);/);
+    const agentDrawerLayer = agentPageCss.match(/\.agent__drawer\s*\{[^}]*z-index:\s*(\d+);/);
+
+    expect(mobileHeaderLayer).not.toBeNull();
+    expect(compactRuntimeLayer).not.toBeNull();
+    expect(agentDrawerLayer).not.toBeNull();
+    expect(Number(compactRuntimeLayer?.[1])).toBeGreaterThan(Number(mobileHeaderLayer?.[1]));
+    expect(Number(compactRuntimeLayer?.[1])).toBeLessThan(Number(agentDrawerLayer?.[1]));
+  });
+
   it("does not let tall neighboring panels stretch the conversation below the viewport", () => {
     expect(agentPageCss).toMatch(/\.agent__layout\s*\{[^}]*align-items:\s*start;/);
     expect(agentPageCss).toMatch(/\.agent__workbench\s*\{[^}]*align-items:\s*start;[^}]*align-self:\s*start;/);

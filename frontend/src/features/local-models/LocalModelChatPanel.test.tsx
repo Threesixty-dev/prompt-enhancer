@@ -101,6 +101,129 @@ async function fail(stream: Stream, reason: unknown) {
 }
 
 describe("LocalModelChatPanel", () => {
+  it("reports whitespace drafts and zero-output in-flight replies as dirty", () => {
+    const { streams, transport } = chatTransport();
+    const dirty = vi.fn();
+    render(<LocalModelChatPanel models={[status()]} onTemporaryChatDirtyChange={dirty} transport={transport} />);
+    fireEvent.change(composer(), { target: { value: "   " } });
+    expect(dirty).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(streams).toHaveLength(0);
+    fireEvent.change(composer(), { target: { value: "request" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(dirty).toHaveBeenLastCalledWith(true);
+  });
+
+  it("reopens New conversation after Cancel and Escape while preserving the active draft", () => {
+    const { streams, transport } = chatTransport();
+    render(<LocalModelChatPanel models={[status()]} transport={transport} />);
+    ask("partial request"); act(() => streams[0].emit({ content: "partial" }));
+    fireEvent.change(composer(), { target: { value: "next draft" } });
+    const trigger = screen.getByRole("button", { name: "New conversation" }); trigger.focus(); fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Start a new conversation?" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Start a new conversation?" })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Start a new conversation?" })).toBeVisible();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Start a new conversation?" })).not.toBeInTheDocument();
+    expect(screen.getByText("partial")).toBeVisible(); expect(composer()).toHaveValue("next draft");
+    expect(streams[0].signal?.aborted).toBe(false); expect(document.activeElement).toBe(trigger);
+  });
+
+  it("prevents unload only while temporary content is dirty, then removes the listener", async () => {
+    const { streams, transport } = chatTransport();
+    const view = render(<LocalModelChatPanel models={[status()]} transport={transport} />);
+    const empty = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(empty); expect(empty.defaultPrevented).toBe(false);
+    fireEvent.change(composer(), { target: { value: "   " } });
+    const draftEvent = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(draftEvent); expect(draftEvent.defaultPrevented).toBe(true);
+    ask("history request");
+    await settle(streams[0], result("history reply"));
+    const historyEvent = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(historyEvent); expect(historyEvent.defaultPrevented).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start new conversation" }));
+    const resetEvent = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(resetEvent); expect(resetEvent.defaultPrevented).toBe(false);
+    fireEvent.change(composer(), { target: { value: "draft before unmount" } });
+    view.unmount();
+    const unmountedEvent = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unmountedEvent); expect(unmountedEvent.defaultPrevented).toBe(false);
+  });
+
+  it("reports history dirty and gives a replacement callback the current state", async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { streams, transport } = chatTransport();
+    const view = render(<LocalModelChatPanel models={[status()]} onTemporaryChatDirtyChange={first} transport={transport} />);
+    ask("history request");
+    await settle(streams[0], result("history reply"));
+    expect(first).toHaveBeenLastCalledWith(true);
+    expect(first.mock.calls).toEqual([[false], [true]]);
+    view.rerender(<LocalModelChatPanel models={[status()]} onTemporaryChatDirtyChange={second} transport={transport} />);
+    expect(second.mock.calls).toEqual([[true]]);
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
+    expect(second.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it("shows the temporary lifetime note in empty chat and hides the CTA without a callback", () => {
+    const { transport } = chatTransport();
+    render(<LocalModelChatPanel models={[]} transport={transport} />);
+    expect(screen.getByText(/temporary and is not saved/i)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Open saved Agent chat" })).toBeNull();
+  });
+
+  it("confirms a new Agent setup once with the selected alias and makes no transport call", () => {
+    const { transport } = chatTransport();
+    const onOpenAgentChat = vi.fn();
+    render(<LocalModelChatPanel models={[status()]} onOpenAgentChat={onOpenAgentChat} transport={transport} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open saved Agent chat" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent(/NEW Agent setup/);
+    const continueButton = screen.getByRole("button", { name: "Continue to Agent" });
+    fireEvent.click(continueButton);
+    fireEvent.click(continueButton);
+    expect(onOpenAgentChat).toHaveBeenCalledTimes(1);
+    expect(onOpenAgentChat).toHaveBeenCalledWith("example-small");
+    expect(transport.streamLocalModelChat).not.toHaveBeenCalled();
+  });
+
+  it("confirms with a null alias when no model is selected", () => {
+    const { transport } = chatTransport();
+    const onOpenAgentChat = vi.fn();
+    render(<LocalModelChatPanel models={[]} onOpenAgentChat={onOpenAgentChat} transport={transport} />);
+    expect(screen.getByText(/Activate a model above/i)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Open saved Agent chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Agent" }));
+    expect(onOpenAgentChat).toHaveBeenCalledWith(null);
+  });
+
+  it("keeps partial stream and next draft on Cancel/Escape, restoring focus", () => {
+    const { streams, transport } = chatTransport();
+    const onOpenAgentChat = vi.fn();
+    render(<LocalModelChatPanel models={[status()]} onOpenAgentChat={onOpenAgentChat} transport={transport} />);
+    ask("stream request");
+    act(() => streams[0].emit({ content: "partial synthetic reply" }));
+    fireEvent.change(composer(), { target: { value: "next synthetic draft" } });
+    const trigger = screen.getByRole("button", { name: "Open saved Agent chat" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("partial synthetic reply")).toBeVisible();
+    expect(composer()).toHaveValue("next synthetic draft");
+    expect(document.activeElement).toBe(trigger);
+    expect(streams[0].signal?.aborted).toBe(false);
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(composer()).toHaveValue("next synthetic draft");
+    expect(streams[0].signal?.aborted).toBe(false);
+    expect(onOpenAgentChat).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["length", /response token limit/i],
     ["content_filter", /runtime filtered/i],
@@ -223,8 +346,14 @@ describe("LocalModelChatPanel", () => {
     ask("First message");
     act(() => streams[0].emit({ content: "partial one" }));
     fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    const abort = vi.spyOn(AbortController.prototype, "abort");
+    const confirm = screen.getByRole("button", { name: "Start new conversation" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
 
     expect(streams[0].signal?.aborted).toBe(true);
+    expect(abort).toHaveBeenCalledTimes(1);
+    abort.mockRestore();
     expect(screen.queryByText("partial one")).toBeNull();
     expect(bubbles()).toHaveLength(0);
 
@@ -329,6 +458,39 @@ describe("LocalModelChatPanel", () => {
     expect(screen.queryByLabelText("Message")).toBeNull();
   });
 
+  it("keeps an editable draft blocked when runtime status is unverified", () => {
+    const { streamLocalModelChat, transport } = chatTransport();
+    render(<LocalModelChatPanel models={[status()]} runtimeReadiness="unverified" transport={transport} />);
+
+    fireEvent.change(composer(), { target: { value: "Keep this while status recovers" } });
+    expect(composer()).toHaveValue("Keep this while status recovers");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.keyDown(composer(), { key: "Enter", ctrlKey: true });
+    expect(streamLocalModelChat).not.toHaveBeenCalled();
+    expect(composer()).toHaveValue("Keep this while status recovers");
+    expect(screen.getByText(/unverified, so new messages/i)).toBeVisible();
+  });
+
+  it("keeps an active synthetic stream stoppable after runtime status becomes unverified", async () => {
+    const { streams, transport } = chatTransport();
+    const view = render(<LocalModelChatPanel models={[status()]} transport={transport} />);
+
+    ask("Keep streaming through a read failure");
+    act(() => streams[0].emit({ content: "partial before failure" }));
+    view.rerender(<LocalModelChatPanel models={[status()]} runtimeReadiness="unverified" transport={transport} />);
+
+    expect(screen.getByText("partial before failure")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+    fireEvent.change(composer(), { target: { value: "A draft kept during failure" } });
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(streams[0].signal?.aborted).toBe(true);
+    expect(screen.getByText("partial before failure")).toBeVisible();
+    expect(composer()).toHaveValue("A draft kept during failure");
+    expect(streams).toHaveLength(1);
+    await settle(streams[0], result("late stream result"));
+    expect(screen.queryByText("late stream result")).toBeNull();
+  });
+
   it("keeps the message and the history when the model fails, without sending it twice", async () => {
     const { streams, transport } = chatTransport();
     render(<LocalModelChatPanel models={[status()]} transport={transport} />);
@@ -351,6 +513,34 @@ describe("LocalModelChatPanel", () => {
       { role: "assistant", content: "first reply" },
       { role: "user", content: "Second message" },
     ]);
+  });
+
+  it("gates Retry while runtime status is unverified and restores it only after explicit recovery", async () => {
+    const { streams, transport } = chatTransport();
+    const view = render(<LocalModelChatPanel models={[status()]} transport={transport} />);
+
+    ask("Original request kept for retry");
+    fireEvent.change(composer(), { target: { value: "Next draft kept aside" } });
+    await fail(streams[0], new TransportError("synthetic runtime stopped", 409, "runtime_unavailable"));
+
+    const retry = screen.getByRole("button", { name: "Retry last message" });
+    expect(retry).toBeEnabled();
+    view.rerender(<LocalModelChatPanel models={[status()]} runtimeReadiness="unverified" transport={transport} />);
+    expect(screen.getByRole("button", { name: "Retry last message" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry last message" })).toHaveAttribute("aria-describedby", "local-chat-runtime-unverified");
+    expect(composer()).toHaveValue("Next draft kept aside");
+    expect(streams).toHaveLength(1);
+
+    view.rerender(<LocalModelChatPanel models={[status()]} transport={transport} />);
+    expect(screen.getByRole("button", { name: "Retry last message" })).toBeEnabled();
+    expect(composer()).toHaveValue("Next draft kept aside");
+    expect(streams).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Retry last message" }));
+    expect(streams).toHaveLength(2);
+    expect(streams[1].request.messages).toEqual([{ role: "user", content: "Original request kept for retry" }]);
+    expect(composer()).toHaveValue("Next draft kept aside");
+    await settle(streams[1], result("Recovered original reply"));
+    expect(screen.getByText("Recovered original reply")).toBeVisible();
   });
 
   it("says so when the model finishes without any text", async () => {
@@ -390,6 +580,7 @@ describe("LocalModelChatPanel", () => {
     render(<LocalModelChatPanel models={[status()]} transport={transport} />);
     fireEvent.change(composer(), { target: { value: "Example unsent draft" } });
     fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start new conversation" }));
     expect(composer()).toHaveValue("");
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });

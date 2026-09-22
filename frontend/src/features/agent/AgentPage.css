@@ -90,9 +90,11 @@
 .agent__session-pick { display: grid; gap: 0.1rem; width: 100%; text-align: left; padding: 0.45rem 0.6rem; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; border-radius: 0.5rem; }
 .agent__session-pick small { color: var(--ink-500); font-size: var(--type-caption); }
 .agent__session-close { border: 0; background: transparent; color: var(--ink-500); font-size: 1rem; cursor: pointer; padding: 0.2rem 0.5rem; }
-/* Keep the conversation independent of the taller setup/workspace panels. The
-   transcript owns the remaining height and scrolls; the composer stays in view. */
+/* Keep the conversation independent of the taller setup/workspace panels. */
 .agent__main { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 0.6rem; height: clamp(28rem, calc(100vh - 15rem), 46rem); height: clamp(28rem, calc(100dvh - 15rem), 46rem); min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; padding: 0.9rem 1rem; border: 1px solid var(--line); border-radius: var(--radius-lg, 14px); background: var(--surface); }
+/* A live transcript retains a usable track when the composer wraps, so this
+   card grows rather than clipping the log beneath the composer. */
+.agent__main:has(> .agent__conversation-stage) { grid-template-rows: auto minmax(12rem, 1fr) auto; min-height: min-content; }
 .agent__workbench > .agent-review { align-self: start; height: clamp(32rem, calc(100dvh - 15rem), 46rem); }
 .agent[data-active-session="true"]:not(.agent--window) .agent__main,
 .agent[data-active-session="true"]:not(.agent--window) .agent__side,
@@ -182,8 +184,11 @@
 .agent__model-readiness .agent__error,
 .agent__model-readiness .agent__notice { flex-basis: 100%; }
 .agent__action-note { flex-basis: 100%; color: var(--ink-500); font-size: var(--type-caption); }
-.agent__conversation-stage { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 0.45rem; min-height: 0; }
+.agent__conversation-stage { display: grid; grid-template-rows: minmax(12rem, 1fr) auto auto; gap: 0.45rem; min-height: 12rem; }
 .agent__log { display: grid; gap: 0.5rem; align-content: start; overflow-y: auto; min-height: 0; max-height: none; padding: 0.5rem; scroll-padding-block: 1rem 3.5rem; border: 1px solid var(--line); border-radius: 0.6rem; background: var(--surface-soft); }
+/* The live log has a definite grid viewport. Its finder can use that size
+   without changing retained-history layout behavior. */
+.agent__conversation-stage > .agent__log { container: agent-conversation-log / size; }
 .agent__layout--window .agent__log { max-height: none; }
 .agent__log-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: -0.5rem -0.5rem 0.2rem; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line); background: var(--surface); }
 .agent__log-head > span:first-child { display: grid; }

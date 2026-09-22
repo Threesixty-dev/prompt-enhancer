@@ -21,7 +21,6 @@ from urllib.request import (
 
 import pytest
 
-from prompt_enhancer.config import AppSettings
 from prompt_enhancer import desktop_overlay
 from prompt_enhancer.application.agent_mcp_connections import (
     AgentMcpConnectionService,
@@ -41,6 +40,11 @@ from prompt_enhancer.interfaces.http.user_presence import (
     USER_PRESENCE_HEADER,
 )
 from prompt_enhancer.interfaces.http.browser_session import CSRF_HEADER
+from tests.support.agent_mcp_integration_harness import (
+    isolated_child_environment,
+    run_bounded_owned_helper,
+    start_ephemeral_owned_server,
+)
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -78,29 +82,16 @@ pytestmark = [
 ]
 
 
-def _child_environment(root: Path) -> dict[str, str]:
+def _child_environment(root: Path, *, port: int) -> dict[str, str]:
     """Minimal environment with private/provider homes redirected to fixtures."""
 
-    keep = {
-        "COMSPEC",
-        "PATH",
-        "PATHEXT",
-        "SYSTEMROOT",
-        "TEMP",
-        "TMP",
-        "WINDIR",
-    }
-    environment = {
-        key: value
-        for key, value in os.environ.items()
-        if key.upper() in keep
-    }
+    environment = isolated_child_environment(root)
     environment.update(
         {
             "PYTHONPATH": os.fspath(SOURCE_ROOT),
             "PROMPT_ENHANCER_HOME": os.fspath(root / "application"),
             "PROMPT_ENHANCER_HOST": "127.0.0.1",
-            "PROMPT_ENHANCER_PORT": "8766",
+            "PROMPT_ENHANCER_PORT": str(port),
             "PROMPT_ENHANCER_SESSION_READER": "disabled",
             "PROMPT_ENHANCER_CLAUDE_HOME": os.fspath(root / "empty-provider"),
             "PYTHONIOENCODING": "utf-8",
@@ -127,7 +118,7 @@ def _run_mcp(
     payload = "\n".join(
         json.dumps(request, separators=(",", ":")) for request in requests
     ) + "\n"
-    completed = subprocess.run(
+    completed = run_bounded_owned_helper(
         [
             sys.executable,
             "-m",
@@ -138,17 +129,12 @@ def _run_mcp(
             "--acknowledge-sensitive-context-egress",
         ],
         cwd=REPOSITORY,
-        env=environment,
-        input=payload,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        environment=environment,
+        stdin_payload=payload.encode("utf-8"),
     )
     assert completed.returncode == 0
-    assert completed.stderr == ""
-    return [json.loads(line) for line in completed.stdout.splitlines()]
+    assert completed.stderr == b""
+    return [json.loads(line) for line in completed.stdout.decode("utf-8").splitlines()]
 
 
 def _http_mcp(
@@ -186,14 +172,10 @@ def test_direct_mcp_transaction_survives_native_review_and_reads_back_both_files
     existing.write_bytes(b"before\n")
     provider_home = root / "empty-provider"
     provider_home.mkdir()
-    settings = AppSettings(
-        home=root / "application",
-        host="127.0.0.1",
-        port=8766,
-        session_reader_enabled=False,
-    )
     monkeypatch.setenv("PROMPT_ENHANCER_CLAUDE_HOME", str(provider_home))
-    owned = desktop_overlay._start_owned_server(settings, allow_ephemeral=True)
+    settings, owned = start_ephemeral_owned_server(
+        home=root / "application",
+    )
     origin = ""
     try:
         app_token = settings.api_token_path.read_text(encoding="utf-8").strip()
@@ -627,19 +609,12 @@ def test_installed_shape_stdio_bridge_reaches_real_loopback_and_persists_catalog
     workspace = root / "workspace"
     workspace.mkdir(parents=True)
     (root / "empty-provider").mkdir()
-    settings = AppSettings(
-        home=root / "application",
-        host="127.0.0.1",
-        port=8766,
-        session_reader_enabled=False,
-    )
     monkeypatch.setenv(
         "PROMPT_ENHANCER_CLAUDE_HOME",
         str(root / "empty-provider"),
     )
-    owned = desktop_overlay._start_owned_server(
-        settings,
-        allow_ephemeral=True,
+    settings, owned = start_ephemeral_owned_server(
+        home=root / "application",
     )
     origin = ""
     try:
@@ -656,7 +631,7 @@ def test_installed_shape_stdio_bridge_reaches_real_loopback_and_persists_catalog
         }
         replies = _run_mcp(
             origin=origin,
-            environment=_child_environment(root),
+            environment=_child_environment(root, port=settings.port),
             requests=[
                 {
                     "jsonrpc": "2.0",
@@ -745,7 +720,7 @@ def test_installed_shape_stdio_bridge_reaches_real_loopback_and_persists_catalog
         ]
         assert replies[2]["result"]["structuredContent"]["result"][
             "contract_version"
-        ] == "local-agent-orchestration.v22"
+        ] == "local-agent-orchestration.v23"
         assert replies[3]["result"]["structuredContent"]["result"][
             "response"
         ]["projects"] == []
@@ -768,7 +743,7 @@ def test_installed_shape_stdio_bridge_reaches_real_loopback_and_persists_catalog
 
         persisted = _run_mcp(
             origin=origin,
-            environment=_child_environment(root),
+            environment=_child_environment(root, port=settings.port),
             requests=[
                 _tool_call(
                     8,
@@ -929,19 +904,12 @@ def test_direct_http_mcp_reenters_the_same_real_listener_without_a_process(
     workspace = root / "workspace"
     workspace.mkdir(parents=True)
     (root / "empty-provider").mkdir()
-    settings = AppSettings(
-        home=root / "application",
-        host="127.0.0.1",
-        port=8766,
-        session_reader_enabled=False,
-    )
     monkeypatch.setenv(
         "PROMPT_ENHANCER_CLAUDE_HOME",
         str(root / "empty-provider"),
     )
-    owned = desktop_overlay._start_owned_server(
-        settings,
-        allow_ephemeral=True,
+    settings, owned = start_ephemeral_owned_server(
+        home=root / "application",
     )
     origin = ""
     try:
@@ -1051,7 +1019,7 @@ def test_direct_http_mcp_reenters_the_same_real_listener_without_a_process(
         )
         assert discovered["result"]["structuredContent"]["result"][
             "contract_version"
-        ] == "local-agent-orchestration.v22"
+        ] == "local-agent-orchestration.v23"
 
         opened = _http_mcp(
             private.endpoint_url,

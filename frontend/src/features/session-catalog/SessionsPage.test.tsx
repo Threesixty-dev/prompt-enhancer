@@ -97,22 +97,23 @@ describe("SessionsPage", () => {
     expect(screen.getByText(/Data sources page/)).toBeInTheDocument();
   });
 
-  it("keeps the partial-search warning visible with no matches and loads the next bounded page", async () => {
-    const rows = Array.from({ length: 1001 }, (_, index) => ({ ...ROWS[0], session_id: index.toString(16).padStart(64, "0"), session_display_name: index === 1000 ? "Example beyond first batch" : `Example session ${index}` }));
+  it("keeps the loaded-only search warning visible with no matches and loads one explicit next page", async () => {
+    const rows = Array.from({ length: 201 }, (_, index) => ({ ...ROWS[0], session_id: index.toString(16).padStart(64, "0"), session_display_name: index === 100 ? "Example beyond first batch" : `Example session ${index}` }));
     const listCodexSessions = vi.fn(async (limit: number, offset: number) => ({ sessions: rows.slice(offset, offset + limit), limit, offset }));
     render(<SessionsPage navigate={vi.fn()} transport={{ listCodexSessions }} />);
+    await screen.findByText("Example session 0");
     fireEvent.change(screen.getByLabelText("Search sessions by project or title"), { target: { value: "beyond first batch" } });
-    expect(await screen.findByText(/Partial catalog: search covers only the 1000 loaded sessions/)).toBeVisible();
+    expect(listCodexSessions).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(/Partial catalog: search covers only the 100 loaded sessions/)).toBeVisible();
     expect(screen.getByText("No sessions match")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Load next 100 sessions" }));
     expect(await screen.findByText("Example beyond first batch")).toBeVisible();
-    expect(listCodexSessions).toHaveBeenCalledTimes(11);
-    expect(listCodexSessions.mock.calls[10].slice(0, 2)).toEqual([100, 1000]);
-    expect(screen.queryByText(/Partial catalog:/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Load next 100 sessions" })).not.toBeInTheDocument();
+    expect(listCodexSessions).toHaveBeenCalledTimes(2);
+    expect(listCodexSessions.mock.calls[1].slice(0, 2)).toEqual([100, 100]);
+    expect(screen.getByText(/Partial catalog: search covers only the 200 loaded sessions/)).toBeVisible();
   });
 
-  it("keeps a thousand loaded sessions on fixed render pages", async () => {
+  it("keeps the initially loaded hundred sessions on fixed 50-row render pages", async () => {
     const rows = Array.from({ length: 1000 }, (_, index) => ({
       ...ROWS[0],
       session_id: (index + 1).toString(16).padStart(64, "0"),
@@ -127,12 +128,12 @@ describe("SessionsPage", () => {
     render(<SessionsPage navigate={vi.fn()} transport={{ listCodexSessions }} />);
 
     const pager = await screen.findByRole("navigation", { name: "Stored session pages" }, { timeout: 5_000 });
-    expect(within(pager).getByText("Showing 1–50 of 1,000")).toBeVisible();
+    expect(within(pager).getByText("Showing 1–50 of 100")).toBeVisible();
     expect(screen.getAllByRole("listitem")).toHaveLength(50);
     fireEvent.click(screen.getByRole("button", { name: "Later" }));
-    expect(screen.getByText("Showing 51–100 of 1,000")).toBeVisible();
-    expect(screen.queryByText("Synthetic session 0999")).not.toBeInTheDocument();
-    expect(screen.getByText("Synthetic session 0949")).toBeVisible();
+    expect(screen.getByText("Showing 51–100 of 100")).toBeVisible();
+    expect(screen.queryByText("Synthetic session 0099")).not.toBeInTheDocument();
+    expect(screen.getByText("Synthetic session 0049")).toBeVisible();
   });
 
   it("does not point an empty synthetic preview at an unavailable source page", async () => {

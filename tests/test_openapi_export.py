@@ -46,8 +46,180 @@ def test_build_time_schema_contains_bounded_queries_and_review_commands() -> Non
             "{opportunity_set_fingerprint}"
         ),
         f"{verification_base}/objective-results",
+        (
+            f"{verification_base}/opportunity-sets/"
+            "{opportunity_set_fingerprint}/opportunities/{opportunity_id}/review"
+        ),
+        (
+            f"{verification_base}/opportunity-sets/"
+            "{opportunity_set_fingerprint}/opportunities/{opportunity_id}/"
+            "observed-checks/preflight"
+        ),
+        (
+            f"{verification_base}/opportunity-sets/"
+            "{opportunity_set_fingerprint}/opportunities/{opportunity_id}/"
+            "observed-checks/{candidate_id}/review"
+        ),
+        (
+            f"{verification_base}/opportunity-sets/"
+            "{opportunity_set_fingerprint}/opportunities/{opportunity_id}/"
+            "observed-checks/{candidate_id}/issue"
+        ),
+        f"{verification_base}/objective-results/{{authority_record_id}}/observed-check-provenance",
         f"{verification_base}/acceptances",
     }
+    claim_grounding_base = "/v1/sessions/{session_id}/claim-grounding-review"
+    assert {
+        path for path in paths if path.startswith(claim_grounding_base)
+    } == {
+        f"{claim_grounding_base}/begin",
+        f"{claim_grounding_base}/consume",
+        f"{claim_grounding_base}/persist",
+        f"{claim_grounding_base}/saved-census/{{census_id}}",
+        f"{claim_grounding_base}/recovery-status",
+        f"{claim_grounding_base}/saved-censuses",
+        f"{claim_grounding_base}/links/begin",
+        f"{claim_grounding_base}/links/candidates/{{census_id}}",
+    }
+    schemas = schema["components"]["schemas"]
+    assert {
+        "ClaimGroundingBeginDto",
+        "ClaimGroundingCandidateDto",
+        "ClaimGroundingProposalDto",
+        "ClaimCensusClassificationEntry",
+        "ClaimCensusSourceManifest",
+        "ReviewedClaimCensus",
+    } <= schemas.keys()
+    consume_schema = paths[f"{claim_grounding_base}/consume"]["post"]
+    response = consume_schema["responses"]["200"]["content"]["application/json"]["schema"]
+    assert response["$ref"] == "#/components/schemas/ClaimGroundingProposalDto"
+
+    link_begin = f"{claim_grounding_base}/links/begin"
+    assert set(paths[link_begin]) == {"post"}
+    link_operation = paths[link_begin]["post"]
+    assert "X-Prompt-Enhancer-User-Presence" in {
+        parameter["name"] for parameter in link_operation["parameters"]
+    }
+    link_body = link_operation["requestBody"]["content"]["application/json"]["schema"]
+    assert link_body["additionalProperties"] is False
+    assert link_body["properties"]["census_id"]["pattern"] == "^[a-f0-9]{64}$"
+    assert link_body["properties"]["candidate_id"]["pattern"] == "^[a-f0-9]{64}$"
+    assert link_body["properties"]["selected_check_references"]["maxItems"] == 128
+    link_response = link_operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert link_response == {"$ref": "#/components/schemas/ClaimGroundingLinkReviewDto"}
+    link_dto = schemas["ClaimGroundingLinkReviewDto"]
+    assert link_dto["properties"]["review_expires_at"]["format"] == "date-time"
+    for name in ("census_id", "manifest_fingerprint", "census_fingerprint"):
+        assert link_dto["properties"][name]["pattern"] == "^[a-f0-9]{64}$"
+    for name, value in (("proposal_only", True), ("measured", False), ("metric_authority_established", False), ("content_persisted", False)):
+        assert link_dto["properties"][name]["const"] is value
+
+    candidate_operation = paths[f"{claim_grounding_base}/links/candidates/{{census_id}}"]["get"]
+    assert "X-Prompt-Enhancer-User-Presence" not in {
+        parameter["name"] for parameter in candidate_operation["parameters"]
+    }
+    candidate_response = candidate_operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert candidate_response == {"$ref": "#/components/schemas/ClaimGroundingLinkCandidateManifestDto"}
+    candidate_dto = schemas["ClaimGroundingLinkCandidateManifestDto"]
+    assert candidate_dto["properties"]["material_candidates"]["maxItems"] == 12_800
+    assert candidate_dto["properties"]["observed_checks"]["maxItems"] == 4_000
+    serialized_candidate = json.dumps(candidate_dto).casefold()
+    for prohibited in ("claim_clause", "invocation_preview", "effect_preview", "tool_name"):
+        assert prohibited not in serialized_candidate
+
+    durable_base = claim_grounding_base
+    persist_operation = paths[f"{durable_base}/persist"]["post"]
+    persist_parameters = {
+        parameter["name"]: parameter for parameter in persist_operation["parameters"]
+    }
+    assert persist_parameters["Idempotency-Key"]["in"] == "header"
+    assert persist_parameters["Idempotency-Key"]["required"] is True
+    assert "Idempotency-Key" not in {
+        parameter["name"]
+        for parameter in persist_operation["parameters"]
+        if parameter["in"] == "query"
+    }
+    persist_body = persist_operation["requestBody"]
+    assert persist_body["required"] is True
+    persist_json_schema = persist_body["content"]["application/json"]["schema"]
+    assert persist_json_schema["additionalProperties"] is False
+    assert set(persist_json_schema["required"]) == {
+        "review_receipt_id",
+        "review_fingerprint",
+        "manifest_fingerprint",
+        "classifications",
+    }
+    assert persist_json_schema["properties"]["classifications"]["maxItems"] == 12_800
+    assert persist_operation["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ClaimGroundingCensusDto"
+    }
+
+    recovery_operation = paths[f"{durable_base}/recovery-status"]["get"]
+    recovery_parameters = {
+        parameter["name"]: parameter for parameter in recovery_operation["parameters"]
+    }
+    assert recovery_parameters["Idempotency-Key"]["in"] == "header"
+    assert recovery_parameters["Idempotency-Key"]["required"] is True
+    assert "Idempotency-Key" not in {
+        parameter["name"]
+        for parameter in recovery_operation["parameters"]
+        if parameter["in"] == "query"
+    }
+    assert recovery_operation["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ClaimGroundingCensusDto"
+    }
+
+    durable_dto = schemas["ClaimGroundingCensusDto"]
+    durable_properties = durable_dto["properties"]
+    assert durable_dto["additionalProperties"] is False
+    assert {
+        "metadata_persisted",
+        "candidate_prose_persisted",
+        "proposal_only",
+        "measured",
+        "metric_authority_established",
+    } <= durable_properties.keys()
+    assert durable_properties["metadata_persisted"]["const"] is True
+    assert durable_properties["candidate_prose_persisted"]["const"] is False
+    assert durable_properties["proposal_only"]["const"] is True
+    assert durable_properties["measured"]["const"] is False
+    assert durable_properties["metric_authority_established"]["const"] is False
+    for prohibited in (
+        "review_receipt_id",
+        "idempotency_key_digest",
+        "command_fingerprint",
+        "prose",
+        "text",
+    ):
+        assert prohibited not in durable_properties
+
+    saved_list_operation = paths[f"{durable_base}/saved-censuses"]["get"]
+    saved_list_parameters = {
+        parameter["name"]: parameter for parameter in saved_list_operation["parameters"]
+    }
+    assert saved_list_parameters["limit"]["in"] == "query"
+    assert saved_list_parameters["limit"]["schema"]["minimum"] == 1
+    assert saved_list_parameters["limit"]["schema"]["maximum"] == 200
+    assert saved_list_parameters["limit"]["schema"]["default"] == 50
+    assert set(saved_list_parameters) >= {
+        "session_id",
+        "limit",
+        "offset",
+        "snapshot_id",
+        "snapshot_total",
+        "high_water_created_at",
+        "high_water_census_id",
+    }
+    assert saved_list_parameters["offset"]["schema"]["minimum"] == 0
+    list_dto = schemas["ClaimGroundingCensusListDto"]
+    assert {
+        "snapshot_id",
+        "total",
+        "offset",
+        "high_water_created_at",
+        "high_water_census_id",
+    } <= list_dto["properties"].keys()
+    assert set(list_dto["required"]) == {"items", "snapshot_id", "total", "offset"}
     acceptance_operation = paths[f"{verification_base}/acceptances"]["post"]
     acceptance_parameters = {
         parameter["name"]: parameter
@@ -72,6 +244,38 @@ def test_build_time_schema_contains_bounded_queries_and_review_commands() -> Non
     assert "X-Prompt-Enhancer-Token" not in acceptance_parameters
     assert "Authorization" not in acceptance_parameters
     assert acceptance_operation["security"] == []
+    review_operation = paths[
+        f"{verification_base}/opportunity-sets/"
+        "{opportunity_set_fingerprint}/opportunities/{opportunity_id}/review"
+    ]["post"]
+    review_parameters = {
+        parameter["name"]: parameter for parameter in review_operation["parameters"]
+    }
+    assert set(review_parameters) == {
+        "session_id", "opportunity_set_fingerprint", "opportunity_id", *native_proofs,
+    }
+    assert all(review_parameters[name]["required"] is True for name in native_proofs)
+    assert review_operation["security"] == []
+    observed_preflight = paths[
+        f"{verification_base}/opportunity-sets/"
+        "{opportunity_set_fingerprint}/opportunities/{opportunity_id}/"
+        "observed-checks/preflight"
+    ]["post"]
+    assert "X-Prompt-Enhancer-User-Presence" not in {
+        parameter["name"] for parameter in observed_preflight["parameters"]
+    }
+    for suffix in (
+        "observed-checks/{candidate_id}/review",
+        "observed-checks/{candidate_id}/issue",
+    ):
+        operation = paths[
+            f"{verification_base}/opportunity-sets/"
+            "{opportunity_set_fingerprint}/opportunities/{opportunity_id}/" + suffix
+        ]["post"]
+        parameters = {item["name"]: item for item in operation["parameters"]}
+        assert native_proofs <= set(parameters)
+        assert all(parameters[name]["required"] is True for name in native_proofs)
+        assert operation["security"] == []
     assert set(acceptance_operation["responses"]) == {
         "200",
         "201",
@@ -720,7 +924,10 @@ def test_build_time_schema_contains_bounded_queries_and_review_commands() -> Non
         "AgentOrchestrationManifest"
     ]
     assert orchestration_schema["properties"]["contract_version"]["const"] == (
-            "local-agent-orchestration.v22"
+        "local-agent-orchestration.v23"
+    )
+    assert orchestration_schema["properties"]["route_coverage"]["const"] == (
+        "selected_agent_routes_plus_controller_runtime_routes"
     )
     fork_path = (
         "/v1/agent/projects/{project_id}/sessions/{session_id}/forks"

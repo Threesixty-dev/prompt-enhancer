@@ -23,7 +23,12 @@ describe("Agent route ownership boundary", () => {
 
   it("routes both Agent surfaces directly to AgentPage and keeps the analytics routes separate", () => {
     expect(APP_SOURCE).toContain('import("../features/agent/AgentPage")');
-    expect(APP_SOURCE).toMatch(/route\.name === "agent"[\s\S]*?<AgentScreen sessionId=\{route\.sessionId\} transport=\{transport\} \/>/u);
+    const agentRoute = APP_SOURCE.match(
+      /route\.name === "agent"\s*\?\s*\(\s*(<AgentScreen\b[\s\S]*?\/>)\s*\)\s*:\s*route\.name === "not_found"/u,
+    )?.[1];
+    expect(agentRoute).toBeDefined();
+    expect(agentRoute).toMatch(/\bsessionId=\{route\.sessionId\}/u);
+    expect(agentRoute).toMatch(/\btransport=\{transport\}/u);
     expect(parseRoute("/agent")).toEqual({ name: "agent" });
     expect(parseRoute("/agent/window/11111111111111111111111111111111")).toEqual({
       name: "agent",

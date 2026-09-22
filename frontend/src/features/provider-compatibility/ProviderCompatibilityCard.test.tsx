@@ -61,6 +61,39 @@ describe("ProviderCompatibilityCard", () => {
     expect(promptTextCompatibilityBlocker(degraded)).toMatch(/degraded/i);
   });
 
+  it.each([
+    ["exact", "exact_match"],
+    ["compatible", "compatible_version"],
+  ] as const)("requires session text rather than supported operational events with a %s compatibility state", (state, reason_code) => {
+    const operationalEvents: ProviderCompatibilityStatus = {
+      ...EXACT,
+      capability: "operational_events",
+      state,
+      reason_code,
+    };
+
+    render(<ProviderCompatibilityCard status={operationalEvents} />);
+
+    expect(isPromptTextCompatible(operationalEvents)).toBe(false);
+    expect(promptTextCompatibilityBlocker(operationalEvents)).toBe(
+      "This compatibility result covers operational events, not session-text analysis, so prompt-text analysis stays disabled.",
+    );
+    expect(screen.getByText(/^Operational events:/u)).toHaveTextContent("Operational events: supported");
+    expect(screen.queryByText(/^Session text analysis:/u)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["exact session text", { ...EXACT }, true],
+    ["compatible session text", { ...EXACT, state: "compatible", reason_code: "compatible_version" }, true],
+    ["unsupported session text", { ...EXACT, capability_state: "unsupported" }, false],
+    ["degraded session text", { ...EXACT, state: "degraded", reason_code: "degraded_extraction" }, false],
+    ["untested session text", { ...EXACT, state: "untested", reason_code: "not_checked", capability_state: "unknown" }, false],
+    ["unavailable session text", { ...EXACT, state: "unavailable", reason_code: "provider_unavailable" }, false],
+    ["null result", null, false],
+  ] as const)("admits prompt text only for %s", (_label, status, expected) => {
+    expect(isPromptTextCompatible(status)).toBe(expected);
+  });
+
   it("locks a pending check and sanitizes failures", async () => {
     let signal: AbortSignal | undefined;
     const onCheck = vi.fn((nextSignal: AbortSignal) => {

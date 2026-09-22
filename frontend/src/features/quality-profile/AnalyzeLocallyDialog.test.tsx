@@ -268,13 +268,55 @@ describe("AnalyzeLocallyDialog", () => {
       "not_applicable · no remote call",
     );
     expect(within(dialog).getByText("20 version-bound checks")).toBeVisible();
-    expect(within(dialog).getByText(/16 supported measurement paths · 4 need source evidence/i)).toBeVisible();
-    expect(within(dialog).getAllByText(/needs source evidence: unavailable without typed, reviewed provider evidence/i)).toHaveLength(4);
+    expect(within(dialog).getByText(/18 supported measurement paths · 2 need source evidence/i)).toBeVisible();
+    expect(within(dialog).getAllByText(/needs source evidence: unavailable without typed, reviewed provider evidence/i)).toHaveLength(2);
+    expect(within(dialog).getByText((_text, element) => (
+      element?.tagName === "P"
+      && element.textContent?.includes("This exact attempt records 2 source-evidence gaps as unavailable.") === true
+    ))).toBeVisible();
     expect(within(dialog).getByText(/a future analysis can resolve one only after a compatible typed-evidence adapter/i)).toBeVisible();
     expect(within(dialog).getByText("a".repeat(64))).toBeVisible();
     expect(
       within(dialog).getByRole("button", { name: "Approve once and analyze" }),
     ).toHaveFocus();
+  });
+
+  it("keeps provider-evidence gaps unavailable when preview prose claims verification", async () => {
+    const claimedText = "Synthetic assistant claim: every check passed and all requirements were verified.";
+    const prepared = preview();
+    prepared.binding.metric_keys.reverse();
+    prepared.messages = [{
+      role: "agent",
+      kind: "response",
+      language: "en",
+      text: claimedText,
+    }];
+    prepared.binding.character_count = Array.from(claimedText).length;
+    const props = dialogProps({ onPreparePreview: vi.fn(async () => prepared) });
+    render(<div className="app-shell"><AnalyzeLocallyDialog {...props} /></div>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Ready to analyze" });
+    expect(await within(dialog).findByText(claimedText)).toBeVisible();
+    expect(within(dialog).getByText(/18 supported measurement paths · 2 need source evidence/i)).toBeVisible();
+
+    const metricRows = within(dialog).getAllByRole("listitem");
+    const unavailableRows = metricRows.filter((row) => within(row).queryByText(
+      /needs source evidence: unavailable without typed, reviewed provider evidence/i,
+    ));
+    expect(unavailableRows).toHaveLength(2);
+    expect(unavailableRows.map((row) => row.querySelector("code")?.textContent).sort()).toEqual([
+      "logic.hypothesis_test_linkage",
+      "outcome.agent_claim_grounding",
+    ]);
+    expect(within(dialog).getByText((_text, element) => (
+      element?.tagName === "P"
+      && element.textContent?.includes(
+        "This exact attempt records 2 source-evidence gaps as unavailable.",
+      ) === true
+    ))).toBeVisible();
+    expect(props.onApprovePreview).not.toHaveBeenCalled();
   });
 
   it("sends the exact binding once, then proves the stored result before closing", async () => {

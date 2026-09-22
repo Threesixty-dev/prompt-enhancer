@@ -13,6 +13,7 @@ from prompt_enhancer.application.runtime_cancellation import (
     current_runtime_cancellation,
     raise_if_runtime_cancelled,
     runtime_critical_cleanup_scope,
+    runtime_remaining_seconds,
     runtime_request_scope,
 )
 
@@ -43,6 +44,70 @@ def test_critical_cleanup_temporarily_suppresses_then_restores_a_cancelled_reque
             assert current_runtime_cancellation() is None
         assert current_runtime_cancellation() is cancelled
     assert current_runtime_cancellation() is None
+
+
+def test_scoped_deadline_uses_its_own_clock_and_restores_after_nested_scopes():
+    cancelled = threading.Event()
+    observed = [101.0]
+
+    def clock() -> float:
+        return observed[0]
+
+    with runtime_request_scope(
+        cancelled,
+        deadline_monotonic=106.0,
+        deadline_reason="synthetic_deadline_exceeded",
+        monotonic_clock=clock,
+    ):
+        assert runtime_remaining_seconds() == 5.0
+        with runtime_request_scope(threading.Event()):
+            # An ordinary nested scope must not bypass its parent's deadline.
+            assert runtime_remaining_seconds() == 5.0
+        assert runtime_remaining_seconds() == 5.0
+        with runtime_critical_cleanup_scope():
+            assert runtime_remaining_seconds() is None
+        observed[0] = 106.0
+        with pytest.raises(RuntimeCooperativeStop, match="^synthetic_deadline_exceeded$"):
+            raise_if_runtime_cancelled()
+    assert runtime_remaining_seconds() is None
+
+
+@pytest.mark.parametrize("cutoff", (True, float("inf"), float("nan")))
+def test_request_scope_rejects_invalid_deadline_before_installing_context(cutoff: object):
+    with pytest.raises(ValueError, match="runtime deadline must be finite"):
+        with runtime_request_scope(threading.Event(), deadline_monotonic=cutoff):  # type: ignore[arg-type]
+            pytest.fail("invalid deadline installed a request scope")
+    assert current_runtime_cancellation() is None
+
+
+@pytest.mark.parametrize(
+    "values",
+    ((10.0, 9.0), (10.0, RuntimeError("synthetic clock failure"))),
+)
+def test_deadline_clock_regression_or_failure_stops_closed(
+    values: tuple[object, object],
+) -> None:
+    observed = list(values)
+
+    def clock() -> float:
+        value = observed.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        assert isinstance(value, float)
+        return value
+
+    with runtime_request_scope(
+        threading.Event(),
+        deadline_monotonic=20.0,
+        deadline_reason="synthetic_deadline_clock_invalid",
+        monotonic_clock=clock,
+    ):
+        assert runtime_remaining_seconds() == 10.0
+        with pytest.raises(
+            RuntimeCooperativeStop,
+            match="^synthetic_deadline_clock_invalid$",
+        ):
+            raise_if_runtime_cancelled()
 
 
 def test_shared_cooperative_boundary_stops_only_the_cancelled_scope():

@@ -550,7 +550,7 @@ def test_zip64_locator_cannot_override_bounded_legacy_eocd(tmp_path: Path) -> No
     )
     zip64_record = struct.pack(
         "<4sQ2H2I4Q",
-        b"PK\x06\x06", 44, 45, 45, 0, 0, entries, entries,
+        b"PK\x06\x06", 44, 45, 45, 0, 0, entries + 1, entries + 1,
         central_size, central_offset,
     )
     locator = struct.pack("<4sIQI", b"PK\x06\x07", 0, eocd_offset, 1)
@@ -561,7 +561,7 @@ def test_zip64_locator_cannot_override_bounded_legacy_eocd(tmp_path: Path) -> No
 
     def unexpected_zipfile(*_args: object, **_kwargs: object) -> None:
         zip_calls.append(object())
-        raise AssertionError("ZipFile must not parse a ZIP64 locator")
+        raise AssertionError("ZipFile must not parse contradictory ZIP64 metadata")
 
     original = msix_preflight.zipfile.ZipFile
     msix_preflight.zipfile.ZipFile = unexpected_zipfile  # type: ignore[assignment]

@@ -1,15 +1,52 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   MetricCoverageReport,
   PromptEnhancerTransport,
   Provider,
 } from "../../shared/api/contracts";
+import { parseMetricCoverageReport } from "../../shared/api/httpTransport";
 import "./MetricCoveragePanel.css";
 
+type CoverageOwner = {
+  projectId?: string;
+  provider: Provider;
+  transport: PromptEnhancerTransport;
+};
+
 type CoverageState =
-  | { status: "loading" }
-  | { status: "ready"; report: MetricCoverageReport }
-  | { status: "error" };
+  | { owner: CoverageOwner; status: "loading" }
+  | {
+    owner: CoverageOwner;
+    report: MetricCoverageReport;
+    status: "ready";
+    freshness:
+      | "current"
+      | "refreshing"
+      | "failed"
+      | "cancelled"
+      | "timed_out";
+  }
+  | {
+    owner: CoverageOwner;
+    status: "error";
+    reason: "failed" | "cancelled" | "timed_out";
+  };
+
+type CoverageAttempt = {
+  controller: AbortController;
+  generation: number;
+  owner: CoverageOwner;
+  snapshot?: MetricCoverageReport;
+  timeoutId?: ReturnType<typeof setTimeout>;
+};
+
+const COVERAGE_REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_NOT_DISPATCHED = Symbol("coverage request not dispatched");
+
+function sameOwner(left: CoverageOwner, right: CoverageOwner): boolean {
+  return left.transport === right.transport &&
+    left.provider === right.provider && left.projectId === right.projectId;
+}
 
 function stateTotal(
   states: MetricCoverageReport["metrics"][number]["contract_compatible_result_states"],
@@ -27,28 +64,136 @@ export function MetricCoveragePanel({
   provider: Provider;
   projectId?: string;
 }) {
-  const [state, setState] = useState<CoverageState>({ status: "loading" });
-  const [retryKey, setRetryKey] = useState(0);
+  const owner = { projectId, provider, transport };
+  const [state, setState] = useState<CoverageState>({
+    owner,
+    status: "loading",
+  });
+  const activeAttemptRef = useRef<CoverageAttempt | null>(null);
+  const generationRef = useRef(0);
+  const titleId = useId();
+  const statusId = useId();
 
-  useEffect(() => {
+  const finishAttempt = useCallback((
+    attempt: CoverageAttempt,
+    reason: "failed" | "cancelled" | "timed_out",
+  ) => {
+    if (activeAttemptRef.current !== attempt) return;
+    activeAttemptRef.current = null;
+    clearTimeout(attempt.timeoutId);
+    if (!attempt.controller.signal.aborted) attempt.controller.abort();
+    if (attempt.snapshot) {
+      setState({
+        owner: attempt.owner,
+        report: attempt.snapshot,
+        status: "ready",
+        freshness: reason,
+      });
+    } else {
+      setState({ owner: attempt.owner, status: "error", reason });
+    }
+  }, []);
+
+  const beginRequest = useCallback((snapshot?: MetricCoverageReport) => {
+    if (activeAttemptRef.current !== null) return;
+
+    const requestOwner = { projectId, provider, transport };
     const controller = new AbortController();
-    setState({ status: "loading" });
-    const request = projectId === undefined
-      ? transport.getMetricCoverage(provider, controller.signal)
-      : transport.getProjectMetricCoverage(projectId, provider, controller.signal);
-    void request
-      .then((report) => {
-        if (!controller.signal.aborted) setState({ status: "ready", report });
+    const attempt: CoverageAttempt = {
+      controller,
+      generation: generationRef.current + 1,
+      owner: requestOwner,
+      snapshot,
+    };
+    generationRef.current = attempt.generation;
+    activeAttemptRef.current = attempt;
+    setState(snapshot
+      ? {
+        owner: requestOwner,
+        report: snapshot,
+        status: "ready",
+        freshness: "refreshing",
+      }
+      : { owner: requestOwner, status: "loading" });
+
+    attempt.timeoutId = setTimeout(() => {
+      finishAttempt(attempt, "timed_out");
+    }, COVERAGE_REQUEST_TIMEOUT_MS);
+
+    void Promise.resolve()
+      .then<MetricCoverageReport | typeof REQUEST_NOT_DISPATCHED>(() => {
+        if (
+          activeAttemptRef.current !== attempt ||
+          generationRef.current !== attempt.generation ||
+          controller.signal.aborted
+        ) return REQUEST_NOT_DISPATCHED;
+        return projectId === undefined
+          ? transport.getMetricCoverage(provider, controller.signal)
+          : transport.getProjectMetricCoverage(projectId, provider, controller.signal);
+      })
+      .then((value) => {
+        if (
+          value === REQUEST_NOT_DISPATCHED ||
+          activeAttemptRef.current !== attempt ||
+          generationRef.current !== attempt.generation ||
+          controller.signal.aborted
+        ) {
+          return;
+        }
+        const report = parseMetricCoverageReport(
+          value,
+          provider,
+          projectId === undefined ? "provider_catalog" : "one_project",
+        );
+        if (
+          activeAttemptRef.current !== attempt ||
+          generationRef.current !== attempt.generation ||
+          controller.signal.aborted
+        ) return;
+        activeAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        setState({
+          owner: requestOwner,
+          report,
+          status: "ready",
+          freshness: "current",
+        });
       })
       .catch(() => {
-        if (!controller.signal.aborted) setState({ status: "error" });
+        if (activeAttemptRef.current === attempt && !controller.signal.aborted) {
+          finishAttempt(attempt, "failed");
+        }
       });
-    return () => controller.abort();
-  }, [projectId, provider, retryKey, transport]);
+  }, [finishAttempt, projectId, provider, transport]);
+
+  const cancelRequest = useCallback(() => {
+    const attempt = activeAttemptRef.current;
+    const currentOwner = { projectId, provider, transport };
+    if (attempt !== null && sameOwner(attempt.owner, currentOwner)) {
+      finishAttempt(attempt, "cancelled");
+    }
+  }, [finishAttempt, projectId, provider, transport]);
+
+  useEffect(() => {
+    beginRequest();
+    return () => {
+      const attempt = activeAttemptRef.current;
+      if (attempt !== null) {
+        activeAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        attempt.controller.abort();
+      }
+      generationRef.current += 1;
+    };
+  }, [beginRequest]);
+
+  const visibleState = sameOwner(state.owner, owner)
+    ? state
+    : { owner, status: "loading" } as CoverageState;
 
   const totals = useMemo(() => {
-    if (state.status !== "ready") return null;
-    return state.report.metrics.reduce(
+    if (visibleState.status !== "ready") return null;
+    return visibleState.report.metrics.reduce(
       (result, metric) => ({
         compatible: result.compatible +
           stateTotal(metric.contract_compatible_result_states),
@@ -57,30 +202,44 @@ export function MetricCoveragePanel({
       }),
       { compatible: 0, incompatible: 0, cohorts: 0 },
     );
-  }, [state]);
+  }, [visibleState]);
 
-  if (state.status === "loading") {
+  if (visibleState.status === "loading") {
     return (
       <section className="metric-coverage-panel" aria-busy="true">
         <p className="eyebrow">Measurement coverage</p>
-        <h2>Checking the local metric snapshot...</h2>
-        <p role="status">Reading content-free counts from the stored SQLite index.</p>
+        <h2 id={titleId}>Checking the local metric snapshot...</h2>
+        <p id={statusId} role="status">
+          Reading content-free counts from the stored SQLite index.
+        </p>
+        <button
+          className="button button--secondary button--compact"
+          onClick={cancelRequest}
+          type="button"
+        >
+          Cancel coverage request
+        </button>
       </section>
     );
   }
 
-  if (state.status === "error") {
+  if (visibleState.status === "error") {
+    const errorCopy = visibleState.reason === "cancelled"
+      ? "The coverage request was cancelled."
+      : visibleState.reason === "timed_out"
+        ? "The coverage request timed out after 15 seconds."
+        : "The content-free coverage report could not be verified.";
     return (
       <section className="metric-coverage-panel metric-coverage-panel--unknown">
         <p className="eyebrow">Measurement coverage</p>
-        <h2>Metric coverage: Unknown</h2>
-        <p role="alert">
-          The content-free coverage report could not be verified. Existing project
+        <h2 id={titleId}>Metric coverage: Unknown</h2>
+        <p id={statusId} role="alert">
+          {errorCopy} Existing project
           and session views remain available; no missing count is shown as zero.
         </p>
         <button
           className="button button--secondary button--compact"
-          onClick={() => setRetryKey((value) => value + 1)}
+          onClick={() => beginRequest()}
           type="button"
         >
           Retry coverage
@@ -89,21 +248,71 @@ export function MetricCoveragePanel({
     );
   }
 
-  const { report } = state;
+  const { report } = visibleState;
   const attemptable = report.capability_report.structurally_attemptable_metric_count;
   return (
-    <section className="metric-coverage-panel" aria-labelledby="metric-coverage-title">
+    <section
+      aria-busy={visibleState.freshness === "refreshing"}
+      aria-labelledby={titleId}
+      className="metric-coverage-panel"
+    >
       <header>
         <div>
           <p className="eyebrow">Measurement coverage</p>
-          <h2 id="metric-coverage-title">Coaching metric coverage</h2>
+          <h2 id={titleId}>Coaching metric coverage</h2>
           <p>
             {attemptable} of {report.metrics.length} metric definitions are structurally
             attemptable.
           </p>
         </div>
-        <span className="status-pill status-pill--info">Exact SQLite counts</span>
+        <span className="status-pill status-pill--info">
+          {visibleState.freshness === "current"
+            ? "Exact SQLite counts"
+            : "Previous verified snapshot"}
+        </span>
       </header>
+
+      <div
+        className="metric-coverage-panel__request-status"
+        id={statusId}
+        role="status"
+      >
+        <p>Snapshot generated at <time dateTime={report.generated_at}>{report.generated_at}</time>.</p>
+        {visibleState.freshness === "refreshing" && (
+          <p>Refreshing coverage; displayed snapshot is stale.</p>
+        )}
+        {visibleState.freshness === "failed" && (
+          <p>Coverage refresh failed; displayed snapshot is stale.</p>
+        )}
+        {visibleState.freshness === "cancelled" && (
+          <p>Coverage refresh was cancelled; displayed snapshot is stale.</p>
+        )}
+        {visibleState.freshness === "timed_out" && (
+          <p>Coverage refresh timed out after 15 seconds; displayed snapshot is stale.</p>
+        )}
+        {visibleState.freshness === "current" && (
+          <p>Last verified snapshot. Refresh to check for newer data.</p>
+        )}
+      </div>
+      <div className="metric-coverage-panel__actions">
+        {visibleState.freshness === "refreshing" ? (
+          <button
+            className="button button--secondary button--compact"
+            onClick={cancelRequest}
+            type="button"
+          >
+            Cancel coverage request
+          </button>
+        ) : (
+          <button
+            className="button button--secondary button--compact"
+            onClick={() => beginRequest(report)}
+            type="button"
+          >
+            {visibleState.freshness === "current" ? "Refresh coverage" : "Retry coverage"}
+          </button>
+        )}
+      </div>
 
       <p className="metric-coverage-panel__explanation">
         Structural support describes available provider evidence channels only. It does

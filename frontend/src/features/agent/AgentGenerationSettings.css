@@ -1,0 +1,42 @@
+.agent-generation-settings {
+  border: 1px solid var(--border-subtle, #394150);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  min-inline-size: 0;
+  padding: 10px;
+}
+
+.agent-generation-settings legend {
+  color: var(--text-strong, #fff);
+  font-weight: 650;
+  padding-inline: 4px;
+}
+
+.agent-generation-settings label {
+  display: grid;
+  gap: 4px;
+}
+
+.agent-generation-settings__toggle {
+  align-items: center;
+  display: flex !important;
+  gap: 8px !important;
+}
+
+.agent-generation-settings__note,
+.agent-generation-settings__error {
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.agent-generation-settings__error {
+  color: var(--text-danger, #ff9c9c);
+}
+
+.agent-generation-settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

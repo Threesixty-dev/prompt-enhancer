@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
+import json
 from pathlib import Path
 import sqlite3
 from threading import Event
 
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 import pytest
 
@@ -18,17 +20,23 @@ from prompt_enhancer.application.agent_catalog import (
     AgentHistoryState,
     AgentRetentionPolicy,
     CreateAgentProject,
+    ForkAgentSession,
     ResumeAgentSession,
     StoredAgentEvent,
     UpdateAgentCatalogSession,
     UpdateAgentProject,
 )
 from prompt_enhancer.application.local_agent import (
+    AgentModelParameters,
     AgentSettings,
     LocalAgentError,
     LocalAgentService,
+    SendMessage,
     SwitchAgentSessionModel,
+    UpdateAgentSessionParameters,
 )
+from prompt_enhancer.application.local_models import RuntimeContextStatus
+from prompt_enhancer.application.local_agent_receipts import TurnReceiptBuilder
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.infrastructure.sqlite import agent_catalog as agent_catalog_sqlite
@@ -38,6 +46,7 @@ from prompt_enhancer.infrastructure.sqlite.agent_catalog import (
     AgentCatalogSqliteDatabase,
     SqliteAgentCatalogRepository,
 )
+from prompt_enhancer.interfaces.http.local_agent_routes import create_local_agent_router
 
 
 T0 = datetime(2026, 8, 27, 8, 0, tzinfo=UTC)
@@ -113,6 +122,14 @@ def _write_supported_agent_schema(path: Path, source_version: int) -> None:
                         "memory_only",
                     ),
                 )
+        if source_version >= 30:
+            connection.executemany(
+                "INSERT INTO agent_catalog_migration_checksums(version,checksum) VALUES(?,?)",
+                tuple(
+                    (version, agent_catalog_sqlite._AGENT_CATALOG_MIGRATION_CHECKSUMS[version])
+                    for version in range(1, source_version + 1)
+                ),
+            )
         connection.execute(f"PRAGMA user_version={source_version}")
         connection.execute("COMMIT")
 
@@ -609,6 +626,543 @@ def test_idle_live_chat_model_switch_is_ready_checked_revision_bound_and_durable
     assert stale.value.code == "agent_catalog_session_revision_conflict"
 
 
+def test_idle_session_parameters_are_revision_bound_durable_and_non_destructive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "parameter-workspace"
+    workspace.mkdir()
+    catalog = _catalog(tmp_path / "catalog")
+    project = catalog.create_project(CreateAgentProject(name="Parameters"))
+    service = LocalAgentService(
+        chat=lambda _alias, _body: (200, b'{"choices":[{"message":{"content":"ok"}}]}', "application/json"),
+        active_model=lambda: "fixture-model",
+        model_ready=lambda alias: alias == "fixture-model",
+        clock=lambda: T0,
+        catalog=catalog,
+    )
+    original = AgentModelParameters()
+    created = service.create(
+        AgentSettings(
+            workspace=str(workspace),
+            project_id=project.project_id,
+            model_alias="fixture-model",
+            parameters=original,
+            instructions="Keep the synthetic constraints.",
+            allow_writes=False,
+            allow_commands=False,
+            max_steps=7,
+            retention_policy=AgentRetentionPolicy.LOCAL_HISTORY,
+        )
+    )
+    before = catalog.get_session(created.session_id)
+    internal = service._sessions[created.session_id]  # noqa: SLF001
+    messages = list(internal.messages)
+    updated_parameters = AgentModelParameters(
+        temperature=0.8,
+        top_p=0.7,
+        max_tokens=384,
+        enable_thinking=True,
+    )
+    command = UpdateAgentSessionParameters(
+        expected_project_id=project.project_id,
+        expected_revision=before.revision,
+        expected_parameters=original,
+        parameters=updated_parameters,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        attempts = [
+            pool.submit(service.update_parameters, created.session_id, command)
+            for _ in range(2)
+        ]
+    succeeded = [item.result() for item in attempts if item.exception() is None]
+    rejected = [item.exception() for item in attempts if item.exception() is not None]
+    assert len(succeeded) == 1
+    assert len(rejected) == 1
+    assert isinstance(rejected[0], LocalAgentError)
+    assert rejected[0].code == "agent_session_parameters_conflict"
+    updated = succeeded[0]
+    durable = catalog.get_session(created.session_id)
+    assert updated.settings.parameters == updated_parameters
+    assert updated.settings.instructions == "Keep the synthetic constraints."
+    assert updated.settings.max_steps == 7
+    assert updated.settings.allow_writes is False
+    assert updated.settings.allow_commands is False
+    assert updated.settings.model_alias == "fixture-model"
+    assert internal.messages == messages
+    assert durable.revision == before.revision + 1
+
+    with pytest.raises(LocalAgentError) as stale_parameters:
+        service.update_parameters(created.session_id, command)
+    assert stale_parameters.value.code == "agent_session_parameters_conflict"
+    assert service.get(created.session_id).settings.parameters == updated_parameters
+
+    with internal.lock:
+        internal.running = True
+    with pytest.raises(LocalAgentError) as busy:
+        service.update_parameters(
+            created.session_id,
+            command.model_copy(
+                update={
+                    "expected_revision": durable.revision,
+                    "expected_parameters": updated_parameters,
+                }
+            ),
+        )
+    assert busy.value.code == "turn_in_progress"
+    with internal.lock:
+        internal.running = False
+
+    original_persist = catalog.update_session_history_profile
+
+    def storage_failure(**_kwargs):
+        raise AgentCatalogError("agent_catalog_storage_unavailable")
+
+    monkeypatch.setattr(catalog, "update_session_history_profile", storage_failure)
+    with pytest.raises(LocalAgentError) as failed:
+        service.update_parameters(
+            created.session_id,
+            command.model_copy(
+                update={
+                    "expected_revision": durable.revision,
+                    "expected_parameters": updated_parameters,
+                    "parameters": AgentModelParameters(max_tokens=512),
+                }
+            ),
+        )
+    assert failed.value.code == "agent_catalog_storage_unavailable"
+    assert service.get(created.session_id).settings.parameters == updated_parameters
+    monkeypatch.setattr(catalog, "update_session_history_profile", original_persist)
+
+    repository = catalog._repository  # noqa: SLF001 - force the transaction's late read path
+    original_get_session = type(repository)._get_session
+
+    def late_record_failure(*_args, **_kwargs):
+        raise RuntimeError("synthetic post-update record failure")
+
+    monkeypatch.setattr(
+        type(repository), "_get_session", staticmethod(late_record_failure)
+    )
+    with pytest.raises(RuntimeError, match="synthetic post-update"):
+        service.update_parameters(
+            created.session_id,
+            command.model_copy(
+                update={
+                    "expected_revision": durable.revision,
+                    "expected_parameters": updated_parameters,
+                    "parameters": AgentModelParameters(max_tokens=640),
+                }
+            ),
+        )
+    assert service.get(created.session_id).settings.parameters == updated_parameters
+    monkeypatch.setattr(
+        type(repository), "_get_session", staticmethod(original_get_session)
+    )
+    assert catalog.get_session(created.session_id).revision == durable.revision
+
+    recovered_service = LocalAgentService(
+        chat=lambda _alias, _body: (200, b'{"choices":[{"message":{"content":"ok"}}]}', "application/json"),
+        active_model=lambda: "fixture-model",
+        model_ready=lambda alias: alias == "fixture-model",
+        clock=lambda: T0,
+        catalog=catalog,
+    )
+    resumed = recovered_service.resume(
+        project_id=project.project_id,
+        session_id=created.session_id,
+        command=ResumeAgentSession(
+            expected_catalog_revision=durable.revision,
+            expected_history_revision=durable.history_revision,
+        ),
+    )
+    assert resumed.settings.parameters == updated_parameters
+    assert resumed.settings.instructions == "Keep the synthetic constraints."
+    assert resumed.settings.max_steps == 7
+
+    forked = catalog.fork_session(
+        source_project_id=project.project_id,
+        source_session_id=created.session_id,
+        command=ForkAgentSession(
+            request_id="f" * 32,
+            expected_catalog_revision=durable.revision,
+            expected_history_revision=durable.history_revision,
+        ),
+    )
+    resumed_fork = recovered_service.resume(
+        project_id=project.project_id,
+        session_id=forked.session.session_id,
+        command=ResumeAgentSession(
+            expected_catalog_revision=forked.session.revision,
+            expected_history_revision=forked.session.history_revision,
+        ),
+    )
+    assert resumed_fork.settings.parameters == updated_parameters
+    assert resumed_fork.settings.instructions == "Keep the synthetic constraints."
+
+
+def test_parameter_update_cas_rejects_same_revision_across_service_instances(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "cross-service-parameters"
+    workspace.mkdir()
+    catalog = _catalog(tmp_path / "catalog")
+    project = catalog.create_project(CreateAgentProject(name="Cross service parameters"))
+    service_one = LocalAgentService(
+        chat=lambda *_: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        catalog=catalog,
+        clock=lambda: T0,
+    )
+    created = service_one.create(AgentSettings(
+        workspace=str(workspace),
+        project_id=project.project_id,
+        retention_policy=AgentRetentionPolicy.LOCAL_HISTORY,
+    ))
+    current = catalog.get_session(created.session_id)
+    second_catalog = _catalog(tmp_path / "catalog", ["f" * 32])
+    service_two = LocalAgentService(
+        chat=lambda *_: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        catalog=second_catalog,
+        clock=lambda: T0,
+    )
+    service_two.resume(
+        project_id=project.project_id,
+        session_id=created.session_id,
+        command=ResumeAgentSession(
+            expected_catalog_revision=current.revision,
+            expected_history_revision=current.history_revision,
+        ),
+    )
+    command = UpdateAgentSessionParameters(
+        expected_project_id=project.project_id,
+        expected_revision=current.revision,
+        expected_parameters=created.settings.parameters,
+        parameters=AgentModelParameters(max_tokens=512),
+    )
+    barrier = Event()
+
+    def attempt(service: LocalAgentService) -> object:
+        barrier.wait(timeout=2)
+        return service.update_parameters(created.session_id, command)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(attempt, service_one)
+        second = pool.submit(attempt, service_two)
+        barrier.set()
+    outcomes = [first, second]
+    succeeded = [item for item in outcomes if item.exception() is None]
+    rejected = [item.exception() for item in outcomes if item.exception() is not None]
+    assert len(succeeded) == 1
+    assert len(rejected) == 1
+    assert isinstance(rejected[0], LocalAgentError)
+    assert rejected[0].code == "agent_catalog_session_revision_conflict"
+    assert catalog.get_session(created.session_id).revision == current.revision + 1
+
+
+def test_parameter_update_preserves_existing_last_request_context_receipt(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "receipt-parameters"
+    workspace.mkdir()
+
+    def preflight(_alias: str, _body: bytes, _omitted: int) -> RuntimeContextStatus:
+        return RuntimeContextStatus(
+            state="known", used_tokens=120, limit_tokens=4096,
+            requested_output_tokens=256, available_output_tokens=3976,
+            source="runtime_chat_input_tokens", scope="last_request",
+            policy="exact_admitted", compacted_messages=0, reason_code=None,
+        )
+
+    catalog = _catalog(tmp_path / "catalog")
+    project = catalog.create_project(CreateAgentProject(name="Receipt parameters"))
+    service = LocalAgentService(
+        chat=lambda *_: (200, b'{"choices":[{"message":{"content":"ok"}}]}', "application/json"),
+        active_model=lambda: "fixture-model",
+        model_ready=lambda alias: alias == "fixture-model",
+        context_preflight=preflight,
+        catalog=catalog,
+        clock=lambda: T0,
+    )
+    created = service.create(AgentSettings(
+        workspace=str(workspace), project_id=project.project_id,
+        model_alias="fixture-model", retention_policy=AgentRetentionPolicy.LOCAL_HISTORY,
+    ))
+    internal = service._session(created.session_id)  # noqa: SLF001 - bounded receipt setup
+    with internal.lock:
+        internal.messages.append({"role": "user", "content": "Synthetic receipt request."})
+        turn = TurnReceiptBuilder(
+            turn_id="a" * 32, turn_number=1, model_alias="fixture-model",
+            started_at=T0, monotonic=lambda: 0.0,
+        )
+        internal.active_turn = turn
+        service._admit_request_context(internal, "fixture-model")  # noqa: SLF001 - exact preflight receipt
+    before = service.session_context(created.session_id)
+    assert before.binding_state == "bound"
+    record = catalog.get_session(created.session_id)
+    updated = service.update_parameters(
+        created.session_id,
+        UpdateAgentSessionParameters(
+            expected_project_id=project.project_id,
+            expected_revision=record.revision,
+            expected_parameters=created.settings.parameters,
+            parameters=AgentModelParameters(max_tokens=512),
+        ),
+    )
+    assert updated.settings.parameters.max_tokens == 512
+    after = service.session_context(created.session_id)
+    assert after == before
+
+
+def test_metadata_only_parameter_update_advances_catalog_without_a_recovery_profile(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "metadata-parameters"
+    workspace.mkdir()
+    catalog = _catalog(tmp_path / "catalog")
+    project = catalog.create_project(CreateAgentProject(name="Metadata parameters"))
+    service = LocalAgentService(
+        chat=lambda *_: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        clock=lambda: T0,
+        catalog=catalog,
+    )
+    created = service.create(
+        AgentSettings(workspace=str(workspace), project_id=project.project_id)
+    )
+    before = catalog.get_session(created.session_id)
+    updated = service.update_parameters(
+        created.session_id,
+        UpdateAgentSessionParameters(
+            expected_project_id=project.project_id,
+            expected_revision=before.revision,
+            expected_parameters=created.settings.parameters,
+            parameters=AgentModelParameters(max_tokens=512),
+        ),
+    )
+    assert updated.settings.parameters.max_tokens == 512
+    current = catalog.get_session(created.session_id)
+    assert current.revision == before.revision + 1
+    repository = catalog._repository  # noqa: SLF001 - retention-boundary fixture
+    with sqlite3.connect(repository._database.path) as connection:  # noqa: SLF001
+        assert connection.execute(
+            "SELECT history_profile_json FROM agent_catalog_sessions WHERE session_id=?",
+            (created.session_id,),
+        ).fetchone() == (None,)
+    with pytest.raises(AgentCatalogError) as not_retained:
+        catalog.load_history(project_id=project.project_id, session_id=created.session_id)
+    assert not_retained.value.code == "agent_history_not_retained"
+
+    catalog.update_session(
+        created.session_id,
+        UpdateAgentCatalogSession(
+            expected_revision=current.revision,
+            title="External metadata update",
+        ),
+    )
+    with pytest.raises(LocalAgentError) as stale_revision:
+        service.update_parameters(
+            created.session_id,
+            UpdateAgentSessionParameters(
+                expected_project_id=project.project_id,
+                expected_revision=current.revision,
+                expected_parameters=updated.settings.parameters,
+                parameters=AgentModelParameters(max_tokens=640),
+            ),
+        )
+    assert stale_revision.value.code == "agent_catalog_session_revision_conflict"
+    assert service.get(created.session_id).settings.parameters.max_tokens == 512
+
+
+def test_parameter_update_refuses_each_unsafe_idle_admission_state(tmp_path: Path) -> None:
+    workspace = tmp_path / "parameter-guards"
+    workspace.mkdir()
+    catalog = _catalog(tmp_path / "catalog")
+    project = catalog.create_project(CreateAgentProject(name="Parameter guards"))
+    service = LocalAgentService(
+        chat=lambda *_: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        clock=lambda: T0,
+        catalog=catalog,
+    )
+    created = service.create(
+        AgentSettings(workspace=str(workspace), project_id=project.project_id)
+    )
+    record = catalog.get_session(created.session_id)
+    session = service._sessions[created.session_id]  # noqa: SLF001 - admission-state fixture
+    command = UpdateAgentSessionParameters(
+        expected_project_id=project.project_id,
+        expected_revision=record.revision,
+        expected_parameters=created.settings.parameters,
+        parameters=AgentModelParameters(max_tokens=512),
+    )
+
+    for field, value, code in (
+        ("running", True, "turn_in_progress"),
+        ("pending", object(), "turn_in_progress"),
+        ("closing", True, "session_closing"),
+        ("cleanup_unconfirmed", True, "command_cleanup_unconfirmed"),
+        ("history_write_failed", True, "agent_history_write_failed"),
+    ):
+        with session.lock:
+            setattr(session, field, value)
+        with pytest.raises(LocalAgentError) as refused:
+            service.update_parameters(created.session_id, command)
+        assert refused.value.code == code
+        with session.lock:
+            setattr(session, field, False if field != "pending" else None)
+
+    service._command_cleanup_unconfirmed.set()  # noqa: SLF001 - process quarantine fixture
+    with pytest.raises(LocalAgentError) as quarantined:
+        service.update_parameters(created.session_id, command)
+    assert quarantined.value.code == "command_cleanup_unconfirmed"
+    service._command_cleanup_unconfirmed.clear()  # noqa: SLF001
+
+    service._shutting_down = True  # noqa: SLF001 - shutdown admission fixture
+    with pytest.raises(LocalAgentError) as shutting_down:
+        service.update_parameters(created.session_id, command)
+    assert shutting_down.value.code == "runtime_shutdown_in_progress"
+    assert service.get(created.session_id).settings.parameters == created.settings.parameters
+
+
+def test_next_synthetic_send_uses_the_saved_parameter_budget(tmp_path: Path) -> None:
+    workspace = tmp_path / "parameter-send"
+    workspace.mkdir()
+    catalog = _catalog(tmp_path / "catalog")
+    project = catalog.create_project(CreateAgentProject(name="Parameter send"))
+    bodies: list[dict[str, object]] = []
+
+    def chat(_alias: str, body: bytes) -> tuple[int, bytes, str]:
+        bodies.append(json.loads(body))
+        return (
+            200,
+            b'{"choices":[{"message":{"content":"synthetic reply"}}]}',
+            "application/json",
+        )
+
+    service = LocalAgentService(
+        chat=chat,
+        active_model=lambda: "fixture-model",
+        model_ready=lambda alias: alias == "fixture-model",
+        clock=lambda: T0,
+        catalog=catalog,
+    )
+    created = service.create(
+        AgentSettings(
+            workspace=str(workspace),
+            project_id=project.project_id,
+            model_alias="fixture-model",
+            retention_policy=AgentRetentionPolicy.LOCAL_HISTORY,
+        )
+    )
+    record = catalog.get_session(created.session_id)
+    saved = AgentModelParameters(
+        temperature=0.6,
+        top_p=0.8,
+        max_tokens=512,
+        enable_thinking=True,
+    )
+    service.update_parameters(
+        created.session_id,
+        UpdateAgentSessionParameters(
+            expected_project_id=project.project_id,
+            expected_revision=record.revision,
+            expected_parameters=created.settings.parameters,
+            parameters=saved,
+        ),
+    )
+    service.send(created.session_id, SendMessage(text="Synthetic current request."))
+    session = service._sessions[created.session_id]  # noqa: SLF001
+    assert session.thread is not None
+    session.thread.join(timeout=5)
+    assert not session.thread.is_alive()
+    assert bodies
+    assert bodies[0]["temperature"] == saved.temperature
+    assert bodies[0]["top_p"] == saved.top_p
+    assert bodies[0]["max_tokens"] == saved.max_tokens
+    assert bodies[0]["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_parameter_update_route_requires_local_auth_not_native_confirmation(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "parameter-route"
+    workspace.mkdir()
+    catalog = _catalog(tmp_path / "catalog")
+    project = catalog.create_project(CreateAgentProject(name="Parameter route"))
+    service = LocalAgentService(
+        chat=lambda *_: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        clock=lambda: T0,
+        catalog=catalog,
+    )
+    created = service.create(
+        AgentSettings(workspace=str(workspace), project_id=project.project_id)
+    )
+    record = catalog.get_session(created.session_id)
+    authenticated: list[bool] = []
+
+    def require_local_auth(request: Request) -> None:
+        if request.headers.get("X-Synthetic-Local-Auth") != "accepted":
+            raise HTTPException(status_code=401, detail="synthetic local auth required")
+        authenticated.append(True)
+
+    def native_confirmation() -> None:
+        raise AssertionError("sampling settings must not request native confirmation")
+
+    application = FastAPI()
+    application.include_router(
+        create_local_agent_router(require_local_auth, native_confirmation, service)
+    )
+    with TestClient(application, base_url="http://127.0.0.1") as client:
+        forbidden = client.put(
+            f"/v1/agent/sessions/{created.session_id}/parameters",
+            json={},
+        )
+        assert forbidden.status_code == 401
+        wrong_project = client.put(
+            f"/v1/agent/sessions/{created.session_id}/parameters",
+            headers={"X-Synthetic-Local-Auth": "accepted"},
+            json={
+                "expected_project_id": "a" * 32,
+                "expected_revision": record.revision,
+                "expected_parameters": created.settings.parameters.model_dump(),
+                "parameters": AgentModelParameters(max_tokens=512).model_dump(),
+            },
+        )
+        assert wrong_project.status_code == 404
+        assert wrong_project.json()["detail"]["code"] == "agent_catalog_session_not_found"
+        invalid = client.put(
+            f"/v1/agent/sessions/{created.session_id}/parameters",
+            headers={"X-Synthetic-Local-Auth": "accepted"},
+            json={
+                "expected_project_id": project.project_id,
+                "expected_revision": record.revision,
+                "expected_parameters": created.settings.parameters.model_dump(),
+                "parameters": {
+                    **AgentModelParameters(max_tokens=512).model_dump(),
+                    "temperature": 2.1,
+                    "instructions": "must not be mutable here",
+                },
+            },
+        )
+        assert invalid.status_code == 422
+        response = client.put(
+            f"/v1/agent/sessions/{created.session_id}/parameters",
+            headers={"X-Synthetic-Local-Auth": "accepted"},
+            json={
+                "expected_project_id": project.project_id,
+                "expected_revision": record.revision,
+                "expected_parameters": created.settings.parameters.model_dump(),
+                "parameters": AgentModelParameters(max_tokens=512).model_dump(),
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["settings"]["parameters"]["max_tokens"] == 512
+    assert authenticated == [True, True, True]
+
+
 def test_catalog_database_is_fixed_name_versioned_and_closes_connections(
     tmp_path: Path,
     monkeypatch,
@@ -855,6 +1409,8 @@ def test_catalog_v4_migrates_to_lineage_schema_without_changing_existing_chats(
         ):
             connection.execute(f"DROP TABLE {table}")
         connection.execute("DROP TABLE agent_session_lineage")
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_fts")
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_messages")
         connection.execute("DROP TABLE agent_mcp_connection_rotations")
         connection.execute("DROP TABLE agent_mcp_connections")
         connection.execute("DROP TABLE IF EXISTS agent_catalog_migration_checksums")

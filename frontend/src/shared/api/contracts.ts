@@ -1337,6 +1337,7 @@ export interface DeleteAgentCatalogSession {
   expected_history_revision: number;
 }
 export type SwitchAgentSessionModel = Schemas["SwitchAgentSessionModel"];
+export type UpdateAgentSessionParameters = Schemas["UpdateAgentSessionParameters"];
 export type ResumeAgentSession = Schemas["ResumeAgentSession"];
 export type ForkAgentSession = Schemas["ForkAgentSession"];
 export type AgentSessionForkReceipt = Schemas["AgentSessionForkReceipt"];
@@ -1427,6 +1428,7 @@ export type AgentWorkspaceGitChange = Schemas["WorkspaceGitChange"];
 export type AgentWorkspaceFile = Schemas["WorkspaceFile"];
 export type AgentWorkspaceSearchMatch = Schemas["WorkspaceSearchMatch"];
 export type AgentWorkspaceSearchResult = Schemas["WorkspaceSearchResult"];
+export type { AgentMessageSearchRequest, AgentMessageSearchMatch, AgentMessageSearchResult } from "./agentMessageSearchContract";
 export type AgentWorkspaceSearchRequest = {
   query: string;
   glob: string;
@@ -1447,7 +1449,10 @@ export type AgentWorkspaceDirectoryCreateApplyResult = Schemas["WorkspaceDirecto
 export type AgentWorkspaceDirectoryMovePreviewCommand = Schemas["WorkspaceDirectoryMovePreviewCommand"];
 export type AgentWorkspaceDirectoryMovePreview = Schemas["WorkspaceDirectoryMovePreview"];
 export type AgentWorkspaceDirectoryMoveApplyCommand = Schemas["WorkspaceDirectoryMoveApplyCommand"];
-export type AgentWorkspaceDirectoryMoveApplyResult = Schemas["WorkspaceDirectoryMoveApplyResult"];
+export type AgentWorkspaceDirectoryMoveApplyResult = Schemas["WorkspaceDirectoryMoveApplyResult"] & {
+  artifact_projection: "not_applicable" | "complete" | "recovery_required";
+  artifact_versions_advanced: number;
+};
 export type AgentWorkspaceFileTrashPreviewCommand = Schemas["WorkspaceFileTrashPreviewCommand"];
 export type AgentWorkspaceFileTrashPreview = Schemas["WorkspaceFileTrashPreview"];
 export type AgentWorkspaceFileTrashApplyCommand = Schemas["WorkspaceFileTrashApplyCommand"];
@@ -1646,6 +1651,203 @@ export interface ModelRequirementVerificationEvidenceBinding {
   content_persisted: false;
 }
 
+/** Content-free snapshot of an app-issued requirement-verification opportunity set. */
+export type RequirementVerificationEvidenceSnapshot = Schemas["RequirementVerificationEvidenceSnapshotDto"];
+export type RequirementVerificationEvidenceMutation = Schemas["RequirementVerificationEvidenceMutationDto"];
+
+export type ClaimCensusClassification = Schemas["ClaimCensusClassification"];
+export type ClaimCensusClassificationEntry = Schemas["ClaimCensusClassificationEntry"];
+export type ClaimGroundingBegin = Schemas["ClaimGroundingBeginDto"];
+export type ReviewedClaimCensus = Schemas["ReviewedClaimCensus"];
+export type ClaimGroundingProposal = Schemas["ClaimGroundingProposalDto"];
+export type ClaimGroundingCensus = Schemas["ClaimGroundingCensusDto"];
+export type ClaimGroundingCensusList = Schemas["ClaimGroundingCensusListDto"];
+export interface ClaimGroundingCensusPage {
+  limit: number;
+  offset: number;
+  snapshot?: {
+    snapshot_id: string;
+    total: number;
+    high_water_created_at: string | null;
+    high_water_census_id: string | null;
+  };
+}
+export interface ClaimGroundingBeginRequest {
+  expected_source_run_id: string;
+  expected_source_window_fingerprint: string;
+}
+export interface ClaimGroundingLinkBeginRequest { census_id: string; candidate_id: string; selected_check_references: string[]; }
+export interface ClaimGroundingLinkObservedCheck { source_reference_id:string; observed_sequence:number; outcome:"passed"|"check_failed"; tool_name:string; invocation_preview:string; effect_preview:string|null; }
+export interface ClaimGroundingLinkReview { session_id:string; census_id:string; candidate_id:string; source_run_id:string; source_window_fingerprint:string; census_fingerprint:string; manifest_fingerprint:string; observed_set_fingerprint:string; review_receipt_id:string; review_fingerprint:string; review_expires_at:string; claim_clause:string; observed_checks:ClaimGroundingLinkObservedCheck[]; proposal_only:true; measured:false; metric_authority_established:false; content_persisted:false; }
+export interface ClaimGroundingLinkMaterialCandidate { candidate_id:string; message_id:string; message_sequence:number; clause_index:number; }
+export interface ClaimGroundingLinkObservedCheckMetadata { source_reference_id:string; observed_sequence:number; provider:string; check_kind:string; outcome:"passed"|"check_failed"; provider_execution_status:"completed"; exit_code:number; source_completion_schema_version:string; outcome_interpreter_version:string; classifier_version:string; normalizer_version:string; rule_id:string; }
+export interface ClaimGroundingLinkCandidateManifest { session_id:string; census_id:string; source_run_id:string; source_window_fingerprint:string; census_fingerprint:string; manifest_fingerprint:string; observed_set_fingerprint:string; source_schema_version:string; text_adapter_version:string; observed_set_schema_version:string; observed_set_policy_version:string; material_candidates:ClaimGroundingLinkMaterialCandidate[]; observed_checks:ClaimGroundingLinkObservedCheckMetadata[]; proposal_only:true; measured:false; metric_authority_established:false; content_persisted:false; }
+export interface ClaimGroundingConsumeRequest {
+  review_receipt_id: string;
+  review_fingerprint: string;
+  manifest_fingerprint: string;
+  classifications: ClaimCensusClassificationEntry[];
+}
+
+/** Ephemeral exact clause returned only after an explicit review request. */
+export interface RequirementVerificationOpportunityReview {
+  schema_version: "requirement-verification-native-review-v1";
+  policy_version: "current-r8-reviewed-r6-clause-only-v1";
+  session_id: string;
+  opportunity_set_fingerprint: string;
+  opportunity_id: string;
+  requirement_id: string;
+  coordinate: { message_sequence: number; clause_index: number };
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  requirement_plan_confirmation_id: string;
+  requirement_plan_proposal_id: string;
+  expected_predecessor_authority_id: string | null;
+  through_revision: number;
+  review_receipt_id: string;
+  review_fingerprint: string;
+  review_expires_at: string;
+  requirement_text: string;
+  local_only: true;
+  content_persisted: false;
+}
+export interface RequirementVerificationReviewCommand {
+  expected_source_run_id: string;
+  through_revision: number;
+  expected_predecessor_authority_id: string | null;
+  confirmation: "open_exact_local_requirement_verification_review";
+}
+export interface RequirementVerificationAcceptanceCommand {
+  opportunity_set_fingerprint: string;
+  opportunity_id: string;
+  expected_predecessor_authority_id: string | null;
+  outcome: "accepted" | "rejected" | "unknown";
+  confirmation: "record_explicit_native_requirement_acceptance";
+  review_receipt_id: string;
+  review_fingerprint: string;
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+}
+
+/** Content-free, server-derived direct-pytest candidates for one opportunity. */
+export interface ObservedCheckCandidate {
+  candidate_id: string;
+  observed_sequence: number;
+  check_kind: "test";
+  observed_outcome: "passed" | "check_failed";
+  provider_execution_status: "completed";
+  exit_code: 0 | 1;
+  source_completion_schema_version: "observed-check-completion-v1";
+  outcome_interpreter_version: "pytest-exit-status-v1";
+  classifier_version: "local-command-rules-v1";
+  normalizer_version: "strict-shell-free-v2";
+  rule_id: "test.pytest" | "test.py_test";
+  local_only: true;
+  content_persisted: false;
+}
+
+/** Content-free provenance for one server-issued observed-check authority. */
+export interface ObservedCheckAuthorityProvenance {
+  authority_record_id: string;
+  session_id: string;
+  opportunity_set_fingerprint: string;
+  opportunity_id: string;
+  requirement_id: string;
+  source_run_id: string;
+  source_window_fingerprint: string;
+  requirement_plan_confirmation_id: string;
+  requirement_plan_proposal_id: string;
+  candidate_manifest_fingerprint: string;
+  source_reference_id: string;
+  coverage_review_reference_id: string;
+  observed_sequence: number;
+  check_kind: "test";
+  provider_execution_status: "completed";
+  observed_outcome: "passed" | "check_failed";
+  exit_code: 0 | 1;
+  source_completion_schema_version: "observed-check-completion-v1";
+  outcome_interpreter_version: "pytest-exit-status-v1";
+  classifier_version: "local-command-rules-v1";
+  normalizer_version: "strict-shell-free-v2";
+  rule_id: "test.pytest" | "test.py_test";
+  coverage_review_version: "native-full-criterion-coverage-v1";
+  full_criterion_coverage_acknowledged: true;
+  provenance_fingerprint: string;
+  schema_version: "observed-check-authority-provenance-v1";
+  local_only: true;
+  content_persisted: false;
+}
+
+/** Exact authority binding for the ephemeral candidate set. */
+export interface ObservedCheckCandidateManifest {
+  session_id: string;
+  opportunity_set_fingerprint: string;
+  opportunity_id: string;
+  requirement_id: string;
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  requirement_plan_confirmation_id: string;
+  requirement_plan_proposal_id: string;
+  expected_predecessor_authority_id: string | null;
+  through_revision: number;
+  candidate_manifest_fingerprint: string;
+  candidates: ObservedCheckCandidate[];
+  schema_version: "requirement-observed-check-review-v1";
+  local_only: true;
+  content_persisted: false;
+}
+
+/** Native local review of one exact requirement plus one server-resolved check. */
+export interface ObservedCheckCriterionReview {
+  session_id: string;
+  opportunity_set_fingerprint: string;
+  opportunity_id: string;
+  requirement_id: string;
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  requirement_plan_confirmation_id: string;
+  requirement_plan_proposal_id: string;
+  expected_predecessor_authority_id: string | null;
+  through_revision: number;
+  candidate_manifest_fingerprint: string;
+  candidate: ObservedCheckCandidate;
+  requirement_text: string;
+  check_tool_name: string;
+  check_invocation_preview: string;
+  check_effect_preview: string | null;
+  review_receipt_id: string;
+  review_fingerprint: string;
+  review_expires_at: string;
+  full_criterion_coverage_acknowledgement_required: true;
+  objective_result_issued: false;
+  schema_version: "requirement-observed-check-review-v1";
+  local_only: true;
+  content_persisted: false;
+}
+
+export interface ObservedCheckCandidateRequest {
+  expected_source_run_id: string;
+  through_revision: number;
+  expected_predecessor_authority_id: string | null;
+}
+
+export interface ObservedCheckReviewCommand extends ObservedCheckCandidateRequest {
+  candidate_manifest_fingerprint: string;
+  confirmation: "open_exact_local_requirement_observed_check_review";
+}
+
+export interface ObservedCheckResultIssueCommand {
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  through_revision: number;
+  expected_predecessor_authority_id: string | null;
+  candidate_manifest_fingerprint: string;
+  review_receipt_id: string;
+  review_fingerprint: string;
+  full_criterion_coverage_acknowledged: true;
+  confirmation: "issue_exact_local_requirement_observed_check_result";
+}
+
 export type ModelEnsembleRun = Omit<
   Schemas["ModelEnsembleRunDto"],
   | "metric_publication_v2"
@@ -1758,17 +1960,19 @@ export type MetricOperabilityEntry = Omit<
   measured_path:
     | Schemas["MetricOperabilityEntry"]["measured_path"]
     | "reviewed_requirement_plan"
-    | "reviewed_requirement_action";
+    | "reviewed_requirement_action"
+    | "reviewed_requirement_verification";
   next_step_code:
     | Schemas["MetricOperabilityEntry"]["next_step_code"]
     | "confirm_requirement_plan_evidence"
-    | "compose_requirement_action_evidence";
+    | "compose_requirement_action_evidence"
+    | "issue_reviewed_observed_check";
 };
 export type MetricOperabilityCatalog = Omit<
   Schemas["MetricOperabilityCatalog"],
   "catalog_version" | "projection_version" | "readiness_catalog_version" | "entries"
 > & {
-  catalog_version: "metric-operability-v4";
+  catalog_version: "metric-operability-v6";
   projection_version: "metric-contract-v2-projection-8";
   readiness_catalog_version: "metric-evidence-readiness-v2-7";
   entries: MetricOperabilityEntry[];
@@ -1793,7 +1997,16 @@ export interface RequirementPlanProducer {
 export type RequirementPlanClauseAlgorithmContract = Schemas["RequirementPlanClauseAlgorithmContract"];
 export type RequirementPlanReviewRubric = Schemas["RequirementPlanReviewRubric"];
 export type RequirementPlanExclusionReason = Schemas["RequirementPlanExclusionReason"];
-export type RequirementPlanProducerReceipt = Schemas["RequirementPlanProducerReceipt"];
+/** A durable opaque provenance commitment.  Guided local authoring must never
+ * pretend to be an external coding-agent producer. */
+export type RequirementPlanProducerReceipt =
+  | Schemas["RequirementPlanProducerReceipt"]
+  | {
+    kind: "local_review_ui";
+    claim_fingerprint: string;
+    authority: "untrusted_local_authoring_commitment";
+    raw_claim_persisted: false;
+  };
 export type ExcludedRequirementClause = Omit<
   Schemas["ExcludedRequirementClause"],
   "basis_coordinate"
@@ -1966,6 +2179,47 @@ export type RequirementPlanProposalReview = Omit<
 export interface RequirementPlanReviewRequest {
   expected_source_run_id: string;
   confirmation: "open_exact_local_requirement_plan_clause_review";
+}
+export interface RequirementPlanGuidedAuthoringReviewCommand {
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  manifest_fingerprint: string;
+  expected_predecessor_confirmation_id: string | null;
+  confirmation: "open_exact_local_requirement_plan_guided_authoring";
+}
+export interface RequirementPlanGuidedAuthoringClause {
+  message_sequence: number;
+  clause_index: number;
+  role: "user" | "agent";
+  kind: "request" | "feedback" | "plan";
+  text: string;
+  candidate_kind: "user_clause" | "plan";
+}
+export interface RequirementPlanGuidedAuthoringReview {
+  contract_version: "requirement-plan-guided-authoring-v1";
+  session_id: string;
+  source_run_id: string;
+  source_window_fingerprint: string;
+  expected_predecessor_confirmation_id: string | null;
+  manifest_fingerprint: string;
+  authoring_receipt_id: string;
+  candidate_clauses: RequirementPlanGuidedAuthoringClause[];
+  review_context_expires_at: string;
+  authoring_receipt_expires_at: string;
+  all_candidates_included: true;
+  raw_text_persisted: false;
+  local_only: true;
+}
+export interface RequirementPlanGuidedAuthoringCommand {
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  manifest_fingerprint: string;
+  expected_predecessor_confirmation_id: string | null;
+  authoring_receipt_id: string;
+  requirements: RequirementPlanEvidenceEntry[];
+  excluded_user_clauses: ExcludedRequirementClause[];
+  plan_items: RequirementPlanCoordinate[];
+  complete_user_clause_classification_acknowledged: true;
 }
 export interface RequirementPlanProposalPage {
   session_id: string;
@@ -2229,6 +2483,29 @@ export interface RequirementActionProposalCollection {
 export interface RequirementActionReviewRequest {
   expected_source_run_id: string;
   confirmation: "open_exact_local_requirement_action_review";
+}
+export interface RequirementActionGuidedAuthoringReviewCommand {
+  expected_source_run_id: string; source_window_fingerprint: string;
+  requirement_plan_confirmation_id: string; requirement_plan_evidence_fingerprint: string;
+  candidate_manifest_fingerprint: string; expected_predecessor_confirmation_id: string | null;
+  confirmation: "open_exact_local_requirement_action_guided_authoring";
+}
+export interface RequirementActionGuidedAuthoringReview {
+  contract_version: "requirement-action-guided-authoring-v1"; session_id: string; source_run_id: string;
+  source_window_fingerprint: string; requirement_plan_confirmation_id: string;
+  requirement_plan_evidence_fingerprint: string; candidate_manifest_fingerprint: string;
+  expected_predecessor_confirmation_id: string | null; authoring_receipt_id: string;
+  descriptor_set_fingerprint: string; requirements: RequirementActionReviewRequirement[];
+  candidates: RequirementActionCandidate[]; candidate_memberships: RequirementActionReviewCandidate[];
+  review_context_expires_at: string; authoring_receipt_expires_at: string;
+  all_requirements_and_candidates_included: true; raw_text_persisted: false; local_only: true;
+}
+export interface RequirementActionGuidedAuthoringCommand {
+  expected_source_run_id: string; source_window_fingerprint: string; requirement_plan_confirmation_id: string;
+  requirement_plan_evidence_fingerprint: string; candidate_manifest_fingerprint: string;
+  expected_predecessor_confirmation_id: string | null; authoring_receipt_id: string;
+  links: { requirement_index: number; action_candidate_indexes: number[] }[];
+  complete_requirement_link_classification_acknowledged: true;
 }
 export interface RequirementActionConfirmDecisionRequest {
   expected_source_run_id: string;
@@ -2583,6 +2860,15 @@ export interface WorkspaceFolderPickerCapability {
   mode: "server_native_dialog" | "unavailable";
 }
 
+export interface AgentWebFetchCapability {
+  contract_version: "agent-web-fetch-capability.v1";
+  available: boolean;
+  policy_version: "governed-web-fetch.v1";
+  reason_code: "available" | "governed_fetcher_unavailable";
+  requires_per_fetch_approval: true;
+  network_scope: "public_https";
+}
+
 export type WorkspaceFolderPick =
   | {
       contract_version: "local-workspace-folder-picker.v1";
@@ -2635,6 +2921,10 @@ export interface PromptEnhancerTransport {
   getWorkspaceFolderPickerCapability?(
     signal?: AbortSignal,
   ): Promise<WorkspaceFolderPickerCapability>;
+  /** Whether governed public-HTTPS fetch is composed; every call still needs native approval. */
+  getAgentWebFetchCapability?(
+    signal?: AbortSignal,
+  ): Promise<AgentWebFetchCapability>;
   /** Open one user-driven OS folder chooser; this does not scan the selection. */
   chooseWorkspaceFolder?(
     signal?: AbortSignal,
@@ -2927,6 +3217,7 @@ export interface PromptEnhancerTransport {
   updateAgentProject(projectId: string, request: UpdateAgentProject, signal?: AbortSignal): Promise<AgentProject>;
   deleteAgentProject(projectId: string, request: DeleteAgentProject, signal?: AbortSignal): Promise<void>;
   listAgentCatalogSessions(query?: AgentCatalogSessionQuery, signal?: AbortSignal): Promise<AgentCatalogSessionList>;
+  searchAgentSavedMessages(request: import("./agentMessageSearchContract").AgentMessageSearchRequest, signal?: AbortSignal): Promise<import("./agentMessageSearchContract").AgentMessageSearchResult>;
   pageAgentCatalogSessions?(query?: AgentCatalogSessionPageQuery, signal?: AbortSignal): Promise<AgentCatalogSessionPage>;
   getAgentCatalogSession(sessionId: string, signal?: AbortSignal): Promise<AgentCatalogSession>;
   updateAgentCatalogSession(sessionId: string, request: UpdateAgentCatalogSession, signal?: AbortSignal): Promise<AgentCatalogSession>;
@@ -2955,6 +3246,7 @@ export interface PromptEnhancerTransport {
   getAgentSession(sessionId: string, signal?: AbortSignal): Promise<AgentSessionView>;
   getAgentSessionContext?(sessionId: string, signal?: AbortSignal): Promise<AgentSessionContextStatus>;
   switchAgentSessionModel(sessionId: string, request: SwitchAgentSessionModel, signal?: AbortSignal): Promise<AgentSessionView>;
+  updateAgentSessionParameters(sessionId: string, request: UpdateAgentSessionParameters, signal?: AbortSignal): Promise<AgentSessionView>;
   revalidateAgentAuthority(sessionId: string, request: RevalidateAgentAuthority, signal?: AbortSignal): Promise<AgentSessionView>;
   deleteAgentSession(sessionId: string, signal?: AbortSignal): Promise<void>;
   listAgentAttachments(sessionId: string, signal?: AbortSignal): Promise<AgentAttachmentList>;
@@ -3283,6 +3575,18 @@ export interface PromptEnhancerTransport {
     request: RequirementPlanReviewRequest,
     signal?: AbortSignal,
   ): Promise<RequirementPlanProposalReview>;
+  reviewRequirementPlanGuidedAuthoring?(
+    sessionId: string,
+    contract: RequirementPlanEvidenceContract,
+    request: RequirementPlanGuidedAuthoringReviewCommand,
+    signal?: AbortSignal,
+  ): Promise<RequirementPlanGuidedAuthoringReview>;
+  submitRequirementPlanGuidedAuthoring?(
+    sessionId: string,
+    request: RequirementPlanGuidedAuthoringCommand,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementPlanProposalOutcome>;
   decideRequirementPlanProposal?(
     sessionId: string,
     proposalId: string,
@@ -3319,6 +3623,8 @@ export interface PromptEnhancerTransport {
     request: RequirementActionReviewRequest,
     signal?: AbortSignal,
   ): Promise<RequirementActionProposalReview>;
+  reviewRequirementActionGuidedAuthoring?(sessionId: string, contract: RequirementActionEvidenceContract, request: RequirementActionGuidedAuthoringReviewCommand, signal?: AbortSignal): Promise<RequirementActionGuidedAuthoringReview>;
+  submitRequirementActionGuidedAuthoring?(sessionId: string, contract: RequirementActionEvidenceContract, request: RequirementActionGuidedAuthoringCommand, idempotencyKey: string, signal?: AbortSignal): Promise<RequirementActionProposalOutcome>;
   decideRequirementActionProposal?(
     sessionId: string,
     proposalId: string,
@@ -3326,6 +3632,113 @@ export interface PromptEnhancerTransport {
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<RequirementActionProposalOutcome>;
+  /** Explicitly issue the current reviewed r6 verification opportunities. */
+  issueCurrentRequirementVerificationOpportunities?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementVerificationEvidenceMutation>;
+  /** Read one exact content-free opportunity-set revision. */
+  getRequirementVerificationEvidenceSnapshot?(
+    sessionId: string,
+    opportunitySetFingerprint: string,
+    throughRevision?: number,
+    signal?: AbortSignal,
+  ): Promise<RequirementVerificationEvidenceSnapshot>;
+  /** Read one content-free observed-check authority provenance record on demand. */
+  getRequirementVerificationObservedCheckProvenance?(
+    sessionId: string,
+    authorityRecordId: string,
+    signal?: AbortSignal,
+  ): Promise<ObservedCheckAuthorityProvenance>;
+  /** Explicit, ephemeral local read of one exact requirement clause. */
+  reviewRequirementVerificationOpportunity?(
+    sessionId: string,
+    opportunitySetFingerprint: string,
+    opportunityId: string,
+    request: RequirementVerificationReviewCommand,
+    signal?: AbortSignal,
+  ): Promise<RequirementVerificationOpportunityReview>;
+  /** Native-confirmed human classification after the exact review receipt was read. */
+  appendRequirementVerificationAcceptance?(
+    sessionId: string,
+    request: RequirementVerificationAcceptanceCommand,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementVerificationEvidenceMutation>;
+  beginClaimGroundingReview?(
+    sessionId: string,
+    request: ClaimGroundingBeginRequest,
+    signal?: AbortSignal,
+  ): Promise<ClaimGroundingBegin>;
+  beginClaimGroundingLinkReview?(sessionId:string, request:ClaimGroundingLinkBeginRequest, expected:{source_run_id:string; source_window_fingerprint:string; census_fingerprint:string; manifest_fingerprint:string}, signal?:AbortSignal):Promise<ClaimGroundingLinkReview>;
+  getClaimGroundingLinkCandidates?(
+    sessionId: string,
+    censusId: string,
+    expected: {
+      sourceRunId: string;
+      sourceWindowFingerprint: string;
+      censusFingerprint: string;
+      manifestFingerprint: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<ClaimGroundingLinkCandidateManifest>;
+  consumeClaimGroundingReview?(
+    sessionId: string,
+    request: ClaimGroundingConsumeRequest,
+    sourceRunId: string,
+    sourceWindowFingerprint: string,
+    signal?: AbortSignal,
+  ): Promise<ClaimGroundingProposal>;
+  persistClaimGroundingCensus?(
+    sessionId: string,
+    request: ClaimGroundingConsumeRequest,
+    idempotencyKey: string,
+    sourceRunId: string,
+    sourceWindowFingerprint: string,
+    signal?: AbortSignal,
+  ): Promise<ClaimGroundingCensus>;
+  getClaimGroundingCensus?(
+    sessionId: string,
+    censusId: string,
+    signal?: AbortSignal,
+  ): Promise<ClaimGroundingCensus>;
+  recoverClaimGroundingCensus?(
+    sessionId: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ClaimGroundingCensus>;
+  listClaimGroundingCensuses?(
+    sessionId: string,
+    page?: ClaimGroundingCensusPage,
+    signal?: AbortSignal,
+  ): Promise<ClaimGroundingCensusList>;
+  /** Read server-resolved direct-pytest candidates for one exact opportunity. */
+  preflightRequirementVerificationObservedCheck?(
+    sessionId: string,
+    opportunitySetFingerprint: string,
+    opportunityId: string,
+    request: ObservedCheckCandidateRequest,
+    signal?: AbortSignal,
+  ): Promise<ObservedCheckCandidateManifest>;
+  /** Open one exact candidate for native local review; no result is issued. */
+  reviewRequirementVerificationObservedCheck?(
+    sessionId: string,
+    opportunitySetFingerprint: string,
+    opportunityId: string,
+    candidateId: string,
+    request: ObservedCheckReviewCommand,
+    signal?: AbortSignal,
+  ): Promise<ObservedCheckCriterionReview>;
+  /** Issue the server-derived result only after the native review receipt. */
+  issueRequirementVerificationObservedCheck?(
+    sessionId: string,
+    opportunitySetFingerprint: string,
+    opportunityId: string,
+    candidateId: string,
+    request: ObservedCheckResultIssueCommand,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementVerificationEvidenceMutation>;
   listCandidates(
     status?: CandidateStatusFilter,
     signal?: AbortSignal,

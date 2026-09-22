@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AnalysisJobRecord,
   AnalysisJobState,
@@ -78,16 +78,33 @@ function statusOf(error: unknown): number | null {
     : null;
 }
 
+function isAuthoritativeMissingJob(error: unknown): boolean {
+  return statusOf(error) === 404 && reasonCodeOf(error) === "analysis_job_not_found";
+}
+
+type JobReadOwner = {
+  transport: PromptEnhancerTransport;
+  generation: number;
+};
+
+type CancelRequest = {
+  controller: AbortController;
+  jobId: string;
+  transport: PromptEnhancerTransport;
+};
+
+type PendingRefreshFocus = {
+  jobId: string;
+  owner: JobReadOwner;
+};
+
 function safeJobError(error: unknown, operation: "list" | "detail" | "cancel"): string {
   const reason = reasonCodeOf(error);
-  if (reason === "analysis_job_not_found") {
+  if (isAuthoritativeMissingJob(error)) {
     return "This content-free job record no longer exists. Refresh the local queue.";
   }
   if (reason === "analysis_job_conflict") {
     return "The job changed before cancellation was applied. Refresh its current state.";
-  }
-  if (statusOf(error) === 404) {
-    return "This content-free job record is no longer available.";
   }
   if (statusOf(error) === 409) {
     return "The job changed while this action was pending. Refresh before trying again.";
@@ -198,27 +215,121 @@ export function AnalysisJobCentre({
   const [cancelling, setCancelling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [autoRetryExhausted, setAutoRetryExhausted] = useState(false);
-  const cancelController = useRef<AbortController | null>(null);
+  const [missingJobNotice, setMissingJobNotice] = useState("");
+  const [queueReadsPaused, setQueueReadsPaused] = useState(false);
+  const [identityConflictJobId, setIdentityConflictJobId] = useState<string | null>(null);
+  const [pendingRefreshFocus, setPendingRefreshFocus] = useState<PendingRefreshFocus | null>(null);
+  const cancelRequest = useRef<CancelRequest | null>(null);
+  const listController = useRef<AbortController | null>(null);
+  const detailController = useRef<AbortController | null>(null);
+  const listTimer = useRef<number | null>(null);
+  const refreshQueueRef = useRef<HTMLButtonElement | null>(null);
+  const detailPanelRef = useRef<HTMLElement | null>(null);
+  const cancelFocusOrigin = useRef<string | null>(null);
   const listFailureRef = useRef(0);
   const jobsRef = useRef<AnalysisJobRecord[] | null>(null);
+  const selectedJobIdRef = useRef<string | null>(selectedJobId);
   jobsRef.current = jobs;
+  selectedJobIdRef.current = selectedJobId;
 
   const localAvailable = runtimeMode === "local_real" && serviceState === "available";
+  const readOwnerRef = useRef<JobReadOwner>({ transport, generation: 0 });
+  if (readOwnerRef.current.transport !== transport) {
+    readOwnerRef.current = {
+      transport,
+      generation: readOwnerRef.current.generation + 1,
+    };
+  }
   const selectedSummary = useMemo(
     () => jobs?.find((job) => job.job_id === selectedJobId) ?? null,
     [jobs, selectedJobId],
   );
   const selected = detail?.job_id === selectedJobId ? detail : selectedSummary;
+  const selectedIdentityContradicted = selected !== null && identityConflictJobId === selected.job_id;
+
+  function focusBelongsToJob(activeElement: Element | null, jobId: string): boolean {
+    const focusedCard = activeElement instanceof HTMLElement
+      ? activeElement.closest<HTMLButtonElement>(".analysis-job-card")
+      : null;
+    return focusedCard?.dataset.jobId === jobId ||
+      detailPanelRef.current?.contains(activeElement) === true;
+  }
+
+  const invalidateJobReads = useCallback((): JobReadOwner => {
+    const owner = readOwnerRef.current;
+    listController.current?.abort();
+    listController.current = null;
+    detailController.current?.abort();
+    detailController.current = null;
+    if (listTimer.current !== null) {
+      window.clearTimeout(listTimer.current);
+      listTimer.current = null;
+    }
+    const nextOwner = { transport: owner.transport, generation: owner.generation + 1 };
+    readOwnerRef.current = nextOwner;
+    setLoading(false);
+    setDetailLoading(false);
+    return nextOwner;
+  }, []);
+
+  const retireMissingJob = useCallback((jobId: string, owner: JobReadOwner) => {
+    if (readOwnerRef.current !== owner) return;
+    const activeElement = document.activeElement;
+    const activeIsElsewhere = activeElement !== null &&
+      activeElement !== document.body &&
+      document.contains(activeElement) &&
+      !focusBelongsToJob(activeElement, jobId);
+    const restoreFocus = !activeIsElsewhere && (
+      cancelFocusOrigin.current === jobId || focusBelongsToJob(activeElement, jobId)
+    );
+    cancelFocusOrigin.current = null;
+    const nextOwner = invalidateJobReads();
+    cancelRequest.current?.controller.abort();
+    cancelRequest.current = null;
+    setCancelling(false);
+    jobsRef.current = jobsRef.current?.filter((job) => job.job_id !== jobId) ?? null;
+    setJobs((current) => current?.filter((job) => job.job_id !== jobId) ?? null);
+    setDetail((current) => current?.job_id === jobId ? null : current);
+    setSelectedJobId((current) => current === jobId ? null : current);
+    setConfirmCancel(false);
+    setDetailError("");
+    setActionError("");
+    setIdentityConflictJobId((current) => current === jobId ? null : current);
+    setMissingJobNotice("This job record is no longer available. Refresh the queue to view its current receipts.");
+    setQueueReadsPaused(true);
+    setPendingRefreshFocus(restoreFocus ? { jobId, owner: nextOwner } : null);
+  }, [invalidateJobReads]);
 
   useEffect(() => {
-    cancelController.current?.abort();
-    cancelController.current = null;
+    if (pendingRefreshFocus === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (readOwnerRef.current !== pendingRefreshFocus.owner) {
+        setPendingRefreshFocus(null);
+        return;
+      }
+      const active = document.activeElement;
+      if (active !== null && active !== document.body && document.contains(active)) {
+        setPendingRefreshFocus(null);
+        return;
+      }
+      const refresh = refreshQueueRef.current;
+      if (refresh !== null && !refresh.disabled) refresh.focus();
+      setPendingRefreshFocus(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingRefreshFocus]);
+
+  useEffect(() => {
+    cancelRequest.current?.controller.abort();
+    cancelRequest.current = null;
+    cancelFocusOrigin.current = null;
     setCancelling(false);
     setActionError("");
     setConfirmCancel(false);
     return () => {
-      cancelController.current?.abort();
-      cancelController.current = null;
+      cancelRequest.current?.controller.abort();
+      cancelRequest.current = null;
+      cancelFocusOrigin.current = null;
     };
   }, [localAvailable, selectedJobId, transport]);
 
@@ -230,6 +341,8 @@ export function AnalysisJobCentre({
     setJobs(null);
     setListError("");
     setAutoRetryExhausted(false);
+    setMissingJobNotice("");
+    setQueueReadsPaused(false);
   }, [filter, localAvailable, offset, transport]);
 
   useEffect(() => {
@@ -240,26 +353,32 @@ export function AnalysisJobCentre({
       return;
     }
     const controller = new AbortController();
+    const owner = readOwnerRef.current;
+    listController.current = controller;
     let timer: number | undefined;
     setLoading(true);
     void transport
       .listAnalysisJobs(filter === "all" ? null : filter, PAGE_SIZE, offset, controller.signal)
       .then((page) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || readOwnerRef.current !== owner) return;
         listFailureRef.current = 0;
         setListError("");
         setAutoRetryExhausted(false);
+        setQueueReadsPaused(false);
         setJobs(page.jobs);
         const hasLiveJobs = page.jobs.some((job) => !TERMINAL_STATES.has(job.state));
         if (hasLiveJobs) {
           timer = window.setTimeout(
-            () => setRefreshKey((value) => value + 1),
+            () => {
+              if (readOwnerRef.current === owner) setRefreshKey((value) => value + 1);
+            },
             POLL_INTERVAL_MS,
           );
+          listTimer.current = timer;
         }
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || readOwnerRef.current !== owner) return;
         setListError(safeJobError(error, "list"));
         // Last verified rows are preserved and labelled stale. Only the read is retried,
         // automatically and with a bounded backoff; job commands are never retried here.
@@ -273,16 +392,23 @@ export function AnalysisJobCentre({
           return;
         }
         timer = window.setTimeout(
-          () => setRefreshKey((value) => value + 1),
+          () => {
+            if (readOwnerRef.current === owner) setRefreshKey((value) => value + 1);
+          },
           Math.min(POLL_INTERVAL_MS * 2 ** (failures - 1), MAX_LIST_RETRY_DELAY_MS),
         );
+        listTimer.current = timer;
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted && readOwnerRef.current === owner) setLoading(false);
       });
     return () => {
       controller.abort();
-      if (timer !== undefined) window.clearTimeout(timer);
+      if (listController.current === controller) listController.current = null;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        if (listTimer.current === timer) listTimer.current = null;
+      }
     };
   }, [filter, localAvailable, offset, refreshKey, transport]);
 
@@ -292,29 +418,39 @@ export function AnalysisJobCentre({
       return;
     }
     const controller = new AbortController();
+    const owner = readOwnerRef.current;
+    detailController.current = controller;
     setDetailLoading(true);
     setDetailError("");
     void transport
       .getAnalysisJob(selectedJobId, controller.signal)
       .then((job) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || readOwnerRef.current !== owner) return;
         if (job.job_id !== selectedJobId || (selectedSummary !== null && !hasSameIdentity(selectedSummary.identity, job.identity))) {
           setDetail(null);
           setDetailError(
             "The local job identity changed unexpectedly. Refresh the queue before acting on this receipt.",
           );
+          setIdentityConflictJobId(selectedJobId);
           return;
         }
         setDetail(job);
+        setIdentityConflictJobId((current) => current === selectedJobId ? null : current);
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted) setDetailError(safeJobError(error, "detail"));
+        if (controller.signal.aborted || readOwnerRef.current !== owner) return;
+        if (isAuthoritativeMissingJob(error)) {
+          retireMissingJob(selectedJobId, owner);
+          return;
+        }
+        setDetailError(safeJobError(error, "detail"));
       })
       .finally(() => {
-        if (!controller.signal.aborted) setDetailLoading(false);
+        if (detailController.current === controller) detailController.current = null;
+        if (!controller.signal.aborted && readOwnerRef.current === owner) setDetailLoading(false);
       });
     return () => controller.abort();
-  }, [localAvailable, refreshKey, selectedJobId, selectedSummary, transport]);
+  }, [localAvailable, refreshKey, retireMissingJob, selectedJobId, selectedSummary, transport]);
 
   function changeFilter(value: string) {
     if (value !== "all" && !ANALYSIS_JOB_STATES.includes(value as AnalysisJobState)) return;
@@ -328,25 +464,39 @@ export function AnalysisJobCentre({
   function manualRefresh() {
     // A person-initiated read restarts the bounded automatic retry budget. This issues reads
     // only; it never mutates or retries job commands.
+    invalidateJobReads();
     listFailureRef.current = 0;
     setAutoRetryExhausted(false);
+    setMissingJobNotice("");
+    setQueueReadsPaused(false);
     setRefreshKey((value) => value + 1);
   }
 
   function openJob(jobId: string) {
+    if (selectedJobId !== jobId) setIdentityConflictJobId(null);
     setSelectedJobId(jobId);
     setDetail(null);
     setDetailError("");
     setActionError("");
     setConfirmCancel(false);
+    setMissingJobNotice("");
   }
 
   async function cancelSelected() {
-    if (!selected || cancelController.current || !localAvailable) return;
+    if (!selected || selectedIdentityContradicted || cancelRequest.current || !localAvailable) return;
     const target = selected;
     const controller = new AbortController();
-    cancelController.current = controller;
-    const owns = () => cancelController.current === controller && !controller.signal.aborted;
+    const request: CancelRequest = { controller, jobId: target.job_id, transport };
+    cancelRequest.current = request;
+    cancelFocusOrigin.current = focusBelongsToJob(document.activeElement, target.job_id)
+      ? target.job_id
+      : null;
+    const owns = () => (
+      cancelRequest.current === request &&
+      !controller.signal.aborted &&
+      selectedJobIdRef.current === request.jobId &&
+      readOwnerRef.current.transport === request.transport
+    );
     setCancelling(true);
     setActionError("");
     try {
@@ -356,6 +506,7 @@ export function AnalysisJobCentre({
         setActionError(
           "The cancellation response did not match the selected job identity. Refresh before trying again.",
         );
+        setIdentityConflictJobId(target.job_id);
         return;
       }
       setDetail(updated);
@@ -364,10 +515,16 @@ export function AnalysisJobCentre({
       ) ?? null);
       setConfirmCancel(false);
     } catch (error) {
-      if (owns()) setActionError(safeJobError(error, "cancel"));
+      if (!owns()) return;
+      if (isAuthoritativeMissingJob(error)) {
+        retireMissingJob(target.job_id, readOwnerRef.current);
+        return;
+      }
+      setActionError(safeJobError(error, "cancel"));
     } finally {
       if (owns()) {
-        cancelController.current = null;
+        cancelRequest.current = null;
+        cancelFocusOrigin.current = null;
         setCancelling(false);
       }
     }
@@ -426,7 +583,7 @@ export function AnalysisJobCentre({
         <div className="analysis-job-centre__health" role="status">
           <span aria-hidden="true" />
           <strong>Loopback service available</strong>
-          <small>Auto-refreshes while jobs are live</small>
+          <small>{queueReadsPaused ? "Refresh queue to resume queue reads" : "Auto-refreshes while jobs are live"}</small>
         </div>
       </header>
 
@@ -444,11 +601,19 @@ export function AnalysisJobCentre({
           className="button button--secondary button--compact"
           disabled={loading}
           onClick={manualRefresh}
+          ref={refreshQueueRef}
           type="button"
         >
           {loading ? "Refreshing…" : "Refresh queue"}
         </button>
       </div>
+
+      {missingJobNotice && (
+        <div className="analysis-job-centre__error">
+          <strong>Job no longer available</strong>
+          <span role="alert">{missingJobNotice}</span>
+        </div>
+      )}
 
       {listError && (
         <div className="analysis-job-centre__error" role="alert">
@@ -490,6 +655,7 @@ export function AnalysisJobCentre({
                   <button
                     aria-pressed={selectedJobId === job.job_id}
                     className="analysis-job-card"
+                    data-job-id={job.job_id}
                     key={job.job_id}
                     onClick={() => openJob(job.job_id)}
                     type="button"
@@ -541,7 +707,7 @@ export function AnalysisJobCentre({
           </footer>
         </section>
 
-        <aside aria-label="Selected job detail" className="analysis-job-detail">
+        <aside aria-label="Selected job detail" className="analysis-job-detail" ref={detailPanelRef}>
           {selected === null ? (
             <div className="analysis-job-detail__empty">
               <p className="eyebrow">Exact receipt</p>
@@ -560,7 +726,11 @@ export function AnalysisJobCentre({
                 </StatusPill>
               </header>
               {detailLoading && <p aria-live="polite" className="analysis-job-detail__loading">Verifying current detail…</p>}
-              {detailError && <p className="analysis-job-detail__error" role="alert">{detailError}</p>}
+              {detailError && <p
+                className="analysis-job-detail__error"
+                id={selectedIdentityContradicted ? "analysis-job-identity-conflict" : undefined}
+                role="alert"
+              >{detailError}</p>}
               <p className="analysis-job-detail__explanation">{stateExplanation(selected)}</p>
               <JobProgress job={selected} />
               <dl>
@@ -582,10 +752,24 @@ export function AnalysisJobCentre({
                 </ul>
               </section>
 
-              {actionError && <p className="analysis-job-detail__error" role="alert">{actionError}</p>}
+              {actionError && <p
+                className="analysis-job-detail__error"
+                id={selectedIdentityContradicted && detailError === "" ? "analysis-job-identity-conflict" : undefined}
+                role="alert"
+              >{actionError}</p>}
               {!TERMINAL_STATES.has(selected.state) && !selected.cancel_requested && (
                 <div className="analysis-job-detail__actions">
-                  {confirmCancel ? (
+                  {selectedIdentityContradicted ? (
+                    <button
+                      aria-describedby="analysis-job-identity-conflict"
+                      className="button button--danger-ghost"
+                      disabled
+                      title="Refresh a matching job detail before cancelling"
+                      type="button"
+                    >
+                      Cancel job
+                    </button>
+                  ) : confirmCancel ? (
                     <div aria-label="Confirm job cancellation" role="group">
                       <p>Cancel this exact local job? Completed receipts are not deleted.</p>
                       <button className="button button--danger-ghost" disabled={cancelling} onClick={() => void cancelSelected()} type="button">

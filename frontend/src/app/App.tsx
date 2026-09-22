@@ -1,8 +1,8 @@
-import { FirstRunPanel } from "../features/onboarding/FirstRunPanel";
 import {
   Component,
   Suspense,
   useEffect,
+  useCallback,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -15,14 +15,13 @@ import type { TeamControlPlanePort } from "../shared/api/teamControlPlane";
 import { composeTeamControlPlanePort } from "../shared/api/teamControlPlaneRuntime";
 import type { SocialHubPort } from "../shared/api/socialHubSchema";
 import { composeSocialHubPort } from "../shared/api/socialHubRuntime";
-import type { AppRoute, PlatformAdapter } from "../shared/platform/platform";
+import type { AppRoute, PlatformAdapter, PlatformNavigationAttempt } from "../shared/platform/platform";
 import { routePath } from "../shared/platform/platform";
 import type {
   RuntimeComposition,
   RuntimeDataMode,
   RuntimeServiceState,
 } from "../shared/platform/runtimeMode";
-import { DiscoveryInbox } from "../features/discovery-inbox/DiscoveryInbox";
 import type { ProjectWorkspaceRoute } from "../features/project-workspace";
 import { Icon, type IconName } from "../shared/ui/Icon";
 import { ThemeToggle } from "../shared/ui/ThemeToggle";
@@ -32,6 +31,34 @@ import { Dialog } from "../shared/ui/Dialog";
 import { retryableLazy as lazy, RouteLoadAttempt } from "../shared/ui/retryableLazy";
 import { routeMetadata } from "./appRouteManifest";
 import { ApplicationUpdateControl } from "./ApplicationUpdateControl";
+import type { AgentChatSetupIntent } from "../features/agent/agentChatSetupIntent";
+import { sameAgentExitRisk, type AgentExitRisk } from "../features/agent/agentExitRisk";
+
+type PendingAgentChatSetupIntent = AgentChatSetupIntent & {
+  platform: PlatformAdapter;
+  transport: PromptEnhancerTransport;
+};
+
+type PendingExitRiskNavigation = {
+  source: "models" | "agent";
+  attempt: PlatformNavigationAttempt | null;
+  platform: PlatformAdapter;
+  route: AppRoute;
+  sourceRoute: AppRoute;
+  transport: PromptEnhancerTransport;
+};
+
+type ForeignExitRiskNavigationNotice = Pick<PendingExitRiskNavigation, "platform" | "source" | "sourceRoute" | "transport"> & {
+  sourceIdentity: string;
+};
+
+function leavesExitRiskScreen(current: AppRoute, next: AppRoute): boolean {
+  if (current.name !== next.name) return true;
+  // Normal and dedicated Agent windows mount different workbenches. Switching
+  // between them can discard in-memory composer state, unlike a normal
+  // same-Agent selection which preserves the mounted component.
+  return current.name === "agent" && next.name === "agent" && Boolean(current.window) !== Boolean(next.window);
+}
 
 const AnalysisJobCentreScreen = lazy(() =>
   import("../features/analysis-job-centre").then((module) => ({
@@ -102,6 +129,11 @@ const TaskFlowScreen = lazy(() =>
 const SocialHubScreen = lazy(() =>
   import("../features/social").then((module) => ({
     default: module.SocialHubPage,
+  })),
+);
+const DiscoveryScreen = lazy(() =>
+  import("./DiscoveryScreen").then((module) => ({
+    default: module.DiscoveryScreen,
   })),
 );
 
@@ -403,6 +435,8 @@ export function App({
   runtime,
   teamControlPlane,
   socialHub,
+  onReloadBlockedChange,
+  interfaceRefreshNotice,
 }: {
   platform: PlatformAdapter;
   runtime: RuntimeComposition;
@@ -410,9 +444,68 @@ export function App({
   teamControlPlane?: TeamControlPlanePort;
   /** Defaults to the honest social port for the runtime; a fixture can never cross into local real. */
   socialHub?: SocialHubPort;
+  onReloadBlockedChange?: (blocked: boolean) => void;
+  interfaceRefreshNotice?: ReactNode;
 }) {
   const transport: PromptEnhancerTransport = runtime.transport;
   const [route, setRoute] = useState<AppRoute>(() => platform.currentRoute());
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  const routeIdentity = routePath(route);
+  const [temporaryModelsChatDirty, setTemporaryModelsChatDirty] = useState(false);
+  const [agentExitRisk, setAgentExitRisk] = useState<AgentExitRisk | null>(null);
+  const agentExitRiskRef = useRef<AgentExitRisk | null>(null);
+  const temporaryModelsChatDirtyRef = useRef(false);
+  temporaryModelsChatDirtyRef.current = temporaryModelsChatDirty;
+  const [pendingExitRiskNavigation, setPendingExitRiskNavigation] = useState<PendingExitRiskNavigation | null>(null);
+  const [foreignExitRiskNavigationNotice, setForeignExitRiskNavigationNotice] = useState<ForeignExitRiskNavigationNotice | null>(null);
+  const pendingExitRiskNavigationRef = useRef<PendingExitRiskNavigation | null>(null);
+  pendingExitRiskNavigationRef.current = pendingExitRiskNavigation;
+  const activePendingExitRiskNavigation = pendingExitRiskNavigation?.platform === platform
+    && pendingExitRiskNavigation.transport === transport ? pendingExitRiskNavigation : null;
+  const activeForeignExitRiskNavigationNotice = foreignExitRiskNavigationNotice?.platform === platform
+    && foreignExitRiskNavigationNotice.transport === transport
+    && foreignExitRiskNavigationNotice.sourceIdentity === routeIdentity
+    ? foreignExitRiskNavigationNotice
+    : null;
+  const modelsOwner = useMemo(() => ({ platform, transport }), [platform, transport]);
+  const modelsOwnerRef = useRef(modelsOwner);
+  modelsOwnerRef.current = modelsOwner;
+  const onTemporaryModelsChatDirtyChange = useCallback((owner: typeof modelsOwner, dirty: boolean) => {
+    if (modelsOwnerRef.current !== owner) return;
+    setTemporaryModelsChatDirty(dirty);
+  }, []);
+  const agentOwner = useMemo(() => ({
+    platform,
+    transport,
+    routeIdentity: route.name === "agent" ? routeIdentity : null,
+  }), [platform, route.name, routeIdentity, transport]);
+  const agentOwnerRef = useRef(agentOwner);
+  const agentRiskRouteRef = useRef<string | null>(route.name === "agent" ? routeIdentity : null);
+  if (agentOwnerRef.current !== agentOwner || agentRiskRouteRef.current !== (route.name === "agent" ? routeIdentity : null)) {
+    // A newly mounted Agent (or a replaced platform/transport owner) is
+    // deliberately unknown until that owner reports. Do this during render so
+    // there is no event gap before the layout-effect reload fence runs.
+    agentExitRiskRef.current = null;
+    agentRiskRouteRef.current = route.name === "agent" ? routeIdentity : null;
+  }
+  agentOwnerRef.current = agentOwner;
+  const onAgentExitRiskChange = useCallback((owner: typeof agentOwner, risk: AgentExitRisk) => {
+    if (agentOwnerRef.current !== owner) return;
+    if (sameAgentExitRisk(agentExitRiskRef.current, risk)) return;
+    agentExitRiskRef.current = risk;
+    setAgentExitRisk(risk);
+  }, []);
+  const reportAgentExitRisk = useCallback((risk: AgentExitRisk) => {
+    onAgentExitRiskChange(agentOwner, risk);
+  }, [agentOwner, onAgentExitRiskChange]);
+  const [agentChatSetupIntent, setAgentChatSetupIntent] = useState<PendingAgentChatSetupIntent | null>(null);
+  const nextAgentChatSetupIntentId = useRef(0);
+  const agentChatSetupNavigationPending = useRef(false);
+  const activeAgentChatSetupIntent = agentChatSetupIntent?.platform === platform
+    && agentChatSetupIntent.transport === transport
+    ? agentChatSetupIntent
+    : null;
   const compactShell = useCompactShellViewport(route.name);
   const teamPort = useMemo(
     () => composeTeamControlPlanePort(runtime.mode, teamControlPlane),
@@ -422,7 +515,6 @@ export function App({
     () => composeSocialHubPort(runtime.mode, socialHub),
     [runtime.mode, socialHub],
   );
-  const routeIdentity = routePath(route);
   const routeContextRef = useRef({
     identity: routeIdentity,
     projectWorkspace: isProjectWorkspaceRoute(route),
@@ -455,7 +547,68 @@ export function App({
   const coverageProvider: Provider =
     runtime.mode === "synthetic_demo" ? "synthetic" : "codex";
 
-  useEffect(() => platform.subscribe(setRoute), [platform]);
+  useEffect(() => platform.subscribe((nextRoute) => {
+    // A retained foreign-history notice belongs only to the still-mounted
+    // source screen. Clear it synchronously on every route transition so a
+    // batched away-and-back platform update cannot revive an old callback.
+    if (routePath(nextRoute) !== routePath(routeRef.current)) {
+      setForeignExitRiskNavigationNotice(null);
+    }
+    setRoute(nextRoute);
+  }), [platform]);
+
+  useEffect(() => {
+    if (pendingExitRiskNavigation !== null && activePendingExitRiskNavigation === null) {
+      pendingExitRiskNavigationRef.current = null;
+      setPendingExitRiskNavigation(null);
+    }
+  }, [activePendingExitRiskNavigation, pendingExitRiskNavigation]);
+
+  useEffect(() => {
+    if (foreignExitRiskNavigationNotice !== null && activeForeignExitRiskNavigationNotice === null) {
+      setForeignExitRiskNavigationNotice(null);
+    }
+  }, [activeForeignExitRiskNavigationNotice, foreignExitRiskNavigationNotice]);
+
+  useEffect(() => platform.subscribeNavigationAttempt?.((attempt) => {
+    const source: PendingExitRiskNavigation["source"] | null = routeRef.current.name === "models" && temporaryModelsChatDirtyRef.current && leavesExitRiskScreen(routeRef.current, attempt.route)
+      ? "models"
+      : routeRef.current.name === "agent" && Boolean(agentExitRiskRef.current?.hasUnsavedChanges) && leavesExitRiskScreen(routeRef.current, attempt.route)
+        ? "agent"
+        : null;
+    if (source === null) return true;
+    const pending = { attempt, platform, route: attempt.route, source, sourceRoute: routeRef.current, transport };
+    pendingExitRiskNavigationRef.current = pending;
+    setPendingExitRiskNavigation(pending);
+    return false;
+  }) ?? (() => undefined), [platform, transport]);
+
+  useEffect(() => {
+    if (route.name !== "models") setTemporaryModelsChatDirty(false);
+  }, [route.name]);
+  useLayoutEffect(() => {
+    const currentAgentRisk = agentExitRiskRef.current;
+    onReloadBlockedChange?.(temporaryModelsChatDirty || (route.name === "agent" && (
+      currentAgentRisk === null || currentAgentRisk.hasUnsavedChanges || currentAgentRisk.hasActiveWork
+    )));
+  }, [agentExitRisk, agentOwner, onReloadBlockedChange, route.name, temporaryModelsChatDirty]);
+
+  useEffect(() => {
+    if (agentChatSetupIntent === null) return;
+    if (agentChatSetupIntent.platform !== platform || agentChatSetupIntent.transport !== transport) {
+      agentChatSetupNavigationPending.current = false;
+      setAgentChatSetupIntent(null);
+      return;
+    }
+    if (route.name === "agent") {
+      agentChatSetupNavigationPending.current = false;
+      return;
+    }
+    // Setting the intent and asking the platform to navigate can be observed in
+    // separate renders by an asynchronous host. Preserve only that handoff;
+    // Back/forward or any later non-Agent route discards it.
+    if (!agentChatSetupNavigationPending.current) setAgentChatSetupIntent(null);
+  }, [agentChatSetupIntent, platform, route.name, transport]);
 
   useEffect(() => {
     const enteredLabs = isLabsRoute && previousLabsRouteRef.current !== routeIdentity;
@@ -586,12 +739,54 @@ export function App({
     return () => controller.abort();
   }, [runtime, serviceRetry]);
 
-  function navigate(next: AppRoute) {
+  function navigate(next: AppRoute, bypassExitRiskGuard = false) {
+    if (pendingExitRiskNavigationRef.current !== null && !bypassExitRiskGuard) return;
+    if (
+      !bypassExitRiskGuard
+      && (routeRef.current.name === "models" || routeRef.current.name === "agent")
+      && leavesExitRiskScreen(routeRef.current, next)
+      && (routeRef.current.name === "models" ? temporaryModelsChatDirtyRef.current : Boolean(agentExitRiskRef.current?.hasUnsavedChanges))
+    ) {
+      const source: PendingExitRiskNavigation["source"] = routeRef.current.name === "models" ? "models" : "agent";
+      const pending = { attempt: null, platform, route: next, source, sourceRoute: routeRef.current, transport };
+      pendingExitRiskNavigationRef.current = pending;
+      setPendingExitRiskNavigation(pending);
+      return;
+    }
     latestTaskControllerRef.current?.abort();
     latestTaskControllerRef.current = null;
     setLatestTaskPending(false);
     setNavigationNotice("");
+    setForeignExitRiskNavigationNotice(null);
+    if (next.name !== "agent") {
+      agentChatSetupNavigationPending.current = false;
+      setAgentChatSetupIntent(null);
+    }
     platform.navigate(next);
+  }
+
+  function openAgentChatSetup(modelAlias: string | null): void {
+    const requestId = nextAgentChatSetupIntentId.current + 1;
+    nextAgentChatSetupIntentId.current = requestId;
+    // This is transient UI state only: no URL/history entry and no session or
+    // runtime request are made until the owner completes Agent setup.
+    agentChatSetupNavigationPending.current = true;
+    setAgentChatSetupIntent({ requestId, modelAlias, platform, transport });
+    navigate({ name: "agent" }, true);
+  }
+
+  function keepExitRiskChanges(): void {
+    if (activePendingExitRiskNavigation?.attempt?.canRestore === false) {
+      setForeignExitRiskNavigationNotice({
+        platform: activePendingExitRiskNavigation.platform,
+        source: activePendingExitRiskNavigation.source,
+        sourceIdentity: routePath(activePendingExitRiskNavigation.sourceRoute),
+        sourceRoute: activePendingExitRiskNavigation.sourceRoute,
+        transport: activePendingExitRiskNavigation.transport,
+      });
+    }
+    pendingExitRiskNavigationRef.current = null;
+    setPendingExitRiskNavigation(null);
   }
 
   function selectFromMobileNavigation(item: PrimaryNavigationItem) {
@@ -772,10 +967,69 @@ export function App({
         ? "Local service available"
         : "Local service unavailable";
 
+  const exitRiskDialog = (
+    <Dialog
+      closeLabel="Close unsaved changes warning"
+      description={activePendingExitRiskNavigation?.source === "agent"
+        ? activePendingExitRiskNavigation?.attempt?.canRestore === false
+          ? "The browser address changed outside Prompt Enhancer's owned history. Your Agent changes remain open, but the address cannot be restored automatically."
+          : "This Agent chat has unsaved work. Leaving discards only in-memory drafts or manual edits; it does not stop a backend chat or erase saved sessions."
+        : activePendingExitRiskNavigation?.attempt?.canRestore === false
+          ? "The browser address changed outside Prompt Enhancer's owned history. Your temporary Models chat is still open, but the address cannot be restored automatically."
+          : "Your temporary Models chat has an unsent draft, reply, or retry. Leaving it discards that in-memory content."}
+      onClose={keepExitRiskChanges}
+      open={activePendingExitRiskNavigation !== null}
+      title={activePendingExitRiskNavigation?.source === "agent" ? "Keep Agent changes?" : "Keep temporary Models chat?"}
+    >
+      <p>{activePendingExitRiskNavigation?.source === "agent" ? "No Agent command, send, stop, or session deletion has been performed." : "Nothing has been copied into an Agent chat."}</p>
+      <div className="dialog__actions">
+        <button className="button button--ghost" onClick={keepExitRiskChanges} type="button">
+          {activePendingExitRiskNavigation?.source === "agent" ? "Keep Agent changes" : "Keep temporary chat"}
+        </button>
+        {activePendingExitRiskNavigation?.attempt?.canRestore === false && (
+          <button className="button button--secondary" onClick={() => {
+            const pending = pendingExitRiskNavigationRef.current;
+            if (pending === null) return;
+            pendingExitRiskNavigationRef.current = null;
+            setPendingExitRiskNavigation(null);
+            setForeignExitRiskNavigationNotice(null);
+            navigate(pending.sourceRoute, true);
+          }} type="button">
+            {activePendingExitRiskNavigation.source === "agent" ? "Return to Agent" : "Return to Models"}
+          </button>
+        )}
+        <button className="button button--primary" onClick={() => {
+          const pending = pendingExitRiskNavigationRef.current;
+          if (pending === null || pending.platform !== platform || pending.transport !== transport) return;
+          pendingExitRiskNavigationRef.current = null;
+          setPendingExitRiskNavigation(null);
+          if (pending.attempt) pending.attempt.resume();
+          else navigate(pending.route, true);
+        }} type="button">
+          {activePendingExitRiskNavigation?.source === "agent" ? "Discard Agent changes and continue" : "Discard temporary chat and continue"}
+        </button>
+      </div>
+    </Dialog>
+  );
+  const foreignExitRiskNotice = activeForeignExitRiskNavigationNotice ? (
+    <div className="navigation-notice" role="status">
+      The browser address changed outside app-owned history. Your {activeForeignExitRiskNavigationNotice.source === "agent" ? "Agent changes" : "temporary Models chat"} are still open.
+      <button className="button button--ghost" onClick={() => {
+        const notice = activeForeignExitRiskNavigationNotice;
+        setForeignExitRiskNavigationNotice(null);
+        navigate(notice.sourceRoute, true);
+      }} type="button">
+        {activeForeignExitRiskNavigationNotice.source === "agent" ? "Return to Agent" : "Return to Models"}
+      </button>
+    </div>
+  ) : null;
+
   if (route.name === "agent" && route.window) {
     // Chrome-less agent window: the workspace chat alone, like a second editor pane.
     return (
       <div className="app-shell app-shell--live app-shell--agent-window" data-layout="agent-window">
+        {interfaceRefreshNotice && <div className="app-shell__interface-notice">{interfaceRefreshNotice}</div>}
+        {foreignExitRiskNotice}
         <main id="main-content" tabIndex={-1}>
           <RouteErrorBoundary
             exitLabel="Return to Agent"
@@ -783,10 +1037,11 @@ export function App({
             resetKey={routeIdentity}
           >
             <Suspense fallback={<RouteLoading route={route} />}>
-              <AgentScreen sessionId={route.sessionId} transport={transport} windowMode />
+              <AgentScreen onExitRiskChange={reportAgentExitRisk} sessionId={route.sessionId} transport={transport} windowMode />
             </Suspense>
           </RouteErrorBoundary>
         </main>
+        {exitRiskDialog}
       </div>
     );
   }
@@ -795,6 +1050,7 @@ export function App({
     // Chrome-less mini window: no sidebar, no header - just the live view.
     return (
       <div className="app-shell app-shell--live" data-layout="live-window">
+        {interfaceRefreshNotice && <div className="app-shell__interface-notice">{interfaceRefreshNotice}</div>}
         <main id="main-content" tabIndex={-1}>
           <RouteErrorBoundary
             exitLabel="Return to Discovery"
@@ -917,6 +1173,8 @@ export function App({
           </div>
         </header>
         {navigationNotice && <div className="navigation-notice" role="status">{navigationNotice}</div>}
+        {interfaceRefreshNotice && <div className="app-shell__interface-notice">{interfaceRefreshNotice}</div>}
+        {foreignExitRiskNotice}
         <main id="main-content" tabIndex={-1}>
           <RouteErrorBoundary
             exitLabel="Return to Discovery"
@@ -925,26 +1183,41 @@ export function App({
           >
             <Suspense fallback={<RouteLoading route={route} />}>
               {route.name === "discovery" ? (
-                <>
-                  <FirstRunPanel navigate={navigate} transport={transport} />
-                  <DiscoveryInbox
-                    navigate={navigate}
-                    onUndecidedCountChange={setUndecidedCount}
-                    transport={transport}
-                  />
-                </>
+                <DiscoveryScreen
+                  navigate={navigate}
+                  onUndecidedCountChange={setUndecidedCount}
+                  transport={transport}
+                />
               ) : route.name === "sessions" ? (
                 <SessionsScreen navigate={navigate} runtimeMode={runtime.mode} transport={transport} />
               ) : route.name === "calibration" ? (
                 <CalibrationScreen transport={transport} />
               ) : route.name === "models" ? (
-                <LocalModelsScreen transport={transport} />
+                <LocalModelsScreen
+                  onOpenAgentChat={openAgentChatSetup}
+                  onTemporaryChatDirtyChange={(dirty) => onTemporaryModelsChatDirtyChange(modelsOwner, dirty)}
+                  transport={transport}
+                />
               ) : route.name === "prompt_checks" ? (
                 <PromptChecksScreen checkId={route.checkId} navigate={navigate} sessionId={route.sessionId} transport={transport} />
               ) : route.name === "overview" ? (
                 <OverviewScreen navigate={navigate} runtimeMode={runtime.mode} transport={transport} />
               ) : route.name === "agent" ? (
-                <AgentScreen sessionId={route.sessionId} transport={transport} />
+                <AgentScreen
+                  newChatIntent={activeAgentChatSetupIntent}
+                  onExitRiskChange={reportAgentExitRisk}
+                  onNewChatIntentConsumed={(requestId) => {
+                    setAgentChatSetupIntent((current) => (
+                      current?.requestId === requestId
+                      && current.platform === platform
+                      && current.transport === transport
+                        ? null
+                        : current
+                    ));
+                  }}
+                  sessionId={route.sessionId}
+                  transport={transport}
+                />
               ) : route.name === "not_found" ? (
                 <section className="not-found-page" aria-labelledby="not-found-title">
                   <header className="page-header route-header">
@@ -1085,6 +1358,7 @@ export function App({
           <p>Private local status · no automatic update traffic</p>
         </div>
       </Dialog>
+      {exitRiskDialog}
     </div>
   );
 }

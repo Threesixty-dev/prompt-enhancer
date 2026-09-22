@@ -2565,6 +2565,12 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
   box-shadow: var(--shadow-sm);
 }
 .project-catalog__controls .field { margin: 0; }
+.project-catalog__paging-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
 .project-catalog__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3500,6 +3506,7 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
   .project-catalog__header { align-items: flex-start; flex-direction: column; }
   .project-catalog__controls,
   .project-catalog__grid { grid-template-columns: 1fr; }
+  .project-catalog__paging-actions { align-items: stretch; }
   .project-catalog-card > button { padding-right: 82px; }
   .project-catalog-card__select { right: 10px; }
   .project-catalog__selection { align-items: stretch; flex-direction: column; gap: 8px; }

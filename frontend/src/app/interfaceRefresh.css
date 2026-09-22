@@ -1,0 +1,20 @@
+/* A dedicated Agent window normally gives its workspace the viewport height.
+   Reserve the notice row only when a real refresh notice is mounted. */
+@media (min-width: 901px) {
+  .app-shell--agent-window:has(.ui-revision-notice) {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .app-shell--agent-window:has(.ui-revision-notice) > main {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .app-shell--agent-window:has(.ui-revision-notice) .agent--window {
+    height: 100%;
+    min-height: 0;
+  }
+}

@@ -19,6 +19,10 @@ class CodexTransportTimeout(CodexTransportError):
     """A bounded local transport operation timed out."""
 
 
+class CodexTransportCleanupUnconfirmed(CodexTransportError):
+    """The owned local helper could not be confirmed stopped after a read."""
+
+
 class CodexProtocolViolation(CodexAdapterError):
     """The peer violated the deliberately narrow read-only protocol."""
 

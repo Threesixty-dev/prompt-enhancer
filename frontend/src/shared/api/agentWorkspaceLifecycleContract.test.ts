@@ -16,6 +16,7 @@ import {
 const SESSION = "a".repeat(32);
 const PREVIEW = "b".repeat(32);
 const REVISION = "c".repeat(64);
+const CONTRACT_VERSION = "local-agent-workspace-lifecycle.v1" as const;
 
 describe("agent workspace lifecycle response contract", () => {
   it("binds a reviewed create preview and receipt to exact authority", () => {
@@ -158,9 +159,69 @@ describe("agent workspace lifecycle response contract", () => {
       contents_reviewed: false,
       operation: "directory_moved",
       applied: true,
+      artifact_projection: "complete",
+      artifact_versions_advanced: 2,
     }, SESSION, preview);
     expect(result.operation).toBe("directory_moved");
     expect(result.contents_reviewed).toBe(false);
+    expect(result.artifact_projection).toBe("complete");
+    expect(result.artifact_versions_advanced).toBe(2);
+  });
+
+  it.each([
+    ["not applicable", "not_applicable", 0],
+    ["recovery required", "recovery_required", 0],
+  ] as const)("accepts directory move projection state: %s", (_label, artifact_projection, artifact_versions_advanced) => {
+    const preview = parseAgentWorkspaceDirectoryMovePreview({
+      contract_version: CONTRACT_VERSION,
+      session_id: SESSION,
+      preview_id: PREVIEW,
+      source_path: "notes/guides",
+      target_path: "archive/guides",
+      contents_reviewed: false,
+      expires_at: "2026-08-27T08:02:00Z",
+    }, SESSION, "notes/guides", "archive/guides");
+    const result = parseAgentWorkspaceDirectoryMoveResult({
+      contract_version: CONTRACT_VERSION,
+      session_id: SESSION,
+      source_path: "notes/guides",
+      target_path: "archive/guides",
+      contents_reviewed: false,
+      operation: "directory_moved",
+      applied: true,
+      artifact_projection,
+      artifact_versions_advanced,
+    }, SESSION, preview);
+    expect(result.artifact_projection).toBe(artifact_projection);
+    expect(result.artifact_versions_advanced).toBe(artifact_versions_advanced);
+  });
+
+  it.each([
+    ["missing projection", { artifact_projection: undefined, artifact_versions_advanced: 0 }],
+    ["complete without versions", { artifact_projection: "complete", artifact_versions_advanced: 0 }],
+    ["negative versions", { artifact_projection: "recovery_required", artifact_versions_advanced: -1 }],
+    ["too many versions", { artifact_projection: "complete", artifact_versions_advanced: 101 }],
+    ["unknown projection", { artifact_projection: "changed", artifact_versions_advanced: 0 }],
+  ])("rejects invalid directory move artifact projection: %s", (_label, projection) => {
+    const preview = parseAgentWorkspaceDirectoryMovePreview({
+      contract_version: CONTRACT_VERSION,
+      session_id: SESSION,
+      preview_id: PREVIEW,
+      source_path: "notes/guides",
+      target_path: "archive/guides",
+      contents_reviewed: false,
+      expires_at: "2026-08-27T08:02:00Z",
+    }, SESSION, "notes/guides", "archive/guides");
+    expect(() => parseAgentWorkspaceDirectoryMoveResult({
+      contract_version: CONTRACT_VERSION,
+      session_id: SESSION,
+      source_path: "notes/guides",
+      target_path: "archive/guides",
+      contents_reviewed: false,
+      operation: "directory_moved",
+      applied: true,
+      ...projection,
+    }, SESSION, preview)).toThrow(AgentWorkspaceLifecyclePayloadError);
   });
 
   it.each([

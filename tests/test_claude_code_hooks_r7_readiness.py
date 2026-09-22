@@ -530,16 +530,18 @@ def test_composed_hook_projection_uses_exact_hook_provenance_and_mismatch_fails_
         strict.project(provider=Provider.CLAUDE_CODE, session_id=session_id)
 
 
-def test_operability_partition_remains_16_0_4_with_no_r7_promotion() -> None:
+def test_operability_partition_is_17_0_3_without_hook_only_promotion() -> None:
     catalog = metric_operability_catalog()
     assert (
         catalog.shipped_path_count,
         catalog.task_profile_configuration_gap_count,
         catalog.provider_adapter_gap_count,
-    ) == (16, 0, 4)
+    ) == (17, 0, 3)
     action = next(
         item
         for item in catalog.entries
         if item.metric_key == "logic.requirement_action_traceability"
     )
-    assert action.shipped_path_state is MetricShippedPathState.PROVIDER_ADAPTER_REQUIRED
+    assert action.shipped_path_state is (
+        MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
+    )

@@ -73,6 +73,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/catalog/sessions/message-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search Catalog Messages */
+        post: operations["search_catalog_messages_v1_agent_catalog_sessions_message_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/catalog/sessions/page": {
         parameters: {
             query?: never;
@@ -749,6 +766,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/sessions/{session_id}/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Session Parameters */
+        put: operations["update_session_parameters_v1_agent_sessions__session_id__parameters_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/sessions/{session_id}/stop": {
         parameters: {
             query?: never;
@@ -1100,6 +1134,26 @@ export interface paths {
         put?: never;
         /** Propose Write Transaction */
         post: operations["propose_write_transaction_v1_agent_sessions__session_id__write_transaction_proposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/web-fetch-capability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Web Fetch Capability
+         * @description Content-free availability only; it never grants per-fetch authority.
+         */
+        get: operations["web_fetch_capability_v1_agent_web_fetch_capability_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3672,6 +3726,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/claim-grounding-review/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Begin */
+        post: operations["begin_v1_sessions__session_id__claim_grounding_review_begin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/claim-grounding-review/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Consume */
+        post: operations["consume_v1_sessions__session_id__claim_grounding_review_consume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/claim-grounding-review/links/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Begin */
+        post: operations["begin_v1_sessions__session_id__claim_grounding_review_links_begin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/claim-grounding-review/links/candidates/{census_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Candidates */
+        get: operations["candidates_v1_sessions__session_id__claim_grounding_review_links_candidates__census_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/claim-grounding-review/persist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Persist */
+        post: operations["persist_v1_sessions__session_id__claim_grounding_review_persist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/claim-grounding-review/recovery-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recovery */
+        get: operations["recovery_v1_sessions__session_id__claim_grounding_review_recovery_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/claim-grounding-review/saved-census/{census_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Saved */
+        get: operations["get_saved_v1_sessions__session_id__claim_grounding_review_saved_census__census_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/claim-grounding-review/saved-censuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Saved */
+        get: operations["list_saved_v1_sessions__session_id__claim_grounding_review_saved_censuses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/declared-task-profile": {
         parameters: {
             query?: never;
@@ -3930,6 +4120,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/requirement-action-evidence/guided-authoring/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Guided Authoring Proposal */
+        post: operations["create_guided_authoring_proposal_v1_sessions__session_id__requirement_action_evidence_guided_authoring_proposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-action-evidence/guided-authoring/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open Guided Authoring */
+        post: operations["open_guided_authoring_v1_sessions__session_id__requirement_action_evidence_guided_authoring_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/requirement-action-evidence/import": {
         parameters: {
             query?: never;
@@ -4026,6 +4250,40 @@ export interface paths {
         get: operations["contract_v1_sessions__session_id__requirement_plan_evidence_contract_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-plan-evidence/guided-authoring/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Guided Proposal */
+        post: operations["create_guided_proposal_v1_sessions__session_id__requirement_plan_evidence_guided_authoring_proposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-plan-evidence/guided-authoring/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open Guided Authoring */
+        post: operations["open_guided_authoring_v1_sessions__session_id__requirement_plan_evidence_guided_authoring_review_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4151,6 +4409,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/requirement-verification-evidence/objective-results/{authority_record_id}/observed-check-provenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Observed Check Provenance */
+        get: operations["observed_check_provenance_v1_sessions__session_id__requirement_verification_evidence_objective_results__authority_record_id__observed_check_provenance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/current": {
         parameters: {
             query?: never;
@@ -4179,6 +4454,74 @@ export interface paths {
         get: operations["snapshot_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/observed-checks/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Observed Check Preflight */
+        post: operations["observed_check_preflight_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__observed_checks_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/observed-checks/{candidate_id}/issue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue Observed Check */
+        post: operations["issue_observed_check_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__observed_checks__candidate_id__issue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/observed-checks/{candidate_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Observed Check */
+        post: operations["review_observed_check_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__observed_checks__candidate_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Opportunity */
+        post: operations["review_opportunity_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__review_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6479,6 +6822,85 @@ export interface components {
             /** Width */
             width?: number | null;
         };
+        /**
+         * AgentMessageSearchHit
+         * @description First visible-message match per chat; the query is never echoed.
+         */
+        AgentMessageSearchHit: {
+            /** Excerpt */
+            excerpt: string;
+            /** History Revision */
+            history_revision: number;
+            /** Match Event Seq */
+            match_event_seq: number;
+            /** Project Id */
+            project_id: string;
+            /** Project Name */
+            project_name: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Session Id */
+            session_id: string;
+            /** Title */
+            title: string;
+        };
+        /** AgentMessageSearchPage */
+        AgentMessageSearchPage: {
+            /** Complete */
+            complete: boolean;
+            /**
+             * Contract Version
+             * @default agent-message-search.v1
+             * @constant
+             */
+            contract_version: "agent-message-search.v1";
+            /** Limit */
+            limit: number;
+            /** Matches */
+            matches: components["schemas"]["AgentMessageSearchHit"][];
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Snapshot */
+            snapshot: string;
+            /** Total */
+            total: number;
+        };
+        /**
+         * AgentMessageSearchRequest
+         * @description Owner-requested local search of opted-in visible messages only.
+         *
+         *     The request is never durable state: callers must not put its query in a
+         *     URL, log, export, or snapshot. Search is a case-insensitive Unicode-token
+         *     phrase; punctuation and quotes are literal input, not FTS grammar.
+         */
+        AgentMessageSearchRequest: {
+            /**
+             * Include Archived
+             * @default false
+             */
+            include_archived: boolean;
+            /**
+             * Limit
+             * @default 20
+             */
+            limit: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Project Id */
+            project_id?: string | null;
+            /** Query */
+            query: string;
+            /** Snapshot */
+            snapshot?: string | null;
+        };
         /** AgentMetricEvidenceFileContract */
         AgentMetricEvidenceFileContract: {
             /**
@@ -6933,10 +7355,10 @@ export interface components {
             boundaries?: components["schemas"]["AgentOrchestrationBoundary"];
             /**
              * Contract Version
-             * @default local-agent-orchestration.v22
+             * @default local-agent-orchestration.v23
              * @constant
              */
-            contract_version: "local-agent-orchestration.v22";
+            contract_version: "local-agent-orchestration.v23";
             /** Endpoints */
             endpoints: components["schemas"]["AgentOrchestrationEndpoint"][];
             /**
@@ -6948,10 +7370,10 @@ export interface components {
             protocol?: components["schemas"]["AgentOrchestrationProtocol"];
             /**
              * Route Coverage
-             * @default all_agent_routes_plus_controller_runtime_routes
+             * @default selected_agent_routes_plus_controller_runtime_routes
              * @constant
              */
-            route_coverage: "all_agent_routes_plus_controller_runtime_routes";
+            route_coverage: "selected_agent_routes_plus_controller_runtime_routes";
             /**
              * Transport
              * @default loopback_http
@@ -7577,6 +7999,43 @@ export interface components {
             usage: components["schemas"]["AgentTokenUsage"];
             /** Writes */
             writes: components["schemas"]["AgentWriteReceipt"][];
+        };
+        /**
+         * AgentWebFetchCapability
+         * @description Local capability metadata; availability does not grant network authority.
+         */
+        AgentWebFetchCapability: {
+            /** Available */
+            available: boolean;
+            /**
+             * Contract Version
+             * @default agent-web-fetch-capability.v1
+             * @constant
+             */
+            contract_version: "agent-web-fetch-capability.v1";
+            /**
+             * Network Scope
+             * @default public_https
+             * @constant
+             */
+            network_scope: "public_https";
+            /**
+             * Policy Version
+             * @default governed-web-fetch.v1
+             * @constant
+             */
+            policy_version: "governed-web-fetch.v1";
+            /**
+             * Reason Code
+             * @enum {string}
+             */
+            reason_code: "available" | "governed_fetcher_unavailable";
+            /**
+             * Requires Per Fetch Approval
+             * @default true
+             * @constant
+             */
+            requires_per_fetch_approval: true;
         };
         /**
          * AgentWriteProposal
@@ -9025,6 +9484,430 @@ export interface components {
              * @constant
              */
             object: "response.input_tokens";
+        };
+        /**
+         * ClaimCensusCandidateManifestEntry
+         * @description Content-free identity and coordinate of one reviewable response clause.
+         */
+        ClaimCensusCandidateManifestEntry: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Clause Index */
+            clause_index: number;
+            /** Message Id */
+            message_id: string;
+            /** Message Sequence */
+            message_sequence: number;
+        };
+        /**
+         * ClaimCensusClassification
+         * @enum {string}
+         */
+        ClaimCensusClassification: "material_claim" | "excluded";
+        /** ClaimCensusClassificationEntry */
+        ClaimCensusClassificationEntry: {
+            /** Candidate Id */
+            candidate_id: string;
+            classification: components["schemas"]["ClaimCensusClassification"];
+            exclusion_reason?: components["schemas"]["ClaimCensusExclusionReason"] | null;
+        };
+        /**
+         * ClaimCensusExclusionReason
+         * @enum {string}
+         */
+        ClaimCensusExclusionReason: "not_a_completion_or_verification_claim" | "duplicate_or_superseded_claim" | "non_assertive_status_or_qualification";
+        /**
+         * ClaimCensusSourceManifest
+         * @description A structurally complete response-only review set; never contains prose.
+         *
+         *     This DTO does not authenticate the origin of ``text_extraction_complete``.
+         *     A later native source composition must bind it to a sealed current run
+         *     before it can support an owned review or any metric authority.
+         */
+        ClaimCensusSourceManifest: {
+            /** Candidate Count */
+            candidate_count: number;
+            /** Candidates */
+            candidates: components["schemas"]["ClaimCensusCandidateManifestEntry"][];
+            /**
+             * Clause Algorithm
+             * @default message-clause-coordinates-en-pl-v1
+             * @constant
+             */
+            clause_algorithm: "message-clause-coordinates-en-pl-v1";
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /**
+             * Policy Version
+             * @default native-reviewed-agent-claim-census-v1
+             * @constant
+             */
+            policy_version: "native-reviewed-agent-claim-census-v1";
+            /**
+             * Schema Version
+             * @default claim-grounding-census-v1
+             * @constant
+             */
+            schema_version: "claim-grounding-census-v1";
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Schema Version */
+            source_schema_version: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+            /** Text Adapter Version */
+            text_adapter_version: string;
+            /**
+             * Text Extraction Complete
+             * @default true
+             * @constant
+             */
+            text_extraction_complete: true;
+        };
+        /** ClaimGroundingBeginDto */
+        ClaimGroundingBeginDto: {
+            /** Candidates */
+            candidates: components["schemas"]["ClaimGroundingCandidateDto"][];
+            /**
+             * Content Persisted
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            manifest: components["schemas"]["ClaimCensusSourceManifest"];
+            /**
+             * Review Expires At
+             * Format: date-time
+             */
+            review_expires_at: string;
+            /** Review Fingerprint */
+            review_fingerprint: string;
+            /** Review Receipt Id */
+            review_receipt_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /** ClaimGroundingCandidateDto */
+        ClaimGroundingCandidateDto: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Clause Index */
+            clause_index: number;
+            /** Message Id */
+            message_id: string;
+            /** Message Sequence */
+            message_sequence: number;
+            /** Text */
+            text: string;
+        };
+        /** ClaimGroundingCensusDto */
+        ClaimGroundingCensusDto: {
+            /** Candidate Count */
+            candidate_count: number;
+            /**
+             * Candidate Prose Persisted
+             * @default false
+             * @constant
+             */
+            candidate_prose_persisted: false;
+            /** Census Fingerprint */
+            census_fingerprint: string;
+            /** Census Id */
+            census_id: string;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /**
+             * Measured
+             * @default false
+             * @constant
+             */
+            measured: false;
+            /**
+             * Metadata Persisted
+             * @default true
+             * @constant
+             */
+            metadata_persisted: true;
+            /**
+             * Metric Authority Established
+             * @default false
+             * @constant
+             */
+            metric_authority_established: false;
+            /**
+             * Proposal Only
+             * @default true
+             * @constant
+             */
+            proposal_only: true;
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /** ClaimGroundingCensusListDto */
+        ClaimGroundingCensusListDto: {
+            /** High Water Census Id */
+            high_water_census_id?: string | null;
+            /** High Water Created At */
+            high_water_created_at?: string | null;
+            /** Items */
+            items: components["schemas"]["ClaimGroundingCensusDto"][];
+            /** Offset */
+            offset: number;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /** Total */
+            total: number;
+        };
+        /** ClaimGroundingLinkCandidateManifestDto */
+        ClaimGroundingLinkCandidateManifestDto: {
+            /** Census Fingerprint */
+            census_fingerprint: string;
+            /** Census Id */
+            census_id: string;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /** Material Candidates */
+            material_candidates: components["schemas"]["ClaimGroundingLinkMaterialCandidateDto"][];
+            /**
+             * Measured
+             * @default false
+             * @constant
+             */
+            measured: false;
+            /**
+             * Metric Authority Established
+             * @default false
+             * @constant
+             */
+            metric_authority_established: false;
+            /** Observed Checks */
+            observed_checks: components["schemas"]["ClaimGroundingLinkObservedCheckMetadataDto"][];
+            /** Observed Set Fingerprint */
+            observed_set_fingerprint: string;
+            /**
+             * Observed Set Policy Version
+             * @constant
+             */
+            observed_set_policy_version: "native-reviewed-claim-link-coverage-v1";
+            /**
+             * Observed Set Schema Version
+             * @constant
+             */
+            observed_set_schema_version: "claim-grounding-observed-set-v1";
+            /**
+             * Proposal Only
+             * @default true
+             * @constant
+             */
+            proposal_only: true;
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Schema Version */
+            source_schema_version: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+            /** Text Adapter Version */
+            text_adapter_version: string;
+        };
+        /** ClaimGroundingLinkMaterialCandidateDto */
+        ClaimGroundingLinkMaterialCandidateDto: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Clause Index */
+            clause_index: number;
+            /** Message Id */
+            message_id: string;
+            /** Message Sequence */
+            message_sequence: number;
+        };
+        /** ClaimGroundingLinkObservedCheckDto */
+        ClaimGroundingLinkObservedCheckDto: {
+            /** Effect Preview */
+            effect_preview: string | null;
+            /** Invocation Preview */
+            invocation_preview: string;
+            /** Observed Sequence */
+            observed_sequence: number;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "passed" | "check_failed";
+            /** Source Reference Id */
+            source_reference_id: string;
+            /** Tool Name */
+            tool_name: string;
+        };
+        /** ClaimGroundingLinkObservedCheckMetadataDto */
+        ClaimGroundingLinkObservedCheckMetadataDto: {
+            /**
+             * Check Kind
+             * @constant
+             */
+            check_kind: "test";
+            /**
+             * Classifier Version
+             * @constant
+             */
+            classifier_version: "local-command-rules-v1";
+            /**
+             * Exit Code
+             * @enum {integer}
+             */
+            exit_code: 0 | 1;
+            /**
+             * Normalizer Version
+             * @constant
+             */
+            normalizer_version: "strict-shell-free-v2";
+            /** Observed Sequence */
+            observed_sequence: number;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "passed" | "check_failed";
+            /**
+             * Outcome Interpreter Version
+             * @constant
+             */
+            outcome_interpreter_version: "pytest-exit-status-v1";
+            provider: components["schemas"]["Provider"];
+            /**
+             * Provider Execution Status
+             * @constant
+             */
+            provider_execution_status: "completed";
+            /**
+             * Rule Id
+             * @enum {string}
+             */
+            rule_id: "test.pytest" | "test.py_test";
+            /**
+             * Source Completion Schema Version
+             * @constant
+             */
+            source_completion_schema_version: "observed-check-completion-v1";
+            /** Source Reference Id */
+            source_reference_id: string;
+        };
+        /** ClaimGroundingLinkReviewDto */
+        ClaimGroundingLinkReviewDto: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Census Fingerprint */
+            census_fingerprint: string;
+            /** Census Id */
+            census_id: string;
+            /** Claim Clause */
+            claim_clause: string;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /**
+             * Measured
+             * @default false
+             * @constant
+             */
+            measured: false;
+            /**
+             * Metric Authority Established
+             * @default false
+             * @constant
+             */
+            metric_authority_established: false;
+            /** Observed Checks */
+            observed_checks: components["schemas"]["ClaimGroundingLinkObservedCheckDto"][];
+            /** Observed Set Fingerprint */
+            observed_set_fingerprint: string;
+            /**
+             * Proposal Only
+             * @default true
+             * @constant
+             */
+            proposal_only: true;
+            /**
+             * Review Expires At
+             * Format: date-time
+             */
+            review_expires_at: string;
+            /** Review Fingerprint */
+            review_fingerprint: string;
+            /** Review Receipt Id */
+            review_receipt_id: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /** ClaimGroundingProposalDto */
+        ClaimGroundingProposalDto: {
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Measured
+             * @default false
+             * @constant
+             */
+            measured: false;
+            /**
+             * Metric Authority Established
+             * @default false
+             * @constant
+             */
+            metric_authority_established: false;
+            /**
+             * Proposal Only
+             * @default true
+             * @constant
+             */
+            proposal_only: true;
+            reviewed_census: components["schemas"]["ReviewedClaimCensus"];
         };
         /**
          * ClaudeCodeLocalSourceStatus
@@ -13293,20 +14176,20 @@ export interface components {
          * MetricMeasuredPath
          * @enum {string}
          */
-        MetricMeasuredPath: "focus_rubric" | "declared_task_profile" | "confirmed_lifecycle" | "documented_semantic_unit" | "explicit_plan_link" | "task_scoped_verification" | "typed_objective" | "semantic_unit_extractor" | "reviewed_requirement_plan" | "reviewed_requirement_action";
+        MetricMeasuredPath: "focus_rubric" | "declared_task_profile" | "confirmed_lifecycle" | "documented_semantic_unit" | "explicit_plan_link" | "task_scoped_verification" | "typed_objective" | "semantic_unit_extractor" | "reviewed_requirement_plan" | "reviewed_requirement_action" | "reviewed_requirement_verification";
         /**
          * MetricNextStepCode
          * @enum {string}
          */
-        MetricNextStepCode: "analyze_focus_request" | "declare_task_profile" | "confirm_lifecycle_evidence" | "record_documented_decision" | "link_plan_supersession" | "record_task_scoped_verification" | "add_objective_opportunity_link_adapter" | "add_requirement_plan_extractor" | "confirm_requirement_plan_evidence" | "compose_requirement_action_evidence";
+        MetricNextStepCode: "analyze_focus_request" | "declare_task_profile" | "confirm_lifecycle_evidence" | "record_documented_decision" | "link_plan_supersession" | "record_task_scoped_verification" | "add_objective_opportunity_link_adapter" | "add_requirement_plan_extractor" | "confirm_requirement_plan_evidence" | "compose_requirement_action_evidence" | "issue_reviewed_observed_check";
         /** MetricOperabilityCatalog */
         MetricOperabilityCatalog: {
             /**
              * Catalog Version
-             * @default metric-operability-v4
+             * @default metric-operability-v6
              * @constant
              */
-            catalog_version: "metric-operability-v4";
+            catalog_version: "metric-operability-v6";
             /**
              * Content Persisted
              * @default false
@@ -15370,6 +16253,362 @@ export interface components {
             /** System Ram Bucket */
             system_ram_bucket: ("below_16_gib_class" | "16_gib_class" | "32_gib_class" | "64_gib_plus_class") | null;
         };
+        /**
+         * ObservedCheckAuthorityProvenance
+         * @description Restart-readable, content-free distinction for a CP34 observed result.
+         */
+        ObservedCheckAuthorityProvenance: {
+            /** Authority Record Id */
+            authority_record_id: string;
+            /** Candidate Manifest Fingerprint */
+            candidate_manifest_fingerprint: string;
+            /**
+             * Check Kind
+             * @default test
+             * @constant
+             */
+            check_kind: "test";
+            /**
+             * Classifier Version
+             * @constant
+             */
+            classifier_version: "local-command-rules-v1";
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Coverage Review Reference Id */
+            coverage_review_reference_id: string;
+            /**
+             * Coverage Review Version
+             * @constant
+             */
+            coverage_review_version: "native-full-criterion-coverage-v1";
+            /**
+             * Exit Code
+             * @enum {integer}
+             */
+            exit_code: 0 | 1;
+            /**
+             * Full Criterion Coverage Acknowledged
+             * @constant
+             */
+            full_criterion_coverage_acknowledged: true;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Normalizer Version
+             * @constant
+             */
+            normalizer_version: "strict-shell-free-v2";
+            /**
+             * Observed Outcome
+             * @enum {string}
+             */
+            observed_outcome: "passed" | "check_failed";
+            /** Observed Sequence */
+            observed_sequence: number;
+            /** Opportunity Id */
+            opportunity_id: string;
+            /** Opportunity Set Fingerprint */
+            opportunity_set_fingerprint: string;
+            /**
+             * Outcome Interpreter Version
+             * @constant
+             */
+            outcome_interpreter_version: "pytest-exit-status-v1";
+            /** Provenance Fingerprint */
+            provenance_fingerprint: string;
+            /**
+             * Provider Execution Status
+             * @default completed
+             * @constant
+             */
+            provider_execution_status: "completed";
+            /** Requirement Id */
+            requirement_id: string;
+            /** Requirement Plan Confirmation Id */
+            requirement_plan_confirmation_id: string;
+            /** Requirement Plan Proposal Id */
+            requirement_plan_proposal_id: string;
+            /**
+             * Rule Id
+             * @enum {string}
+             */
+            rule_id: "test.pytest" | "test.py_test";
+            /**
+             * Schema Version
+             * @default observed-check-authority-provenance-v1
+             * @constant
+             */
+            schema_version: "observed-check-authority-provenance-v1";
+            /** Session Id */
+            session_id: string;
+            /**
+             * Source Completion Schema Version
+             * @constant
+             */
+            source_completion_schema_version: "observed-check-completion-v1";
+            /** Source Reference Id */
+            source_reference_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /**
+         * ObservedCheckCandidate
+         * @description One content-free, server-resolved observed test completion.
+         */
+        ObservedCheckCandidate: {
+            /** Candidate Id */
+            candidate_id: string;
+            /**
+             * Check Kind
+             * @default test
+             * @constant
+             */
+            check_kind: "test";
+            /**
+             * Classifier Version
+             * @constant
+             */
+            classifier_version: "local-command-rules-v1";
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Exit Code
+             * @enum {integer}
+             */
+            exit_code: 0 | 1;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Normalizer Version
+             * @constant
+             */
+            normalizer_version: "strict-shell-free-v2";
+            /**
+             * Observed Outcome
+             * @enum {string}
+             */
+            observed_outcome: "passed" | "check_failed";
+            /** Observed Sequence */
+            observed_sequence: number;
+            /**
+             * Outcome Interpreter Version
+             * @default pytest-exit-status-v1
+             * @constant
+             */
+            outcome_interpreter_version: "pytest-exit-status-v1";
+            /**
+             * Provider Execution Status
+             * @default completed
+             * @constant
+             */
+            provider_execution_status: "completed";
+            /**
+             * Rule Id
+             * @enum {string}
+             */
+            rule_id: "test.pytest" | "test.py_test";
+            /**
+             * Source Completion Schema Version
+             * @default observed-check-completion-v1
+             * @constant
+             */
+            source_completion_schema_version: "observed-check-completion-v1";
+        };
+        /**
+         * ObservedCheckCandidateManifest
+         * @description Bounded candidate set for one current verification opportunity.
+         */
+        ObservedCheckCandidateManifest: {
+            /** Candidate Manifest Fingerprint */
+            candidate_manifest_fingerprint: string;
+            /** Candidates */
+            candidates: components["schemas"]["ObservedCheckCandidate"][];
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Expected Predecessor Authority Id */
+            expected_predecessor_authority_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Opportunity Id */
+            opportunity_id: string;
+            /** Opportunity Set Fingerprint */
+            opportunity_set_fingerprint: string;
+            /** Requirement Id */
+            requirement_id: string;
+            /** Requirement Plan Confirmation Id */
+            requirement_plan_confirmation_id: string;
+            /** Requirement Plan Proposal Id */
+            requirement_plan_proposal_id: string;
+            /**
+             * Schema Version
+             * @default requirement-observed-check-review-v1
+             * @constant
+             */
+            schema_version: "requirement-observed-check-review-v1";
+            /** Session Id */
+            session_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+            /** Through Revision */
+            through_revision: number;
+        };
+        /**
+         * ObservedCheckCriterionReview
+         * @description One ephemeral native review of a selected check and exact requirement.
+         */
+        ObservedCheckCriterionReview: {
+            candidate: components["schemas"]["ObservedCheckCandidate"];
+            /** Candidate Manifest Fingerprint */
+            candidate_manifest_fingerprint: string;
+            /** Check Effect Preview */
+            check_effect_preview?: string | null;
+            /** Check Invocation Preview */
+            check_invocation_preview: string;
+            /** Check Tool Name */
+            check_tool_name: string;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Expected Predecessor Authority Id */
+            expected_predecessor_authority_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /**
+             * Full Criterion Coverage Acknowledgement Required
+             * @default true
+             * @constant
+             */
+            full_criterion_coverage_acknowledgement_required: true;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Objective Result Issued
+             * @default false
+             * @constant
+             */
+            objective_result_issued: false;
+            /** Opportunity Id */
+            opportunity_id: string;
+            /** Opportunity Set Fingerprint */
+            opportunity_set_fingerprint: string;
+            /** Requirement Id */
+            requirement_id: string;
+            /** Requirement Plan Confirmation Id */
+            requirement_plan_confirmation_id: string;
+            /** Requirement Plan Proposal Id */
+            requirement_plan_proposal_id: string;
+            /** Requirement Text */
+            requirement_text: string;
+            /**
+             * Review Expires At
+             * Format: date-time
+             */
+            review_expires_at: string;
+            /** Review Fingerprint */
+            review_fingerprint: string;
+            /** Review Receipt Id */
+            review_receipt_id: string;
+            /**
+             * Schema Version
+             * @default requirement-observed-check-review-v1
+             * @constant
+             */
+            schema_version: "requirement-observed-check-review-v1";
+            /** Session Id */
+            session_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+            /** Through Revision */
+            through_revision: number;
+        };
+        /** ObservedCheckIssueRequest */
+        ObservedCheckIssueRequest: {
+            /** Candidate Manifest Fingerprint */
+            candidate_manifest_fingerprint: string;
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "issue_exact_local_requirement_observed_check_result";
+            /** Expected Predecessor Authority Id */
+            expected_predecessor_authority_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /**
+             * Full Criterion Coverage Acknowledged
+             * @constant
+             */
+            full_criterion_coverage_acknowledged: true;
+            /** Review Fingerprint */
+            review_fingerprint: string;
+            /** Review Receipt Id */
+            review_receipt_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+            /** Through Revision */
+            through_revision: number;
+        };
+        /** ObservedCheckPreflightCommand */
+        ObservedCheckPreflightCommand: {
+            /** Expected Predecessor Authority Id */
+            expected_predecessor_authority_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /** Through Revision */
+            through_revision: number;
+        };
+        /** ObservedCheckReviewCommand */
+        ObservedCheckReviewCommand: {
+            /** Candidate Manifest Fingerprint */
+            candidate_manifest_fingerprint: string;
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "open_exact_local_requirement_observed_check_review";
+            /** Expected Predecessor Authority Id */
+            expected_predecessor_authority_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /** Through Revision */
+            through_revision: number;
+        };
         /** OnboardingAccept */
         OnboardingAccept: {
             /** Claude Home */
@@ -16349,11 +17588,19 @@ export interface components {
             confirmation: "record_explicit_native_requirement_acceptance";
             /** Expected Predecessor Authority Id */
             expected_predecessor_authority_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id?: string | null;
             /** Opportunity Id */
             opportunity_id: string;
             /** Opportunity Set Fingerprint */
             opportunity_set_fingerprint: string;
             outcome: components["schemas"]["RequirementAcceptanceOutcome"];
+            /** Review Fingerprint */
+            review_fingerprint?: string | null;
+            /** Review Receipt Id */
+            review_receipt_id?: string | null;
+            /** Source Window Fingerprint */
+            source_window_fingerprint?: string | null;
         };
         /**
          * RequirementAcceptanceOutcome
@@ -16750,6 +17997,87 @@ export interface components {
          * @enum {string}
          */
         RequirementActionEvidenceSource: "unavailable" | "awaiting_review" | "candidate_manifest_overflow" | "candidate_source_incomplete" | "binding_invalid" | "reviewed_requirement_action";
+        /** RequirementActionGuidedAuthoringReview */
+        RequirementActionGuidedAuthoringReview: {
+            /**
+             * All Requirements And Candidates Included
+             * @default true
+             * @constant
+             */
+            all_requirements_and_candidates_included: true;
+            /**
+             * Authoring Receipt Expires At
+             * Format: date-time
+             */
+            authoring_receipt_expires_at: string;
+            /** Authoring Receipt Id */
+            authoring_receipt_id: string;
+            /** Candidate Manifest Fingerprint */
+            candidate_manifest_fingerprint: string;
+            /** Candidate Memberships */
+            candidate_memberships: components["schemas"]["RequirementActionReviewCandidate"][];
+            /** Candidates */
+            candidates: components["schemas"]["RequirementActionCandidate"][];
+            /**
+             * Contract Version
+             * @default requirement-action-guided-authoring-v1
+             * @constant
+             */
+            contract_version: "requirement-action-guided-authoring-v1";
+            /** Descriptor Set Fingerprint */
+            descriptor_set_fingerprint: string;
+            /** Expected Predecessor Confirmation Id */
+            expected_predecessor_confirmation_id?: string | null;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Raw Text Persisted
+             * @default false
+             * @constant
+             */
+            raw_text_persisted: false;
+            /** Requirement Plan Confirmation Id */
+            requirement_plan_confirmation_id: string;
+            /** Requirement Plan Evidence Fingerprint */
+            requirement_plan_evidence_fingerprint: string;
+            /** Requirements */
+            requirements: components["schemas"]["RequirementActionReviewRequirement"][];
+            /**
+             * Review Context Expires At
+             * Format: date-time
+             */
+            review_context_expires_at: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /** RequirementActionGuidedAuthoringReviewCommand */
+        RequirementActionGuidedAuthoringReviewCommand: {
+            /** Candidate Manifest Fingerprint */
+            candidate_manifest_fingerprint: string;
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "open_exact_local_requirement_action_guided_authoring";
+            /** Expected Predecessor Confirmation Id */
+            expected_predecessor_confirmation_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /** Requirement Plan Confirmation Id */
+            requirement_plan_confirmation_id: string;
+            /** Requirement Plan Evidence Fingerprint */
+            requirement_plan_evidence_fingerprint: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
         /** RequirementActionImportDto */
         RequirementActionImportDto: {
             /** Applied */
@@ -17588,6 +18916,95 @@ export interface components {
          * @enum {string}
          */
         RequirementPlanExclusionReason: "not_requirement" | "superseded" | "withdrawn" | "duplicate" | "out_of_scope" | "already_satisfied_or_closed";
+        /**
+         * RequirementPlanGuidedAuthoringCandidate
+         * @description One exact ephemeral source clause available only to native authoring.
+         */
+        RequirementPlanGuidedAuthoringCandidate: {
+            /**
+             * Candidate Kind
+             * @enum {string}
+             */
+            candidate_kind: "user_clause" | "plan";
+            /** Clause Index */
+            clause_index: number;
+            kind: components["schemas"]["TextMessageKind"];
+            /** Message Sequence */
+            message_sequence: number;
+            role: components["schemas"]["TextRole"];
+            /** Text */
+            text: string;
+        };
+        /**
+         * RequirementPlanGuidedAuthoringReview
+         * @description One native-only, expiring authoring surface for a sealed source window.
+         */
+        RequirementPlanGuidedAuthoringReview: {
+            /**
+             * All Candidates Included
+             * @default true
+             * @constant
+             */
+            all_candidates_included: true;
+            /**
+             * Authoring Receipt Expires At
+             * Format: date-time
+             */
+            authoring_receipt_expires_at: string;
+            /** Authoring Receipt Id */
+            authoring_receipt_id: string;
+            /** Candidate Clauses */
+            candidate_clauses: components["schemas"]["RequirementPlanGuidedAuthoringCandidate"][];
+            /**
+             * Contract Version
+             * @default requirement-plan-guided-authoring-v1
+             * @constant
+             */
+            contract_version: "requirement-plan-guided-authoring-v1";
+            /** Expected Predecessor Confirmation Id */
+            expected_predecessor_confirmation_id?: string | null;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /**
+             * Raw Text Persisted
+             * @default false
+             * @constant
+             */
+            raw_text_persisted: false;
+            /**
+             * Review Context Expires At
+             * Format: date-time
+             */
+            review_context_expires_at: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /** RequirementPlanGuidedAuthoringReviewCommand */
+        RequirementPlanGuidedAuthoringReviewCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "open_exact_local_requirement_plan_guided_authoring";
+            /** Expected Predecessor Confirmation Id */
+            expected_predecessor_confirmation_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
         /** RequirementPlanImportDto */
         RequirementPlanImportDto: {
             /** Applied */
@@ -17641,17 +19058,17 @@ export interface components {
             /**
              * Authority
              * @default untrusted_provenance_claim_commitment
-             * @constant
+             * @enum {string}
              */
-            authority: "untrusted_provenance_claim_commitment";
+            authority: "untrusted_provenance_claim_commitment" | "untrusted_local_authoring_commitment";
             /** Claim Fingerprint */
             claim_fingerprint: string;
             /**
              * Kind
              * @default local_coding_agent
-             * @constant
+             * @enum {string}
              */
-            kind: "local_coding_agent";
+            kind: "local_coding_agent" | "local_review_ui";
             /**
              * Raw Claim Persisted
              * @default false
@@ -18121,6 +19538,65 @@ export interface components {
          * @enum {string}
          */
         RequirementVerificationMethod: "test" | "static_check" | "build" | "artifact_inspection" | "other_documented";
+        /** RequirementVerificationOpportunityReview */
+        RequirementVerificationOpportunityReview: {
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            coordinate: components["schemas"]["RequirementCoordinate"];
+            /** Expected Predecessor Authority Id */
+            expected_predecessor_authority_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Opportunity Id */
+            opportunity_id: string;
+            /** Opportunity Set Fingerprint */
+            opportunity_set_fingerprint: string;
+            /**
+             * Policy Version
+             * @default current-r8-reviewed-r6-clause-only-v1
+             * @constant
+             */
+            policy_version: "current-r8-reviewed-r6-clause-only-v1";
+            /** Requirement Id */
+            requirement_id: string;
+            /** Requirement Plan Confirmation Id */
+            requirement_plan_confirmation_id: string;
+            /** Requirement Plan Proposal Id */
+            requirement_plan_proposal_id: string;
+            /** Requirement Text */
+            requirement_text: string;
+            /**
+             * Review Expires At
+             * Format: date-time
+             */
+            review_expires_at: string;
+            /** Review Fingerprint */
+            review_fingerprint: string;
+            /** Review Receipt Id */
+            review_receipt_id: string;
+            /**
+             * Schema Version
+             * @default requirement-verification-native-review-v1
+             * @constant
+             */
+            schema_version: "requirement-verification-native-review-v1";
+            /** Session Id */
+            session_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+            /** Through Revision */
+            through_revision: number;
+        };
         /**
          * RequirementVerificationOutcome
          * @enum {string}
@@ -18131,6 +19607,20 @@ export interface components {
             /** Expected Predecessor Authority Id */
             expected_predecessor_authority_id?: string | null;
             result: components["schemas"]["AppIssuedRequirementVerificationResult"];
+        };
+        /** RequirementVerificationReviewCommand */
+        RequirementVerificationReviewCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "open_exact_local_requirement_verification_review";
+            /** Expected Predecessor Authority Id */
+            expected_predecessor_authority_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /** Through Revision */
+            through_revision: number;
         };
         /** RequirementVerificationServiceErrorDetailDto */
         RequirementVerificationServiceErrorDetailDto: {
@@ -18241,6 +19731,59 @@ export interface components {
              * @constant
              */
             route: "balanced";
+        };
+        /**
+         * ReviewedClaimCensus
+         * @description Content-free proposal input, not native-confirmed or metric authority.
+         */
+        ReviewedClaimCensus: {
+            /** Census Fingerprint */
+            census_fingerprint: string;
+            /** Classifications */
+            classifications: components["schemas"]["ClaimCensusClassificationEntry"][];
+            /**
+             * Complete Candidate Classification Acknowledged
+             * @constant
+             */
+            complete_candidate_classification_acknowledged: true;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Issuer Version
+             * @default reviewed-agent-response-census-v1
+             * @constant
+             */
+            issuer_version: "reviewed-agent-response-census-v1";
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /**
+             * Policy Version
+             * @default native-reviewed-agent-claim-census-v1
+             * @constant
+             */
+            policy_version: "native-reviewed-agent-claim-census-v1";
+            /**
+             * Schema Version
+             * @default claim-grounding-census-v1
+             * @constant
+             */
+            schema_version: "claim-grounding-census-v1";
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
         };
         /** RevokeAgentMcpConnection */
         RevokeAgentMcpConnection: {
@@ -20205,6 +21748,18 @@ export interface components {
             pinned?: boolean | null;
         };
         /**
+         * UpdateAgentSessionParameters
+         * @description Revision-bound sampling change for one idle live Agent chat.
+         */
+        UpdateAgentSessionParameters: {
+            expected_parameters: components["schemas"]["AgentModelParameters"];
+            /** Expected Project Id */
+            expected_project_id: string;
+            /** Expected Revision */
+            expected_revision: number;
+            parameters: components["schemas"]["AgentModelParameters"];
+        };
+        /**
          * UpdateChannel
          * @enum {string}
          */
@@ -20523,6 +22078,17 @@ export interface components {
              * @constant
              */
             applied: true;
+            /**
+             * Artifact Projection
+             * @default not_applicable
+             * @enum {string}
+             */
+            artifact_projection: "not_applicable" | "complete" | "recovery_required";
+            /**
+             * Artifact Versions Advanced
+             * @default 0
+             */
+            artifact_versions_advanced: number;
             /**
              * Contents Reviewed
              * @default false
@@ -21363,6 +22929,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentCatalogSessionList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_catalog_messages_v1_agent_catalog_sessions_message_search_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentMessageSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMessageSearchPage"];
                 };
             };
             /** @description Validation Error */
@@ -23198,6 +24800,44 @@ export interface operations {
             };
         };
     };
+    update_session_parameters_v1_agent_sessions__session_id__parameters_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgentSessionParameters"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     stop_v1_agent_sessions__session_id__stop_post: {
         parameters: {
             query?: never;
@@ -23985,6 +25625,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentWriteTransactionProposalReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    web_fetch_capability_v1_agent_web_fetch_capability_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWebFetchCapability"];
                 };
             };
             /** @description Validation Error */
@@ -30288,6 +31960,357 @@ export interface operations {
             };
         };
     };
+    begin_v1_sessions__session_id__claim_grounding_review_begin_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Expected Source Run Id */
+                    expected_source_run_id: string;
+                    /** Expected Source Window Fingerprint */
+                    expected_source_window_fingerprint: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimGroundingBeginDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    consume_v1_sessions__session_id__claim_grounding_review_consume_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Classifications */
+                    classifications: {
+                        /** Candidate Id */
+                        candidate_id: string;
+                        /**
+                         * ClaimCensusClassification
+                         * @enum {string}
+                         */
+                        classification: "material_claim" | "excluded";
+                        exclusion_reason?: ("not_a_completion_or_verification_claim" | "duplicate_or_superseded_claim" | "non_assertive_status_or_qualification") | null;
+                    }[];
+                    /** Manifest Fingerprint */
+                    manifest_fingerprint: string;
+                    /** Review Fingerprint */
+                    review_fingerprint: string;
+                    /** Review Receipt Id */
+                    review_receipt_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimGroundingProposalDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    begin_v1_sessions__session_id__claim_grounding_review_links_begin_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Candidate Id */
+                    candidate_id: string;
+                    /** Census Id */
+                    census_id: string;
+                    /** Selected Check References */
+                    selected_check_references: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimGroundingLinkReviewDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    candidates_v1_sessions__session_id__claim_grounding_review_links_candidates__census_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                census_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimGroundingLinkCandidateManifestDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    persist_v1_sessions__session_id__claim_grounding_review_persist_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Classifications */
+                    classifications: {
+                        /** Candidate Id */
+                        candidate_id: string;
+                        /**
+                         * ClaimCensusClassification
+                         * @enum {string}
+                         */
+                        classification: "material_claim" | "excluded";
+                        exclusion_reason?: ("not_a_completion_or_verification_claim" | "duplicate_or_superseded_claim" | "non_assertive_status_or_qualification") | null;
+                    }[];
+                    /** Manifest Fingerprint */
+                    manifest_fingerprint: string;
+                    /** Review Fingerprint */
+                    review_fingerprint: string;
+                    /** Review Receipt Id */
+                    review_receipt_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimGroundingCensusDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recovery_v1_sessions__session_id__claim_grounding_review_recovery_status_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimGroundingCensusDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_saved_v1_sessions__session_id__claim_grounding_review_saved_census__census_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                census_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimGroundingCensusDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_saved_v1_sessions__session_id__claim_grounding_review_saved_censuses_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                snapshot_id?: string | null;
+                snapshot_total?: number | null;
+                high_water_created_at?: string | null;
+                high_water_census_id?: string | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimGroundingCensusListDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     current_profile_v1_sessions__session_id__declared_task_profile_get: {
         parameters: {
             query?: never;
@@ -31217,6 +33240,123 @@ export interface operations {
             };
         };
     };
+    create_guided_authoring_proposal_v1_sessions__session_id__requirement_action_evidence_guided_authoring_proposals_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Authoring Receipt Id */
+                    authoring_receipt_id: string;
+                    /** Candidate Manifest Fingerprint */
+                    candidate_manifest_fingerprint: string;
+                    /**
+                     * Complete Requirement Link Classification Acknowledged
+                     * @constant
+                     */
+                    complete_requirement_link_classification_acknowledged: true;
+                    /** Expected Predecessor Confirmation Id */
+                    expected_predecessor_confirmation_id?: string | null;
+                    /** Expected Source Run Id */
+                    expected_source_run_id: string;
+                    /** Links */
+                    links: {
+                        /**
+                         * Action Candidate Indexes
+                         * @default []
+                         */
+                        action_candidate_indexes?: number[];
+                        /** Requirement Index */
+                        requirement_index: number;
+                    }[];
+                    /** Requirement Plan Confirmation Id */
+                    requirement_plan_confirmation_id: string;
+                    /** Requirement Plan Evidence Fingerprint */
+                    requirement_plan_evidence_fingerprint: string;
+                    /** Source Window Fingerprint */
+                    source_window_fingerprint: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementActionProposalOutcomeDto"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementActionProposalOutcomeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_guided_authoring_v1_sessions__session_id__requirement_action_evidence_guided_authoring_review_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequirementActionGuidedAuthoringReviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementActionGuidedAuthoringReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     import_file_v1_sessions__session_id__requirement_action_evidence_import_post: {
         parameters: {
             query?: never;
@@ -31458,6 +33598,157 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RequirementPlanEvidenceContract"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_guided_proposal_v1_sessions__session_id__requirement_plan_evidence_guided_authoring_proposals_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Authoring Receipt Id */
+                    authoring_receipt_id: string;
+                    /**
+                     * Complete User Clause Classification Acknowledged
+                     * @constant
+                     */
+                    complete_user_clause_classification_acknowledged: true;
+                    /** Excluded User Clauses */
+                    excluded_user_clauses: {
+                        basis_coordinate?: {
+                            /** Clause Index */
+                            clause_index: number;
+                            /** Message Sequence */
+                            message_sequence: number;
+                        } | null;
+                        /** RequirementCoordinate */
+                        coordinate: {
+                            /** Clause Index */
+                            clause_index: number;
+                            /** Message Sequence */
+                            message_sequence: number;
+                        };
+                        /**
+                         * RequirementPlanExclusionReason
+                         * @enum {string}
+                         */
+                        reason: "not_requirement" | "superseded" | "withdrawn" | "duplicate" | "out_of_scope" | "already_satisfied_or_closed";
+                    }[];
+                    /** Expected Predecessor Confirmation Id */
+                    expected_predecessor_confirmation_id?: string | null;
+                    /** Expected Source Run Id */
+                    expected_source_run_id: string;
+                    /** Manifest Fingerprint */
+                    manifest_fingerprint: string;
+                    /** Plan Items */
+                    plan_items: {
+                        /** Clause Index */
+                        clause_index: number;
+                        /** Message Sequence */
+                        message_sequence: number;
+                    }[];
+                    /** Requirements */
+                    requirements: {
+                        /** RequirementCoordinate */
+                        coordinate: {
+                            /** Clause Index */
+                            clause_index: number;
+                            /** Message Sequence */
+                            message_sequence: number;
+                        };
+                        /**
+                         * RequirementDisposition
+                         * @enum {string}
+                         */
+                        disposition: "linked" | "not_linked" | "pending";
+                        /**
+                         * Plan Indexes
+                         * @default []
+                         */
+                        plan_indexes?: number[];
+                    }[];
+                    /** Source Window Fingerprint */
+                    source_window_fingerprint: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanProposalOutcomeDto"];
+                };
+            };
+            /** @description A new inert guided requirement-plan proposal was created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanProposalOutcomeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_guided_authoring_v1_sessions__session_id__requirement_plan_evidence_guided_authoring_review_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequirementPlanGuidedAuthoringReviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanGuidedAuthoringReview"];
                 };
             };
             /** @description Validation Error */
@@ -31884,6 +34175,77 @@ export interface operations {
             };
         };
     };
+    observed_check_provenance_v1_sessions__session_id__requirement_verification_evidence_objective_results__authority_record_id__observed_check_provenance_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                authority_record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservedCheckAuthorityProvenance"];
+                };
+            };
+            /** @description Local authentication is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The exact evidence authority was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The definitions, source window, or authority changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The bounded request or evidence command is invalid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The local evidence authority is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+        };
+    };
     issue_current_opportunities_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets_current_post: {
         parameters: {
             query?: never;
@@ -32041,6 +34403,370 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+        };
+    };
+    observed_check_preflight_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__observed_checks_preflight_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                opportunity_set_fingerprint: string;
+                opportunity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObservedCheckPreflightCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservedCheckCandidateManifest"];
+                };
+            };
+            /** @description Local authentication is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The exact evidence authority was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The definitions, source window, or authority changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The bounded request or evidence command is invalid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The local evidence authority is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+        };
+    };
+    issue_observed_check_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__observed_checks__candidate_id__issue_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                /** @description Exact same-origin browser mutation origin. */
+                Origin: string;
+                /** @description CSRF proof bound to the ephemeral browser session. */
+                "X-Prompt-Enhancer-CSRF": string;
+                /** @description One-shot native capability bound to this POST path and the exact request-body SHA-256. */
+                "X-Prompt-Enhancer-User-Presence": string;
+            };
+            path: {
+                session_id: string;
+                opportunity_set_fingerprint: string;
+                opportunity_id: string;
+                candidate_id: string;
+            };
+            cookie: {
+                /** @description Ephemeral same-origin browser session; API tokens and Bearer credentials are rejected. */
+                prompt_enhancer_session: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObservedCheckIssueRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationEvidenceMutationDto"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationEvidenceMutationDto"];
+                };
+            };
+            /** @description An ephemeral browser session is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description Same-origin, CSRF, or body-bound native proof failed. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The exact evidence authority was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The definitions, source window, or authority changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The bounded request or evidence command is invalid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description Native user presence or local evidence is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+        };
+    };
+    review_observed_check_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__observed_checks__candidate_id__review_post: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact same-origin browser mutation origin. */
+                Origin: string;
+                /** @description CSRF proof bound to the ephemeral browser session. */
+                "X-Prompt-Enhancer-CSRF": string;
+                /** @description One-shot native capability bound to this POST path and the exact request-body SHA-256. */
+                "X-Prompt-Enhancer-User-Presence": string;
+            };
+            path: {
+                session_id: string;
+                opportunity_set_fingerprint: string;
+                opportunity_id: string;
+                candidate_id: string;
+            };
+            cookie: {
+                /** @description Ephemeral same-origin browser session; API tokens and Bearer credentials are rejected. */
+                prompt_enhancer_session: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObservedCheckReviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservedCheckCriterionReview"];
+                };
+            };
+            /** @description An ephemeral browser session is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description Same-origin, CSRF, or body-bound native proof failed. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The exact evidence authority was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The definitions, source window, or authority changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The bounded request or evidence command is invalid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description Native user presence or local evidence is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+        };
+    };
+    review_opportunity_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__review_post: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact same-origin browser mutation origin. */
+                Origin: string;
+                /** @description CSRF proof bound to the ephemeral browser session. */
+                "X-Prompt-Enhancer-CSRF": string;
+                /** @description One-shot native capability bound to this POST path and the exact request-body SHA-256. */
+                "X-Prompt-Enhancer-User-Presence": string;
+            };
+            path: {
+                session_id: string;
+                opportunity_set_fingerprint: string;
+                opportunity_id: string;
+            };
+            cookie: {
+                /** @description Ephemeral same-origin browser session; API tokens and Bearer credentials are rejected. */
+                prompt_enhancer_session: string;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequirementVerificationReviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationOpportunityReview"];
+                };
+            };
+            /** @description An ephemeral browser session is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description Same-origin, CSRF, or body-bound native proof failed. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"];
+                };
+            };
+            /** @description The exact evidence authority was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The definitions, source window, or authority changed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description The bounded request or evidence command is invalid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
+                };
+            };
+            /** @description Native user presence or local evidence is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementVerificationMessageErrorDto"] | components["schemas"]["RequirementVerificationServiceErrorDto"];
                 };
             };
         };

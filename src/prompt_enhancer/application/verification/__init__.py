@@ -12,6 +12,15 @@ from .contracts import (
     VerificationKind,
     VerificationOutcome,
 )
+from .observed_check_completion import (
+    OBSERVED_CHECK_COMPLETION_SCHEMA_VERSION,
+    OBSERVED_CHECK_CLASSIFIER_VERSION,
+    OBSERVED_CHECK_NORMALIZER_VERSION,
+    OBSERVED_CHECK_OUTCOME_INTERPRETER_VERSION,
+    EphemeralObservedCheckCompletion,
+    ObservedCheckOutcome,
+    interpret_observed_check_completion,
+)
 
 __all__ = [
     "EphemeralVerificationCandidate",
@@ -24,4 +33,11 @@ __all__ = [
     "VerificationExecutionState",
     "VerificationKind",
     "VerificationOutcome",
+    "OBSERVED_CHECK_COMPLETION_SCHEMA_VERSION",
+    "OBSERVED_CHECK_CLASSIFIER_VERSION",
+    "OBSERVED_CHECK_NORMALIZER_VERSION",
+    "OBSERVED_CHECK_OUTCOME_INTERPRETER_VERSION",
+    "EphemeralObservedCheckCompletion",
+    "ObservedCheckOutcome",
+    "interpret_observed_check_completion",
 ]

@@ -120,6 +120,7 @@ class _HttpStack:
     app: Any
     token: str
     presence: UserPresenceApprovalManager
+    current_source_run_id: str | None = None
 
 
 def _assert_private(response: Any) -> None:
@@ -281,7 +282,9 @@ def _build_stack(
         api_token=load_or_create_api_token(settings.api_token_path),
         requirement_plan_evidence_service=plan_service,
         requirement_verification_evidence_service=(
-            local.create_requirement_verification_evidence_service()
+            local.create_requirement_verification_evidence_service(
+                None if seed is None else seed.review_contexts
+            )
         ),
         user_presence_confirmation=_verify_presence(presence),
         user_presence_confirmation_mode="native_bridge_bound_token",
@@ -291,6 +294,7 @@ def _build_stack(
         app=app,
         token=load_or_create_api_token(settings.api_token_path),
         presence=presence,
+        current_source_run_id=None if seed is None else seed.run.run_id,
     )
 
 
@@ -512,16 +516,51 @@ def _append_acceptance(
     outcome: RequirementAcceptanceOutcome,
     key: str,
     predecessor: str | None = None,
+    request_capture: dict[str, object] | None = None,
 ):  # type: ignore[no-untyped-def]
     path = f"{_verification_base(session_id)}/acceptances"
     browser = client.get("/auth/session").json()
+    current = stack.application.database.model_ensemble_repository().get_latest(session_id)
+    assert current is not None
+    current_source_run_id = current.run_id
+    opportunity_id = opportunities.opportunities[ordinal].opportunity_id
+    snapshot = client.get(
+        f"{_verification_base(session_id)}/opportunity-sets/"
+        f"{opportunities.opportunity_set_fingerprint}",
+        headers={API_TOKEN_HEADER: stack.token},
+    )
+    _assert_private(snapshot)
+    assert snapshot.status_code == 200, snapshot.text
+    review_path = (
+        f"{_verification_base(session_id)}/opportunity-sets/"
+        f"{opportunities.opportunity_set_fingerprint}/opportunities/{opportunity_id}/review"
+    )
+    review_command = {
+        "expected_source_run_id": current_source_run_id,
+        "through_revision": snapshot.json()["revision"],
+        "expected_predecessor_authority_id": predecessor,
+        "confirmation": "open_exact_local_requirement_verification_review",
+    }
+    review = _native_post(
+        client, stack.presence, path=review_path, payload=review_command,
+        csrf_token=browser["csrf_token"],
+    )
+    _assert_private(review)
+    assert review.status_code == 200, review.text
+    reviewed = review.json()
     command = RequirementAcceptanceAppendCommand(
         opportunity_set_fingerprint=opportunities.opportunity_set_fingerprint,
-        opportunity_id=opportunities.opportunities[ordinal].opportunity_id,
+        opportunity_id=opportunity_id,
         expected_predecessor_authority_id=predecessor,
         outcome=outcome,
         confirmation=REQUIREMENT_ACCEPTANCE_APPEND_CONFIRMATION,
+        review_receipt_id=reviewed["review_receipt_id"],
+        review_fingerprint=reviewed["review_fingerprint"],
+        expected_source_run_id=current_source_run_id,
+        source_window_fingerprint=reviewed["source_window_fingerprint"],
     )
+    if request_capture is not None:
+        request_capture.update({"path": path, "payload": command.model_dump(mode="json")})
     response = _native_post(
         client,
         stack.presence,
@@ -547,14 +586,14 @@ def _assert_frozen_operability(client: TestClient, token: str) -> None:
         catalog["task_profile_configuration_gap_count"],
         catalog["provider_adapter_gap_count"],
         catalog["model_authoritative_metric_count"],
-    ) == (20, 16, 0, 4, 0)
+    ) == (20, 18, 0, 2, 0)
     verified = next(
         item
         for item in catalog["entries"]
         if item["metric_key"] == "outcome.verified_requirement_coverage"
     )
-    assert verified["shipped_path_state"] == "provider_adapter_required"
-    assert verified["next_step_code"] == "add_objective_opportunity_link_adapter"
+    assert verified["shipped_path_state"] == "available_when_evidence_exists"
+    assert verified["next_step_code"] == "issue_reviewed_observed_check"
     assert verified["measured_value_may_use_model_output"] is False
 
 
@@ -729,6 +768,70 @@ def test_review_to_owned_native_evidence_restart_replay_and_privacy(tmp_path) ->
                         "file_path",
                     )
                 ), (table, column)
+
+
+def test_native_review_and_acceptance_proof_gates_are_body_bound_and_reviewed(
+    tmp_path,
+) -> None:
+    stack, seed = _new_seeded_stack(tmp_path)
+    base = _verification_base(seed.session_id)
+    with TestClient(stack.app, base_url=BASE_URL) as client:
+        _confirm_plan(client, stack, seed)
+        issued = _issue_opportunities(client, stack, seed.session_id)
+        opportunities = _opportunity_set(issued.json()["snapshot"])
+        opportunity_id = opportunities.opportunities[0].opportunity_id
+        snapshot = client.get(
+            f"{base}/opportunity-sets/{opportunities.opportunity_set_fingerprint}",
+            headers={API_TOKEN_HEADER: stack.token},
+        )
+        assert snapshot.status_code == 200
+        review_path = (
+            f"{base}/opportunity-sets/{opportunities.opportunity_set_fingerprint}/"
+            f"opportunities/{opportunity_id}/review"
+        )
+        review_command = {
+            "expected_source_run_id": seed.run.run_id,
+            "through_revision": 0,
+            "expected_predecessor_authority_id": None,
+            "confirmation": "open_exact_local_requirement_verification_review",
+        }
+        unproved = client.post(review_path, json=review_command)
+        assert unproved.status_code in {401, 403}
+        browser = client.get("/auth/session").json()
+        encoded = json.dumps(review_command, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+        proof = stack.presence.issue(method="POST", path=review_path, body_sha256=hashlib.sha256(encoded).hexdigest())
+        changed = {**review_command, "through_revision": 1}
+        mismatch = client.post(review_path, headers={"Content-Type": "application/json", "Origin": BASE_URL,
+            CSRF_HEADER: browser["csrf_token"], USER_PRESENCE_HEADER: proof}, json=changed)
+        assert mismatch.status_code == 403
+        assert PRIVATE_CANARY not in mismatch.text
+
+        blind = RequirementAcceptanceAppendCommand(
+            opportunity_set_fingerprint=opportunities.opportunity_set_fingerprint,
+            opportunity_id=opportunity_id, expected_predecessor_authority_id=None,
+            outcome=RequirementAcceptanceOutcome.ACCEPTED,
+            confirmation=REQUIREMENT_ACCEPTANCE_APPEND_CONFIRMATION,
+        )
+        blind_body = json.dumps(blind.model_dump(mode="json"), separators=(",", ":"), ensure_ascii=True).encode("ascii")
+        blind_proof = stack.presence.issue(method="POST", path=f"{base}/acceptances", body_sha256=hashlib.sha256(blind_body).hexdigest())
+        denied = client.post(f"{base}/acceptances", headers={"Content-Type": "application/json", "Origin": BASE_URL,
+            CSRF_HEADER: browser["csrf_token"], USER_PRESENCE_HEADER: blind_proof,
+            "Idempotency-Key": "synthetic-blind-native-proof-0001"}, content=blind_body)
+        assert denied.status_code == 409
+        unchanged = client.get(f"{base}/opportunity-sets/{opportunities.opportunity_set_fingerprint}", headers={API_TOKEN_HEADER: stack.token})
+        assert unchanged.json()["revision"] == 0
+
+        captured: dict[str, object] = {}
+        accepted = _append_acceptance(client, stack, seed.session_id, opportunities, ordinal=0,
+                                      outcome=RequirementAcceptanceOutcome.ACCEPTED,
+                                      key="synthetic-reviewed-native-proof-0001", request_capture=captured)
+        assert accepted.status_code == 201 and accepted.json()["snapshot"]["revision"] == 1
+        replay_body = json.dumps(captured["payload"], separators=(",", ":"), ensure_ascii=True).encode("ascii")
+        replay_proof = stack.presence.issue(method="POST", path=str(captured["path"]), body_sha256=hashlib.sha256(replay_body).hexdigest())
+        replay = client.post(str(captured["path"]), headers={"Content-Type": "application/json", "Origin": BASE_URL,
+            CSRF_HEADER: browser["csrf_token"], USER_PRESENCE_HEADER: replay_proof,
+            "Idempotency-Key": "synthetic-reviewed-native-proof-0001"}, content=replay_body)
+        assert replay.status_code == 200 and replay.json()["applied"] is False
 
 
 def test_incomplete_and_unknown_authority_remain_distinct_without_live_promotion(

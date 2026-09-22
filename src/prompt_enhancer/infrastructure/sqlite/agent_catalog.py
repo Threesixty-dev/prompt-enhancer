@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import sqlite3
 import threading
+import time
+import uuid
 from typing import Iterator, Literal, Sequence, cast
 
 from ...application.agent_catalog import (
@@ -20,6 +22,8 @@ from ...application.agent_catalog import (
     MAX_AGENT_PROJECTS,
     AgentCatalogError,
     AgentCatalogSessionRecord,
+    AgentMessageSearchHit,
+    AgentMessageSearchRequest,
     AgentHistorySnapshot,
     AgentHistoryState,
     AgentRetentionPolicy,
@@ -53,7 +57,7 @@ from ...config import lexical_absolute_path, path_has_symlink_component
 
 
 AGENT_CATALOG_DATABASE_FILENAME = "agent-catalog.sqlite3"
-AGENT_CATALOG_SCHEMA_VERSION = 30
+AGENT_CATALOG_SCHEMA_VERSION = 32
 
 _SCHEMA_V1 = r"""
 CREATE TABLE IF NOT EXISTS agent_projects (
@@ -2060,6 +2064,85 @@ _SCHEMA_V30 = (
     """,
 )
 
+# FTS5 is intentionally maintained by application transactions instead of SQL
+# triggers.  Connections run with trusted_schema=OFF, and this keeps a message
+# projection, its index row, and the append-only journal in one explicit
+# rollback boundary.  The projection contains only owner-admitted visible text.
+_SCHEMA_V31 = (
+    """
+    CREATE TABLE agent_message_search_messages (
+        message_id INTEGER PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES agent_catalog_sessions(session_id) ON DELETE CASCADE,
+        event_seq INTEGER NOT NULL CHECK(event_seq >= 1),
+        role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+        text TEXT NOT NULL CHECK(length(text) BETWEEN 1 AND 120000),
+        UNIQUE(session_id, event_seq)
+    ) STRICT
+    """,
+    """
+    CREATE INDEX agent_message_search_messages_session_idx
+    ON agent_message_search_messages(session_id, event_seq)
+    """,
+    """
+    CREATE VIRTUAL TABLE agent_message_search_fts USING fts5(
+        text,
+        content='agent_message_search_messages',
+        content_rowid='message_id',
+        tokenize='unicode61 remove_diacritics 0'
+    )
+    """,
+    """
+    INSERT INTO agent_message_search_messages(session_id,event_seq,role,text)
+    SELECT event.session_id,event.event_seq,
+           CASE event_kind WHEN 'user' THEN 'user' ELSE 'assistant' END,
+           json_extract(event.payload_json, '$.text')
+    FROM agent_conversation_events AS event
+    JOIN agent_catalog_sessions AS session ON session.session_id=event.session_id
+    WHERE session.retention_policy='local_history'
+      AND event.event_kind IN ('user','assistant')
+      AND json_type(event.payload_json, '$.text')='text'
+      AND length(json_extract(event.payload_json, '$.text')) > 0
+    """,
+    "INSERT INTO agent_message_search_fts(agent_message_search_fts) VALUES('rebuild')",
+)
+
+_SCHEMA_V32 = (
+    """
+    CREATE TABLE agent_artifact_directory_move_intents (
+        intent_id TEXT PRIMARY KEY CHECK(length(intent_id)=32 AND intent_id NOT GLOB '*[^0-9a-f]*'),
+        project_id TEXT NOT NULL REFERENCES agent_projects(project_id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES agent_catalog_sessions(session_id) ON DELETE CASCADE,
+        source_path TEXT NOT NULL CHECK(length(source_path) BETWEEN 1 AND 1024),
+        target_path TEXT NOT NULL CHECK(length(target_path) BETWEEN 1 AND 1024),
+        source_device INTEGER NOT NULL,
+        source_inode INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    ) STRICT
+    """,
+    """
+    CREATE TABLE agent_artifact_directory_move_intent_children (
+        intent_id TEXT NOT NULL REFERENCES agent_artifact_directory_move_intents(intent_id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL CHECK(ordinal >= 0 AND ordinal < 100),
+        artifact_id TEXT NOT NULL REFERENCES agent_artifacts(artifact_id) ON DELETE RESTRICT,
+        expected_artifact_revision INTEGER NOT NULL CHECK(expected_artifact_revision >= 1),
+        source_path TEXT NOT NULL CHECK(length(source_path) BETWEEN 1 AND 1024),
+        target_path TEXT NOT NULL CHECK(length(target_path) BETWEEN 1 AND 1024),
+        sha256 TEXT NOT NULL CHECK(length(sha256)=64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+        byte_size INTEGER NOT NULL CHECK(byte_size >= 0 AND byte_size <= 25165824),
+        PRIMARY KEY(intent_id, ordinal),
+        UNIQUE(intent_id, artifact_id), UNIQUE(intent_id, source_path), UNIQUE(intent_id, target_path)
+    ) STRICT
+    """,
+    """
+    CREATE TABLE agent_artifact_directory_move_resolutions (
+        intent_id TEXT PRIMARY KEY REFERENCES agent_artifact_directory_move_intents(intent_id) ON DELETE CASCADE,
+        resolution TEXT NOT NULL CHECK(resolution IN ('completed','cancelled','unverified')),
+        advanced_count INTEGER NOT NULL CHECK(advanced_count >= 0 AND advanced_count <= 100),
+        resolved_at TEXT NOT NULL
+    ) STRICT
+    """,
+)
+
 
 _AGENT_CATALOG_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (
@@ -2099,6 +2182,8 @@ _AGENT_CATALOG_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (28, _SCHEMA_V28),
     (29, _SCHEMA_V29),
     (30, _SCHEMA_V30),
+    (31, _SCHEMA_V31),
+    (32, _SCHEMA_V32),
 )
 
 if tuple(version for version, _statements in _AGENT_CATALOG_MIGRATIONS) != tuple(
@@ -2395,6 +2480,74 @@ class SqliteAgentCatalogRepository:
         self._database = database
         self._write_lock = threading.RLock()
         self._database.initialize()
+
+    @staticmethod
+    def _index_visible_message(
+        connection: sqlite3.Connection,
+        *,
+        session_id: str,
+        event: StoredAgentEvent,
+    ) -> None:
+        """Project only admitted user/assistant visible text into FTS5."""
+        if event.kind not in {"user", "assistant"} or not event.text:
+            return
+        role = "user" if event.kind == "user" else "assistant"
+        cursor = connection.execute(
+            """INSERT INTO agent_message_search_messages(session_id,event_seq,role,text)
+               VALUES(?,?,?,?)""",
+            (session_id, event.seq, role, event.text),
+        )
+        message_id = int(cursor.lastrowid)
+        connection.execute(
+            "INSERT INTO agent_message_search_fts(rowid,text) VALUES(?,?)",
+            (message_id, event.text),
+        )
+
+    @staticmethod
+    def _delete_visible_messages(
+        connection: sqlite3.Connection, *, session_id: str
+    ) -> None:
+        rows = connection.execute(
+            "SELECT message_id,text FROM agent_message_search_messages WHERE session_id=?",
+            (session_id,),
+        )
+        for row in rows:
+            connection.execute(
+                """INSERT INTO agent_message_search_fts(agent_message_search_fts,rowid,text)
+                   VALUES('delete',?,?)""",
+                (int(row["message_id"]), str(row["text"])),
+            )
+        connection.execute(
+            "DELETE FROM agent_message_search_messages WHERE session_id=?", (session_id,)
+        )
+
+    @staticmethod
+    def _message_search_phrase(query: str) -> str:
+        # A quoted single phrase prevents FTS operators/column selectors from
+        # becoming grammar. SQLite binds it separately from the SQL statement.
+        return '"' + query.replace('"', '""') + '"'
+
+    @staticmethod
+    def _message_excerpt(value: str, open_marker: str, close_marker: str) -> str:
+        start = value.find(open_marker)
+        end = value.find(close_marker, start + len(open_marker))
+        if start < 0 or end < 0:
+            raise AgentCatalogError("agent_message_search_corrupt")
+        plain = value.replace(open_marker, "").replace(close_marker, "")
+        match_start = start
+        match_end = end - len(open_marker)
+        left = max(0, match_start - 96)
+        right = min(len(plain), max(match_end + 120, left + 1))
+        if right - left > 240:
+            right = left + 240
+        excerpt = plain[left:right]
+        if left:
+            excerpt = "…" + excerpt[1:]
+        if right < len(plain) and len(excerpt) >= 2:
+            excerpt = excerpt[:-1] + "…"
+        if not excerpt:
+            raise AgentCatalogError("agent_message_search_corrupt")
+        return excerpt
 
     @staticmethod
     def _project(connection: sqlite3.Connection, project_id: str) -> AgentProjectRecord | None:
@@ -3214,6 +3367,9 @@ class SqliteAgentCatalogRepository:
                             payload,
                         ),
                     )
+                    self._index_visible_message(
+                        connection, session_id=new_session_id, event=event
+                    )
                 for row in attachment_rows:
                     source_attachment_id = str(row["attachment_id"])
                     connection.execute(
@@ -3401,6 +3557,158 @@ class SqliteAgentCatalogRepository:
                     connection.execute("ROLLBACK")
                 raise
 
+    def search_messages(
+        self,
+        *,
+        request: AgentMessageSearchRequest,
+    ) -> tuple[tuple[AgentMessageSearchHit, ...], int, str]:
+        """Search the explicit visible-text projection, never journal JSON.
+
+        `unicode61 remove_diacritics 0` makes matching case-insensitive while
+        preserving diacritic distinctions. The bound phrase is literal input,
+        so `OR`, quotes, punctuation, and SQL syntax have no operator effect.
+        """
+        clauses = [
+            "session.retention_policy='local_history'",
+            "session.archived_at IS NULL" if not request.include_archived else "1=1",
+            "project.archived_at IS NULL" if not request.include_archived else "1=1",
+        ]
+        values: list[object] = [self._message_search_phrase(request.query)]
+        if request.project_id is not None:
+            clauses.append("session.project_id=?")
+            values.append(request.project_id)
+        where = " AND ".join(clauses)
+        # First result per chat is deterministic by event sequence. Keep only
+        # IDs/revisions while snapshotting: no matching plaintext is copied
+        # into an in-memory result set beyond the requested page.
+        base = f"""
+            WITH fts_matches AS (
+                SELECT message_id, session_id, event_seq, role
+                FROM agent_message_search_fts
+                JOIN agent_message_search_messages
+                  ON agent_message_search_messages.message_id=agent_message_search_fts.rowid
+                WHERE agent_message_search_fts MATCH ?
+            ), ranked AS (
+                SELECT fts_matches.message_id, fts_matches.session_id,
+                       fts_matches.event_seq, fts_matches.role,
+                       session.project_id, session.history_revision,
+                       session.revision AS catalog_revision, project.revision AS project_revision,
+                       session.pinned, session.last_opened_at,
+                       project.name AS project_name, session.title,
+                       ROW_NUMBER() OVER (
+                         PARTITION BY fts_matches.session_id
+                         ORDER BY fts_matches.event_seq ASC
+                       ) AS row_number
+                FROM fts_matches
+                JOIN agent_catalog_sessions AS session ON session.session_id=fts_matches.session_id
+                JOIN agent_projects AS project ON project.project_id=session.project_id
+                WHERE {where}
+            )
+        """
+        ordering = "ORDER BY pinned DESC,last_opened_at DESC,session_id"
+        with self._database.connect() as connection:
+            deadline = time.monotonic() + 2.0
+            connection.set_progress_handler(lambda: int(time.monotonic() >= deadline), 10_000)
+            connection.execute("BEGIN")
+            try:
+                # FTS5 verifies the external-content index before it answers.
+                # A damaged index is unavailable, never an empty result set.
+                connection.execute(
+                    "INSERT INTO agent_message_search_fts(agent_message_search_fts,rank) VALUES('integrity-check',1)"
+                )
+                metadata = connection.execute(
+                    base + f"""
+                    SELECT message_id,session_id,project_id,project_name,title,event_seq,history_revision,
+                           catalog_revision,project_revision,role,
+                           pinned,last_opened_at
+                    FROM ranked WHERE row_number=1 {ordering} LIMIT ?
+                    """,
+                    (*values, MAX_AGENT_CATALOG_SESSIONS + 1),
+                ).fetchall()
+            except sqlite3.OperationalError as error:
+                # A missing/corrupt FTS virtual table must never look like no hits.
+                connection.set_progress_handler(None, 0)
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                code = (
+                    "agent_message_search_timed_out"
+                    if time.monotonic() >= deadline
+                    else "agent_message_search_unavailable"
+                )
+                raise AgentCatalogError(code) from error
+            total = len(metadata)
+            if total > MAX_AGENT_CATALOG_SESSIONS:
+                connection.set_progress_handler(None, 0)
+                connection.execute("ROLLBACK")
+                raise AgentCatalogError("agent_message_search_corrupt")
+            snapshot = _catalog_page_snapshot(
+                collection="message-search",
+                scope={
+                    "query": request.query,
+                    "project_id": request.project_id,
+                    "include_archived": request.include_archived,
+                },
+                records=[dict(row) for row in metadata],
+            )
+            if request.snapshot is not None and request.snapshot != snapshot:
+                connection.set_progress_handler(None, 0)
+                connection.execute("ROLLBACK")
+                raise AgentCatalogError("agent_message_search_snapshot_conflict")
+            if request.offset > total:
+                connection.set_progress_handler(None, 0)
+                connection.execute("ROLLBACK")
+                raise AgentCatalogError("agent_message_search_page_out_of_range")
+            selected = metadata[request.offset : request.offset + request.limit]
+            selected_ids = tuple(int(row["message_id"]) for row in selected)
+            for _ in range(3):
+                marker = uuid.uuid4().hex
+                open_marker = f"__agent_search_open_{marker}__"
+                close_marker = f"__agent_search_close_{marker}__"
+                collision = None if not selected_ids else connection.execute(
+                    """SELECT 1 FROM agent_message_search_messages
+                       WHERE message_id IN ({}) AND (instr(text,?) > 0 OR instr(text,?) > 0)
+                       LIMIT 1""".format(",".join("?" for _ in selected_ids)),
+                    (*selected_ids, open_marker, close_marker),
+                ).fetchone()
+                if collision is None:
+                    break
+            else:
+                connection.set_progress_handler(None, 0)
+                connection.execute("ROLLBACK")
+                raise AgentCatalogError("agent_message_search_corrupt")
+            rows: list[tuple[sqlite3.Row, str]] = []
+            try:
+                for row in selected:
+                    # Highlight is evaluated only for the <=50 requested rows, not
+                    # for every matching message in the catalog.
+                    decorated = connection.execute(
+                    """SELECT highlight(agent_message_search_fts,0,?,?)
+                       FROM agent_message_search_fts
+                       WHERE rowid=? AND agent_message_search_fts MATCH ?""",
+                    (open_marker, close_marker, int(row["message_id"]), values[0]),
+                    ).fetchone()
+                    if decorated is None:
+                        raise AgentCatalogError("agent_message_search_corrupt")
+                    rows.append((row, str(decorated[0])))
+            except sqlite3.OperationalError as error:
+                code = "agent_message_search_timed_out" if time.monotonic() >= deadline else "agent_message_search_unavailable"
+                raise AgentCatalogError(code) from error
+            finally:
+                connection.set_progress_handler(None, 0)
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+        matches = tuple(
+            AgentMessageSearchHit(
+                session_id=str(row["session_id"]), project_id=str(row["project_id"]),
+                project_name=str(row["project_name"]), title=str(row["title"]),
+                match_event_seq=int(row["event_seq"]), history_revision=int(row["history_revision"]),
+                role=cast(Literal["user", "assistant"], str(row["role"])),
+                excerpt=self._message_excerpt(decorated, open_marker, close_marker),
+            )
+            for row, decorated in rows
+        )
+        return matches, total, snapshot
+
     def update_session(
         self,
         session_id: str,
@@ -3464,6 +3772,55 @@ class SqliteAgentCatalogRepository:
             assert session is not None
             return session
 
+    def update_session_history_profile(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        expected_revision: int,
+        profile_json: str | None,
+        changed_at: datetime,
+    ) -> AgentCatalogSessionRecord:
+        """Persist one recovery profile while advancing the catalog head.
+
+        A metadata-only session deliberately retains ``NULL`` here, while still
+        using the same compare-and-swap head to fence concurrent live services.
+        """
+
+        with self._write_lock, self._database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                current = connection.execute(
+                    """SELECT project_id, retention_policy
+                       FROM agent_catalog_sessions WHERE session_id=?""",
+                    (session_id,),
+                ).fetchone()
+                if current is None or str(current["project_id"]) != project_id:
+                    raise AgentCatalogError("agent_catalog_session_not_found")
+                retained = (
+                    profile_json
+                    if str(current["retention_policy"])
+                    == AgentRetentionPolicy.LOCAL_HISTORY.value
+                    else None
+                )
+                cursor = connection.execute(
+                    """UPDATE agent_catalog_sessions
+                       SET history_profile_json=?, updated_at=?, revision=revision+1
+                       WHERE session_id=? AND project_id=? AND revision=?""",
+                    (retained, _iso(changed_at), session_id, project_id, expected_revision),
+                )
+                if cursor.rowcount != 1:
+                    raise AgentCatalogError("agent_catalog_session_revision_conflict")
+                self._touch_projects(connection, {project_id}, changed_at)
+                session = self._get_session(connection, session_id)
+                assert session is not None
+                connection.execute("COMMIT")
+                return session
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+
     def delete_session(
         self,
         session_id: str,
@@ -3487,6 +3844,7 @@ class SqliteAgentCatalogRepository:
             if int(row["history_revision"]) != expected_history_revision:
                 connection.execute("ROLLBACK")
                 raise AgentCatalogError("agent_history_revision_conflict")
+            self._delete_visible_messages(connection, session_id=session_id)
             cursor = connection.execute(
                 """DELETE FROM agent_catalog_sessions
                    WHERE session_id=? AND revision=? AND history_revision=?""",
@@ -3558,6 +3916,7 @@ class SqliteAgentCatalogRepository:
                         payload,
                     ),
                 )
+                self._index_visible_message(connection, session_id=session_id, event=event)
                 connection.execute(
                     """
                     UPDATE agent_catalog_sessions

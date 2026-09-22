@@ -17,6 +17,7 @@ import {
   createHttpTransport,
   parseAnalysisJobPage,
   parseAnalysisJobRecord,
+  parseAgentWebFetchCapability,
   parseAutomationGrantList,
   parseAutomationGrantRecord,
   parseAutomationPollResult,
@@ -2805,8 +2806,8 @@ describe("local agent model-readiness transport", () => {
     });
 
     await expect(transport.getAgentOrchestration()).resolves.toMatchObject({
-      contract_version: "local-agent-orchestration.v22",
-      route_coverage: "all_agent_routes_plus_controller_runtime_routes",
+      contract_version: "local-agent-orchestration.v23",
+      route_coverage: "selected_agent_routes_plus_controller_runtime_routes",
     });
     await expect(transport.getAgentOrchestration()).rejects.toMatchObject({ status: 200 });
     expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
@@ -4628,6 +4629,8 @@ describe("local agent workspace transport", () => {
         contents_reviewed: false,
         operation: "directory_moved",
         applied: true,
+        artifact_projection: "complete",
+        artifact_versions_advanced: 2,
       }))
       .mockResolvedValueOnce(privateJsonResponse(movePreview))
       .mockResolvedValueOnce(privateJsonResponse({
@@ -5099,7 +5102,97 @@ describe("workspace folder picker transport", () => {
   });
 });
 
+describe("governed web fetch capability transport", () => {
+  it("reads the exact capability route without exposing request authority", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        contract_version: "agent-web-fetch-capability.v1",
+        available: true,
+        policy_version: "governed-web-fetch.v1",
+        reason_code: "available",
+        requires_per_fetch_approval: true,
+        network_scope: "public_https",
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getAgentWebFetchCapability!()).resolves.toEqual({
+      contract_version: "agent-web-fetch-capability.v1",
+      available: true,
+      policy_version: "governed-web-fetch.v1",
+      reason_code: "available",
+      requires_per_fetch_approval: true,
+      network_scope: "public_https",
+    });
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/auth/session",
+      "/v1/agent/web-fetch-capability",
+    ]);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+      redirect: "error",
+    });
+  });
+
+  it("rejects inconsistent or expanded capability payloads", () => {
+    const base = {
+      contract_version: "agent-web-fetch-capability.v1",
+      available: true,
+      policy_version: "governed-web-fetch.v1",
+      reason_code: "available",
+      requires_per_fetch_approval: true,
+      network_scope: "public_https",
+    } as const;
+    expect(() => parseAgentWebFetchCapability({ ...base, available: false })).toThrow(/web fetch capability response was invalid/i);
+    expect(() => parseAgentWebFetchCapability({ ...base, reason_code: "governed_fetcher_unavailable" })).toThrow(/web fetch capability response was invalid/i);
+    expect(() => parseAgentWebFetchCapability({ ...base, extra: "not permitted" })).toThrow(/web fetch capability response was invalid/i);
+  });
+});
+
 describe("native user-presence transport binding", () => {
+  it("marks a native decline before dispatch and does not post the capture", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE));
+    const host = globalThis as typeof globalThis & { pywebview?: unknown };
+    const previous = host.pywebview;
+    host.pywebview = {
+      api: {
+        confirm_user_presence: vi.fn(async () => ({
+          version: "native-user-presence-v1",
+          approved: false,
+          reason: "user_declined",
+        })),
+      },
+    };
+    try {
+      const transport = createHttpTransport({
+        fetch: fetchMock as unknown as typeof fetch,
+        origin: "http://127.0.0.1:4173",
+        userPresenceBridgeAvailable: () => true,
+      });
+
+      await expect(transport.captureAgentArtifact(
+        AGENT_PROJECT_ID,
+        AGENT_CATALOG_SESSION_ID,
+        {
+          path: "docs/example.md",
+          expected_sha256: "5".repeat(64),
+          expected_byte_size: 27,
+        },
+      )).rejects.toMatchObject({
+        status: 403,
+        reasonCode: "native_confirmation_declined_before_dispatch",
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      host.pywebview = previous;
+    }
+  });
+
   it("reports only the exact server-issued native confirmation capability", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
       ...AUTH_RESPONSE,

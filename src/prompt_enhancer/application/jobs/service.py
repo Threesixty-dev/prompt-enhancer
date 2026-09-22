@@ -16,6 +16,8 @@ from pydantic import Field, field_validator, model_validator
 
 from ...database import DatabaseInvariantError
 from ...domain import SAFE_VERSION_PATTERN, Provider, StrictModel
+from ..runtime_cancellation import RuntimeCleanupUnconfirmed, runtime_request_scope
+from .cancellation import AnalysisJobCancellationSignals
 from .contracts import (
     ANALYSIS_JOB_CONTRACT_VERSION,
     TERMINAL_ANALYSIS_JOB_STATES,
@@ -41,6 +43,7 @@ _WORKER_START_FAILURE = "worker_start_failed"
 _WORKER_STOP_IN_PROGRESS = "worker_stop_in_progress"
 _WORKER_STOP_FAILURE = "worker_stop_failed"
 _WORKER_STOP_TIMEOUT = "worker_stop_timeout"
+_WORKER_CLEANUP_UNCONFIRMED = "analysis_job_cleanup_unconfirmed"
 
 
 class AnalysisJobServiceError(RuntimeError):
@@ -161,9 +164,22 @@ class AnalysisJobService:
         repository: AnalysisJobRepository,
         *,
         clock: Clock = _utc_now,
+        cancellation_signals: AnalysisJobCancellationSignals | None = None,
     ) -> None:
         self._repository = repository
         self._clock = clock
+        # Tests and narrow custom composition stay compatible by receiving a
+        # private signal registry.  Production bootstrap explicitly supplies
+        # the same registry to its API service and active worker.
+        self._cancellation_signals = (
+            cancellation_signals or AnalysisJobCancellationSignals()
+        )
+
+    @property
+    def cancellation_signals(self) -> AnalysisJobCancellationSignals:
+        """The process-local wakeup registry for this service composition."""
+
+        return self._cancellation_signals
 
     def enqueue(
         self,
@@ -240,9 +256,14 @@ class AnalysisJobService:
         if job.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION:
             raise AnalysisJobConflictError()
         try:
-            return self._repository.request_cancel(job_id, now=self._clock())
+            cancelled = self._repository.request_cancel(job_id, now=self._clock())
         except DatabaseInvariantError:
             raise AnalysisJobConflictError() from None
+        # The SQLite mutation committed before this process-local wakeup.  A
+        # missing active registration is normal for queued, completed, or
+        # separately-hosted work; its durable fence remains authoritative.
+        self._cancellation_signals.signal_job(cancelled.job_id)
+        return cancelled
 
     def resume_after_approval(self, job_id: str) -> AnalysisJobRecord:
         job = self.get(job_id)
@@ -261,7 +282,7 @@ class AnalysisJobService:
         automation_grant_id: str,
     ) -> AnalysisJobCancellationBatchResult:
         try:
-            return self._repository.cancel_by_automation_grant(
+            cancelled = self._repository.cancel_by_automation_grant(
                 automation_grant_id,
                 now=self._clock(),
             )
@@ -269,6 +290,8 @@ class AnalysisJobService:
             raise AnalysisJobNotFoundError() from None
         except DatabaseInvariantError:
             raise AnalysisJobConflictError() from None
+        self._cancellation_signals.signal_automation_grant(automation_grant_id)
+        return cancelled
 
     def supersede_if_changed(
         self,
@@ -344,6 +367,23 @@ class AnalysisJobExecutionContext:
     @property
     def publication_committed(self) -> bool:
         return self._publication_committed
+
+    def automation_runtime_deadline_monotonic(self) -> float | None:
+        """Expose the already-persisted automation cutoff to a bounded source.
+
+        This does not introduce another execution ledger or extend the
+        publication root.  A caller receives the reconstructed cutoff only
+        while the automated session-quality publication remains uncommitted.
+        """
+
+        with self._lock:
+            if (
+                self._publication_committed
+                or self._job.identity.kind is not AnalysisJobKind.SESSION_QUALITY
+                or self._job.identity.automation_grant_id is None
+            ):
+                return None
+            return self._publication_monotonic_cutoff
 
     def _read_monotonic(self) -> float:
         observed = self._monotonic_clock()
@@ -491,6 +531,14 @@ class AnalysisJobExecutionContext:
             self._job = persisted
             if persisted.state in TERMINAL_ANALYSIS_JOB_STATES:
                 self._raise_cooperative_stop(persisted)
+            if not self._publication_committed and persisted.cancel_requested:
+                reason = persisted.last_error_code or "cancellation_requested"
+                terminal = (
+                    AnalysisJobState.SUPERSEDED
+                    if reason in {"input_changed", "provenance_changed"}
+                    else AnalysisJobState.CANCELLED
+                )
+                self._stop(terminal, reason)
             if not self._publication_committed and self._stop_requested():
                 raise AnalysisJobExecutionError("application_shutdown", retryable=True)
             return self._check_publication_deadline_locked()
@@ -627,6 +675,7 @@ class AnalysisJobWorker:
             lambda _job, _state, _reason: None
         ),
         execution_recovery_callback: ExecutionRecoveryCallback = lambda _now: None,
+        cancellation_signals: AnalysisJobCancellationSignals | None = None,
         power_source: PowerSourceReader | None = None,
         clock: Clock = _utc_now,
         monotonic_clock: MonotonicClock = monotonic,
@@ -642,6 +691,9 @@ class AnalysisJobWorker:
         self._fingerprint_resolver = fingerprint_resolver
         self._execution_stop_callback = execution_stop_callback
         self._execution_recovery_callback = execution_recovery_callback
+        self._cancellation_signals = (
+            cancellation_signals or AnalysisJobCancellationSignals()
+        )
         self._power_source = power_source
         self._clock = clock
         self._monotonic_clock = monotonic_clock
@@ -649,11 +701,14 @@ class AnalysisJobWorker:
         self._poll_seconds = poll_seconds
         self._worker_id = worker_id or secrets.token_hex(32)
         self._stop_event = Event()
+        self._cleanup_unconfirmed = Event()
         self._thread: Thread | None = None
         self._lifecycle_lock = Lock()
 
     def start(self) -> None:
         with self._lifecycle_lock:
+            if self._cleanup_unconfirmed.is_set():
+                raise RuntimeCleanupUnconfirmed(_WORKER_CLEANUP_UNCONFIRMED)
             if self._thread is not None and self._thread.is_alive():
                 if self._stop_event.is_set():
                     raise RuntimeError(_WORKER_STOP_IN_PROGRESS)
@@ -684,12 +739,27 @@ class AnalysisJobWorker:
         with self._lifecycle_lock:
             return self._thread is not None and self._thread.is_alive()
 
+    @property
+    def cleanup_unconfirmed(self) -> bool:
+        """Whether this worker has refused further admission after unsafe cleanup."""
+
+        return self._cleanup_unconfirmed.is_set()
+
+    @property
+    def cancellation_signals(self) -> AnalysisJobCancellationSignals:
+        """The exact process-local registry used for active job wakeups."""
+
+        return self._cancellation_signals
+
     def stop(self, *, timeout: float = 5.0) -> None:
         with self._lifecycle_lock:
             thread = self._thread
             if thread is None:
+                if self._cleanup_unconfirmed.is_set():
+                    raise RuntimeCleanupUnconfirmed(_WORKER_CLEANUP_UNCONFIRMED)
                 return
             self._stop_event.set()
+            self._cancellation_signals.signal_worker(self._worker_id)
             stop_failed = False
             timed_out = False
             try:
@@ -703,6 +773,8 @@ class AnalysisJobWorker:
                 raise RuntimeError(_WORKER_STOP_TIMEOUT)
             if self._thread is thread:
                 self._thread = None
+            if self._cleanup_unconfirmed.is_set():
+                raise RuntimeCleanupUnconfirmed(_WORKER_CLEANUP_UNCONFIRMED)
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -718,7 +790,7 @@ class AnalysisJobWorker:
                 self._stop_event.wait(self._poll_seconds)
 
     def run_once(self) -> bool:
-        if self._stop_event.is_set():
+        if self._stop_event.is_set() or self._cleanup_unconfirmed.is_set():
             return False
         now = self._clock()
         self._execution_recovery_callback(now)
@@ -747,60 +819,91 @@ class AnalysisJobWorker:
                 lease, "execution_handler_unavailable", retryable=False
             )
             return True
-        context: AnalysisJobExecutionContext | None = None
-        try:
-            context = AnalysisJobExecutionContext(
-                self._repository,
-                job,
-                lease,
-                clock=self._clock,
-                monotonic_clock=self._monotonic_clock,
-                lease_duration=self._lease_duration,
-                authorization_check=self._authorization_check,
-                fingerprint_resolver=self._fingerprint_resolver,
-                execution_stop_callback=self._execution_stop_callback,
-                stop_requested=self._stop_event.is_set,
-            )
-            context.enter_stage(1, progress_completed=0, progress_total=1)
-            result = handler(context.job, context)
-            context.heartbeat()
-            operation_at = context.repository_timestamp()
-            if result.state is AnalysisJobState.AWAITING_APPROVAL:
-                self._repository.await_approval(
-                    context.lease,
-                    now=operation_at,
-                    reason_code=result.reason_code,
-                    progress_completed=result.progress_completed,
-                    progress_total=result.progress_total,
+        with self._cancellation_signals.admit(
+            job_id=job.job_id,
+            lease_owner=lease.owner,
+            lease_token=lease.token,
+            automation_grant_id=job.identity.automation_grant_id,
+        ) as admission:
+            # The registration intentionally precedes this one durable reread:
+            # a cancellation that won after claim either signals the admission
+            # or is observed here before any handler/provider work begins.
+            current = self._repository.get(job.job_id)
+            if (
+                current is None
+                or current.state in TERMINAL_ANALYSIS_JOB_STATES
+                or current.lease_owner != lease.owner
+                or current.lease_token != lease.token
+            ):
+                return True
+            if current.cancel_requested or self._stop_event.is_set():
+                admission.event.set()
+            context: AnalysisJobExecutionContext | None = None
+            try:
+                context = AnalysisJobExecutionContext(
+                    self._repository,
+                    current,
+                    lease,
+                    clock=self._clock,
+                    monotonic_clock=self._monotonic_clock,
+                    lease_duration=self._lease_duration,
+                    authorization_check=self._authorization_check,
+                    fingerprint_resolver=self._fingerprint_resolver,
+                    execution_stop_callback=self._execution_stop_callback,
+                    stop_requested=self._stop_event.is_set,
                 )
-            else:
-                self._execution_stop_callback(
-                    context.job, result.state, result.reason_code
+                context.enter_stage(1, progress_completed=0, progress_total=1)
+                with runtime_request_scope(
+                    admission.event,
+                    deadline_monotonic=context.automation_runtime_deadline_monotonic(),
+                    deadline_reason="automation_publication_deadline_exceeded",
+                    monotonic_clock=self._monotonic_clock,
+                ):
+                    result = handler(context.job, context)
+                context.heartbeat()
+                operation_at = context.repository_timestamp()
+                if result.state is AnalysisJobState.AWAITING_APPROVAL:
+                    self._repository.await_approval(
+                        context.lease,
+                        now=operation_at,
+                        reason_code=result.reason_code,
+                        progress_completed=result.progress_completed,
+                        progress_total=result.progress_total,
+                    )
+                else:
+                    self._execution_stop_callback(
+                        context.job, result.state, result.reason_code
+                    )
+                    self._repository.finish(
+                        context.lease,
+                        now=operation_at,
+                        state=result.state,
+                        reason_code=result.reason_code,
+                        progress_completed=result.progress_completed,
+                        progress_total=result.progress_total,
+                    )
+            except AnalysisJobCooperativeStop:
+                pass
+            except AnalysisJobExecutionError as error:
+                self._retry_safely(
+                    context.lease if context is not None else lease,
+                    error.code,
+                    error.retryable,
+                    context=context,
                 )
-                self._repository.finish(
-                    context.lease,
-                    now=operation_at,
-                    state=result.state,
-                    reason_code=result.reason_code,
-                    progress_completed=result.progress_completed,
-                    progress_total=result.progress_total,
+            except RuntimeCleanupUnconfirmed:
+                # A transport-owned helper may still be alive.  Do not retry or
+                # admit a second job in this worker process until its owner has
+                # independently resolved the uncertainty.
+                self._cleanup_unconfirmed.set()
+                return False
+            except Exception:
+                self._retry_safely(
+                    context.lease if context is not None else lease,
+                    "execution_handler_failed",
+                    True,
+                    context=context,
                 )
-        except AnalysisJobCooperativeStop:
-            pass
-        except AnalysisJobExecutionError as error:
-            self._retry_safely(
-                context.lease if context is not None else lease,
-                error.code,
-                error.retryable,
-                context=context,
-            )
-        except Exception:
-            self._retry_safely(
-                context.lease if context is not None else lease,
-                "execution_handler_failed",
-                True,
-                context=context,
-            )
         return True
 
     def _current_power_source(self) -> PowerSourceState:

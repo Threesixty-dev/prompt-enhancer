@@ -35,10 +35,11 @@ describe("synthetic transport vertical slice", () => {
     const first = await transport.getMetricOperabilityCatalog!();
 
     expect(first).toMatchObject({
+      catalog_version: "metric-operability-v6",
       total_metric_count: 20,
-      shipped_path_count: 16,
+      shipped_path_count: 18,
       task_profile_configuration_gap_count: 0,
-      provider_adapter_gap_count: 4,
+      provider_adapter_gap_count: 2,
       experimental_model_path_count: 8,
       model_authoritative_metric_count: 0,
       local_only: true,

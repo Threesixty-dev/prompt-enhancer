@@ -12,6 +12,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import os
+import hashlib
+import json
 from pathlib import Path
 import sqlite3
 from threading import RLock, get_ident
@@ -34,6 +36,7 @@ from ...application.paid_product.contracts import (
     SpendHold,
     SpendHoldState,
     SpendPolicy,
+    StripeSubscriptionBinding,
     TenantAccountBinding,
 )
 from ...config import lexical_absolute_path, path_has_symlink_component
@@ -41,10 +44,11 @@ from ...sqlite_migration_integrity import (
     SqliteMigrationIntegrity,
     SqliteMigrationIntegrityError,
 )
+from ...application.paid_product.checkout import DurableCheckoutIntent
 
 
 PAID_PRODUCT_DATABASE_FILENAME = "paid-product.sqlite3"
-PAID_PRODUCT_SCHEMA_VERSION = 2
+PAID_PRODUCT_SCHEMA_VERSION = 5
 MINIMUM_SQLITE_VERSION = (3, 37, 0)
 
 _T = TypeVar("_T", bound=BaseModel)
@@ -362,9 +366,64 @@ _SCHEMA_V2 = (
     """,
 )
 
+_SCHEMA_V3 = (
+    """
+    CREATE TABLE paid_stripe_subscription_bindings (
+        customer_pseudonym TEXT NOT NULL,
+        subscription_pseudonym TEXT PRIMARY KEY,
+        organization_id TEXT NOT NULL,
+        price_pseudonym TEXT NOT NULL,
+        feature TEXT NOT NULL,
+        body_json TEXT NOT NULL CHECK (length(body_json) BETWEEN 2 AND 16384),
+        UNIQUE(customer_pseudonym, subscription_pseudonym),
+        UNIQUE(organization_id, feature)
+    ) STRICT
+    """,
+    """
+    CREATE TRIGGER paid_stripe_subscription_bindings_no_update
+    BEFORE UPDATE ON paid_stripe_subscription_bindings
+    BEGIN SELECT RAISE(ABORT, 'paid_stripe_binding_immutable'); END
+    """,
+    """
+    CREATE TRIGGER paid_stripe_subscription_bindings_no_delete
+    BEFORE DELETE ON paid_stripe_subscription_bindings
+    BEGIN SELECT RAISE(ABORT, 'paid_stripe_binding_immutable'); END
+    """,
+)
+_SCHEMA_V4 = (
+    """CREATE TABLE paid_stripe_subscription_tombstones (
+        subscription_pseudonym TEXT PRIMARY KEY
+    ) STRICT""",
+    """CREATE TRIGGER paid_stripe_subscription_tombstones_no_delete
+    BEFORE DELETE ON paid_stripe_subscription_tombstones
+    BEGIN SELECT RAISE(ABORT, 'paid_stripe_tombstone_immutable'); END""",
+    """CREATE TRIGGER paid_stripe_subscription_tombstones_no_update
+    BEFORE UPDATE ON paid_stripe_subscription_tombstones
+    BEGIN SELECT RAISE(ABORT, 'paid_stripe_tombstone_immutable'); END""",
+)
+_SCHEMA_V5 = (
+    """CREATE TABLE paid_checkout_intents (
+        organization_id TEXT NOT NULL,
+        intent_id TEXT NOT NULL,
+        customer_id TEXT NOT NULL,
+        price_id TEXT NOT NULL,
+        return_destination TEXT NOT NULL,
+        payload_digest TEXT NOT NULL CHECK(length(payload_digest)=64),
+        idempotency_key TEXT NOT NULL UNIQUE,
+        PRIMARY KEY (organization_id, intent_id)
+    ) STRICT""",
+    """CREATE TRIGGER paid_checkout_intents_no_update BEFORE UPDATE ON paid_checkout_intents
+    BEGIN SELECT RAISE(ABORT, 'paid_checkout_intent_immutable'); END""",
+    """CREATE TRIGGER paid_checkout_intents_no_delete BEFORE DELETE ON paid_checkout_intents
+    BEGIN SELECT RAISE(ABORT, 'paid_checkout_intent_immutable'); END""",
+)
+
 _MIGRATIONS = (
     (1, _SCHEMA_V1),
     (2, _SCHEMA_V2),
+    (3, _SCHEMA_V3),
+    (4, _SCHEMA_V4),
+    (5, _SCHEMA_V5),
 )
 
 _EXPECTED_PAID_TABLES = frozenset(
@@ -380,9 +439,12 @@ _EXPECTED_PAID_TABLES = frozenset(
         "paid_product_migration_checksums",
         "paid_remote_approvals",
         "paid_spend_holds",
+        "paid_stripe_subscription_bindings",
+        "paid_stripe_subscription_tombstones",
         "paid_tenant_bindings",
         "paid_user_spend_policies",
         "paid_webhook_fences",
+        "paid_checkout_intents",
     }
 )
 
@@ -421,10 +483,16 @@ _EXPECTED_PAID_TRIGGERS = frozenset(
         "paid_spend_holds_no_delete",
         "paid_spend_holds_transition",
         "paid_tenant_bindings_immutable",
+        "paid_stripe_subscription_bindings_no_delete",
+        "paid_stripe_subscription_bindings_no_update",
+        "paid_stripe_subscription_tombstones_no_delete",
+        "paid_stripe_subscription_tombstones_no_update",
         "paid_tenant_bindings_no_delete",
         "paid_user_spend_policies_no_delete",
         "paid_webhook_fences_no_delete",
         "paid_webhook_fences_no_update",
+        "paid_checkout_intents_no_update",
+        "paid_checkout_intents_no_delete",
     }
 )
 
@@ -435,12 +503,12 @@ def _normalized_sql(value: str) -> str:
 
 _EXPECTED_PAID_TABLE_SQL = {
     statement.split()[2]: _normalized_sql(statement)
-    for statement in _SCHEMA_V1
+    for statement in (_SCHEMA_V1 + _SCHEMA_V3 + _SCHEMA_V4 + _SCHEMA_V5)
     if statement.lstrip().startswith("CREATE TABLE ")
 }
 _EXPECTED_PAID_TRIGGER_SQL = {
     statement.split()[2]: _normalized_sql(statement)
-    for statement in _SCHEMA_V1
+    for statement in (_SCHEMA_V1 + _SCHEMA_V3 + _SCHEMA_V4 + _SCHEMA_V5)
     if statement.lstrip().startswith("CREATE TRIGGER ")
 }
 _EXPECTED_PAID_INDEX_SQL = {
@@ -852,6 +920,56 @@ class PaidProductSqliteStore:
                 (provider_event_id,),
             ).fetchone()
         return None if row is None else str(row[0])
+
+    def stripe_subscription_binding(
+        self, customer_pseudonym: str, subscription_pseudonym: str
+    ) -> StripeSubscriptionBinding | None:
+        with self._reader() as connection:
+            row = connection.execute(
+                """
+                SELECT organization_id, price_pseudonym, feature, body_json
+                FROM paid_stripe_subscription_bindings
+                WHERE customer_pseudonym = ? AND subscription_pseudonym = ?
+                """,
+                (customer_pseudonym, subscription_pseudonym),
+            ).fetchone()
+        return None if row is None else self._parse_bound(
+            StripeSubscriptionBinding,
+            row[3],
+            customer_pseudonym=customer_pseudonym,
+            subscription_pseudonym=subscription_pseudonym,
+            organization_id=row[0],
+            price_pseudonym=row[1],
+            feature=row[2],
+        )
+
+    def save_stripe_subscription_binding(self, binding: StripeSubscriptionBinding) -> None:
+        try:
+            self._writer().execute(
+                """
+                INSERT INTO paid_stripe_subscription_bindings(
+                    customer_pseudonym, subscription_pseudonym, organization_id,
+                    price_pseudonym, feature, body_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    binding.customer_pseudonym,
+                    binding.subscription_pseudonym,
+                    binding.organization_id,
+                    binding.price_pseudonym,
+                    binding.feature.value,
+                    self._body(binding),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("paid_product_stripe_binding_conflict") from exc
+
+    def stripe_subscription_canceled(self, subscription_pseudonym: str) -> bool:
+        with self._reader() as connection:
+            return connection.execute("SELECT 1 FROM paid_stripe_subscription_tombstones WHERE subscription_pseudonym = ?", (subscription_pseudonym,)).fetchone() is not None
+
+    def tombstone_stripe_subscription(self, subscription_pseudonym: str) -> None:
+        self._writer().execute("INSERT OR IGNORE INTO paid_stripe_subscription_tombstones VALUES (?)", (subscription_pseudonym,))
 
     def next_entitlement_sequence(self, organization_id: str) -> int:
         connection = self._writer()
@@ -1301,6 +1419,47 @@ class PaidProductSqliteStore:
             )
             for row in rows
         )
+
+    def create_checkout_intent(self, *, organization_id: str, intent_id: str, customer_id: str,
+                               price_id: str, return_destination: str) -> DurableCheckoutIntent:
+        values = (organization_id, intent_id, customer_id, price_id, return_destination)
+        invalid = any(
+            not isinstance(value, str) or not value or len(value) > 255
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)
+            for value in values
+        )
+        if invalid:
+            raise ValueError("paid_checkout_intent_invalid")
+        payload = json.dumps({"customer_id": customer_id, "price_id": price_id,
+            "return_destination": return_destination}, sort_keys=True, separators=(",", ":")).encode()
+        digest = hashlib.sha256(payload).hexdigest()
+        key_material = json.dumps({"organization_id": organization_id, "purpose": "checkout", "intent_id": intent_id}, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        key = "checkout_" + hashlib.sha256(key_material).hexdigest()
+        row = self._writer().execute("SELECT customer_id,price_id,return_destination,payload_digest,idempotency_key FROM paid_checkout_intents WHERE organization_id=? AND intent_id=?", (organization_id,intent_id)).fetchone()
+        if row is None:
+            self._writer().execute("INSERT INTO paid_checkout_intents VALUES(?,?,?,?,?,?,?)", (*values, digest, key))
+            return DurableCheckoutIntent(organization_id,intent_id,customer_id,price_id,return_destination,key)
+        if tuple(row[:4]) != (customer_id,price_id,return_destination,digest):
+            raise ValueError("paid_checkout_intent_payload_conflict")
+        return DurableCheckoutIntent(organization_id,intent_id,customer_id,price_id,return_destination,str(row[4]))
+
+    def checkout_intent(self, organization_id: str, intent_id: str) -> DurableCheckoutIntent | None:
+        with self._reader() as connection:
+            row=connection.execute("SELECT customer_id,price_id,return_destination,idempotency_key FROM paid_checkout_intents WHERE organization_id=? AND intent_id=?",(organization_id,intent_id)).fetchone()
+        return None if row is None else DurableCheckoutIntent(organization_id,intent_id,str(row[0]),str(row[1]),str(row[2]),str(row[3]))
+
+    def portal_customer(self, organization_id: str) -> str | None:
+        """Use only an existing intent-bound customer; ambiguity fails closed.
+
+        This provisional binding does not establish that the provider customer
+        still exists or is otherwise entitled to a portal session.
+        """
+        with self._reader() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT customer_id FROM paid_checkout_intents WHERE organization_id=? LIMIT 2",
+                (organization_id,),
+            ).fetchall()
+        return str(rows[0][0]) if len(rows) == 1 else None
 
     def structural_check(self) -> bool:
         """Check schema/trigger/FK structure, not hostile-file authenticity.

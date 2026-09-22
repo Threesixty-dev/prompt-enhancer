@@ -13,8 +13,10 @@ import {
   REQUIREMENT_PLAN_IMPORT_CONFIRMATION,
   REQUIREMENT_PLAN_MEDIA_TYPE,
 } from "../../shared/api/requirementPlanEvidenceContract";
+import { TransportError } from "../../shared/api/httpTransport";
 import "./MetricEvidenceFilePanel.css";
 import "./RequirementPlanEvidencePanel.css";
+import { RequirementPlanGuidedAuthoring } from "./RequirementPlanGuidedAuthoring";
 
 type RequirementPlanTransport = Pick<PromptEnhancerTransport,
   | "getRequirementPlanEvidenceContract"
@@ -22,7 +24,9 @@ type RequirementPlanTransport = Pick<PromptEnhancerTransport,
   | "importRequirementPlanEvidence"
   | "listRequirementPlanProposals"
   | "reviewRequirementPlanProposal"
-  | "decideRequirementPlanProposal">
+  | "decideRequirementPlanProposal"
+  | "reviewRequirementPlanGuidedAuthoring"
+  | "submitRequirementPlanGuidedAuthoring">
   & Partial<Pick<PromptEnhancerTransport, "getUserPresenceCapability">>;
 
 type PendingDecision = {
@@ -33,7 +37,7 @@ type PendingDecision = {
   proposalMembershipEpoch: number;
   reviewEpoch: number | null;
 };
-type ErrorKind = "load" | "validation" | "stale" | "action";
+type ErrorKind = "load" | "validation" | "stale" | "context_missing" | "action";
 type LivePreview = {
   epoch: number;
   preview: RequirementPlanEvidencePreview;
@@ -320,6 +324,15 @@ function reasonLabel(reason: NonNullable<RequirementPlanReviewClause["exclusion_
   return reason.replaceAll("_", " ");
 }
 
+function isMissingReviewContextError(error: unknown): boolean {
+  return error instanceof TransportError
+    && error.status === 404
+    && error.reasonCode === "requirement_plan_review_context_missing";
+}
+
+const MISSING_REVIEW_CONTEXT_MESSAGE =
+  "The saved sealed analysis is retained, but its source-review context is unavailable or expired. Start a fresh explicit analysis to review requirements again.";
+
 export function RequirementPlanEvidencePanel({
   compact,
   sessionId,
@@ -360,6 +373,7 @@ export function RequirementPlanEvidencePanel({
   const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
   const [notice, setNotice] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
+  const [guidedMode, setGuidedMode] = useState(false);
   const operationRef = useRef<AbortController | null>(null);
   const bindingRef = useRef(currentBinding);
   const transportRef = useRef(transport);
@@ -517,6 +531,7 @@ export function RequirementPlanEvidencePanel({
     setError("");
     setErrorKind(null);
     setNotice("");
+    setGuidedMode(false);
     setLoading(capabilities);
     restoreReviewFocusRef.current = false;
     restoreDecisionFocusRef.current = false;
@@ -559,14 +574,19 @@ export function RequirementPlanEvidencePanel({
       )));
       publishConfirmationAvailability(coherentNativePresence(presence));
       setLoading(false);
-    }).catch(() => {
+    }).catch((caught: unknown) => {
       if (
         !controller.signal.aborted
         && bindingRef.current === binding
         && transportRef.current === transport
       ) {
-        setError("Reviewed requirement-plan evidence is temporarily unavailable.");
-        setErrorKind("load");
+        if (isMissingReviewContextError(caught)) {
+          setError(MISSING_REVIEW_CONTEXT_MESSAGE);
+          setErrorKind("context_missing");
+        } else {
+          setError("Reviewed requirement-plan evidence is temporarily unavailable.");
+          setErrorKind("load");
+        }
         setLoading(false);
       }
     });
@@ -643,6 +663,10 @@ export function RequirementPlanEvidencePanel({
   }, [preview]);
 
   useEffect(() => {
+    if (!confirmationAvailable || contract === null) setGuidedMode(false);
+  }, [confirmationAvailable, contract]);
+
+  useEffect(() => {
     if (review !== null) reviewRef.current?.focus();
     else if (restoreReviewFocusRef.current) {
       reviewTriggerRef.current?.focus();
@@ -716,6 +740,7 @@ export function RequirementPlanEvidencePanel({
     setError("");
     setErrorKind(null);
     setNotice("");
+    setGuidedMode(false);
     setReloadToken((value) => value + 1);
   }
 
@@ -1142,7 +1167,9 @@ export function RequirementPlanEvidencePanel({
                 : `${undecided.length} proposal${undecided.length === 1 ? "" : "s"} awaiting review`}</span>
         <small>{confirmationAvailable
           ? "Open the full dashboard to inspect every local source clause and natively confirm or reject its proposal."
-          : "Review is fail-closed: this server/window composition cannot natively review or confirm proposals."}</small>
+          : errorKind === "context_missing"
+            ? "No review or confirmation is available until a fresh source-review context is prepared."
+            : "Review is fail-closed: this server/window composition cannot natively review or confirm proposals."}</small>
         {(confirmedCount > 0 || rejectedCount > 0) && <small>{confirmedCount} confirmed · {rejectedCount} rejected for this exact source window</small>}
         {error !== "" && <span className="metric-evidence-file__error" role="alert">{error}</span>}
       </section>
@@ -1165,7 +1192,7 @@ export function RequirementPlanEvidencePanel({
       ) : contract === null ? (
         <div className="metric-evidence-file__state metric-evidence-file__state--error">
           <p className="metric-evidence-file__error" role={error === "" ? "status" : "alert"}>{error === "" ? "Exact requirement-plan review is unavailable." : error}</p>
-          <button onClick={reloadCurrentContext} type="button">Retry exact source contract</button>
+          {errorKind !== "context_missing" && <button onClick={reloadCurrentContext} type="button">Retry exact source contract</button>}
         </div>
       ) : (
         <>
@@ -1174,7 +1201,25 @@ export function RequirementPlanEvidencePanel({
             <p>Import never sets a metric. Only a separately reviewed, natively confirmed proposal can become eligible for a fresh analysis; confirmation does not prove plan quality, atomic coverage, or task success.</p>
             <p>Every reviewable user request/feedback clause must be classified as active or excluded. One compound active clause remains one opportunity; excluded clauses never enter the metric.</p>
           </div>
-          <label className="metric-evidence-file__picker">
+          {!guidedMode && <section className="requirement-plan-guided">
+            <h4>Guided local authoring</h4>
+            <p>Classify each local clause and map PLAN clauses here; no external JSON or model is used.</p>
+            <button disabled={busy || !confirmationAvailable} onClick={() => { invalidatePreview(); clearReview(); setGuidedMode(true); }} type="button">Start guided authoring</button>
+          </section>}
+          {guidedMode ? <RequirementPlanGuidedAuthoring
+            sessionId={sessionId}
+            contract={contract}
+            transport={transport}
+            enabled={confirmationAvailable && !busy}
+            onCreated={(proposal) => {
+              const current = contractAuthorityRef.current;
+              if (current === null || current.identity !== contractAuthorityIdentity(contract) || !proposalCurrent(proposal, current.contract)) return;
+              updateProposals((items) => [proposal, ...items.filter((item) => item.proposal_id !== proposal.proposal_id)]);
+              setGuidedMode(false);
+              setNotice("Locally authored unconfirmed proposal created. Open the separate complete local clause review before any native decision.");
+            }}
+            onClosed={() => setGuidedMode(false)}
+          /> : <label className="metric-evidence-file__picker">
             <span>Choose canonical requirement-plan evidence file</span>
             <input
               accept={`.json,application/json,${REQUIREMENT_PLAN_MEDIA_TYPE}`}
@@ -1187,7 +1232,7 @@ export function RequirementPlanEvidencePanel({
               }}
               type="file"
             />
-          </label>
+          </label>}
           {preview !== null && (
             <div aria-label="Strict local requirement-plan preview" className="metric-evidence-file__preview requirement-plan-evidence__preview" ref={previewRegionRef} role="region" tabIndex={-1}>
               <div>
@@ -1201,7 +1246,7 @@ export function RequirementPlanEvidencePanel({
               }} type="button">Import as unconfirmed</button>
             </div>
           )}
-          <section aria-labelledby={proposalsHeadingId} className="metric-evidence-file__proposals">
+          {!guidedMode && <section aria-labelledby={proposalsHeadingId} className="metric-evidence-file__proposals">
             <div className="metric-evidence-file__section-heading">
               <h4 id={proposalsHeadingId}>Proposals awaiting native decision</h4>
               <span>{undecided.length} loaded</span>
@@ -1344,7 +1389,7 @@ export function RequirementPlanEvidencePanel({
               })}
             </ul>
             )}
-          </section>
+          </section>}
           {!confirmationAvailable && (
             <p className="metric-evidence-file__state" role="status">Owned native user presence is unavailable. Proposals remain unconfirmed; strict preview and inert import stay local, but clause review and every decision are disabled.</p>
           )}

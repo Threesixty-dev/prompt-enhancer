@@ -489,6 +489,10 @@ for (const width of [360, 1440]) {
       await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
       await expect(page.getByText("Synthetic reply: the example is ready to review.", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "New conversation", exact: true }).click();
+      const resetDialog = page.getByRole("dialog", { name: "Start a new conversation?", exact: true });
+      await expect(resetDialog).toBeVisible();
+      await expect(page.getByText("Synthetic reply: the example is ready to review.", { exact: true })).toBeVisible();
+      await resetDialog.getByRole("button", { name: "Start new conversation", exact: true }).click();
       await expect(page.getByText("Synthetic reply: the example is ready to review.", { exact: true })).toHaveCount(0);
     });
 
@@ -509,7 +513,10 @@ for (const width of [360, 1440]) {
       await expect(page.getByText("Synthetic reasoning: inspect the fictional request.", { exact: true })).toBeVisible();
       await fitsViewport(page);
       await page.getByRole("button", { name: "Stop model", exact: true }).click();
-      await expect(composer).toBeDisabled();
+      await expect(composer).toBeEnabled();
+      await composer.fill("Synthetic draft retained after the model stops.");
+      await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+      await expect(composer).toHaveValue("Synthetic draft retained after the model stops.");
       await expect(page.getByText("Synthetic agent reply: no real files were read or changed.", { exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Start session model", exact: true })).toBeEnabled();
     });
@@ -640,7 +647,7 @@ for (const width of [360, 1440]) {
       const setupPreview = controller.getByRole("region", { name: "Exact client setup", exact: true });
       await expect(setupPreview).toBeVisible();
       await expect(setupPreview).toContainText("Disconnected · no credential");
-      await expect(setupPreview).toContainText("http://127.0.0.1:4173/mcp/agent");
+      await expect(setupPreview).toContainText(new URL("/mcp/agent", page.url()).toString());
       await expect(setupPreview).toContainText("No process or terminal");
       await expect(setupPreview).not.toContainText("pemcp1.");
       await expect(setupPreview).not.toContainText("pemcp2.");
@@ -665,7 +672,7 @@ for (const width of [360, 1440]) {
         "verified file move advances a matching card under the same identity",
       );
       await expect(controller.locator(".agent-mcp-connections__quickstart")).toContainText(
-        "Directory moves do not yet advance artifact cards",
+        "A verified directory move reports whether artifact tracking was updated or requires recovery; its contents are never claimed as reviewed.",
       );
       await expect(controller.locator(".agent-mcp-connections__quickstart")).toContainText(
         "last-request timestamp proves",
@@ -1045,6 +1052,8 @@ for (const width of [360, 1440]) {
 
     test("artifact image, PDF and Office viewers stay inert, bounded, and release local URLs", async ({ page }) => {
       const externalRequests: string[] = [];
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(`${error.name}: ${error.message}`));
       page.on("request", (request) => {
         const target = new URL(request.url());
         if (["blob:", "data:"].includes(target.protocol)) return;
@@ -1053,7 +1062,9 @@ for (const width of [360, 1440]) {
         }
       });
       await page.addInitScript(() => {
-        const trackedWindow = window as Window & {
+        // The browser init script creates these test-only fields; bridge the
+        // structural cast explicitly so the fixture does not widen globals.
+        const trackedWindow = window as unknown as Window & {
           __syntheticCreatedArtifactUrls: string[];
           __syntheticRevokedArtifactUrls: string[];
         };
@@ -1099,10 +1110,10 @@ for (const width of [360, 1440]) {
       await expect(imageDialog).toHaveCount(0);
       await expect(imageView).toBeFocused();
       await expect.poll(() => page.evaluate(() => (
-        window as Window & { __syntheticRevokedArtifactUrls: string[] }
+        window as unknown as Window & { __syntheticRevokedArtifactUrls: string[] }
       ).__syntheticRevokedArtifactUrls.length)).toBe(1);
       await expect.poll(() => page.evaluate(() => (
-        window as Window & { __syntheticCreatedArtifactUrls: string[] }
+        window as unknown as Window & { __syntheticCreatedArtifactUrls: string[] }
       ).__syntheticCreatedArtifactUrls.length)).toBe(1);
 
       await pdfView.click();
@@ -1110,18 +1121,97 @@ for (const width of [360, 1440]) {
       const pdfRegion = pdfDialog.getByRole("region", { name: "PDF preview of synthetic-report.pdf v1", exact: true });
       await expect(pdfRegion).toHaveAttribute("data-state", "ready");
       await expect(pdfDialog.locator("iframe")).toHaveCount(0);
-      await expect(pdfDialog.getByRole("img", { name: "Rendered PDF page 1 of 1", exact: true })).toBeVisible();
+      const pdfCanvas = pdfDialog.getByRole("img", { name: "Rendered PDF page 1 of 1", exact: true });
+      await expect(pdfCanvas).toBeVisible();
       await expect(pdfDialog.getByText(/Links, forms, scripts, audio, and annotations are not interactive/u)).toBeVisible();
+      const fitPdf = pdfDialog.getByRole("button", { name: "Fit PDF page to viewer", exact: true });
+      await expect(fitPdf).toBeDisabled();
+      const fittedPdfWidth = (await pdfCanvas.boundingBox())!.width;
+
+      // The zoom step must settle at the chosen scale: a superseded render, a
+      // reloaded document or a stage remeasurement must not quietly restore
+      // the fitted 100% view.
       await pdfDialog.getByRole("button", { name: "Zoom in PDF", exact: true }).click();
-      await expect(pdfDialog.getByRole("button", { name: "Fit PDF page to viewer", exact: true })).toContainText("125%");
+      await expect.poll(async () => ({
+        fit: (await fitPdf.textContent()) ?? "",
+        state: await pdfRegion.getAttribute("data-state"),
+      })).toEqual({ fit: expect.stringContaining("125%"), state: "ready" });
+      const zoomedPdfWidth = (await pdfCanvas.boundingBox())!.width;
+      expect(
+        zoomedPdfWidth,
+        "Zooming must enlarge the rendered page, not only the zoom label",
+      ).toBeGreaterThan(fittedPdfWidth);
+
+      // The enlarged page must overflow into the viewer's own scroll port, and
+      // that port must be reachable without a pointer. The tab stop is read in
+      // the same layout as the overflow it describes: a render still in flight
+      // must not leave a scrolling stage that the keyboard cannot enter.
+      const zoomedStage = await pdfDialog.evaluate((dialog) => {
+        const stage = dialog.querySelector<HTMLElement>(".agent-pdf-preview__stage")!;
+        const bounds = dialog.getBoundingClientRect();
+        return {
+          contentScrollWidth: document.documentElement.scrollWidth,
+          dialogLeft: bounds.left,
+          dialogRight: bounds.right,
+          overflowX: getComputedStyle(stage).overflowX,
+          scrollable: stage.scrollWidth > stage.clientWidth || stage.scrollHeight > stage.clientHeight,
+          scrollableX: stage.scrollWidth > stage.clientWidth,
+          shellOverflowX: getComputedStyle(stage.parentElement!).overflowX,
+          tabIndex: stage.tabIndex,
+          viewportWidth: document.documentElement.clientWidth,
+        };
+      });
+      expect(zoomedStage.scrollableX, JSON.stringify(zoomedStage)).toBe(true);
+      expect(zoomedStage.overflowX).toMatch(/auto|scroll/u);
+      expect(zoomedStage.shellOverflowX).toBe("hidden");
+      expect(zoomedStage.tabIndex, "A scrollable PDF stage must be keyboard reachable").toBe(0);
+      expect(zoomedStage.dialogLeft).toBeGreaterThanOrEqual(0);
+      expect(zoomedStage.dialogRight).toBeLessThanOrEqual(width + 1);
+      expect(zoomedStage.contentScrollWidth).toBeLessThanOrEqual(zoomedStage.viewportWidth);
+
+      // Reachable is not enough: the focused port has to pan the page it holds.
+      const pdfStage = pdfDialog.getByRole("group", { name: "Scrollable PDF page area", exact: true });
+      await pdfStage.focus();
+      await expect(pdfStage).toBeFocused();
+      await pdfStage.press("ArrowRight");
+      await expect
+        .poll(() => pdfStage.evaluate((stage) => stage.scrollLeft), {
+          message: "A focused PDF stage must pan the zoomed page from the keyboard",
+        })
+        .toBeGreaterThan(0);
+
+      await fitPdf.click();
+      await expect.poll(async () => ({
+        fit: (await fitPdf.textContent()) ?? "",
+        state: await pdfRegion.getAttribute("data-state"),
+      })).toEqual({ fit: expect.stringContaining("100%"), state: "ready" });
+      await expect(fitPdf).toBeDisabled();
+      expect((await pdfCanvas.boundingBox())!.width).toBeLessThan(zoomedPdfWidth);
+      const fittedStage = await pdfDialog.evaluate((dialog) => {
+        const stage = dialog.querySelector<HTMLElement>(".agent-pdf-preview__stage")!;
+        return {
+          scrollable: stage.scrollWidth > stage.clientWidth || stage.scrollHeight > stage.clientHeight,
+          scrollableX: stage.scrollWidth > stage.clientWidth,
+          tabIndex: stage.tabIndex,
+        };
+      });
+      // Fitting removes the horizontal overflow, but a page taller than the
+      // stage still scrolls vertically. The tab stop tracks what the port can
+      // actually scroll in either axis: never a dead stop, never a page the
+      // keyboard cannot reach.
+      expect(fittedStage.scrollableX, JSON.stringify(fittedStage)).toBe(false);
+      expect(
+        fittedStage.tabIndex,
+        "A fitted page must leave a tab stop only while the stage really scrolls",
+      ).toBe(fittedStage.scrollable ? 0 : -1);
       await page.keyboard.press("Escape");
       await expect(pdfDialog).toHaveCount(0);
       await expect(pdfView).toBeFocused();
       await expect.poll(() => page.evaluate(() => (
-        window as Window & { __syntheticRevokedArtifactUrls: string[] }
+        window as unknown as Window & { __syntheticRevokedArtifactUrls: string[] }
       ).__syntheticRevokedArtifactUrls.length)).toBe(1);
       await expect.poll(() => page.evaluate(() => (
-        window as Window & { __syntheticCreatedArtifactUrls: string[] }
+        window as unknown as Window & { __syntheticCreatedArtifactUrls: string[] }
       ).__syntheticCreatedArtifactUrls.length)).toBe(1);
 
       await documentView.click();
@@ -1164,12 +1254,16 @@ for (const width of [360, 1440]) {
       await expect(documentDialog).toHaveCount(0);
       await expect(documentView).toBeFocused();
       await expect.poll(() => page.evaluate(() => (
-        window as Window & { __syntheticCreatedArtifactUrls: string[] }
+        window as unknown as Window & { __syntheticCreatedArtifactUrls: string[] }
       ).__syntheticCreatedArtifactUrls.length)).toBe(2);
       await expect.poll(() => page.evaluate(() => (
-        window as Window & { __syntheticRevokedArtifactUrls: string[] }
+        window as unknown as Window & { __syntheticRevokedArtifactUrls: string[] }
       ).__syntheticRevokedArtifactUrls.length)).toBe(2);
       expect(externalRequests).toEqual([]);
+      expect(
+        pageErrors,
+        "The local artifact viewers must not raise uncaught page errors",
+      ).toEqual([]);
       await fitsViewport(page);
     });
 
@@ -1320,18 +1414,23 @@ for (const width of [360, 1440]) {
       test(`agent model commands survive delayed status in ${windowMode ? "dedicated" : "main"} view`, async ({ page }) => {
         await page.goto(`/e2e/fixtures/workflow-panels.html?panel=agent-model-race${windowMode ? "&window=1" : ""}`);
         const composer = page.getByRole("textbox", { name: "Message to the agent", exact: true });
-        await expect(composer).toBeDisabled();
+        const send = page.getByRole("button", { name: "Send", exact: true });
+        await expect(composer).toBeEnabled();
+        await expect(send).toBeDisabled();
         await page.getByRole("button", { name: "Hold older model status", exact: true }).click();
         await page.getByRole("button", { name: "Start session model", exact: true }).click();
         await expect(composer).toBeEnabled();
         await page.getByRole("button", { name: "Release older model status", exact: true }).click();
         await expect(composer).toBeEnabled();
         await composer.fill("Fictional draft retained while stopping the model.");
+        await expect(send).toBeEnabled();
         await page.getByRole("button", { name: "Hold older model status", exact: true }).click();
         await page.getByRole("button", { name: "Stop model", exact: true }).click();
-        await expect(composer).toBeDisabled();
+        await expect(composer).toBeEnabled();
+        await expect(send).toBeDisabled();
         await page.getByRole("button", { name: "Release older model status", exact: true }).click();
-        await expect(composer).toBeDisabled();
+        await expect(composer).toBeEnabled();
+        await expect(send).toBeDisabled();
         await expect(composer).toHaveValue("Fictional draft retained while stopping the model.");
         await expect(page.getByRole("region", { name: "Agent activity status", exact: true })).toContainText("Model stopped");
         await fitsViewport(page);

@@ -15,6 +15,8 @@ dependencies = [
   # MIT-licensed official MCP SDK. Keep the protocol/runtime revision exact;
   # Store host behavior is contract-tested against this release.
   "mcp==2.1.1",
+  # MCP package installation validates declared versions at runtime.
+  "packaging==26.3",
   # Managed MCP calls validate the exact reviewed input/output contracts.
   "jsonschema>=4.26,<5",
   "pydantic>=2.11.7,<3",
@@ -39,6 +41,9 @@ models = [
 desktop = [
   "pywebview>=6.2.1,<7",
 ]
+release = [
+  # Retained for compatibility with release commands using `--extra release`.
+]
 
 [project.scripts]
 prompt-enhancer = "prompt_enhancer.cli:main"
@@ -58,6 +63,7 @@ prompt_enhancer = [
   "_resources/dashboard/*",
   "_resources/dashboard/assets/*",
   "_resources/dashboard/**/*",
+  "_resources/dashboard/.vite/manifest.json",
 ]
 
 [tool.pytest.ini_options]

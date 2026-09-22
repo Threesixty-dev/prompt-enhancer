@@ -14,6 +14,11 @@ from prompt_enhancer.application.automation import (
     AutomationGrantDraft,
     AutomationGrantScope,
 )
+from prompt_enhancer.application.runtime_cancellation import (
+    RuntimeCleanupUnconfirmed,
+    current_runtime_cancellation,
+    runtime_remaining_seconds,
+)
 from prompt_enhancer.application.jobs import (
     AnalysisJobExecutionResult,
     AnalysisJobIdentity,
@@ -146,7 +151,7 @@ def test_schema_and_enqueue_are_durable_content_free_and_idempotent(tmp_path) ->
         max_attempts=3,
     )
 
-    assert SCHEMA_VERSION == 61
+    assert SCHEMA_VERSION == 67
     assert first.created is True
     assert duplicate.created is False
     assert duplicate.job == first.job
@@ -334,6 +339,10 @@ def test_worker_runs_reviewed_synthetic_handler_and_detects_change(tmp_path) -> 
     completed_job = service.enqueue(_identity(session)).job
 
     def success(_job, context):  # type: ignore[no-untyped-def]
+        # Every handler receives worker-shutdown cancellation, but a manual
+        # job does not inherit an automation publication cutoff.
+        assert current_runtime_cancellation() is not None
+        assert runtime_remaining_seconds() is None
         context.enter_stage(2, progress_completed=1, progress_total=2)
         return AnalysisJobExecutionResult(
             state=AnalysisJobState.COMPLETED,
@@ -387,6 +396,45 @@ def test_worker_runs_reviewed_synthetic_handler_and_detects_change(tmp_path) -> 
     changed = repository.get(changed_job.job_id)
     assert changed.state is AnalysisJobState.SUPERSEDED
     assert changed.terminal_reason_code == "input_changed"
+
+
+def test_worker_quarantines_admission_when_provider_cleanup_is_unconfirmed(tmp_path) -> None:
+    database, session = _database(tmp_path)
+    repository = database.analysis_job_repository()
+    service = AnalysisJobService(repository)
+    queued = service.enqueue(_identity(session)).job
+    handler_calls: list[str] = []
+    recoveries: list[datetime] = []
+
+    def cleanup_uncertain(_job, _context):  # type: ignore[no-untyped-def]
+        handler_calls.append("attempted")
+        raise RuntimeCleanupUnconfirmed("synthetic provider cleanup uncertainty")
+
+    worker = AnalysisJobWorker(
+        repository,
+        {(AnalysisJobKind.SESSION_QUALITY, Provider.SYNTHETIC): cleanup_uncertain},
+        authorization_check=lambda _job: True,
+        fingerprint_resolver=lambda job: (
+            job.identity.input_fingerprint,
+            job.identity.provenance_fingerprint,
+        ),
+        execution_recovery_callback=recoveries.append,
+    )
+
+    assert worker.run_once() is False
+    active = repository.get(queued.job_id)
+    assert worker.cleanup_unconfirmed is True
+    assert handler_calls == ["attempted"]
+    assert active.state in {AnalysisJobState.PREPROCESSING, AnalysisJobState.STAGE_N}
+    assert active.lease_owner is not None
+    assert worker.run_once() is False
+    assert handler_calls == ["attempted"]
+    assert len(recoveries) == 1
+    with pytest.raises(RuntimeCleanupUnconfirmed, match="analysis_job_cleanup_unconfirmed"):
+        worker.start()
+    with pytest.raises(RuntimeCleanupUnconfirmed, match="analysis_job_cleanup_unconfirmed"):
+        worker.stop()
+    assert len(recoveries) == 1
 
 
 def test_worker_fails_closed_without_handler_and_can_wait_for_fresh_approval(

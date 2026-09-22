@@ -58,8 +58,10 @@ type RouteAudit = {
   invalidReferences: string[];
   missingNames: string[];
   overflow: number;
+  settled: boolean;
   subCaptionText: string[];
   undersizedTargets: string[];
+  unsettledAnimations: number;
   visibleH1s: number;
 };
 
@@ -78,17 +80,46 @@ async function settleRoute(page: Page, path: string, theme: Theme): Promise<void
   await expect(page.locator("#main-content h1:visible")).toHaveCount(1);
   await expect.poll(() => page.title()).not.toBe("Prompt Enhancer");
   await page.evaluate(() => document.fonts.ready);
-  await page.evaluate(async () => {
-    const finiteAnimations = document.getAnimations().filter((animation) => (
-      animation.playState === "running"
-      && animation.effect?.getTiming().iterations !== Infinity
-    ));
-    await Promise.allSettled(finiteAnimations.map((animation) => animation.finished));
-  });
 }
 
 async function auditRoute(page: Page): Promise<RouteAudit> {
-  return page.evaluate(() => {
+  return page.evaluate(async () => {
+    // Every route loads its own data, so the frame that satisfies the waits above
+    // is not the frame worth measuring. Content that mounts afterwards can still
+    // carry an in-flight `color`/`background-color` from the shell theme
+    // transition, and a computed colour sampled mid-interpolation is a colour the
+    // page never settles on. Drain every finite animation and transition, then
+    // confirm across two frames that the DOM stopped changing and nothing
+    // restarted. Frame- and mutation-driven, never a fixed delay. `settled` is
+    // only true when a pass ends with no mutation and no finite animation left,
+    // so exhausting the pass cap reports unresolved settlement rather than a
+    // green measurement taken on a moving page.
+    const nextFrame = () => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+    const inFlight = () => document.getAnimations().filter((animation) => (
+      animation.playState === "running"
+      && animation.effect?.getTiming().iterations !== Infinity
+    ));
+    let unsettledAnimations = inFlight().length;
+    let settled = false;
+    for (let pass = 0; pass < 30 && !settled; pass += 1) {
+      await Promise.allSettled(inFlight().map((animation) => animation.finished));
+      let mutated = false;
+      const observer = new MutationObserver(() => { mutated = true; });
+      observer.observe(document.documentElement, {
+        attributes: true,
+        characterData: true,
+        childList: true,
+        subtree: true,
+      });
+      await nextFrame();
+      await nextFrame();
+      observer.disconnect();
+      unsettledAnimations = inFlight().length;
+      settled = !mutated && unsettledAnimations === 0;
+    }
+
     const isVisible = (element: Element): element is HTMLElement => {
       if (!(element instanceof HTMLElement || element instanceof SVGElement)) return false;
       const style = getComputedStyle(element);
@@ -271,8 +302,10 @@ async function auditRoute(page: Page): Promise<RouteAudit> {
       invalidReferences: [...new Set(invalidReferences)],
       missingNames: [...new Set(missingNames)],
       overflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+      settled,
       subCaptionText: [...new Set(subCaptionText)],
       undersizedTargets: [...new Set(undersizedTargets)],
+      unsettledAnimations,
       visibleH1s: main ? [...main.querySelectorAll("h1")].filter(isVisible).length : 0,
     };
   });
@@ -292,6 +325,8 @@ for (const viewport of VIEWPORTS) {
         const audit = await auditRoute(page);
         if (
           audit.visibleH1s !== 1
+          || !audit.settled
+          || audit.unsettledAnimations !== 0
           || audit.overflow !== 0
           || audit.missingNames.length > 0
           || audit.invalidReferences.length > 0

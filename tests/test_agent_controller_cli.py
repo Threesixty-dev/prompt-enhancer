@@ -301,7 +301,7 @@ def test_discover_outputs_verified_manifest_without_token(
     payload = _output(capsys)
 
     assert payload["ok"] is True
-    assert payload["result"]["contract_version"] == "local-agent-orchestration.v22"
+    assert payload["result"]["contract_version"] == "local-agent-orchestration.v23"
     assert len(payload["result"]["endpoints"]) == 77
     assert TOKEN not in json.dumps(payload)
 

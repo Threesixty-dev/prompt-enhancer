@@ -27,6 +27,75 @@ function literalAttributeValue(value: ts.JsxAttribute | undefined): string | nul
   return null;
 }
 
+function hasStaticDisabledReason(node: ts.JsxOpeningLikeElement): boolean {
+  const disabled = attribute(node, "disabled");
+  const staticallyDisabled = disabled !== undefined && (
+    disabled.initializer === undefined || (
+      ts.isJsxExpression(disabled.initializer)
+      && disabled.initializer.expression?.kind === ts.SyntaxKind.TrueKeyword
+    )
+  );
+  if (!staticallyDisabled) return false;
+  return ["title", "aria-describedby"].some((name) => {
+    const reason = literalAttributeValue(attribute(node, name));
+    return reason !== null && reason.trim().length !== 0;
+  });
+}
+
+function hasSemanticButtonAction(node: ts.JsxOpeningLikeElement, insideForm: boolean): boolean {
+  const type = literalAttributeValue(attribute(node, "type"));
+  return attribute(node, "onClick") !== undefined
+    || attribute(node, "formAction") !== undefined
+    || type === "submit"
+    || type === "reset"
+    || (type === null && insideForm)
+    // A control the browser cannot activate may represent a deliberately
+    // unavailable action, but only when its literal reason is exposed.
+    || hasStaticDisabledReason(node);
+}
+
+function buttonActionFindings(sourceText: string): string[] {
+  const source = ts.createSourceFile("synthetic.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const findings: string[] = [];
+  const visit = (node: ts.Node, insideForm: boolean): void => {
+    const nextInsideForm = insideForm || (
+      (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node))
+      && tagName(ts.isJsxElement(node) ? node.openingElement : node) === "form"
+    );
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const opening = ts.isJsxElement(node) ? node.openingElement : node;
+      const hasSpread = opening.attributes.properties.some(ts.isJsxSpreadAttribute);
+      if (tagName(opening) === "button" && !hasSpread && !hasSemanticButtonAction(opening, nextInsideForm)) {
+        findings.push("button has no click or form action");
+      }
+    }
+    ts.forEachChild(node, (child) => visit(child, nextInsideForm));
+  };
+  visit(source, false);
+  return findings;
+}
+
+function hasApprovedErrorRecovery(node: ts.JsxOpeningLikeElement): boolean {
+  if (attribute(node, "onRetry") !== undefined) return true;
+  return literalAttributeValue(attribute(node, "recovery")) === "preserve-work-before-reload";
+}
+
+function errorStateRecoveryFindings(sourceText: string): string[] {
+  const source = ts.createSourceFile("synthetic.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const findings: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if ((ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node))) {
+      const opening = ts.isJsxElement(node) ? node.openingElement : node;
+      if (tagName(opening) === "ErrorState" && !hasApprovedErrorRecovery(opening)) {
+        findings.push("error state has no recovery action");
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return findings;
+}
+
 function lineOf(source: ts.SourceFile, node: ts.Node): number {
   return source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 }
@@ -83,11 +152,7 @@ describe("static interactive-element contracts", () => {
           const hasSpread = opening.attributes.properties.some(ts.isJsxSpreadAttribute);
 
           if (tag === "button" && !hasSpread) {
-            const type = literalAttributeValue(attribute(opening, "type"));
-            const hasClick = attribute(opening, "onClick") !== undefined;
-            const hasFormAction = attribute(opening, "formAction") !== undefined;
-            const semanticSubmit = type === "submit" || type === "reset" || (type === null && nextInsideForm);
-            if (!hasClick && !hasFormAction && !semanticSubmit) {
+            if (!hasSemanticButtonAction(opening, nextInsideForm)) {
               findings.push(`${displayPath}:${lineOf(source, opening)} button has no click or form action`);
             }
 
@@ -114,7 +179,7 @@ describe("static interactive-element contracts", () => {
             findings.push(`${displayPath}:${lineOf(source, opening)} link has no href`);
           }
 
-          if (tag === "ErrorState" && !hasSpread && attribute(opening, "onRetry") === undefined) {
+          if (tag === "ErrorState" && !hasApprovedErrorRecovery(opening)) {
             findings.push(`${displayPath}:${lineOf(source, opening)} error state has no recovery action`);
           }
         }
@@ -126,5 +191,40 @@ describe("static interactive-element contracts", () => {
     }
 
     expect(findings).toEqual([]);
+  });
+
+  it("accepts only the documented literal non-retryable ErrorState recovery mode", () => {
+    expect(errorStateRecoveryFindings('<ErrorState message="Synthetic failure" />')).toEqual([
+      "error state has no recovery action",
+    ]);
+    expect(errorStateRecoveryFindings('<ErrorState message="Synthetic failure" recovery="unknown" />')).toEqual([
+      "error state has no recovery action",
+    ]);
+    expect(errorStateRecoveryFindings('<ErrorState message="Synthetic failure" recovery={mode} />')).toEqual([
+      "error state has no recovery action",
+    ]);
+    expect(errorStateRecoveryFindings('<ErrorState message="Synthetic failure" recovery="preserve-work-before-reload" />')).toEqual([]);
+    expect(errorStateRecoveryFindings('<ErrorState message="Synthetic failure" onRetry={retry} />')).toEqual([]);
+  });
+
+  it("accepts only literal, explained static disabled controls without an action", () => {
+    expect(buttonActionFindings('<button disabled title="Unavailable">Cancel</button>')).toEqual([]);
+    expect(buttonActionFindings('<button disabled aria-describedby="reason">Cancel</button>')).toEqual([]);
+    expect(buttonActionFindings('<button disabled={true} title="Unavailable">Cancel</button>')).toEqual([]);
+    expect(buttonActionFindings('<button disabled={false} title="Unavailable">Cancel</button>')).toEqual([
+      "button has no click or form action",
+    ]);
+    expect(buttonActionFindings('<button disabled={blocked} title="Unavailable">Cancel</button>')).toEqual([
+      "button has no click or form action",
+    ]);
+    expect(buttonActionFindings('<button disabled title=" ">Cancel</button>')).toEqual([
+      "button has no click or form action",
+    ]);
+    expect(buttonActionFindings('<button disabled>Cancel</button>')).toEqual([
+      "button has no click or form action",
+    ]);
+    expect(buttonActionFindings('<button title="Unavailable">Cancel</button>')).toEqual([
+      "button has no click or form action",
+    ]);
   });
 });

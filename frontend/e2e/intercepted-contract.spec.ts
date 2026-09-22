@@ -497,7 +497,12 @@ function codexReadinessFixture(): typeof SYNTHETIC_SESSION_METRIC_READINESS {
   return fixture;
 }
 
-async function installLocalHttpFixture(page: Page): Promise<void> {
+type DirectoryMoveProjection = "not_applicable" | "complete" | "recovery_required";
+
+async function installLocalHttpFixture(
+  page: Page,
+  options: { directoryMoveProjection?: DirectoryMoveProjection } = {},
+): Promise<void> {
   const transport = createSyntheticTransport();
   const agentSessionId = "a".repeat(32);
   const initialAgentRevision = "b".repeat(64);
@@ -521,6 +526,8 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
   let lifecycleDirectoryPath: string | null = null;
   let lifecyclePath: string | null = null;
   let lifecycleContent = "";
+  const directoryMoveProjection = options.directoryMoveProjection ?? "complete";
+  const directoryMoveArtifactVersions = directoryMoveProjection === "complete" ? 1 : 0;
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -803,6 +810,8 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
         contents_reviewed: false,
         operation: "directory_moved",
         applied: true,
+        artifact_projection: directoryMoveProjection,
+        artifact_versions_advanced: directoryMoveArtifactVersions,
       });
       return;
     }
@@ -1161,8 +1170,12 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
   });
 }
 
-test.beforeEach(async ({ page }) => {
-  await installLocalHttpFixture(page);
+test.beforeEach(async ({ page }, testInfo) => {
+  await installLocalHttpFixture(page, {
+    directoryMoveProjection: testInfo.title.includes("recovery_required")
+      ? "recovery_required"
+      : "complete",
+  });
 });
 
 for (const width of [360, 1440]) {
@@ -1764,6 +1777,79 @@ for (const width of [390, 1440]) {
   });
 }
 
+for (const width of [320, 1440]) {
+  for (const projection of ["complete", "recovery_required"] as const) {
+    test(`reports ${projection} after a reviewed folder move at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 920 });
+      let directoryMoveApplies = 0;
+      page.on("request", (request) => {
+        if (request.method() === "POST" && request.url().includes("/workspace/directory-moves/") && request.url().endsWith("/apply")) {
+          directoryMoveApplies += 1;
+        }
+      });
+      await page.addInitScript(() => {
+        Object.defineProperty(globalThis, "pywebview", {
+          configurable: true,
+          value: {
+            api: {
+              confirm_user_presence: async () => ({
+                version: "native-user-presence-v1",
+                approved: true,
+                approval_token: "a".repeat(32),
+              }),
+            },
+          },
+        });
+      });
+      await page.route("**/auth/session", (route) => json(route, {
+        csrf_token: "synthetic-browser-csrf-token",
+        expires_in_seconds: 300,
+        user_presence_confirmation_available: true,
+        user_presence_confirmation_mode: "native_bridge_bound_token",
+      }));
+      await page.goto("/agent");
+
+      await page.getByRole("button", { name: "Files & review", exact: true }).click();
+      const workspace = page.getByRole("region", { name: "Files and reviewed changes" });
+      await workspace.getByRole("button", { name: "New folder", exact: true }).click();
+      await workspace.getByLabel("Workspace-relative new folder path").fill("reviewed-folder");
+      await workspace.getByRole("button", { name: "Review new folder", exact: true }).click();
+      const createReview = workspace.getByRole("region", { name: "New folder review", exact: true });
+      await createReview.getByRole("button", { name: "Create reviewed folder", exact: true }).click();
+      await expect(workspace.getByRole("status").filter({ hasText: "Created and verified folder reviewed-folder" })).toBeVisible();
+      await workspace.getByRole("button", { name: "New file", exact: true }).click();
+      await workspace.getByLabel("Workspace-relative new file path").fill("reviewed-folder/created.ts");
+      await workspace.getByLabel("New file content").fill("export const created = true;\n");
+      await workspace.getByRole("button", { name: "Review new file", exact: true }).click();
+      const fileReview = workspace.getByRole("region", { name: "New file review", exact: true });
+      await fileReview.getByRole("button", { name: "Create reviewed file", exact: true }).click();
+      await expect(workspace.getByRole("status").filter({ hasText: "Created and verified reviewed-folder/created.ts" })).toBeVisible();
+
+      await workspace.getByRole("button", { name: "Move folder", exact: true }).click();
+      await workspace.getByLabel("New workspace-relative folder path").fill("archive/reviewed-folder");
+      await workspace.getByRole("button", { name: "Review folder move", exact: true }).click();
+      const moveReview = workspace.getByRole("region", { name: "Folder move review", exact: true });
+      await moveReview.getByRole("button", { name: "Move reviewed folder", exact: true }).click();
+
+      const status = workspace.getByRole("status").filter({ hasText: "Moved and verified folder reviewed-folder to archive/reviewed-folder" });
+      await expect(status).toBeVisible();
+      if (projection === "complete") {
+        await expect(status).toContainText("Artifact tracking updated for 1 moved file.");
+      } else {
+        await expect(status).toContainText("Artifact tracking is unresolved and requires recovery");
+      }
+      await expect(workspace.getByLabel("archive/reviewed-folder", { exact: true })).toBeVisible();
+      await expect(workspace.getByRole("button", { name: /recover|retry.*move/iu })).toHaveCount(0);
+      expect(directoryMoveApplies).toBe(1);
+      const dimensions = await page.evaluate(() => ({
+        content: document.documentElement.scrollWidth,
+        viewport: document.documentElement.clientWidth,
+      }));
+      expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport);
+    });
+  }
+}
+
 for (const width of [390, 1440]) {
   test(`reviews and commits a natively confirmed two-file transaction at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 920 });
@@ -1925,7 +2011,7 @@ test("keeps local task records local-only without inferring work lifecycle", asy
   await expect(unreconciled.getByText("Unknown", { exact: true })).toHaveCount(2);
 });
 
-test("renders the server-bound all-twenty operability gate without a session read", async ({ page }) => {
+test("renders the server-bound v5 all-twenty operability gate without a session read", async ({ page }) => {
   await page.setViewportSize({ width: 600, height: 900 });
   await page.goto("/research/methods");
 
@@ -1936,12 +2022,23 @@ test("renders the server-bound all-twenty operability gate without a session rea
   await expect(page.getByRole("heading", {
     name: "What can produce measured evidence today",
   })).toBeVisible();
+  await expect(page.getByText("All-20 release gate · metric-operability-v6", { exact: true })).toBeVisible();
   const summary = page.getByLabel("Metric operability summary");
-  await expect(summary.getByText("Measured paths shipped").locator("..")).toContainText("16");
+  await expect(summary.getByText("Measured paths shipped").locator("..")).toContainText("18");
   await expect(summary.getByText("Need project profile").locator("..")).toContainText("0");
-  await expect(summary.getByText("Need source adapter").locator("..")).toContainText("4");
+  await expect(summary.getByText("Need source adapter").locator("..")).toContainText("2");
   await expect(summary.getByText("Model-authored metrics").locator("..")).toContainText("0");
   await expect(page.locator("[data-operability-state]")).toHaveCount(20);
+  const action = page.locator('[data-operability-state="available_when_evidence_exists"]').filter({ hasText: "Requirement action traceability" });
+  await expect(action).toContainText("complete compatible Claude transcript");
+  await expect(action).toContainText("confirmed requirement plan");
+  await expect(action).toContainText("reviewed requirement-action links with native confirmation");
+  await expect(action).toContainText("Hook-only and incomplete histories are not admitted");
+  await expect(action).toContainText(/traceability is not proof of task success/i);
+  const verification = page.locator('[data-operability-state="available_when_evidence_exists"]').filter({ hasText: "Verified requirement coverage" });
+  await expect(verification).toContainText("native-reviewed plan");
+  await expect(verification).toContainText("observed check");
+  await expect(verification).toContainText("fresh analysis");
 });
 
 test("requires an exact local project grant before background scheduling", async ({ page }) => {

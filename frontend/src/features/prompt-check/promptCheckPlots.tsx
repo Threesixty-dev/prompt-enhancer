@@ -1,6 +1,12 @@
 /** Small dependency-free SVG plots for prompt checks: a radar of one check, a trend over checks. */
 
-export type RadarReading = { key: string; label: string; value: number | null; higherIsBetter: boolean };
+export type RadarReading = {
+  key: string;
+  label: string;
+  value: number | null;
+  higherIsBetter: boolean;
+  stateLabel?: string;
+};
 
 export function promptMetricQualityValue(value: number | null, higherIsBetter: boolean): number | null {
   if (value === null || !Number.isFinite(value) || value < 0 || value > 1) return null;
@@ -24,8 +30,17 @@ function polar(cx: number, cy: number, r: number, index: number, total: number):
   return [cx + r * Math.cos(angle), cy + r * Math.sin(angle)];
 }
 
-/** Radar chart of the prompt metrics; unknown metrics are drawn hollow at the centre and named. */
-export function PromptMetricRadar({ readings }: { readings: RadarReading[] }) {
+/**
+ * Radar chart of prompt metrics. Only known finite values appear in the numeric
+ * geometry; unavailable axes remain named without being represented as zero.
+ */
+export function PromptMetricRadar({
+  chartLabel = "Prompt metric radar",
+  readings,
+}: {
+  chartLabel?: string;
+  readings: RadarReading[];
+}) {
   const size = 300;
   const cx = size / 2;
   const cy = size / 2;
@@ -34,15 +49,28 @@ export function PromptMetricRadar({ readings }: { readings: RadarReading[] }) {
   const rings = [0.25, 0.5, 0.75, 1];
   const points = readings.map((reading, index) => {
     const quality = promptMetricQualityValue(reading.value, reading.higherIsBetter);
-    const normalized = quality ?? 0;
-    return { ...reading, value: quality === null ? null : reading.value, normalized, point: polar(cx, cy, radius * normalized, index, total), labelPoint: polar(cx, cy, radius + 26, index, total) };
+    return {
+      ...reading,
+      value: quality === null ? null : reading.value,
+      point: quality === null ? null : polar(cx, cy, radius * quality, index, total),
+      labelPoint: polar(cx, cy, radius + 26, index, total),
+    };
   });
   const known = points.filter((p) => p.value !== null);
-  const polygon = points.map((p) => (p.value === null ? polar(cx, cy, 0, 0, 1) : p.point)).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const allAxesKnown = points.length >= 3 && known.length === points.length;
+  const polygon = allAxesKnown
+    ? points.map((point) => point.point!).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ")
+    : null;
+  const adjacentKnownEdges = points.flatMap((point, index) => {
+    if (points.length < 2 || (points.length === 2 && index === 1)) return [];
+    const next = points[(index + 1) % points.length];
+    if (point.point === null || next === undefined || next.point === null) return [];
+    return [{ from: point.point, key: `${point.key}-${next.key}`, to: next.point }];
+  });
   return (
     <figure className="prompt-plot prompt-plot--radar">
-      <svg aria-label="Prompt metric radar" role="img" viewBox={`-110 -8 ${size + 220} ${size + 16}`}>
-        <title>Prompt metrics - {known.length} of {readings.length} measurable</title>
+      <svg aria-label={chartLabel} role="img" viewBox={`-110 -8 ${size + 220} ${size + 16}`}>
+        <title>{chartLabel} - {known.length} of {readings.length} measurable</title>
         {rings.map((ring) => (
           <polygon
             key={ring}
@@ -54,19 +82,31 @@ export function PromptMetricRadar({ readings }: { readings: RadarReading[] }) {
           const [x, y] = polar(cx, cy, radius, index, total);
           return <line key={`axis-${p.key}`} className="prompt-plot__axis" x1={cx} x2={x} y1={cy} y2={y} />;
         })}
-        {known.length >= 1 && <polygon className="prompt-plot__area" points={polygon} />}
+        {polygon !== null && <polygon className="prompt-plot__area" points={polygon} />}
+        {polygon === null && adjacentKnownEdges.map((edge) => (
+          <line
+            className="prompt-plot__segment"
+            key={edge.key}
+            x1={edge.from[0]}
+            x2={edge.to[0]}
+            y1={edge.from[1]}
+            y2={edge.to[1]}
+          />
+        ))}
         {points.map((p) => (
           <g key={p.key}>
-            <circle className={p.value === null ? "prompt-plot__dot prompt-plot__dot--unknown" : "prompt-plot__dot"} cx={p.point[0]} cy={p.point[1]} r={p.value === null ? 3 : 4.5}>
-              <title>{p.label}: {p.value === null ? "not measurable" : qualityDetailLabel(p.value, p.higherIsBetter)}</title>
-            </circle>
+            {p.point !== null && (
+              <circle className="prompt-plot__dot" cx={p.point[0]} cy={p.point[1]} r={4.5}>
+                <title>{p.label}: {qualityDetailLabel(p.value!, p.higherIsBetter)}</title>
+              </circle>
+            )}
             <text className="prompt-plot__label" textAnchor={p.labelPoint[0] < cx - 5 ? "end" : p.labelPoint[0] > cx + 5 ? "start" : "middle"} x={p.labelPoint[0]} y={p.labelPoint[1] + 4}>
-              {p.label}{p.value === null ? " (n/a)" : ` ${qualityPercentLabel(p.value, p.higherIsBetter)}`}
+              {p.label}{p.value === null ? ` (${p.stateLabel ?? "Unknown"})` : ` ${qualityPercentLabel(p.value, p.higherIsBetter)}`}
             </text>
           </g>
         ))}
       </svg>
-      <figcaption>Higher is better on every axis; metrics the rubric could not measure sit at the centre and are marked n/a.</figcaption>
+      <figcaption>Only valid numeric readings are plotted. Missing states are not zero, and the shape is not an overall score. Lower-is-better readings are inverted; raw rates remain in the tooltips.</figcaption>
     </figure>
   );
 }

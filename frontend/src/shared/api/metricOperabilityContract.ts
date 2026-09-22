@@ -66,7 +66,6 @@ const LIFECYCLE_KEYS = new Set<MetricKey>([
 const TYPED_OBJECTIVE_GAP_KEYS = new Set<MetricKey>([
   "logic.hypothesis_test_linkage",
   "outcome.agent_claim_grounding",
-  "outcome.verified_requirement_coverage",
 ]);
 const DOCUMENTED_UNIT_KEYS = new Set<MetricKey>([
   "logic.decision_rationale_coverage",
@@ -141,8 +140,16 @@ function expectedOperability(metricKey: MetricKey): ExpectedOperability {
   if (metricKey === "logic.requirement_action_traceability") {
     return {
       measured_path: "reviewed_requirement_action",
-      shipped_path_state: "provider_adapter_required",
+      shipped_path_state: "available_when_evidence_exists",
       next_step_code: "compose_requirement_action_evidence",
+      experimental_model_path: false,
+    };
+  }
+  if (metricKey === "outcome.verified_requirement_coverage") {
+    return {
+      measured_path: "reviewed_requirement_verification",
+      shipped_path_state: "available_when_evidence_exists",
+      next_step_code: "issue_reviewed_observed_check",
       experimental_model_path: false,
     };
   }
@@ -222,7 +229,7 @@ export function parseMetricOperabilityCatalog(value: unknown): MetricOperability
   const rawEntries = catalog.entries;
   exactKeys(catalog, CATALOG_KEYS);
   if (
-    catalog.catalog_version !== "metric-operability-v4"
+    catalog.catalog_version !== "metric-operability-v6"
     || catalog.registry_version !== METRIC_CONTRACT_V2_REGISTRY_VERSION
     || catalog.contract_set_fingerprint !== METRIC_CONTRACT_V2_SET_FINGERPRINT
     || catalog.projection_version !== "metric-contract-v2-projection-8"
@@ -232,9 +239,9 @@ export function parseMetricOperabilityCatalog(value: unknown): MetricOperability
   }
   if (
     catalog.total_metric_count !== 20
-    || catalog.shipped_path_count !== 16
+    || catalog.shipped_path_count !== 18
     || catalog.task_profile_configuration_gap_count !== 0
-    || catalog.provider_adapter_gap_count !== 4
+    || catalog.provider_adapter_gap_count !== 2
     || catalog.experimental_model_path_count !== 8
     || catalog.model_authoritative_metric_count !== 0
     || catalog.local_only !== true
@@ -264,15 +271,15 @@ export function createSyntheticMetricOperabilityCatalog(): MetricOperabilityCata
     } satisfies MetricOperabilityEntry;
   });
   return {
-    catalog_version: "metric-operability-v4",
+    catalog_version: "metric-operability-v6",
     registry_version: METRIC_CONTRACT_V2_REGISTRY_VERSION,
     contract_set_fingerprint: METRIC_CONTRACT_V2_SET_FINGERPRINT,
     projection_version: "metric-contract-v2-projection-8",
     readiness_catalog_version: "metric-evidence-readiness-v2-7",
     total_metric_count: 20,
-    shipped_path_count: 16,
+    shipped_path_count: 18,
     task_profile_configuration_gap_count: 0,
-    provider_adapter_gap_count: 4,
+    provider_adapter_gap_count: 2,
     experimental_model_path_count: 8,
     model_authoritative_metric_count: 0,
     entries,

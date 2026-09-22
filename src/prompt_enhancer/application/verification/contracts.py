@@ -74,10 +74,19 @@ class EphemeralVerificationCandidate(StrictModel):
 
     provider: Provider
     source_item_id: SecretStr = Field(repr=False)
+    # Classifier-only callers do not have provider chronology.  Issuance is
+    # fail-closed: ``interpret_observed_check_completion`` requires it before
+    # producing any outcome-bearing completion.
+    observed_sequence: int | None = Field(default=None, ge=0, le=4_000_000_000)
     command: SecretStr = Field(repr=False)
     candidate_schema_version: str
     execution_state: VerificationExecutionState = VerificationExecutionState.UNKNOWN
-    exit_code: int | None = Field(default=None, ge=-2_147_483_648, le=2_147_483_647)
+    exit_code: int | None = Field(
+        default=None,
+        strict=True,
+        ge=-2_147_483_648,
+        le=2_147_483_647,
+    )
 
     @field_validator("source_item_id", mode="before")
     @classmethod

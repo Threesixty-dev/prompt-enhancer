@@ -95,16 +95,15 @@ describe("AgentTurnDetails", () => {
     expect(revise.mock.calls).toEqual([["edit"], [automaticMode]]);
   });
 
-  it("never offers an automatic retry that would silently drop attachments", () => {
+  it("prepares an attachment retry rather than silently sending it", () => {
     const revise = vi.fn();
     const summary = exampleAgentTurn({ status: "failed", reason: "turn_failed" });
     render(<AgentTurnDetails summary={summary} turnId={summary.turn_id} onRevise={revise} sourceHasAttachments />);
 
     fireEvent.click(screen.getByLabelText("Turn 1 details"));
     const actions = screen.getByLabelText("Turn 1 revision actions");
-    expect(within(actions).getByRole("button", { name: "Retry in branch" })).toBeDisabled();
-    expect(actions).toHaveTextContent(/attachments are never copied into a branch/u);
-    fireEvent.click(within(actions).getByRole("button", { name: "Edit in branch" }));
-    expect(revise).toHaveBeenCalledExactlyOnceWith("edit");
+    expect(actions).toHaveTextContent(/branch opens as a draft/u);
+    fireEvent.click(within(actions).getByRole("button", { name: "Prepare retry with attachments" }));
+    expect(revise).toHaveBeenCalledExactlyOnceWith("retry");
   });
 });

@@ -442,6 +442,29 @@ def test_contract_preview_import_and_replay_are_bounded_private_and_inert() -> N
     }
 
 
+def test_guided_authoring_submission_rejects_oversized_or_malformed_json_before_service() -> None:
+    app, _service = _app()
+    base = f"/v1/sessions/{_id(1)}/requirement-action-evidence/guided-authoring/proposals"
+    headers = {
+        "X-Synthetic-Api-Token": TOKEN,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "synthetic-guided-action-key",
+    }
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        malformed = client.post(base, headers=headers, content=b"{not-json")
+        oversized = client.post(
+            base,
+            headers=headers,
+            content=b"{" + b"x" * (MAX_REQUIREMENT_ACTION_EVIDENCE_BYTES + 1),
+        )
+
+    for response in (malformed, oversized):
+        _private(response)
+        assert "{not-json" not in response.text
+    assert malformed.status_code == 422
+    assert oversized.status_code == 413
+
+
 def test_review_and_both_decisions_require_native_presence_and_replay_exactly() -> None:
     app, _service = _app()
     base = f"/v1/sessions/{_id(1)}/requirement-action-evidence"
@@ -675,10 +698,40 @@ def test_openapi_exposes_bounded_vendor_files_and_complete_r7_wire() -> None:
         "/v1/sessions/{session_id}/requirement-action-evidence/contract",
         "/v1/sessions/{session_id}/requirement-action-evidence/preview",
         "/v1/sessions/{session_id}/requirement-action-evidence/import",
+        "/v1/sessions/{session_id}/requirement-action-evidence/guided-authoring/review",
+        "/v1/sessions/{session_id}/requirement-action-evidence/guided-authoring/proposals",
         "/v1/sessions/{session_id}/requirement-action-evidence/proposals/{proposal_id}/review",
         "/v1/sessions/{session_id}/requirement-action-evidence/proposals/{proposal_id}/decision",
         "/v1/sessions/{session_id}/requirement-action-evidence/proposal-page",
     )
+    guided = schema["paths"]["/v1/sessions/{session_id}/requirement-action-evidence/guided-authoring/review"]["post"]
+    guided_schema = guided["requestBody"]["content"]["application/json"]["schema"]
+    guided_ref = guided_schema["$ref"].rsplit("/", 1)[-1]
+    guided_command_schema = schema["components"]["schemas"][guided_ref]
+    assert set(guided_command_schema["required"]) == {
+        "expected_source_run_id", "source_window_fingerprint", "requirement_plan_confirmation_id",
+        "requirement_plan_evidence_fingerprint", "candidate_manifest_fingerprint",
+        "confirmation",
+    }
+    predecessor = guided_command_schema["properties"]["expected_predecessor_confirmation_id"]
+    assert predecessor.get("default") is None
+    assert predecessor.get("anyOf") == [
+        {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        {"type": "null"},
+    ]
+    guided_proposal = schema["paths"][
+        "/v1/sessions/{session_id}/requirement-action-evidence/guided-authoring/proposals"
+    ]["post"]
+    guided_proposal_schema = guided_proposal["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert "$ref" not in guided_proposal_schema
+    assert set(guided_proposal_schema["required"]) == {
+        "expected_source_run_id", "source_window_fingerprint",
+        "requirement_plan_confirmation_id", "requirement_plan_evidence_fingerprint",
+        "candidate_manifest_fingerprint", "authoring_receipt_id", "links",
+        "complete_requirement_link_classification_acknowledged",
+    }
     for endpoint in ("preview", "import"):
         body = schema["paths"][
             f"/v1/sessions/{{session_id}}/requirement-action-evidence/{endpoint}"

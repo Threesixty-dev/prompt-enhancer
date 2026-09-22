@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Callable
 
 from pydantic import SecretStr
 
@@ -165,7 +166,8 @@ class BillingService:
         self._verifier = verifier
 
     def process_webhook(
-        self, webhook: SignedBillingWebhook, *, now: datetime
+        self, webhook: SignedBillingWebhook, *, now: datetime,
+        locked_policy: Callable[[SignedBillingWebhook], None] | None = None,
     ) -> WebhookDisposition:
         if not self._verifier.verify(webhook):
             raise BillingWebhookError(PaidReasonCode.WEBHOOK_SIGNATURE_INVALID)
@@ -177,6 +179,8 @@ class BillingService:
                 if known != webhook.provider_event_digest:
                     raise BillingWebhookError(PaidReasonCode.WEBHOOK_CONFLICT)
                 return WebhookDisposition.IDEMPOTENT_REPLAY
+            if locked_policy is not None:
+                locked_policy(webhook)
             entry = EntitlementLedgerEntry(
                 entry_id=webhook.entry_id,
                 organization_id=webhook.organization_id,
@@ -223,6 +227,10 @@ class BillingService:
             applicable,
             key=lambda item: (
                 item.effective_at,
+                # Stripe does not guarantee delivery order.  At an identical
+                # provider-effective second, a revocation wins over a grant so
+                # a delayed stale grant cannot resurrect access.
+                item.kind in {EntitlementDeltaKind.REVOKE, EntitlementDeltaKind.REFUND},
                 item.recorded_at,
                 item.ledger_sequence,
             ),

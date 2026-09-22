@@ -43,6 +43,8 @@ import { metricEvidenceReadinessForPublication } from "./metricEvidenceReadiness
 import { MetricEvidenceFilePanel } from "./MetricEvidenceFilePanel";
 import { RequirementPlanEvidencePanel } from "./RequirementPlanEvidencePanel";
 import { RequirementActionEvidencePanel } from "./RequirementActionEvidencePanel";
+import { RequirementVerificationEvidencePanel } from "./RequirementVerificationEvidencePanel";
+import { ClaimGroundingReviewPanel } from "./ClaimGroundingReviewPanel";
 
 /**
  * The trajectory helpers and the history contract used to live in this file.
@@ -64,6 +66,14 @@ const METRIC_CONTRACT_KEYS = new Set(
 );
 
 type PrimaryMetric = ReturnType<typeof modelEnsemblePrimaryMetrics>[number];
+
+export interface MetricWorkspaceFreshAnalysisAction {
+  /** The parent-owned, guarded analysis command. This workspace never posts directly. */
+  onRun: () => void | Promise<void>;
+  busy?: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
+}
 
 interface MetricWorkspaceReceiptSummary {
   measured: number;
@@ -154,6 +164,7 @@ export function MetricWorkspace({
   evidenceSessionId,
   evidenceEnabled = false,
   onEvidenceChanged,
+  freshAnalysisAction,
 }: {
   mode: "full" | "compact";
   run: ModelEnsembleRadarData;
@@ -176,8 +187,12 @@ export function MetricWorkspace({
     | "importRequirementActionEvidence"
     | "listRequirementActionProposals"
     | "reviewRequirementActionProposal"
-    | "decideRequirementActionProposal">
-    & Partial<Pick<PromptEnhancerTransport, "getUserPresenceCapability">>;
+    | "decideRequirementActionProposal"
+    | "issueCurrentRequirementVerificationOpportunities"
+    | "getRequirementVerificationEvidenceSnapshot"
+    | "reviewRequirementVerificationOpportunity"
+    | "appendRequirementVerificationAcceptance">
+    & Partial<Pick<PromptEnhancerTransport, "getUserPresenceCapability" | "beginClaimGroundingReview" | "consumeClaimGroundingReview">>;
   lensId: ModelEnsembleLensId;
   onLensChange: (lens: ModelEnsembleLensId) => void;
   snapshotLabel: string;
@@ -191,10 +206,49 @@ export function MetricWorkspace({
   evidenceSessionId?: string;
   evidenceEnabled?: boolean;
   onEvidenceChanged?: () => void;
+  freshAnalysisAction?: MetricWorkspaceFreshAnalysisAction;
 }) {
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
+  const [evidenceChangedNotice, setEvidenceChangedNotice] = useState<{ identity: string; transport: unknown } | null>(null);
   const boardHelp = useMetricKnowledgeCardController(runId);
   const previousRunId = useRef(runId);
+  const latestEvidenceChangedRef = useRef(onEvidenceChanged);
+  latestEvidenceChangedRef.current = onEvidenceChanged;
+  const evidenceOwner = useMemo(() => ({ identity: JSON.stringify([evidenceSessionId, runId]), transport }), [evidenceSessionId, runId, transport]);
+  const evidenceOwnerRef = useRef(evidenceOwner);
+  evidenceOwnerRef.current = evidenceOwner;
+  const freshAnalysisPendingRef = useRef(false);
+  const runFreshAnalysis = useMemo(() => () => {
+    // A button retained by a stale receipt must not dispatch into a new
+    // session/run/transport owner. The parent still owns the actual guarded
+    // command and transport call.
+    if (
+      evidenceOwnerRef.current !== evidenceOwner
+      || freshAnalysisAction === undefined
+      || freshAnalysisAction.disabled === true
+      || freshAnalysisAction.busy === true
+      || freshAnalysisPendingRef.current
+    ) return;
+    freshAnalysisPendingRef.current = true;
+    try {
+      void Promise.resolve(freshAnalysisAction.onRun()).catch(() => undefined).finally(() => {
+        if (evidenceOwnerRef.current === evidenceOwner) freshAnalysisPendingRef.current = false;
+      });
+    } catch {
+      freshAnalysisPendingRef.current = false;
+    }
+  }, [evidenceOwner, freshAnalysisAction]);
+  const onWorkspaceEvidenceChanged = useMemo(() => () => {
+    if (evidenceOwnerRef.current !== evidenceOwner) return;
+    setEvidenceChangedNotice({ identity: evidenceOwner.identity, transport: evidenceOwner.transport });
+    // External observers are advisory. Their failure cannot invalidate a
+    // receipt already validated by the evidence panel for this exact owner.
+    try {
+      void Promise.resolve(latestEvidenceChangedRef.current?.()).catch(() => undefined);
+    } catch {
+      // Keep the current-evidence notice truthful when an observer fails.
+    }
+  }, [evidenceOwner]);
   const workspaceHeadingId = useId();
   const boardHeadingId = useId();
   const axes = useMemo(() => modelEnsembleRadarAxes(run, lensId), [lensId, run]);
@@ -239,6 +293,12 @@ export function MetricWorkspace({
     previousRunId.current = runId;
     boardHelp.dismiss();
   }, [boardHelp.dismiss, runId]);
+  useLayoutEffect(() => {
+    if (evidenceChangedNotice !== null && (evidenceChangedNotice.identity !== evidenceOwner.identity || evidenceChangedNotice.transport !== evidenceOwner.transport)) setEvidenceChangedNotice(null);
+  }, [evidenceChangedNotice, evidenceOwner]);
+  useLayoutEffect(() => {
+    freshAnalysisPendingRef.current = false;
+  }, [evidenceOwner]);
   return (
     <section
       aria-labelledby={workspaceHeadingId}
@@ -280,6 +340,28 @@ export function MetricWorkspace({
           <div><dt>Window</dt><dd>{scopeLabel}</dd></div>
         </dl>
       </header>
+      {evidenceChangedNotice !== null && evidenceChangedNotice.identity === evidenceOwner.identity && evidenceChangedNotice.transport === evidenceOwner.transport && (
+        <div role="status">
+          <span>Current evidence changed for this session and run. Displayed metrics remain the saved analysis snapshot; start a new analysis explicitly to publish a new metric receipt.</span>
+          {freshAnalysisAction !== undefined && (
+            <>
+              <button
+                aria-busy={freshAnalysisAction.busy === true}
+                aria-disabled={freshAnalysisAction.disabled === true ? true : undefined}
+                disabled={freshAnalysisAction.disabled === true || freshAnalysisAction.busy === true}
+                onClick={runFreshAnalysis}
+                title={freshAnalysisAction.disabled ? freshAnalysisAction.disabledReason : undefined}
+                type="button"
+              >
+                {freshAnalysisAction.busy === true ? "Starting fresh analysis…" : "Run fresh analysis"}
+              </button>
+              {freshAnalysisAction.disabled === true && freshAnalysisAction.disabledReason !== undefined && (
+                <small>{freshAnalysisAction.disabledReason}</small>
+              )}
+            </>
+          )}
+        </div>
+      )}
       <div
         aria-label="Metric workspace view"
         className="metric-workspace__lenses"
@@ -367,7 +449,24 @@ export function MetricWorkspace({
         && (
           <MetricEvidenceFilePanel
             compact={mode === "compact"}
-            onEvidenceChanged={onEvidenceChanged}
+            onEvidenceChanged={onWorkspaceEvidenceChanged}
+            sessionId={evidenceSessionId}
+            sourceRunId={runId}
+            transport={transport}
+          />
+        )}
+      {evidenceEnabled
+        && evidenceSessionId !== undefined
+        && run.metric_publication_v2?.projection_version === "metric-contract-v2-projection-8"
+        && activeMetricKey === "outcome.verified_requirement_coverage"
+        && stageRun?.run_id === runId
+        && stageRun.requirement_verification_evidence_binding !== null
+        && stageRun.requirement_verification_evidence_binding !== undefined
+        && (
+          <RequirementVerificationEvidencePanel
+            binding={stageRun.requirement_verification_evidence_binding}
+            compact={mode === "compact"}
+            onEvidenceChanged={onWorkspaceEvidenceChanged}
             sessionId={evidenceSessionId}
             sourceRunId={runId}
             transport={transport}
@@ -383,7 +482,7 @@ export function MetricWorkspace({
         && (
           <RequirementActionEvidencePanel
             compact={mode === "compact"}
-            onEvidenceChanged={onEvidenceChanged}
+            onEvidenceChanged={onWorkspaceEvidenceChanged}
             publicEvidenceBinding={stageRun.requirement_action_evidence_binding}
             publicEvidenceSource={stageRun.requirement_action_evidence_binding.evidence_source}
             sessionId={evidenceSessionId}
@@ -392,6 +491,12 @@ export function MetricWorkspace({
             transport={transport}
           />
         )}
+      {evidenceEnabled
+        && evidenceSessionId !== undefined
+        && activeMetricKey === "outcome.agent_claim_grounding"
+        && ["metric-contract-v2-projection-5", "metric-contract-v2-projection-6", "metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(run.metric_publication_v2?.projection_version ?? "")
+        && stageRun?.run_id === runId
+        && <ClaimGroundingReviewPanel sessionId={evidenceSessionId} sourceRunId={runId} transport={transport} />}
       {evidenceEnabled
         && evidenceSessionId !== undefined
         && [
@@ -403,7 +508,7 @@ export function MetricWorkspace({
         && (
           <RequirementPlanEvidencePanel
             compact={mode === "compact"}
-            onEvidenceChanged={onEvidenceChanged}
+            onEvidenceChanged={onWorkspaceEvidenceChanged}
             sessionId={evidenceSessionId}
             sourceProjectionVersion={run.metric_publication_v2!.projection_version as RequirementPlanEvidenceContract["source_projection_version"]}
             sourceRunId={runId}

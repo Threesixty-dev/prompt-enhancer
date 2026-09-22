@@ -4,7 +4,6 @@ import { ModelJudgePane } from "../model-judge/ModelJudgePane";
 import { SessionRadarCard } from "../session-radar/SessionRadarCard";
 import { ProjectTimelinePane } from "../project-timeline/ProjectTimelinePane";
 import { openLiveWindow } from "../live-window/LiveMiniWindow";
-import { isLocalProvider } from "../../shared/api/contracts";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import {
   useEffect,
@@ -12,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useCallback,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { SessionMetricCard } from "../../entities/analysis/SessionMetricCard";
@@ -30,6 +30,7 @@ import type {
   SessionAnalysisRunResponse,
   SessionCoachingProjection,
   SessionMetric,
+  SessionMetricResponse,
   SessionMetricReadinessReport,
   SessionQualityAggregate,
   SessionTextAnalysisCapability,
@@ -40,6 +41,11 @@ import type {
 } from "../../shared/platform/platform";
 import { routePath } from "../../shared/platform/platform";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
+import { safeSessionCatalogRow } from "../../shared/api/sessionCatalogContract";
+import {
+  parseSessionAnalysisRunResponse,
+  parseSessionMetricReadinessReport,
+} from "../../shared/api/httpTransport";
 import { Icon, type IconName } from "../../shared/ui/Icon";
 import {
   createAggregateQualityMetricProfile,
@@ -65,14 +71,114 @@ export type ProjectWorkspaceRoute = Extract<
   }
 >;
 
-const SAFE_ID = /^[a-f0-9]{64}$/;
+const PROJECT_SESSION_READ_DEADLINE_MS = 15_000;
+const PROJECT_SESSION_REQUEST_NOT_DISPATCHED = Symbol("project session request not dispatched");
+
+type ProjectCatalogOwner = {
+  projectId: string;
+  transport: PromptEnhancerTransport;
+};
+
+type ProjectCatalogAttempt = {
+  controller: AbortController;
+  generation: number;
+  owner: ProjectCatalogOwner;
+  timeoutId?: ReturnType<typeof setTimeout>;
+};
+
+type OlderSessionLookupAttempt = {
+  controller: AbortController;
+  generation: number;
+  owner: OlderSessionLookupOwner;
+  scope: string;
+  transport: PromptEnhancerTransport;
+  timeoutId?: ReturnType<typeof setTimeout>;
+};
+
+type OlderSessionLookupOwner = {
+  baseCatalog: CodexSession[];
+  projectId: string;
+  sessionId: string;
+  transport: PromptEnhancerTransport;
+};
+
+type DrilldownReadOwner = {
+  catalog: CodexSession[];
+  category: MetricCategory;
+  legacyQualityExpanded: boolean;
+  projectId: string;
+  provider: Provider;
+  session: CodexSession;
+  sessionId: string;
+  transport: PromptEnhancerTransport;
+};
+
+type DrilldownReadAttempt = {
+  controller: AbortController;
+  owner: DrilldownReadOwner;
+  timeoutId?: ReturnType<typeof setTimeout>;
+};
+
+function sameProjectCatalogOwner(left: ProjectCatalogOwner, right: ProjectCatalogOwner): boolean {
+  return left.projectId === right.projectId && left.transport === right.transport;
+}
+
+function sameOlderSessionLookupOwner(
+  left: OlderSessionLookupOwner,
+  right: OlderSessionLookupOwner,
+): boolean {
+  return left.baseCatalog === right.baseCatalog &&
+    left.projectId === right.projectId && left.sessionId === right.sessionId &&
+    left.transport === right.transport;
+}
+
+function sameDrilldownReadOwner(
+  left: DrilldownReadOwner,
+  right: DrilldownReadOwner,
+): boolean {
+  return left.catalog === right.catalog &&
+    left.category === right.category &&
+    left.legacyQualityExpanded === right.legacyQualityExpanded &&
+    left.projectId === right.projectId &&
+    left.provider === right.provider &&
+    left.session === right.session &&
+    left.sessionId === right.sessionId &&
+    left.transport === right.transport;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isNullableString(value: unknown): value is string | null {
-  return value === null || typeof value === "string";
+function isSessionMetricResponseFor(value: unknown, sessionId: string): value is {
+  session_id: string;
+  metrics: SessionMetric[];
+} {
+  return isRecord(value) && value.session_id === sessionId && Array.isArray(value.metrics) &&
+    value.metrics.every((metric) => isRecord(metric) &&
+      typeof metric.key === "string" && typeof metric.version === "number" &&
+      Number.isSafeInteger(metric.version) && metric.version > 0 &&
+      typeof metric.dimension === "string" && typeof metric.display_name === "string" &&
+      (metric.numeric_value === null || (typeof metric.numeric_value === "number" && Number.isFinite(metric.numeric_value))) &&
+      (metric.text_value === null || typeof metric.text_value === "string") &&
+      (metric.unit === null || typeof metric.unit === "string") &&
+      typeof metric.source === "string" && typeof metric.observed_count === "number" &&
+      Number.isSafeInteger(metric.observed_count) && metric.observed_count >= 0 &&
+      typeof metric.eligible_count === "number" && Number.isSafeInteger(metric.eligible_count) &&
+      metric.eligible_count >= 0 && typeof metric.coverage === "number" &&
+      Number.isFinite(metric.coverage) && metric.coverage >= 0 && metric.coverage <= 1 &&
+      (metric.confidence === null || (typeof metric.confidence === "number" &&
+        Number.isFinite(metric.confidence) && metric.confidence >= 0 && metric.confidence <= 1)) &&
+      typeof metric.metric_pack_key === "string" && typeof metric.metric_pack_version === "number" &&
+      Number.isSafeInteger(metric.metric_pack_version) && metric.metric_pack_version > 0 &&
+      typeof metric.metric_engine_version === "string" &&
+      (metric.redactor_version === null || typeof metric.redactor_version === "string") &&
+      (metric.model_id === null || typeof metric.model_id === "string") &&
+      (metric.model_revision === null || typeof metric.model_revision === "string") &&
+      (metric.tokenizer_id === null || typeof metric.tokenizer_id === "string") &&
+      (metric.prompt_version === null || typeof metric.prompt_version === "string") &&
+      (metric.rubric_version === null || typeof metric.rubric_version === "string") &&
+      typeof metric.computed_at === "string");
 }
 
 function activeRedactedConsent(value: unknown): boolean | null {
@@ -90,40 +196,6 @@ function activeRedactedConsent(value: unknown): boolean | null {
   return value.consent_active;
 }
 
-function isProjectSession(
-  value: unknown,
-  expectedProjectId: string,
-): value is CodexSession {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value.session_id === "string" &&
-    SAFE_ID.test(value.session_id) &&
-    typeof value.installation_id === "string" &&
-    SAFE_ID.test(value.installation_id) &&
-    value.project_id === expectedProjectId &&
-    isLocalProvider(value.provider) &&
-    isNullableString(value.project_display_name) &&
-    isNullableString(value.session_display_name) &&
-    ["provider", "manual", "unknown"].includes(
-      value.project_display_name_origin as string,
-    ) &&
-    ["provider", "manual", "unknown"].includes(
-      value.session_display_name_origin as string,
-    ) &&
-    Number.isSafeInteger(value.project_manual_label_revision) &&
-    (value.project_manual_label_revision as number) >= 0 &&
-    Number.isSafeInteger(value.session_manual_label_revision) &&
-    (value.session_manual_label_revision as number) >= 0 &&
-    isNullableString(value.provider_version) &&
-    typeof value.adapter_version === "string" &&
-    isNullableString(value.source_schema_version) &&
-    typeof value.started_at === "string" &&
-    isNullableString(value.ended_at) &&
-    isNullableString(value.terminal_state) &&
-    typeof value.events_complete === "boolean"
-  );
-}
-
 function isCompleteProjectSessionPage(
   value: unknown,
   expectedProjectId: string,
@@ -132,6 +204,8 @@ function isCompleteProjectSessionPage(
 ): value is ProjectSessionListResponse {
   if (
     !isRecord(value) ||
+    Object.keys(value).length !== 5 ||
+    !["sessions", "limit", "offset", "total", "has_more"].every((key) => key in value) ||
     !Array.isArray(value.sessions) ||
     value.limit !== expectedLimit ||
     value.offset !== expectedOffset ||
@@ -147,7 +221,7 @@ function isCompleteProjectSessionPage(
     value.sessions.length !== expectedPageSize ||
     value.has_more !== (expectedOffset + expectedPageSize < total) ||
     !value.sessions.every((session) =>
-      isProjectSession(session, expectedProjectId),
+      safeSessionCatalogRow(session) && session.project_id === expectedProjectId,
     )
   ) {
     return false;
@@ -497,10 +571,13 @@ export function ProjectWorkspace({
   navigate: (route: AppRoute) => void;
   coverageProvider?: Provider;
 }) {
-  const [sessions, setSessions] = useState<CodexSession[] | null>(null);
-  const [projectSessionTotal, setProjectSessionTotal] = useState(0);
-  const [projectSessionsTruncated, setProjectSessionsTruncated] = useState(false);
-  const [catalogError, setCatalogError] = useState("");
+  const [storedSessions, setStoredSessions] = useState<CodexSession[] | null>(null);
+  const [storedProjectSessionTotal, setStoredProjectSessionTotal] = useState(0);
+  const [storedProjectSessionsTruncated, setStoredProjectSessionsTruncated] = useState(false);
+  const [storedCatalogError, setStoredCatalogError] = useState("");
+  const [catalogErrorReason, setCatalogErrorReason] = useState<"transient" | "inconsistent">("transient");
+  const [catalogOwner, setCatalogOwner] = useState<ProjectCatalogOwner | null>(null);
+  const [catalogStatus, setCatalogStatus] = useState<"loading" | "ready" | "error">("loading");
   const [catalogRetryKey, setCatalogRetryKey] = useState(0);
   const [metrics, setMetrics] = useState<SessionMetric[] | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
@@ -509,7 +586,7 @@ export function ProjectWorkspace({
   const [qualityRun, setQualityRun] = useState<SessionAnalysisRunResponse | null>(null);
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityError, setQualityError] = useState("");
-  const [qualityNotice, setQualityNotice] = useState<{ sessionId: string; category: string; text: string } | null>(null);
+  const [qualityNotice, setQualityNotice] = useState<{ owner: DrilldownReadOwner; text: string } | null>(null);
   const [qualityRetryKey, setQualityRetryKey] = useState(0);
   const [metricReadiness, setMetricReadiness] =
     useState<SessionMetricReadinessReport | null>(null);
@@ -533,56 +610,174 @@ export function ProjectWorkspace({
   const [compactMasthead, setCompactMasthead] = useState(false);
   const [legacyQualityExpanded, setLegacyQualityExpanded] = useState(false);
   const compatibilityRequestGeneration = useRef(0);
+  const metricsAttemptRef = useRef<DrilldownReadAttempt | null>(null);
+  const qualityAttemptRef = useRef<DrilldownReadAttempt | null>(null);
+  const readinessAttemptRef = useRef<DrilldownReadAttempt | null>(null);
+  const [metricsOwner, setMetricsOwner] = useState<DrilldownReadOwner | null>(null);
+  const [qualityOwner, setQualityOwner] = useState<DrilldownReadOwner | null>(null);
+  const [metricReadinessOwner, setMetricReadinessOwner] = useState<DrilldownReadOwner | null>(null);
+  const catalogAttemptRef = useRef<ProjectCatalogAttempt | null>(null);
+  const catalogGenerationRef = useRef(0);
   const mastheadSentinelRef = useRef<HTMLSpanElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const observedRouteIdentity = useRef<string | null>(null);
   const pendingFocusRouteIdentity = useRef<string | null>(null);
   const sessionId = selectedSessionId(route);
+  const currentCatalogOwner = { projectId: route.projectId, transport };
+  const catalogIsCurrent = catalogOwner !== null &&
+    sameProjectCatalogOwner(catalogOwner, currentCatalogOwner);
+  const sessions = catalogIsCurrent && catalogStatus === "ready" ? storedSessions : null;
+  const projectSessionTotal = catalogIsCurrent && catalogStatus === "ready"
+    ? storedProjectSessionTotal
+    : 0;
+  const projectSessionsTruncated = catalogIsCurrent && catalogStatus === "ready"
+    ? storedProjectSessionsTruncated
+    : false;
+  const catalogError = catalogIsCurrent && catalogStatus === "error"
+    ? storedCatalogError
+    : "";
   const lookupScope = `${route.projectId}/${sessionId ?? ""}`;
-  const [resolvedSession, setResolvedSession] = useState<{ scope: string; session: CodexSession; transport: PromptEnhancerTransport } | null>(null);
-  const [lookupNext, setLookupNext] = useState<{ scope: string; offset: number } | null>(null);
-  const [lookupCursor, setLookupCursor] = useState<{ scope: string; offset: number } | null>(null);
+  const [lookupOwner, setLookupOwner] = useState<OlderSessionLookupOwner | null>(null);
+  const [resolvedSession, setResolvedSession] = useState<{ owner: OlderSessionLookupOwner; session: CodexSession } | null>(null);
+  const [lookupNext, setLookupNext] = useState<{ owner: OlderSessionLookupOwner; offset: number } | null>(null);
+  const [lookupCursor, setLookupCursor] = useState<{ owner: OlderSessionLookupOwner; offset: number } | null>(null);
   const [lookupFinished, setLookupFinished] = useState<string | null>(null);
   const [lookupError, setLookupError] = useState("");
-  const lookupOffset = lookupCursor?.scope === lookupScope ? lookupCursor.offset : 100;
+  const [lookupErrorReason, setLookupErrorReason] = useState<"transient" | "inconsistent">("transient");
+  const [lookupRetryKey, setLookupRetryKey] = useState(0);
+  const expectedLookupOwner = sessions && sessionId
+    ? { baseCatalog: sessions, projectId: route.projectId, sessionId, transport }
+    : null;
+  const lookupIsCurrent = lookupOwner !== null && expectedLookupOwner !== null &&
+    sameOlderSessionLookupOwner(lookupOwner, expectedLookupOwner);
+  const visibleLookupError = lookupIsCurrent ? lookupError : "";
+  const visibleLookupFinished = lookupIsCurrent ? lookupFinished : null;
+  const visibleLookupNext = lookupIsCurrent && lookupNext !== null &&
+    expectedLookupOwner !== null && sameOlderSessionLookupOwner(lookupNext.owner, expectedLookupOwner)
+    ? lookupNext
+    : null;
+  const lookupOffset = lookupIsCurrent && lookupCursor !== null &&
+    expectedLookupOwner !== null && sameOlderSessionLookupOwner(lookupCursor.owner, expectedLookupOwner)
+    ? lookupCursor.offset
+    : 100;
+  const lookupAttemptRef = useRef<OlderSessionLookupAttempt | null>(null);
+  const lookupGenerationRef = useRef(0);
 
   useEffect(() => { setLookupCursor(null); }, [lookupScope]);
 
-  useEffect(() => {
+  const beginCatalogRead = useCallback(() => {
+    if (catalogAttemptRef.current !== null) return;
+    const owner = { projectId: route.projectId, transport };
     const controller = new AbortController();
-    setSessions(null);
-    setProjectSessionTotal(0);
-    setProjectSessionsTruncated(false);
-    setCatalogError("");
-    void (async () => {
-      try {
-        const response = await transport.listProjectSessions(route.projectId, 100, 0, controller.signal);
-        if (controller.signal.aborted) return;
+    const attempt: ProjectCatalogAttempt = {
+      controller, generation: catalogGenerationRef.current + 1, owner,
+    };
+    catalogGenerationRef.current = attempt.generation;
+    catalogAttemptRef.current = attempt;
+    setCatalogOwner(owner);
+    setCatalogStatus("loading");
+    setStoredSessions(null);
+    setStoredProjectSessionTotal(0);
+    setStoredProjectSessionsTruncated(false);
+    setStoredCatalogError("");
+    setCatalogErrorReason("transient");
+    const fail = (message: string, reason: "transient" | "inconsistent" = "transient") => {
+      if (catalogAttemptRef.current !== attempt) return;
+      catalogAttemptRef.current = null;
+      clearTimeout(attempt.timeoutId);
+      if (!controller.signal.aborted) controller.abort();
+      setCatalogOwner(owner);
+      setCatalogStatus("error");
+      setStoredCatalogError(message);
+      setCatalogErrorReason(reason);
+    };
+    attempt.timeoutId = setTimeout(() => fail("Project session loading timed out after 15 seconds."), PROJECT_SESSION_READ_DEADLINE_MS);
+    void Promise.resolve()
+      .then<ProjectSessionListResponse | typeof PROJECT_SESSION_REQUEST_NOT_DISPATCHED>(() => {
+        if (catalogAttemptRef.current !== attempt || controller.signal.aborted) return PROJECT_SESSION_REQUEST_NOT_DISPATCHED;
+        return transport.listProjectSessions(route.projectId, 100, 0, controller.signal);
+      })
+      .then((response) => {
+        if (response === PROJECT_SESSION_REQUEST_NOT_DISPATCHED || catalogAttemptRef.current !== attempt || controller.signal.aborted) return;
         if (!isCompleteProjectSessionPage(response, route.projectId, 100)) {
-          setCatalogError("The project-scoped catalog response was inconsistent.");
+          fail("The project-scoped catalog response was inconsistent. Refresh project sessions to establish a new base.", "inconsistent");
           return;
         }
-        setSessions(response.sessions);
-        setProjectSessionTotal(response.total);
-        setProjectSessionsTruncated(response.has_more);
-      } catch {
-        if (!controller.signal.aborted) {
-          setCatalogError("The locally indexed sessions could not be loaded.");
-        }
+        catalogAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        setCatalogOwner(owner);
+        setStoredSessions(response.sessions);
+        setStoredProjectSessionTotal(response.total);
+        setStoredProjectSessionsTruncated(response.has_more);
+        setCatalogStatus("ready");
+      })
+      .catch(() => { if (catalogAttemptRef.current === attempt && !controller.signal.aborted) fail("The locally indexed sessions could not be loaded."); });
+  }, [route.projectId, transport]);
+
+  const cancelCatalogRead = useCallback(() => {
+    const attempt = catalogAttemptRef.current;
+    if (attempt === null || !sameProjectCatalogOwner(attempt.owner, currentCatalogOwner)) return;
+    catalogAttemptRef.current = null;
+    clearTimeout(attempt.timeoutId);
+    attempt.controller.abort();
+    setCatalogOwner(attempt.owner);
+    setCatalogStatus("error");
+    setCatalogErrorReason("transient");
+    setStoredCatalogError("Project session loading was cancelled.");
+  }, [currentCatalogOwner]);
+
+  const retryCatalogRead = useCallback(() => {
+    if (catalogAttemptRef.current === null) setCatalogRetryKey((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    beginCatalogRead();
+    return () => {
+      const attempt = catalogAttemptRef.current;
+      if (attempt !== null) {
+        catalogAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        attempt.controller.abort();
       }
-    })();
-    return () => controller.abort();
-  }, [catalogRetryKey, route.projectId, transport]);
+      catalogGenerationRef.current += 1;
+    };
+  }, [beginCatalogRead, catalogRetryKey]);
 
   useEffect(() => {
     setResolvedSession(null);
     setLookupNext(null);
     setLookupError("");
+    setLookupErrorReason("transient");
     setLookupFinished(null);
     if (!sessionId || !sessions || !projectSessionsTruncated
       || sessions.some((session) => session.session_id === sessionId && session.project_id === route.projectId)) return;
+    const owner: OlderSessionLookupOwner = {
+      baseCatalog: sessions, projectId: route.projectId, sessionId, transport,
+    };
+    setLookupOwner(owner);
     const controller = new AbortController();
-    void (async () => {
+    const attempt: OlderSessionLookupAttempt = {
+      controller,
+      generation: lookupGenerationRef.current + 1,
+      owner,
+      scope: lookupScope,
+      transport,
+    };
+    lookupGenerationRef.current = attempt.generation;
+    lookupAttemptRef.current = attempt;
+    const fail = (message: string) => {
+      if (lookupAttemptRef.current !== attempt) return;
+      lookupAttemptRef.current = null;
+      clearTimeout(attempt.timeoutId);
+      if (!controller.signal.aborted) controller.abort();
+      setLookupErrorReason("transient");
+      setLookupError(message);
+      setLookupFinished(lookupScope);
+    };
+    attempt.timeoutId = setTimeout(() => {
+      fail("The older session lookup timed out after 15 seconds. Retry the metadata lookup.");
+    }, PROJECT_SESSION_READ_DEADLINE_MS);
+    void Promise.resolve().then(async () => {
       try {
         // Resolve only the explicitly selected session beyond the visible first
         // page. Metadata reads are bounded; project-wide analysis stays capped.
@@ -590,31 +785,66 @@ export function ProjectWorkspace({
         const pageBudget = offset === 100 ? 9 : 10;
         const seen = new Set(sessions.map((session) => session.session_id));
         for (let page = 0; page < pageBudget; page += 1) {
+          if (lookupAttemptRef.current !== attempt || controller.signal.aborted) return;
           const next = await transport.listProjectSessions(route.projectId, 100, offset, controller.signal);
-          if (controller.signal.aborted) return;
+          if (lookupAttemptRef.current !== attempt || controller.signal.aborted) return;
           if (!isCompleteProjectSessionPage(next, route.projectId, 100, offset) || next.total !== projectSessionTotal
             || next.sessions.some((session) => seen.has(session.session_id))) {
-            setLookupError("The project-scoped catalog changed or was inconsistent. Retry to verify the session's project.");
+            setLookupErrorReason("inconsistent");
+            setLookupError("The project-scoped catalog changed or was inconsistent. Refresh project sessions to establish a new base.");
             return;
           }
           next.sessions.forEach((session) => seen.add(session.session_id));
           const found = next.sessions.find((session) => session.session_id === sessionId);
           if (found) {
-            setResolvedSession({ scope: lookupScope, session: found, transport });
+            setResolvedSession({ owner, session: found });
             break;
           }
           if (!next.has_more) break;
           offset += next.sessions.length;
-          if (page === pageBudget - 1) setLookupNext({ scope: lookupScope, offset });
+          if (page === pageBudget - 1) setLookupNext({ owner, offset });
         }
       } catch {
-        if (!controller.signal.aborted) setLookupError("The older session's project membership could not be checked. Retry the metadata lookup.");
+        if (lookupAttemptRef.current === attempt && !controller.signal.aborted) {
+          fail("The older session's project membership could not be checked. Retry the metadata lookup.");
+        }
       } finally {
-        if (!controller.signal.aborted) setLookupFinished(lookupScope);
+        if (lookupAttemptRef.current === attempt && !controller.signal.aborted) {
+          lookupAttemptRef.current = null;
+          clearTimeout(attempt.timeoutId);
+          setLookupFinished(lookupScope);
+        }
       }
-    })();
-    return () => controller.abort();
-  }, [lookupOffset, lookupScope, projectSessionTotal, projectSessionsTruncated, route.projectId, sessionId, sessions, transport]);
+    });
+    return () => {
+      if (lookupAttemptRef.current === attempt) {
+        lookupAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        controller.abort();
+      }
+      lookupGenerationRef.current += 1;
+    };
+  }, [lookupOffset, lookupRetryKey, lookupScope, projectSessionTotal, projectSessionsTruncated, route.projectId, sessionId, sessions, transport]);
+
+  const cancelOlderSessionLookup = useCallback(() => {
+    const attempt = lookupAttemptRef.current;
+    if (
+      attempt === null || expectedLookupOwner === null ||
+      !sameOlderSessionLookupOwner(attempt.owner, expectedLookupOwner)
+    ) return;
+    lookupAttemptRef.current = null;
+    clearTimeout(attempt.timeoutId);
+    attempt.controller.abort();
+    setLookupErrorReason("transient");
+    setLookupError("The older session lookup was cancelled. Retry the metadata lookup.");
+    setLookupFinished(lookupScope);
+  }, [expectedLookupOwner, lookupScope]);
+
+  const retryOlderSessionLookup = useCallback(() => {
+    if (lookupAttemptRef.current === null && lookupIsCurrent) {
+      setLookupRetryKey((value) => value + 1);
+    }
+  }, [lookupIsCurrent]);
 
   const projectSessions = useMemo(
     () =>
@@ -629,8 +859,71 @@ export function ProjectWorkspace({
   const category = selectedCategory(route);
   const currentSession = sessionId
     ? projectSessions.find((session) => session.session_id === sessionId)
-      ?? (resolvedSession?.scope === lookupScope && resolvedSession.transport === transport ? resolvedSession.session : undefined)
+      ?? (catalogIsCurrent && lookupIsCurrent && resolvedSession !== null &&
+        expectedLookupOwner !== null &&
+        sameOlderSessionLookupOwner(resolvedSession.owner, expectedLookupOwner)
+          ? resolvedSession.session
+          : undefined)
     : undefined;
+  const currentDrilldownOwner = useMemo(() =>
+    currentSession && sessions && sessionId && category
+      ? {
+        catalog: sessions,
+        category,
+        legacyQualityExpanded,
+        projectId: route.projectId,
+        provider: currentSession.provider,
+        session: currentSession,
+        sessionId,
+        transport,
+      }
+      : null,
+    [category, currentSession, legacyQualityExpanded, route.projectId, sessionId, sessions, transport],
+  );
+  const currentDrilldownOwnerRef = useRef<{
+    category: MetricCategory | null;
+    catalog: CodexSession[] | null;
+    legacyQualityExpanded: boolean;
+    projectId: string;
+    provider: Provider | null;
+    session: CodexSession | null;
+    sessionId: string | null;
+    transport: PromptEnhancerTransport;
+  }>({
+    category: null,
+    catalog: null,
+    legacyQualityExpanded: false,
+    projectId: route.projectId,
+    provider: null,
+    session: null,
+    sessionId: null,
+    transport,
+  });
+  currentDrilldownOwnerRef.current = {
+    category: currentDrilldownOwner?.category ?? null,
+    catalog: currentDrilldownOwner?.catalog ?? null,
+    legacyQualityExpanded: currentDrilldownOwner?.legacyQualityExpanded ?? false,
+    projectId: route.projectId,
+    provider: currentDrilldownOwner?.provider ?? null,
+    session: currentDrilldownOwner?.session ?? null,
+    sessionId: currentDrilldownOwner?.sessionId ?? null,
+    transport,
+  };
+  const metricsStateIsCurrent = metricsOwner !== null && currentDrilldownOwner !== null &&
+    sameDrilldownReadOwner(metricsOwner, currentDrilldownOwner);
+  const qualityStateIsCurrent = qualityOwner !== null && currentDrilldownOwner !== null &&
+    sameDrilldownReadOwner(qualityOwner, currentDrilldownOwner);
+  const readinessStateIsCurrent = metricReadinessOwner !== null && currentDrilldownOwner !== null &&
+    sameDrilldownReadOwner(metricReadinessOwner, currentDrilldownOwner);
+  const visibleMetricsState = metricsStateIsCurrent ? metrics : null;
+  const visibleMetricsLoading = metricsStateIsCurrent && metricsLoading;
+  const visibleMetricsError = metricsStateIsCurrent ? metricsError : "";
+  const visibleQualityRun = qualityStateIsCurrent ? qualityRun : null;
+  const visibleQualityLoading = qualityStateIsCurrent && qualityLoading;
+  const visibleQualityError = qualityStateIsCurrent ? qualityError : "";
+  const visibleMetricReadiness = readinessStateIsCurrent ? metricReadiness : null;
+  const visibleMetricReadinessLoading = readinessStateIsCurrent && metricReadinessLoading;
+  const visibleMetricReadinessError = readinessStateIsCurrent ? metricReadinessError : "";
   const categoryPlanned = category
     ? metricCategoryDefinition(category).availability === "planned"
     : false;
@@ -829,55 +1122,144 @@ export function ProjectWorkspace({
   }
 
   useEffect(() => {
-    if (!sessionId || !currentSession || categoryPlanned || qualityCategory) {
+    if (!sessionId || !currentSession || !currentDrilldownOwner || categoryPlanned || qualityCategory) {
       setMetrics(null);
+      setMetricsOwner(null);
       setMetricsError("");
       setMetricsLoading(false);
       return;
     }
+    if (metricsAttemptRef.current !== null) return;
+    const owner = currentDrilldownOwner;
     const controller = new AbortController();
+    const attempt: DrilldownReadAttempt = { controller, owner };
+    metricsAttemptRef.current = attempt;
     setMetrics(null);
+    setMetricsOwner(owner);
     setMetricsError("");
     setMetricsLoading(true);
-    transport
-      .getSessionMetrics(sessionId, controller.signal)
+    const ownsCurrentView = () => {
+      const current = currentDrilldownOwnerRef.current;
+      return current.catalog === owner.catalog && current.category === owner.category &&
+        current.legacyQualityExpanded === owner.legacyQualityExpanded &&
+        current.projectId === owner.projectId && current.provider === owner.provider &&
+        current.session === owner.session && current.sessionId === owner.sessionId &&
+        current.transport === owner.transport;
+    };
+    const fail = (message: string) => {
+      if (metricsAttemptRef.current !== attempt) return;
+      metricsAttemptRef.current = null;
+      clearTimeout(attempt.timeoutId);
+      controller.abort();
+      if (!ownsCurrentView()) return;
+      setMetricsOwner(owner);
+      setMetricsError(message);
+      setMetricsLoading(false);
+    };
+    attempt.timeoutId = setTimeout(
+      () => fail("Stored metrics loading timed out after 15 seconds."),
+      PROJECT_SESSION_READ_DEADLINE_MS,
+    );
+    void Promise.resolve()
+      .then<SessionMetricResponse | typeof PROJECT_SESSION_REQUEST_NOT_DISPATCHED>(() => {
+        if (metricsAttemptRef.current !== attempt || controller.signal.aborted || !ownsCurrentView()) {
+          return PROJECT_SESSION_REQUEST_NOT_DISPATCHED;
+        }
+        return transport.getSessionMetrics(sessionId, controller.signal);
+      })
       .then((response) => {
-        if (controller.signal.aborted) return;
-        if (response.session_id !== sessionId) {
-          setMetricsError("The stored metric response did not match the selected session.");
+        if (response === PROJECT_SESSION_REQUEST_NOT_DISPATCHED || controller.signal.aborted || metricsAttemptRef.current !== attempt) return;
+        if (!isSessionMetricResponseFor(response, owner.sessionId)) {
+          fail("The stored metric response did not match the selected session.");
           return;
         }
+        metricsAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        if (!ownsCurrentView()) return;
+        setMetricsOwner(owner);
         setMetrics(response.metrics);
+        setMetricsLoading(false);
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
-          setMetricsError("Stored metrics for this session could not be loaded.");
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setMetricsLoading(false);
+        if (!controller.signal.aborted) fail("Stored metrics for this session could not be loaded.");
       });
-    return () => controller.abort();
-  }, [categoryPlanned, currentSession, metricsRetryKey, qualityCategory, sessionId, transport]);
+    return () => {
+      if (metricsAttemptRef.current === attempt) {
+        metricsAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        controller.abort();
+      }
+    };
+  }, [categoryPlanned, currentDrilldownOwner, currentSession, metricsRetryKey, qualityCategory, sessionId, transport]);
 
   useEffect(() => {
-    if (!sessionId || !currentSession || !qualityCategory || !legacyQualityExpanded) {
+    if (!sessionId || !currentSession || !currentDrilldownOwner || !qualityCategory || !legacyQualityExpanded) {
       setQualityRun(null);
+      setQualityOwner(null);
       setQualityError("");
       setQualityLoading(false);
       return;
     }
+    if (qualityAttemptRef.current !== null) return;
+    const owner = currentDrilldownOwner;
     const controller = new AbortController();
+    const attempt: DrilldownReadAttempt = { controller, owner };
+    qualityAttemptRef.current = attempt;
     setQualityRun(null);
+    setQualityOwner(owner);
     setQualityError("");
     setQualityLoading(true);
-    transport
-      .getLatestSessionQualityAnalysis(sessionId, controller.signal)
+    const ownsCurrentView = () => {
+      const current = currentDrilldownOwnerRef.current;
+      return current.catalog === owner.catalog && current.category === owner.category &&
+        current.legacyQualityExpanded === owner.legacyQualityExpanded &&
+        current.projectId === owner.projectId && current.provider === owner.provider &&
+        current.session === owner.session && current.sessionId === owner.sessionId &&
+        current.transport === owner.transport;
+    };
+    const fail = (message: string) => {
+      if (qualityAttemptRef.current !== attempt) return;
+      qualityAttemptRef.current = null;
+      clearTimeout(attempt.timeoutId);
+      controller.abort();
+      if (!ownsCurrentView()) return;
+      setQualityOwner(owner);
+      setQualityError(message);
+      setQualityLoading(false);
+    };
+    attempt.timeoutId = setTimeout(
+      () => fail("Quality loading timed out after 15 seconds."),
+      PROJECT_SESSION_READ_DEADLINE_MS,
+    );
+    void Promise.resolve()
+      .then<SessionAnalysisRunResponse | typeof PROJECT_SESSION_REQUEST_NOT_DISPATCHED>(() => {
+        if (qualityAttemptRef.current !== attempt || controller.signal.aborted || !ownsCurrentView()) {
+          return PROJECT_SESSION_REQUEST_NOT_DISPATCHED;
+        }
+        return transport.getLatestSessionQualityAnalysis(sessionId, controller.signal);
+      })
       .then((response) => {
-        if (!controller.signal.aborted) setQualityRun(response);
+        if (response === PROJECT_SESSION_REQUEST_NOT_DISPATCHED || controller.signal.aborted || qualityAttemptRef.current !== attempt) return;
+        let parsed: SessionAnalysisRunResponse;
+        try {
+          parsed = parseSessionAnalysisRunResponse(response, { sessionId: owner.sessionId });
+        } catch {
+          fail("The latest immutable quality run did not match the selected session.");
+          return;
+        }
+        if (parsed.run.provider !== owner.provider) {
+          fail("The latest immutable quality run did not match the selected session.");
+          return;
+        }
+        qualityAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        if (!ownsCurrentView()) return;
+        setQualityOwner(owner);
+        setQualityRun(parsed);
+        setQualityLoading(false);
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || qualityAttemptRef.current !== attempt) return;
         const status =
           typeof error === "object" &&
           error !== null &&
@@ -886,67 +1268,115 @@ export function ProjectWorkspace({
             ? error.status
             : null;
         if (status === 404) {
+          qualityAttemptRef.current = null;
+          clearTimeout(attempt.timeoutId);
+          if (!ownsCurrentView()) return;
+          setQualityOwner(owner);
           setQualityRun(null);
+          setQualityLoading(false);
           return;
         }
-        setQualityError("The latest immutable quality run could not be loaded.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setQualityLoading(false);
+        fail("The latest immutable quality run could not be loaded.");
       });
-    return () => controller.abort();
-  }, [currentSession, legacyQualityExpanded, qualityCategory, qualityRetryKey, sessionId, transport]);
+    return () => {
+      if (qualityAttemptRef.current === attempt) {
+        qualityAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        controller.abort();
+      }
+    };
+  }, [currentDrilldownOwner, currentSession, legacyQualityExpanded, qualityCategory, qualityRetryKey, sessionId, transport]);
 
   useEffect(() => {
-    if (!sessionId || !currentSession || !qualityCategory || !legacyQualityExpanded) {
+    if (!sessionId || !currentSession || !currentDrilldownOwner || !qualityCategory || !legacyQualityExpanded) {
       setMetricReadiness(null);
+      setMetricReadinessOwner(null);
       setMetricReadinessError("");
       setMetricReadinessLoading(false);
       return;
     }
+    if (readinessAttemptRef.current !== null) return;
+    const owner = currentDrilldownOwner;
     const controller = new AbortController();
+    const attempt: DrilldownReadAttempt = { controller, owner };
+    readinessAttemptRef.current = attempt;
     setMetricReadiness(null);
+    setMetricReadinessOwner(owner);
     setMetricReadinessError("");
     setMetricReadinessLoading(true);
-    transport
-      .getSessionMetricReadiness(sessionId, "coaching_profile_v1", controller.signal)
+    const ownsCurrentView = () => {
+      const current = currentDrilldownOwnerRef.current;
+      return current.catalog === owner.catalog && current.category === owner.category &&
+        current.legacyQualityExpanded === owner.legacyQualityExpanded &&
+        current.projectId === owner.projectId && current.provider === owner.provider &&
+        current.session === owner.session && current.sessionId === owner.sessionId &&
+        current.transport === owner.transport;
+    };
+    const fail = (message: string) => {
+      if (readinessAttemptRef.current !== attempt) return;
+      readinessAttemptRef.current = null;
+      clearTimeout(attempt.timeoutId);
+      controller.abort();
+      if (!ownsCurrentView()) return;
+      setMetricReadinessOwner(owner);
+      setMetricReadinessError(message);
+      setMetricReadinessLoading(false);
+    };
+    attempt.timeoutId = setTimeout(
+      () => fail("Content-free metric readiness timed out after 15 seconds."),
+      PROJECT_SESSION_READ_DEADLINE_MS,
+    );
+    void Promise.resolve()
+      .then<SessionMetricReadinessReport | typeof PROJECT_SESSION_REQUEST_NOT_DISPATCHED>(() => {
+        if (readinessAttemptRef.current !== attempt || controller.signal.aborted || !ownsCurrentView()) {
+          return PROJECT_SESSION_REQUEST_NOT_DISPATCHED;
+        }
+        return transport.getSessionMetricReadiness(sessionId, "coaching_profile_v1", controller.signal);
+      })
       .then((response) => {
-        if (controller.signal.aborted) return;
-        if (
-          response.session_id !== sessionId ||
-          response.provider !== currentSession.provider ||
-          response.preset_id !== "coaching_profile_v1"
-        ) {
-          setMetricReadinessError(
-            "Metric readiness did not match the selected session and was ignored.",
-          );
+        if (response === PROJECT_SESSION_REQUEST_NOT_DISPATCHED || controller.signal.aborted || readinessAttemptRef.current !== attempt) return;
+        let parsed: SessionMetricReadinessReport;
+        try {
+          parsed = parseSessionMetricReadinessReport(response, owner.sessionId);
+        } catch {
+          fail("Metric readiness did not match the selected session and was ignored.");
           return;
         }
-        setMetricReadiness(response);
+        if (parsed.provider !== owner.provider) {
+          fail("Metric readiness did not match the selected session and was ignored.");
+          return;
+        }
+        readinessAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        if (!ownsCurrentView()) return;
+        setMetricReadinessOwner(owner);
+        setMetricReadiness(parsed);
+        setMetricReadinessLoading(false);
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setMetricReadinessError(
-            "Content-free metric readiness could not be loaded.",
-          );
+          fail("Content-free metric readiness could not be loaded.");
         }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setMetricReadinessLoading(false);
       });
-    return () => controller.abort();
+    return () => {
+      if (readinessAttemptRef.current === attempt) {
+        readinessAttemptRef.current = null;
+        clearTimeout(attempt.timeoutId);
+        controller.abort();
+      }
+    };
   }, [
+    currentDrilldownOwner,
     currentSession,
     legacyQualityExpanded,
     metricReadinessRefreshKey,
     qualityCategory,
-    qualityRetryKey,
     sessionId,
     transport,
   ]);
 
   useEffect(() => {
-    const runId = qualityRun?.run.run_id;
+    const runId = visibleQualityRun?.run.run_id;
     if (!sessionId || !currentSession || !qualityCategory || !legacyQualityExpanded || !runId) {
       setCoachingProjection(null);
       setCoachingError("");
@@ -992,7 +1422,7 @@ export function ProjectWorkspace({
         if (!controller.signal.aborted) setCoachingLoading(false);
       });
     return () => controller.abort();
-  }, [currentSession, legacyQualityExpanded, qualityCategory, qualityRun, sessionId, transport]);
+  }, [currentSession, legacyQualityExpanded, qualityCategory, sessionId, transport, visibleQualityRun]);
 
   useEffect(() => {
     if (
@@ -1040,10 +1470,10 @@ export function ProjectWorkspace({
 
   const visibleMetrics = useMemo(
     () =>
-      category && metrics
-        ? metrics.filter((metric) => metricCategoryFor(metric) === category)
+      category && visibleMetricsState
+        ? visibleMetricsState.filter((metric) => metricCategoryFor(metric) === category)
         : [],
-    [category, metrics],
+    [category, visibleMetricsState],
   );
   const visibleProjectName = projectLabel(projectSessions);
   const completeSessions = projectSessions.filter(
@@ -1113,8 +1543,8 @@ export function ProjectWorkspace({
   ]);
   useEffect(() => setLegacyQualityExpanded(false), [routeIdentity]);
   const coachingModel = useMemo(
-    () => createCoachingLoopViewModel(coachingProjection),
-    [coachingProjection],
+    () => visibleQualityRun === null ? null : createCoachingLoopViewModel(coachingProjection),
+    [coachingProjection, visibleQualityRun],
   );
 
   function openCategory(nextCategory: MetricCategory) {
@@ -1176,26 +1606,38 @@ export function ProjectWorkspace({
     idempotencyKey: string,
     signal: AbortSignal,
   ) {
-    if (!sessionId || requestedSessionId !== sessionId) {
+    const capturedOwner = currentDrilldownOwner;
+    if (!sessionId || !capturedOwner || requestedSessionId !== sessionId) {
       throw new Error("Selected session is unavailable.");
     }
     if (request.expected_binding.session_id !== requestedSessionId) {
       throw new Error("Preview session is unavailable.");
     }
+    const ownerStillCurrent = () => {
+      const current = currentDrilldownOwnerRef.current;
+      return current.catalog === capturedOwner.catalog && current.category === capturedOwner.category &&
+        current.legacyQualityExpanded === capturedOwner.legacyQualityExpanded &&
+        current.projectId === capturedOwner.projectId && current.provider === capturedOwner.provider &&
+        current.session === capturedOwner.session && current.sessionId === capturedOwner.sessionId &&
+        current.transport === capturedOwner.transport;
+    };
     const outcome = await transport.approveSessionQualityAnalysisPreview(
       previewId,
       request,
       idempotencyKey,
       signal,
     );
-    if (signal.aborted) return;
+    if (signal.aborted || !ownerStillCurrent()) return;
     const detail = await transport.getSessionQualityAnalysisRun(
       outcome.run_id,
       signal,
     );
-    if (signal.aborted) return;
-    const nextProfile = category
-      ? createQualityMetricProfile(category, detail, sessionId)
+    if (signal.aborted || !ownerStillCurrent()) return;
+    if (detail.run.provider !== capturedOwner.provider) {
+      throw new Error("The immutable result did not match the selected provider.");
+    }
+    const nextProfile = capturedOwner.category
+      ? createQualityMetricProfile(capturedOwner.category, detail, requestedSessionId)
       : null;
     if (
       outcome.status !== "completed" ||
@@ -1208,11 +1650,91 @@ export function ProjectWorkspace({
     ) {
       throw new Error("The immutable result is not complete.");
     }
+    if (!ownerStillCurrent()) return;
+    const attempt = qualityAttemptRef.current;
+    if (attempt !== null) {
+      qualityAttemptRef.current = null;
+      clearTimeout(attempt.timeoutId);
+      attempt.controller.abort();
+    }
+    setQualityOwner(capturedOwner);
     setQualityRun(detail);
     setQualityError("");
-    setQualityNotice({ sessionId: requestedSessionId, category: category ?? "", text: "Analysis completed and stored locally. The latest metric profile is now shown." });
+    setQualityLoading(false);
+    setQualityNotice({ owner: capturedOwner, text: "Analysis completed and stored locally. The latest metric profile is now shown." });
+    const readinessAttempt = readinessAttemptRef.current;
+    if (readinessAttempt !== null) {
+      readinessAttemptRef.current = null;
+      clearTimeout(readinessAttempt.timeoutId);
+      readinessAttempt.controller.abort();
+    }
+    setMetricReadinessOwner(capturedOwner);
+    setMetricReadiness(null);
+    setMetricReadinessError("");
+    setMetricReadinessLoading(false);
     setMetricReadinessRefreshKey((value) => value + 1);
   }
+
+  const cancelMetricsRead = useCallback(() => {
+    const attempt = metricsAttemptRef.current;
+    if (attempt === null || currentDrilldownOwner === null ||
+      !sameDrilldownReadOwner(attempt.owner, currentDrilldownOwner)) return;
+    metricsAttemptRef.current = null;
+    clearTimeout(attempt.timeoutId);
+    attempt.controller.abort();
+    setMetricsOwner(attempt.owner);
+    setMetricsLoading(false);
+    setMetricsError("Stored metrics loading was cancelled.");
+  }, [currentDrilldownOwner]);
+
+  const cancelQualityRead = useCallback(() => {
+    const attempt = qualityAttemptRef.current;
+    if (attempt === null || currentDrilldownOwner === null ||
+      !sameDrilldownReadOwner(attempt.owner, currentDrilldownOwner)) return;
+    qualityAttemptRef.current = null;
+    clearTimeout(attempt.timeoutId);
+    attempt.controller.abort();
+    setQualityOwner(attempt.owner);
+    setQualityLoading(false);
+    setQualityError("Quality loading was cancelled.");
+  }, [currentDrilldownOwner]);
+
+  const cancelMetricReadinessRead = useCallback(() => {
+    const attempt = readinessAttemptRef.current;
+    if (attempt === null || currentDrilldownOwner === null ||
+      !sameDrilldownReadOwner(attempt.owner, currentDrilldownOwner)) return;
+    readinessAttemptRef.current = null;
+    clearTimeout(attempt.timeoutId);
+    attempt.controller.abort();
+    setMetricReadinessOwner(attempt.owner);
+    setMetricReadinessLoading(false);
+    setMetricReadinessError("Content-free metric readiness was cancelled.");
+  }, [currentDrilldownOwner]);
+
+  const retryMetricsRead = useCallback(() => {
+    if (currentDrilldownOwner !== null && metricsStateIsCurrent &&
+      visibleMetricsError && metricsAttemptRef.current === null) {
+      setMetricsRetryKey((value) => value + 1);
+    }
+  }, [currentDrilldownOwner, metricsStateIsCurrent, visibleMetricsError]);
+
+  const retryQualityRead = useCallback(() => {
+    if (currentDrilldownOwner !== null && qualityStateIsCurrent &&
+      visibleQualityError && qualityAttemptRef.current === null) {
+      setQualityRetryKey((value) => value + 1);
+    }
+  }, [currentDrilldownOwner, qualityStateIsCurrent, visibleQualityError]);
+
+  const retryMetricReadinessRead = useCallback(() => {
+    if (currentDrilldownOwner !== null && readinessStateIsCurrent &&
+      visibleMetricReadinessError && readinessAttemptRef.current === null) {
+      setMetricReadinessRefreshKey((value) => value + 1);
+    }
+  }, [
+    currentDrilldownOwner,
+    readinessStateIsCurrent,
+    visibleMetricReadinessError,
+  ]);
 
   return (
     <section
@@ -1221,7 +1743,9 @@ export function ProjectWorkspace({
       data-masthead={compactMasthead ? "compact" : "full"}
       ref={workspaceRef}
     >
-      {qualityNotice && qualityNotice.sessionId === sessionId && qualityNotice.category === category && <p className="workspace-panel__description" role="status">{qualityNotice.text}</p>}
+      {qualityNotice && currentDrilldownOwner &&
+        sameDrilldownReadOwner(qualityNotice.owner, currentDrilldownOwner) &&
+        <p className="workspace-panel__description" role="status">{qualityNotice.text}</p>}
       <div
         aria-hidden={compactMasthead ? undefined : true}
         className="project-workspace__masthead-anchor"
@@ -1232,7 +1756,9 @@ export function ProjectWorkspace({
             <span className="project-workspace__compact-icon">
               <Icon name="layers" />
             </span>
-            <strong>{sessions === null ? "Loading project..." : visibleProjectName}</strong>
+            <strong>{sessions === null
+              ? catalogError ? "Project sessions unavailable" : "Loading project..."
+              : visibleProjectName}</strong>
           </div>
           <ProjectSectionNavigation
             enabled={compactMasthead}
@@ -1262,11 +1788,15 @@ export function ProjectWorkspace({
           <div className="project-workspace__identity">
             <p className="eyebrow">Project</p>
             <h1 id="project-workspace-title">
-              {sessions === null ? "Loading project..." : visibleProjectName}
+              {sessions === null
+                ? catalogError ? "Project sessions unavailable" : "Loading project..."
+                : visibleProjectName}
             </h1>
             <p>
               {sessions === null
-                ? "Reading the local index..."
+                ? catalogError
+                  ? "Indexed session count is unknown."
+                  : "Reading the local index..."
                 : `${projectSessionTotal} indexed session${projectSessionTotal === 1 ? "" : "s"}`}
             </p>
           </div>
@@ -1319,11 +1849,24 @@ export function ProjectWorkspace({
       >
       {catalogError ? (
         <ErrorState
+          actionLabel={catalogErrorReason === "inconsistent"
+            ? "Refresh project sessions"
+            : "Retry project sessions"}
           message={catalogError}
-          onRetry={() => setCatalogRetryKey((value) => value + 1)}
+          onRetry={retryCatalogRead}
         />
       ) : sessions === null ? (
-        <LoadingState label="Loading this project's stored session index..." />
+        <section className="async-state" aria-live="polite" role="status">
+          <span aria-hidden="true" className="spinner" />
+          <p>Loading this project&apos;s stored session index...</p>
+          <button
+            className="button button--secondary button--compact"
+            onClick={cancelCatalogRead}
+            type="button"
+          >
+            Cancel project session loading
+          </button>
+        </section>
       ) : projectSessions.length === 0 ? (
         <ErrorState
           actionLabel="Back to projects"
@@ -1512,14 +2055,34 @@ export function ProjectWorkspace({
       ) : route.name === "project_metrics" && category ? (
         <ProjectMetricScopeState category={category} />
       ) : !currentSession || !category ? (
-        lookupError ? <ErrorState message={lookupError} onRetry={() => { setLookupCursor(null); setCatalogRetryKey((value) => value + 1); }} />
-        : projectSessionsTruncated && lookupFinished !== lookupScope ? <LoadingState label="Finding the selected session in older indexed pages..." />
-        : lookupNext?.scope === lookupScope ? (
+        visibleLookupError ? <ErrorState
+          actionLabel={lookupErrorReason === "inconsistent"
+            ? "Refresh project sessions"
+            : "Retry older session lookup"}
+          message={visibleLookupError}
+          onRetry={() => lookupErrorReason === "inconsistent"
+            ? retryCatalogRead()
+            : retryOlderSessionLookup()}
+        />
+        : projectSessionsTruncated && visibleLookupFinished !== lookupScope ? (
+          <section className="async-state" aria-live="polite" role="status">
+            <span aria-hidden="true" className="spinner" />
+            <p>Finding the selected session in older indexed pages...</p>
+            <button
+              className="button button--secondary button--compact"
+              onClick={cancelOlderSessionLookup}
+              type="button"
+            >
+              Cancel older session lookup
+            </button>
+          </section>
+        )
+        : visibleLookupNext !== null ? (
           <section className="metric-scope-state" aria-label="Older session lookup">
             <div>
               <h2>The selected session is beyond the pages checked so far</h2>
               <p>More indexed sessions remain. Only project metadata is searched; no analysis is started.</p>
-              <button className="button button--secondary" onClick={() => setLookupCursor(lookupNext)} type="button">
+              <button className="button button--secondary" onClick={() => setLookupCursor(visibleLookupNext)} type="button">
                 Search next 1,000 sessions
               </button>
             </div>
@@ -1604,15 +2167,57 @@ export function ProjectWorkspace({
               </span>
               <span>Optional legacy view</span>
             </summary>
-            {legacyQualityExpanded ? qualityLoading ? (
-              <LoadingState label="Loading the legacy qualitative profile..." />
-            ) : qualityError ? (
-              <ErrorState
-                message={qualityError}
-                onRetry={() => setQualityRetryKey((value) => value + 1)}
-              />
+            {legacyQualityExpanded ? visibleQualityLoading ? (
+              <section className="async-state" role="status">
+                <span aria-hidden="true" className="spinner" />
+                <p>Loading the legacy qualitative profile...</p>
+                <button className="button button--secondary button--compact" onClick={cancelQualityRead} type="button">Cancel quality loading</button>
+                {visibleMetricReadinessLoading && (
+                  <button className="button button--secondary button--compact" onClick={cancelMetricReadinessRead} type="button">Cancel readiness loading</button>
+                )}
+                {visibleMetricReadinessError && (
+                  <ErrorState
+                    actionLabel="Retry readiness"
+                    message={visibleMetricReadinessError}
+                    onRetry={retryMetricReadinessRead}
+                  />
+                )}
+              </section>
+            ) : visibleQualityError ? (
+              <>
+                <ErrorState
+                  actionLabel="Retry quality loading"
+                  message={visibleQualityError}
+                  onRetry={retryQualityRead}
+                />
+                {visibleMetricReadinessLoading ? (
+                  <section className="async-state" role="status">
+                    <span aria-hidden="true" className="spinner" />
+                    <p>Loading content-free metric readiness...</p>
+                    <button className="button button--secondary button--compact" onClick={cancelMetricReadinessRead} type="button">Cancel readiness loading</button>
+                  </section>
+                ) : visibleMetricReadinessError ? (
+                  <ErrorState
+                    actionLabel="Retry readiness"
+                    message={visibleMetricReadinessError}
+                    onRetry={retryMetricReadinessRead}
+                  />
+                ) : null}
+              </>
             ) : (
-              <QualityProfileView
+              <>
+                {visibleMetricReadinessLoading && (
+                  <p className="session-live-actions">
+                    <button
+                      className="button button--secondary button--compact"
+                      onClick={cancelMetricReadinessRead}
+                      type="button"
+                    >
+                      Cancel readiness loading
+                    </button>
+                  </p>
+                )}
+                <QualityProfileView
                 analysisCapability={analysisCapability}
                 compatibilityLoading={compatibilityLoading}
                 key={currentSession.session_id}
@@ -1626,17 +2231,15 @@ export function ProjectWorkspace({
                   preparePreview: prepareQualityPreview,
                   approvePreview: approveQualityPreview,
                 }}
-                onRetryMetricReadiness={() =>
-                  setMetricReadinessRefreshKey((value) => value + 1)
-                }
-                metricReadiness={metricReadiness}
-                metricReadinessError={metricReadinessError}
-                metricReadinessLoading={metricReadinessLoading}
+                onRetryMetricReadiness={retryMetricReadinessRead}
+                metricReadiness={visibleMetricReadiness}
+                metricReadinessError={visibleMetricReadinessError}
+                metricReadinessLoading={visibleMetricReadinessLoading}
                 manageDocumentContext={false}
                 providerCompatibility={providerCompatibility}
                 profile={createQualityMetricProfile(
                   category,
-                  qualityRun,
+                  visibleQualityRun,
                   currentSession.session_id,
                 )!}
                 sessionDescriptor={`${visibleLabel(currentSession.session_display_name, "Unnamed session")} · ${safeTimestamp(currentSession.started_at)} · ${currentSession.session_id.slice(0, 8)}`}
@@ -1666,7 +2269,8 @@ export function ProjectWorkspace({
                     </section>
                   )
                 }
-              />
+                />
+              </>
             ) : null}
           </details>
           <details className="project-model-lab">
@@ -1708,16 +2312,21 @@ export function ProjectWorkspace({
             sessionId={currentSession.session_id}
             transport={transport}
           />
-          {metricsLoading ? (
-            <LoadingState label="Loading one stored session metric response..." />
-          ) : metricsError ? (
+          {visibleMetricsLoading ? (
+            <section className="async-state" role="status">
+              <span aria-hidden="true" className="spinner" />
+              <p>Loading one stored session metric response...</p>
+              <button className="button button--secondary button--compact" onClick={cancelMetricsRead} type="button">Cancel stored metrics loading</button>
+            </section>
+          ) : visibleMetricsError ? (
             <ErrorState
-              message={metricsError}
-              onRetry={() => setMetricsRetryKey((value) => value + 1)}
+              actionLabel="Retry stored metrics"
+              message={visibleMetricsError}
+              onRetry={retryMetricsRead}
             />
-          ) : metrics === null ? null : (
+          ) : visibleMetricsState === null ? null : (
             <>
-              <MetricSnapshotBoundary metrics={metrics} session={currentSession} />
+              <MetricSnapshotBoundary metrics={visibleMetricsState} session={currentSession} />
               {visibleMetrics.length === 0 ? (
                 <div className="no-analysis">
                   <span><Icon name="activity" /></span>

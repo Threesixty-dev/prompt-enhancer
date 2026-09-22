@@ -68,8 +68,10 @@ export function AgentTurnDetails({
     [summary.tools_unverified, "unverified"],
   ].filter(([count]) => Number(count) > 0).map(([count, state]) => `${count} ${state}`).join(" · ");
   const automaticRevisionMode: AgentTurnRevisionMode = summary.status === "completed" ? "regenerate" : "retry";
-  const automaticRevisionLabel = automaticRevisionMode === "regenerate" ? "Regenerate in branch" : "Retry in branch";
-  const automaticRevisionDisabled = revisionDisabled || revisionBusyMode !== null || sourceHasAttachments;
+  const automaticRevisionLabel = sourceHasAttachments
+    ? automaticRevisionMode === "regenerate" ? "Prepare regeneration with attachments" : "Prepare retry with attachments"
+    : automaticRevisionMode === "regenerate" ? "Regenerate in branch" : "Retry in branch";
+  const automaticRevisionDisabled = revisionDisabled || revisionBusyMode !== null;
   return <details
     className="agent-turn-details"
     data-termination={summary.status}
@@ -141,7 +143,7 @@ export function AgentTurnDetails({
           </div>
           <p className="agent-turn-details__note">
             A revision starts from a new retained branch immediately before this turn. The source chat and existing workspace effects are not rewritten or rolled back.
-            {sourceHasAttachments ? " Automatic retry is unavailable because message attachments are never copied into a branch; edit the branch and add them again." : " Protected actions still require their own review."}
+            {sourceHasAttachments ? " This turn's attachments are outside the branch point. The branch opens as a draft: reattach each original file or explicitly omit it before sending." : " Protected actions still require their own review."}
           </p>
         </div>
       )}

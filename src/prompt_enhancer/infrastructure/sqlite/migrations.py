@@ -17176,3 +17176,617 @@ ALTER TABLE model_judgments ADD COLUMN case_version TEXT
     CHECK(case_version IS NULL OR length(case_version) BETWEEN 1 AND 64);
 COMMIT;
 """
+
+
+# R8 is the current sealed metric publication. Recreate only the action
+# proposal's source-authority trigger so an otherwise exact reviewed R6 plan
+# may authorize a reviewed action proposal from an R8 run.
+MIGRATION_62 = r"""
+BEGIN IMMEDIATE;
+DROP TRIGGER requirement_action_evidence_proposal_source_exact;
+CREATE TRIGGER requirement_action_evidence_proposal_source_exact
+BEFORE INSERT ON requirement_action_evidence_proposals
+WHEN NOT EXISTS(
+  SELECT 1
+  FROM session_model_ensemble_runs run
+  JOIN session_model_ensemble_seals run_seal ON run_seal.run_id=run.run_id
+  JOIN session_model_ensemble_requirement_plan_bindings binding
+    ON binding.run_id=run.run_id
+  JOIN requirement_plan_evidence_decisions decision
+    ON decision.decision_id=NEW.requirement_plan_confirmation_id
+  JOIN requirement_plan_evidence_proposals plan
+    ON plan.proposal_id=decision.proposal_id
+  JOIN requirement_plan_evidence_proposal_seals plan_seal
+    ON plan_seal.proposal_id=plan.proposal_id
+  WHERE run.run_id=NEW.source_run_id
+    AND run.session_id=NEW.session_id
+    AND run.input_fingerprint=NEW.source_window_fingerprint
+    AND run.source_window_fingerprint=NEW.source_window_fingerprint
+    AND run.run_id=(
+      SELECT latest.run_id FROM session_model_ensemble_runs latest
+      JOIN session_model_ensemble_seals latest_seal
+        ON latest_seal.run_id=latest.run_id
+      WHERE latest.session_id=NEW.session_id
+      ORDER BY latest.completed_at DESC,latest.run_id DESC LIMIT 1
+    )
+    AND (
+      EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r6
+             WHERE run_id=run.run_id)
+      OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7
+                WHERE run_id=run.run_id)
+      OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r8
+                WHERE run_id=run.run_id)
+    )
+    AND binding.evidence_source='reviewed_requirement_plan'
+    AND binding.confirmation_id=decision.decision_id
+    AND binding.proposal_id=plan.proposal_id
+    AND binding.evidence_fingerprint=NEW.requirement_plan_evidence_fingerprint
+    AND binding.session_id=NEW.session_id
+    AND binding.source_window_fingerprint=NEW.source_window_fingerprint
+    AND decision.decision='confirm'
+    AND plan.session_id=NEW.session_id
+    AND plan.source_window_fingerprint=NEW.source_window_fingerprint
+    AND NOT EXISTS(
+      SELECT 1 FROM requirement_plan_evidence_decisions child_decision
+      JOIN requirement_plan_evidence_proposals child
+        ON child.proposal_id=child_decision.proposal_id
+      WHERE child_decision.decision='confirm'
+        AND child.expected_predecessor_confirmation_id=decision.decision_id
+    )
+)
+BEGIN SELECT RAISE(ABORT,'requirement-action source authority changed'); END;
+COMMIT;
+"""
+
+
+# A guided local review UI is not a coding agent. Rebuild only the two
+# append-only proposal records to admit its distinct, still-untrusted receipt;
+# M63's runner preserves every existing row, dependent FK, index, and guard.
+MIGRATION_63 = r"""
+BEGIN IMMEDIATE;
+ALTER TABLE requirement_plan_evidence_proposals
+  RENAME TO requirement_plan_evidence_proposals_m63_legacy;
+CREATE TABLE requirement_plan_evidence_proposals (
+    proposal_id TEXT PRIMARY KEY
+      CHECK(length(proposal_id)=64 AND proposal_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    source_run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id)
+      ON DELETE CASCADE CHECK(length(source_run_id)=64
+      AND source_run_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL CHECK(length(source_window_fingerprint)=64
+      AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    expected_predecessor_confirmation_id TEXT CHECK(
+      expected_predecessor_confirmation_id IS NULL OR
+      (length(expected_predecessor_confirmation_id)=64
+       AND expected_predecessor_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256)=64
+      AND payload_sha256 NOT GLOB '*[^0-9a-f]*'),
+    producer_kind TEXT NOT NULL CHECK(producer_kind IN ('local_coding_agent','local_review_ui')),
+    producer_claim_fingerprint TEXT NOT NULL CHECK(length(producer_claim_fingerprint)=64
+      AND producer_claim_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_authority TEXT NOT NULL CHECK(
+      (producer_kind='local_coding_agent' AND producer_authority='untrusted_provenance_claim_commitment')
+      OR (producer_kind='local_review_ui' AND producer_authority='untrusted_local_authoring_commitment')),
+    producer_raw_claim_persisted INTEGER NOT NULL CHECK(producer_raw_claim_persisted=0),
+    review_rubric_version TEXT NOT NULL CHECK(review_rubric_version='active-requirement-plan-review-rubric-v1'),
+    complete_user_clause_classification INTEGER NOT NULL CHECK(complete_user_clause_classification=1),
+    requirement_count INTEGER NOT NULL CHECK(requirement_count BETWEEN 0 AND 1000),
+    excluded_user_clause_count INTEGER NOT NULL CHECK(excluded_user_clause_count BETWEEN 0 AND 1000),
+    plan_item_count INTEGER NOT NULL CHECK(plan_item_count BETWEEN 0 AND 1000),
+    link_count INTEGER NOT NULL CHECK(link_count BETWEEN 0 AND 4000),
+    graph_fingerprint TEXT NOT NULL CHECK(length(graph_fingerprint)=64
+      AND graph_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    idempotency_key_digest TEXT NOT NULL CHECK(length(idempotency_key_digest)=64
+      AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+    command_fingerprint TEXT NOT NULL CHECK(length(command_fingerprint)=64
+      AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    created_at TEXT NOT NULL,
+    schema_version TEXT NOT NULL CHECK(schema_version='requirement-plan-evidence-v1'),
+    policy_version TEXT NOT NULL CHECK(policy_version='reviewed-requirement-plan-v1'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    CHECK(requirement_count+excluded_user_clause_count<=1000),
+    UNIQUE(session_id,idempotency_key_digest)
+) STRICT;
+INSERT INTO requirement_plan_evidence_proposals
+SELECT * FROM requirement_plan_evidence_proposals_m63_legacy;
+DROP TABLE requirement_plan_evidence_proposals_m63_legacy;
+
+ALTER TABLE requirement_plan_evidence_proposal_seals
+  RENAME TO requirement_plan_evidence_proposal_seals_m63_legacy;
+CREATE TABLE requirement_plan_evidence_proposal_seals (
+    proposal_id TEXT PRIMARY KEY REFERENCES requirement_plan_evidence_proposals(proposal_id)
+      ON DELETE CASCADE,
+    requirement_count INTEGER NOT NULL CHECK(requirement_count BETWEEN 0 AND 1000),
+    excluded_user_clause_count INTEGER NOT NULL CHECK(excluded_user_clause_count BETWEEN 0 AND 1000),
+    plan_item_count INTEGER NOT NULL CHECK(plan_item_count BETWEEN 0 AND 1000),
+    link_count INTEGER NOT NULL CHECK(link_count BETWEEN 0 AND 4000),
+    payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256)=64
+      AND payload_sha256 NOT GLOB '*[^0-9a-f]*'),
+    producer_kind TEXT NOT NULL CHECK(producer_kind IN ('local_coding_agent','local_review_ui')),
+    producer_claim_fingerprint TEXT NOT NULL CHECK(length(producer_claim_fingerprint)=64
+      AND producer_claim_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_authority TEXT NOT NULL CHECK(
+      (producer_kind='local_coding_agent' AND producer_authority='untrusted_provenance_claim_commitment')
+      OR (producer_kind='local_review_ui' AND producer_authority='untrusted_local_authoring_commitment')),
+    producer_raw_claim_persisted INTEGER NOT NULL CHECK(producer_raw_claim_persisted=0),
+    review_rubric_version TEXT NOT NULL CHECK(review_rubric_version='active-requirement-plan-review-rubric-v1'),
+    complete_user_clause_classification INTEGER NOT NULL CHECK(complete_user_clause_classification=1),
+    graph_fingerprint TEXT NOT NULL CHECK(length(graph_fingerprint)=64
+      AND graph_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    sealed_at TEXT NOT NULL,
+    CHECK(requirement_count+excluded_user_clause_count<=1000)
+) STRICT;
+INSERT INTO requirement_plan_evidence_proposal_seals
+SELECT * FROM requirement_plan_evidence_proposal_seals_m63_legacy;
+DROP TABLE requirement_plan_evidence_proposal_seals_m63_legacy;
+COMMIT;
+"""
+
+
+# M64 is executed by the guarded SQLite rebuild runner.  It changes only the
+# paired durable producer receipt checks for action proposals and seals.
+MIGRATION_64 = r"""
+BEGIN IMMEDIATE;
+ALTER TABLE requirement_action_evidence_proposal_seals RENAME TO requirement_action_evidence_proposal_seals_m64_legacy;
+ALTER TABLE requirement_action_evidence_proposals RENAME TO requirement_action_evidence_proposals_m64_legacy;
+CREATE TABLE requirement_action_evidence_proposals (
+    proposal_id TEXT PRIMARY KEY
+      CHECK(length(proposal_id)=64 AND proposal_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    source_run_id TEXT NOT NULL
+      REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE
+      CHECK(length(source_run_id)=64 AND source_run_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL
+      CHECK(length(source_window_fingerprint)=64
+            AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_confirmation_id TEXT NOT NULL
+      REFERENCES requirement_plan_evidence_decisions(decision_id)
+      ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+      CHECK(length(requirement_plan_confirmation_id)=64
+            AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_evidence_fingerprint TEXT NOT NULL
+      CHECK(length(requirement_plan_evidence_fingerprint)=64
+            AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    candidate_manifest_fingerprint TEXT NOT NULL
+      CHECK(length(candidate_manifest_fingerprint)=64
+            AND candidate_manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    expected_predecessor_confirmation_id TEXT
+      CHECK(expected_predecessor_confirmation_id IS NULL OR
+            (length(expected_predecessor_confirmation_id)=64
+             AND expected_predecessor_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    payload_sha256 TEXT NOT NULL
+      CHECK(length(payload_sha256)=64 AND payload_sha256 NOT GLOB '*[^0-9a-f]*'),
+    idempotency_key_digest TEXT NOT NULL
+      CHECK(length(idempotency_key_digest)=64
+            AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+    command_fingerprint TEXT NOT NULL
+      CHECK(length(command_fingerprint)=64
+            AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_kind TEXT NOT NULL CHECK(producer_kind IN ('local_coding_agent','local_review_ui')),
+    producer_claim_fingerprint TEXT NOT NULL
+      CHECK(length(producer_claim_fingerprint)=64
+            AND producer_claim_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_authority TEXT NOT NULL CHECK((producer_kind='local_coding_agent' AND producer_authority='untrusted_provenance_claim_commitment') OR (producer_kind='local_review_ui' AND producer_authority='untrusted_local_authoring_commitment')),
+    producer_raw_claim_persisted INTEGER NOT NULL
+      CHECK(producer_raw_claim_persisted=0),
+    candidate_provider TEXT NOT NULL
+      CHECK(candidate_provider IN ('codex','claude_code','synthetic')),
+    candidate_provider_version TEXT NOT NULL
+      CHECK(length(candidate_provider_version) BETWEEN 1 AND 128
+            AND candidate_provider_version GLOB '[A-Za-z0-9]*'
+            AND candidate_provider_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_adapter_version TEXT NOT NULL
+      CHECK(length(candidate_adapter_version) BETWEEN 1 AND 128
+            AND candidate_adapter_version GLOB '[A-Za-z0-9]*'
+            AND candidate_adapter_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_decoder_key TEXT NOT NULL
+      CHECK(length(candidate_decoder_key) BETWEEN 1 AND 128
+            AND candidate_decoder_key GLOB '[A-Za-z0-9]*'
+            AND candidate_decoder_key NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_decoder_version TEXT NOT NULL
+      CHECK(length(candidate_decoder_version) BETWEEN 1 AND 128
+            AND candidate_decoder_version GLOB '[A-Za-z0-9]*'
+            AND candidate_decoder_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_source_schema_version TEXT NOT NULL
+      CHECK(length(candidate_source_schema_version) BETWEEN 1 AND 128
+            AND candidate_source_schema_version GLOB '[A-Za-z0-9]*'
+            AND candidate_source_schema_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_evidence_schema_version INTEGER NOT NULL CHECK(candidate_evidence_schema_version=2),
+    candidate_provenance_extraction_complete INTEGER NOT NULL
+      CHECK(candidate_provenance_extraction_complete IN (0,1)),
+    candidate_extraction_complete INTEGER NOT NULL CHECK(candidate_extraction_complete=1),
+    candidate_enumeration_complete INTEGER NOT NULL CHECK(candidate_enumeration_complete=1),
+    requirement_count INTEGER NOT NULL CHECK(requirement_count BETWEEN 0 AND 1000),
+    candidate_count INTEGER NOT NULL CHECK(candidate_count BETWEEN 0 AND 4000),
+    link_count INTEGER NOT NULL CHECK(link_count BETWEEN 0 AND 8000),
+    graph_fingerprint TEXT NOT NULL
+      CHECK(length(graph_fingerprint)=64
+            AND graph_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    created_at TEXT NOT NULL
+      CHECK(length(created_at)=32 AND substr(created_at,27)='+00:00'),
+    schema_version TEXT NOT NULL CHECK(schema_version='requirement-action-evidence-v1'),
+    policy_version TEXT NOT NULL CHECK(policy_version='reviewed-requirement-action-v1'),
+    review_rubric_version TEXT NOT NULL
+      CHECK(review_rubric_version='requirement-action-review-rubric-v2'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    UNIQUE(session_id,idempotency_key_digest)
+) STRICT;
+
+CREATE TABLE requirement_action_evidence_proposal_seals (
+    proposal_id TEXT PRIMARY KEY
+      REFERENCES requirement_action_evidence_proposals(proposal_id) ON DELETE CASCADE,
+    requirement_count INTEGER NOT NULL CHECK(requirement_count BETWEEN 0 AND 1000),
+    candidate_count INTEGER NOT NULL CHECK(candidate_count BETWEEN 0 AND 4000),
+    link_count INTEGER NOT NULL CHECK(link_count BETWEEN 0 AND 8000),
+    payload_sha256 TEXT NOT NULL
+      CHECK(length(payload_sha256)=64 AND payload_sha256 NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_confirmation_id TEXT NOT NULL
+      CHECK(length(requirement_plan_confirmation_id)=64
+            AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_evidence_fingerprint TEXT NOT NULL
+      CHECK(length(requirement_plan_evidence_fingerprint)=64
+            AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    candidate_manifest_fingerprint TEXT NOT NULL
+      CHECK(length(candidate_manifest_fingerprint)=64
+            AND candidate_manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_kind TEXT NOT NULL CHECK(producer_kind IN ('local_coding_agent','local_review_ui')),
+    producer_claim_fingerprint TEXT NOT NULL
+      CHECK(length(producer_claim_fingerprint)=64
+            AND producer_claim_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_authority TEXT NOT NULL CHECK((producer_kind='local_coding_agent' AND producer_authority='untrusted_provenance_claim_commitment') OR (producer_kind='local_review_ui' AND producer_authority='untrusted_local_authoring_commitment')),
+    producer_raw_claim_persisted INTEGER NOT NULL CHECK(producer_raw_claim_persisted=0),
+    candidate_provider TEXT NOT NULL CHECK(candidate_provider IN ('codex','claude_code','synthetic')),
+    candidate_provider_version TEXT NOT NULL,
+    candidate_adapter_version TEXT NOT NULL,
+    candidate_decoder_key TEXT NOT NULL,
+    candidate_decoder_version TEXT NOT NULL,
+    candidate_source_schema_version TEXT NOT NULL,
+    candidate_evidence_schema_version INTEGER NOT NULL CHECK(candidate_evidence_schema_version=2),
+    candidate_provenance_extraction_complete INTEGER NOT NULL
+      CHECK(candidate_provenance_extraction_complete IN (0,1)),
+    candidate_extraction_complete INTEGER NOT NULL CHECK(candidate_extraction_complete=1),
+    candidate_enumeration_complete INTEGER NOT NULL CHECK(candidate_enumeration_complete=1),
+    schema_version TEXT NOT NULL CHECK(schema_version='requirement-action-evidence-v1'),
+    policy_version TEXT NOT NULL CHECK(policy_version='reviewed-requirement-action-v1'),
+    review_rubric_version TEXT NOT NULL
+      CHECK(review_rubric_version='requirement-action-review-rubric-v2'),
+    graph_fingerprint TEXT NOT NULL
+      CHECK(length(graph_fingerprint)=64
+            AND graph_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    sealed_at TEXT NOT NULL
+      CHECK(length(sealed_at)=32 AND substr(sealed_at,27)='+00:00')
+) STRICT;
+
+INSERT INTO requirement_action_evidence_proposals SELECT * FROM requirement_action_evidence_proposals_m64_legacy;
+INSERT INTO requirement_action_evidence_proposal_seals SELECT * FROM requirement_action_evidence_proposal_seals_m64_legacy;
+DROP TABLE requirement_action_evidence_proposal_seals_m64_legacy;
+DROP TABLE requirement_action_evidence_proposals_m64_legacy;
+COMMIT;
+"""
+
+
+# CP34 keeps legacy objective-result seals byte-for-byte stable.  This
+# content-free sidecar records the distinct human coverage review and
+# provider-reported observed outcome only for newly issued observed results.
+MIGRATION_65 = r"""
+BEGIN IMMEDIATE;
+CREATE TABLE requirement_verification_observed_check_provenance (
+    authority_record_id TEXT PRIMARY KEY
+      REFERENCES requirement_verification_authority_records(authority_record_id)
+      ON DELETE CASCADE
+      CHECK(length(authority_record_id)=64 AND authority_record_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE NO ACTION
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    opportunity_set_fingerprint TEXT NOT NULL
+      REFERENCES requirement_verification_opportunity_sets(opportunity_set_fingerprint)
+      ON DELETE NO ACTION CHECK(length(opportunity_set_fingerprint)=64
+      AND opportunity_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    opportunity_id TEXT NOT NULL CHECK(length(opportunity_id)=64 AND opportunity_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_id TEXT NOT NULL CHECK(length(requirement_id)=64 AND requirement_id NOT GLOB '*[^0-9a-f]*'),
+    source_run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE NO ACTION
+      CHECK(length(source_run_id)=64 AND source_run_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL CHECK(length(source_window_fingerprint)=64 AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_confirmation_id TEXT NOT NULL CHECK(length(requirement_plan_confirmation_id)=64 AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_proposal_id TEXT NOT NULL CHECK(length(requirement_plan_proposal_id)=64 AND requirement_plan_proposal_id NOT GLOB '*[^0-9a-f]*'),
+    candidate_manifest_fingerprint TEXT NOT NULL CHECK(length(candidate_manifest_fingerprint)=64 AND candidate_manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    source_reference_id TEXT NOT NULL CHECK(length(source_reference_id)=64 AND source_reference_id NOT GLOB '*[^0-9a-f]*'),
+    coverage_review_reference_id TEXT NOT NULL CHECK(length(coverage_review_reference_id)=64 AND coverage_review_reference_id NOT GLOB '*[^0-9a-f]*'),
+    observed_sequence INTEGER NOT NULL CHECK(observed_sequence BETWEEN 0 AND 4000000000),
+    check_kind TEXT NOT NULL CHECK(check_kind='test'),
+    provider_execution_status TEXT NOT NULL CHECK(provider_execution_status='completed'),
+    observed_outcome TEXT NOT NULL CHECK(observed_outcome IN ('passed','check_failed')),
+    exit_code INTEGER NOT NULL CHECK(exit_code IN (0,1)),
+    source_completion_schema_version TEXT NOT NULL CHECK(source_completion_schema_version='observed-check-completion-v1'),
+    outcome_interpreter_version TEXT NOT NULL CHECK(outcome_interpreter_version='pytest-exit-status-v1'),
+    classifier_version TEXT NOT NULL CHECK(classifier_version='local-command-rules-v1'),
+    normalizer_version TEXT NOT NULL CHECK(normalizer_version='strict-shell-free-v2'),
+    rule_id TEXT NOT NULL CHECK(rule_id IN ('test.pytest','test.py_test')),
+    coverage_review_version TEXT NOT NULL CHECK(coverage_review_version='native-full-criterion-coverage-v1'),
+    full_criterion_coverage_acknowledged INTEGER NOT NULL CHECK(full_criterion_coverage_acknowledged=1),
+    provenance_fingerprint TEXT NOT NULL CHECK(length(provenance_fingerprint)=64 AND provenance_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    schema_version TEXT NOT NULL CHECK(schema_version='observed-check-authority-provenance-v1'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    CHECK((observed_outcome='passed' AND exit_code=0)
+       OR (observed_outcome='check_failed' AND exit_code=1))
+) STRICT;
+
+CREATE TRIGGER requirement_verification_observed_check_provenance_insert_guard
+BEFORE INSERT ON requirement_verification_observed_check_provenance
+WHEN NOT EXISTS(
+  SELECT 1 FROM requirement_verification_authority_records parent
+  WHERE parent.authority_record_id=NEW.authority_record_id
+    AND parent.session_id=NEW.session_id
+    AND parent.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+    AND parent.opportunity_id=NEW.opportunity_id
+    AND parent.requirement_id=NEW.requirement_id
+    AND parent.authority_kind='objective_result'
+    AND parent.authority_issuer_version='local-objective-verification-result-issuer-v1'
+    AND parent.verification_method='test'
+    AND parent.observed_sequence=NEW.observed_sequence
+    AND ((NEW.observed_outcome='passed' AND parent.verification_outcome='passed')
+      OR (NEW.observed_outcome='check_failed' AND parent.verification_outcome='failed'))
+)
+OR EXISTS(SELECT 1 FROM requirement_verification_authority_record_seals seal
+          WHERE seal.authority_record_id=NEW.authority_record_id)
+OR NOT EXISTS(SELECT 1 FROM requirement_verification_result_receipt_refs ref
+              WHERE ref.authority_record_id=NEW.authority_record_id
+                AND ref.receipt_reference_id=NEW.source_reference_id)
+OR NOT EXISTS(SELECT 1 FROM requirement_verification_result_receipt_refs ref
+              WHERE ref.authority_record_id=NEW.authority_record_id
+                AND ref.receipt_reference_id=NEW.coverage_review_reference_id)
+OR NOT EXISTS(
+  SELECT 1 FROM requirement_plan_evidence_proposals plan
+  JOIN requirement_plan_evidence_decisions decision
+    ON decision.proposal_id=plan.proposal_id
+  WHERE plan.proposal_id=NEW.requirement_plan_proposal_id
+    AND plan.source_run_id=NEW.source_run_id
+    AND plan.session_id=NEW.session_id
+    AND plan.source_window_fingerprint=NEW.source_window_fingerprint
+    AND decision.decision_id=NEW.requirement_plan_confirmation_id
+    AND decision.decision='confirm'
+)
+BEGIN SELECT RAISE(ABORT,'observed-check provenance does not bind the objective result'); END;
+
+CREATE TRIGGER requirement_verification_observed_check_provenance_no_update
+BEFORE UPDATE ON requirement_verification_observed_check_provenance
+BEGIN SELECT RAISE(ABORT,'observed-check provenance is append-only'); END;
+
+CREATE TRIGGER requirement_verification_observed_check_provenance_privacy_delete_only
+BEFORE DELETE ON requirement_verification_observed_check_provenance
+WHEN EXISTS(SELECT 1 FROM requirement_verification_authority_records parent
+            WHERE parent.authority_record_id=OLD.authority_record_id)
+BEGIN SELECT RAISE(ABORT,'observed-check provenance may only be removed with its parent'); END;
+
+COMMIT;
+"""
+
+# CP45c persists the sensitive, content-free reviewed census separately from
+# the ephemeral review prose.  It is deliberately not a metric projection.
+MIGRATION_66 = r"""
+BEGIN IMMEDIATE;
+CREATE TABLE claim_grounding_reviewed_censuses (
+ census_id TEXT PRIMARY KEY CHECK(length(census_id)=64 AND census_id NOT GLOB '*[^0-9a-f]*'),
+ session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+ source_run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE NO ACTION CHECK(length(source_run_id)=64 AND source_run_id NOT GLOB '*[^0-9a-f]*'),
+ source_window_fingerprint TEXT NOT NULL CHECK(length(source_window_fingerprint)=64 AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ manifest_fingerprint TEXT NOT NULL CHECK(length(manifest_fingerprint)=64 AND manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ source_schema_version TEXT NOT NULL, text_adapter_version TEXT NOT NULL, clause_algorithm TEXT NOT NULL CHECK(clause_algorithm='message-clause-coordinates-en-pl-v1'), text_extraction_complete INTEGER NOT NULL CHECK(text_extraction_complete=1),
+ census_fingerprint TEXT NOT NULL CHECK(length(census_fingerprint)=64 AND census_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ expected_publication_fingerprint TEXT NOT NULL CHECK(length(expected_publication_fingerprint)=64 AND expected_publication_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ idempotency_key_digest TEXT NOT NULL CHECK(length(idempotency_key_digest)=64 AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+ command_fingerprint TEXT NOT NULL CHECK(length(command_fingerprint)=64 AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ candidate_count INTEGER NOT NULL CHECK(candidate_count BETWEEN 0 AND 12800),
+ created_at TEXT NOT NULL CHECK(length(created_at)=32 AND substr(created_at,27)='+00:00'),
+ schema_version TEXT NOT NULL CHECK(schema_version='claim-grounding-census-v1'), policy_version TEXT NOT NULL CHECK(policy_version='native-reviewed-agent-claim-census-v1'), issuer_version TEXT NOT NULL CHECK(issuer_version='reviewed-agent-response-census-v1'),
+ local_only INTEGER NOT NULL CHECK(local_only=1), content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+ UNIQUE(session_id,idempotency_key_digest)
+) STRICT;
+CREATE TABLE claim_grounding_reviewed_census_classifications (
+ census_id TEXT NOT NULL REFERENCES claim_grounding_reviewed_censuses(census_id) ON DELETE CASCADE,
+ ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 12799), candidate_id TEXT NOT NULL CHECK(length(candidate_id)=64 AND candidate_id NOT GLOB '*[^0-9a-f]*'),
+ message_id TEXT NOT NULL CHECK(length(message_id)=64 AND message_id NOT GLOB '*[^0-9a-f]*'), message_sequence INTEGER NOT NULL CHECK(message_sequence>=0), clause_index INTEGER NOT NULL CHECK(clause_index BETWEEN 0 AND 127),
+ classification TEXT NOT NULL CHECK(classification IN ('material_claim','excluded')),
+ exclusion_reason TEXT CHECK(exclusion_reason IN ('not_a_completion_or_verification_claim','duplicate_or_superseded_claim','non_assertive_status_or_qualification')),
+ PRIMARY KEY(census_id,ordinal), UNIQUE(census_id,candidate_id),
+ CHECK((classification='material_claim' AND exclusion_reason IS NULL) OR (classification='excluded' AND exclusion_reason IS NOT NULL))
+) STRICT;
+CREATE TABLE claim_grounding_reviewed_census_seals (
+ census_id TEXT PRIMARY KEY REFERENCES claim_grounding_reviewed_censuses(census_id) ON DELETE CASCADE,
+ candidate_count INTEGER NOT NULL CHECK(candidate_count BETWEEN 0 AND 12800), manifest_fingerprint TEXT NOT NULL CHECK(length(manifest_fingerprint)=64 AND manifest_fingerprint NOT GLOB '*[^0-9a-f]*'), census_fingerprint TEXT NOT NULL CHECK(length(census_fingerprint)=64 AND census_fingerprint NOT GLOB '*[^0-9a-f]*'), expected_publication_fingerprint TEXT NOT NULL CHECK(length(expected_publication_fingerprint)=64 AND expected_publication_fingerprint NOT GLOB '*[^0-9a-f]*'), issuance_seal TEXT NOT NULL CHECK(length(issuance_seal)=64 AND issuance_seal NOT GLOB '*[^0-9a-f]*'), sealed_at TEXT NOT NULL CHECK(length(sealed_at)=32 AND substr(sealed_at,27)='+00:00')
+) STRICT;
+CREATE INDEX claim_grounding_reviewed_censuses_session_created ON claim_grounding_reviewed_censuses(session_id,created_at DESC,census_id DESC);
+CREATE TRIGGER claim_grounding_reviewed_censuses_no_update BEFORE UPDATE ON claim_grounding_reviewed_censuses BEGIN SELECT RAISE(ABORT,'claim census is append-only'); END;
+CREATE TRIGGER claim_grounding_reviewed_census_source_guard BEFORE INSERT ON claim_grounding_reviewed_censuses WHEN NOT EXISTS(SELECT 1 FROM session_model_ensemble_runs r WHERE r.run_id=NEW.source_run_id AND r.session_id=NEW.session_id AND r.input_fingerprint=NEW.source_window_fingerprint) BEGIN SELECT RAISE(ABORT,'claim census source is not exact'); END;
+CREATE TRIGGER claim_grounding_reviewed_census_classifications_no_update BEFORE UPDATE ON claim_grounding_reviewed_census_classifications BEGIN SELECT RAISE(ABORT,'claim census classifications are append-only'); END;
+CREATE TRIGGER claim_grounding_reviewed_census_seals_no_update BEFORE UPDATE ON claim_grounding_reviewed_census_seals BEGIN SELECT RAISE(ABORT,'claim census seals are append-only'); END;
+CREATE TRIGGER claim_grounding_reviewed_census_classifications_after_seal BEFORE INSERT ON claim_grounding_reviewed_census_classifications WHEN EXISTS(SELECT 1 FROM claim_grounding_reviewed_census_seals s WHERE s.census_id=NEW.census_id) BEGIN SELECT RAISE(ABORT,'claim census is sealed'); END;
+CREATE TRIGGER claim_grounding_reviewed_census_seal_complete BEFORE INSERT ON claim_grounding_reviewed_census_seals WHEN (SELECT count(*) FROM claim_grounding_reviewed_census_classifications c WHERE c.census_id=NEW.census_id)!=NEW.candidate_count BEGIN SELECT RAISE(ABORT,'claim census seal is incomplete'); END;
+CREATE TRIGGER claim_grounding_reviewed_census_seal_binding BEFORE INSERT ON claim_grounding_reviewed_census_seals WHEN NOT EXISTS(SELECT 1 FROM claim_grounding_reviewed_censuses h WHERE h.census_id=NEW.census_id AND h.candidate_count=NEW.candidate_count AND h.manifest_fingerprint=NEW.manifest_fingerprint AND h.census_fingerprint=NEW.census_fingerprint AND h.expected_publication_fingerprint=NEW.expected_publication_fingerprint) BEGIN SELECT RAISE(ABORT,'claim census seal binding changed'); END;
+CREATE TRIGGER claim_grounding_reviewed_censuses_privacy_delete_only BEFORE DELETE ON claim_grounding_reviewed_censuses
+WHEN EXISTS(SELECT 1 FROM sessions WHERE session_id=OLD.session_id)
+BEGIN SELECT RAISE(ABORT,'claim census requires session privacy deletion'); END;
+CREATE TRIGGER claim_grounding_reviewed_census_classifications_privacy_delete_only BEFORE DELETE ON claim_grounding_reviewed_census_classifications
+WHEN EXISTS(SELECT 1 FROM claim_grounding_reviewed_censuses WHERE census_id=OLD.census_id)
+BEGIN SELECT RAISE(ABORT,'claim census classification requires parent privacy deletion'); END;
+CREATE TRIGGER claim_grounding_reviewed_census_seals_privacy_delete_only BEFORE DELETE ON claim_grounding_reviewed_census_seals
+WHEN EXISTS(SELECT 1 FROM claim_grounding_reviewed_censuses WHERE census_id=OLD.census_id)
+BEGIN SELECT RAISE(ABORT,'claim census seal requires parent privacy deletion'); END;
+COMMIT;
+"""
+
+# CP45e stores only a native-reviewed, content-free per-material-claim link
+# decision.  A future repository must issue all three tables atomically; this
+# migration deliberately provides no write API or metric projection.
+MIGRATION_67 = r"""
+BEGIN IMMEDIATE;
+CREATE TABLE claim_grounding_link_reviews (
+ link_review_id TEXT PRIMARY KEY CHECK(length(link_review_id)=64 AND link_review_id NOT GLOB '*[^0-9a-f]*'),
+ session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+ census_id TEXT NOT NULL REFERENCES claim_grounding_reviewed_censuses(census_id) ON DELETE CASCADE CHECK(length(census_id)=64 AND census_id NOT GLOB '*[^0-9a-f]*'),
+ candidate_id TEXT NOT NULL CHECK(length(candidate_id)=64 AND candidate_id NOT GLOB '*[^0-9a-f]*'),
+ source_run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE NO ACTION CHECK(length(source_run_id)=64 AND source_run_id NOT GLOB '*[^0-9a-f]*'),
+ source_window_fingerprint TEXT NOT NULL CHECK(length(source_window_fingerprint)=64 AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ census_fingerprint TEXT NOT NULL CHECK(length(census_fingerprint)=64 AND census_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ manifest_fingerprint TEXT NOT NULL CHECK(length(manifest_fingerprint)=64 AND manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ expected_publication_fingerprint TEXT NOT NULL CHECK(length(expected_publication_fingerprint)=64 AND expected_publication_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ observed_set_fingerprint TEXT NOT NULL CHECK(length(observed_set_fingerprint)=64 AND observed_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ selected_evidence_fingerprint TEXT NOT NULL CHECK(length(selected_evidence_fingerprint)=64 AND selected_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ review_receipt_id TEXT NOT NULL CHECK(length(review_receipt_id)=64 AND review_receipt_id NOT GLOB '*[^0-9a-f]*'),
+ review_fingerprint TEXT NOT NULL CHECK(length(review_fingerprint)=64 AND review_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ decision TEXT NOT NULL CHECK(decision IN ('linked_observed_checks','reviewed_no_support','unresolved')),
+ selected_count INTEGER NOT NULL CHECK(selected_count BETWEEN 0 AND 128),
+ idempotency_key_digest TEXT NOT NULL CHECK(length(idempotency_key_digest)=64 AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+ command_fingerprint TEXT NOT NULL CHECK(length(command_fingerprint)=64 AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ created_at TEXT NOT NULL CHECK(
+   length(created_at)=32 AND substr(created_at,27)='+00:00'
+   AND created_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+   AND substr(created_at,6,2) BETWEEN '01' AND '12'
+   AND substr(created_at,1,4) BETWEEN '0001' AND '9999'
+   AND substr(created_at,9,2) BETWEEN '01' AND '31'
+   AND substr(created_at,12,2) BETWEEN '00' AND '23'
+   AND substr(created_at,15,2) BETWEEN '00' AND '59'
+   AND substr(created_at,18,2) BETWEEN '00' AND '59'
+   AND date(substr(created_at,1,10),'+0 days') IS NOT NULL
+   AND date(substr(created_at,1,10),'+0 days')=substr(created_at,1,10)
+ ),
+ schema_version TEXT NOT NULL CHECK(schema_version='claim-grounding-link-reviewed-decision-v1'),
+ policy_version TEXT NOT NULL CHECK(policy_version='native-reviewed-claim-link-coverage-v1'),
+ metadata_persisted INTEGER NOT NULL CHECK(metadata_persisted=1),
+ candidate_prose_persisted INTEGER NOT NULL CHECK(candidate_prose_persisted=0),
+ proposal_only INTEGER NOT NULL CHECK(proposal_only=1),
+ measured INTEGER NOT NULL CHECK(measured=0),
+ metric_authority_established INTEGER NOT NULL CHECK(metric_authority_established=0),
+ CHECK((decision='linked_observed_checks' AND selected_count>0)
+    OR (decision IN ('reviewed_no_support','unresolved') AND selected_count=0)),
+ UNIQUE(session_id,idempotency_key_digest)
+) STRICT;
+CREATE TABLE claim_grounding_link_review_selected_references (
+ link_review_id TEXT NOT NULL REFERENCES claim_grounding_link_reviews(link_review_id) ON DELETE CASCADE,
+ ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 127),
+ source_reference_id TEXT NOT NULL CHECK(length(source_reference_id)=64 AND source_reference_id NOT GLOB '*[^0-9a-f]*'),
+ observed_sequence INTEGER NOT NULL CHECK(observed_sequence BETWEEN 0 AND 4000000000),
+ provider TEXT NOT NULL CHECK(provider IN ('codex','claude_code','synthetic')),
+ check_kind TEXT NOT NULL CHECK(check_kind='test'),
+ observed_outcome TEXT NOT NULL CHECK(observed_outcome IN ('passed','check_failed')),
+ provider_execution_status TEXT NOT NULL CHECK(provider_execution_status='completed'),
+ exit_code INTEGER NOT NULL CHECK(exit_code IN (0,1)),
+ source_completion_schema_version TEXT NOT NULL CHECK(source_completion_schema_version='observed-check-completion-v1'),
+ outcome_interpreter_version TEXT NOT NULL CHECK(outcome_interpreter_version='pytest-exit-status-v1'),
+ classifier_version TEXT NOT NULL CHECK(classifier_version='local-command-rules-v1'),
+ normalizer_version TEXT NOT NULL CHECK(normalizer_version='strict-shell-free-v2'),
+ rule_id TEXT NOT NULL CHECK(rule_id IN ('test.pytest','test.py_test')),
+ local_only INTEGER NOT NULL CHECK(local_only=1),
+ content_persistence_allowed INTEGER NOT NULL CHECK(content_persistence_allowed=0),
+ PRIMARY KEY(link_review_id,ordinal), UNIQUE(link_review_id,source_reference_id),
+ CHECK((observed_outcome='passed' AND exit_code=0)
+    OR (observed_outcome='check_failed' AND exit_code=1))
+) STRICT;
+CREATE TABLE claim_grounding_link_review_seals (
+ link_review_id TEXT PRIMARY KEY REFERENCES claim_grounding_link_reviews(link_review_id) ON DELETE CASCADE,
+ selected_count INTEGER NOT NULL CHECK(selected_count BETWEEN 0 AND 128),
+ census_id TEXT NOT NULL CHECK(length(census_id)=64 AND census_id NOT GLOB '*[^0-9a-f]*'),
+ candidate_id TEXT NOT NULL CHECK(length(candidate_id)=64 AND candidate_id NOT GLOB '*[^0-9a-f]*'),
+ census_fingerprint TEXT NOT NULL CHECK(length(census_fingerprint)=64 AND census_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ manifest_fingerprint TEXT NOT NULL CHECK(length(manifest_fingerprint)=64 AND manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ expected_publication_fingerprint TEXT NOT NULL CHECK(length(expected_publication_fingerprint)=64 AND expected_publication_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ observed_set_fingerprint TEXT NOT NULL CHECK(length(observed_set_fingerprint)=64 AND observed_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ selected_evidence_fingerprint TEXT NOT NULL CHECK(length(selected_evidence_fingerprint)=64 AND selected_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+ issuance_seal TEXT NOT NULL CHECK(length(issuance_seal)=64 AND issuance_seal NOT GLOB '*[^0-9a-f]*'),
+ sealed_at TEXT NOT NULL CHECK(
+   length(sealed_at)=32 AND substr(sealed_at,27)='+00:00'
+   AND sealed_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+   AND substr(sealed_at,6,2) BETWEEN '01' AND '12'
+   AND substr(sealed_at,1,4) BETWEEN '0001' AND '9999'
+   AND substr(sealed_at,9,2) BETWEEN '01' AND '31'
+   AND substr(sealed_at,12,2) BETWEEN '00' AND '23'
+   AND substr(sealed_at,15,2) BETWEEN '00' AND '59'
+   AND substr(sealed_at,18,2) BETWEEN '00' AND '59'
+   AND date(substr(sealed_at,1,10),'+0 days') IS NOT NULL
+   AND date(substr(sealed_at,1,10),'+0 days')=substr(sealed_at,1,10)
+ )
+) STRICT;
+CREATE INDEX claim_grounding_link_reviews_session_created ON claim_grounding_link_reviews(session_id,created_at DESC,link_review_id DESC);
+CREATE TRIGGER claim_grounding_link_reviews_no_update BEFORE UPDATE ON claim_grounding_link_reviews BEGIN SELECT RAISE(ABORT,'claim link review is append-only'); END;
+CREATE TRIGGER claim_grounding_link_review_references_no_update BEFORE UPDATE ON claim_grounding_link_review_selected_references BEGIN SELECT RAISE(ABORT,'claim link provenance is append-only'); END;
+CREATE TRIGGER claim_grounding_link_review_seals_no_update BEFORE UPDATE ON claim_grounding_link_review_seals BEGIN SELECT RAISE(ABORT,'claim link seal is append-only'); END;
+-- SQLite's INSERT OR REPLACE deletes the conflicting row before inserting the
+-- replacement.  Ordinary UPDATE/DELETE guards do not reliably prevent that
+-- path with recursive triggers disabled, so reject the duplicate *before*
+-- conflict processing can replace immutable history.
+CREATE TRIGGER claim_grounding_link_reviews_no_replace BEFORE INSERT ON claim_grounding_link_reviews
+WHEN EXISTS(SELECT 1 FROM claim_grounding_link_reviews h
+            WHERE h.link_review_id=NEW.link_review_id
+               OR (h.session_id=NEW.session_id AND h.idempotency_key_digest=NEW.idempotency_key_digest))
+BEGIN SELECT RAISE(ABORT,'claim link review is immutable'); END;
+CREATE TRIGGER claim_grounding_link_review_references_no_replace BEFORE INSERT ON claim_grounding_link_review_selected_references
+WHEN EXISTS(SELECT 1 FROM claim_grounding_link_review_selected_references r
+            WHERE (r.link_review_id=NEW.link_review_id AND r.ordinal=NEW.ordinal)
+               OR (r.link_review_id=NEW.link_review_id AND r.source_reference_id=NEW.source_reference_id))
+BEGIN SELECT RAISE(ABORT,'claim link provenance is immutable'); END;
+CREATE TRIGGER claim_grounding_link_review_seals_no_replace BEFORE INSERT ON claim_grounding_link_review_seals
+WHEN EXISTS(SELECT 1 FROM claim_grounding_link_review_seals s WHERE s.link_review_id=NEW.link_review_id)
+BEGIN SELECT RAISE(ABORT,'claim link seal is immutable'); END;
+CREATE TRIGGER claim_grounding_link_reviews_parent_guard BEFORE INSERT ON claim_grounding_link_reviews
+WHEN NOT EXISTS(
+ SELECT 1 FROM claim_grounding_reviewed_censuses h
+ JOIN claim_grounding_reviewed_census_classifications c ON c.census_id=h.census_id
+ JOIN claim_grounding_reviewed_census_seals s ON s.census_id=h.census_id
+ WHERE h.census_id=NEW.census_id AND h.session_id=NEW.session_id
+   AND h.source_run_id=NEW.source_run_id AND h.source_window_fingerprint=NEW.source_window_fingerprint
+   AND h.census_fingerprint=NEW.census_fingerprint AND h.manifest_fingerprint=NEW.manifest_fingerprint
+   AND h.expected_publication_fingerprint=NEW.expected_publication_fingerprint
+   AND c.candidate_id=NEW.candidate_id AND c.classification='material_claim'
+) BEGIN SELECT RAISE(ABORT,'claim link review parent is not exact and sealed'); END;
+CREATE TRIGGER claim_grounding_link_reviews_nul_guard BEFORE INSERT ON claim_grounding_link_reviews
+WHEN instr(NEW.link_review_id,char(0))>0 OR instr(NEW.session_id,char(0))>0
+ OR instr(NEW.census_id,char(0))>0 OR instr(NEW.candidate_id,char(0))>0
+ OR instr(NEW.source_run_id,char(0))>0 OR instr(NEW.source_window_fingerprint,char(0))>0
+ OR instr(NEW.census_fingerprint,char(0))>0 OR instr(NEW.manifest_fingerprint,char(0))>0
+ OR instr(NEW.expected_publication_fingerprint,char(0))>0 OR instr(NEW.observed_set_fingerprint,char(0))>0
+ OR instr(NEW.selected_evidence_fingerprint,char(0))>0 OR instr(NEW.review_receipt_id,char(0))>0
+ OR instr(NEW.review_fingerprint,char(0))>0 OR instr(NEW.idempotency_key_digest,char(0))>0
+ OR instr(NEW.command_fingerprint,char(0))>0
+BEGIN SELECT RAISE(ABORT,'claim link review identity contains NUL'); END;
+CREATE TRIGGER claim_grounding_link_review_references_after_seal BEFORE INSERT ON claim_grounding_link_review_selected_references
+WHEN EXISTS(SELECT 1 FROM claim_grounding_link_review_seals s WHERE s.link_review_id=NEW.link_review_id)
+BEGIN SELECT RAISE(ABORT,'claim link review is sealed'); END;
+CREATE TRIGGER claim_grounding_link_review_references_linked_guard BEFORE INSERT ON claim_grounding_link_review_selected_references
+WHEN NOT EXISTS(SELECT 1 FROM claim_grounding_link_reviews h WHERE h.link_review_id=NEW.link_review_id AND h.decision='linked_observed_checks')
+BEGIN SELECT RAISE(ABORT,'claim link provenance requires linked decision'); END;
+CREATE TRIGGER claim_grounding_link_review_references_nul_guard BEFORE INSERT ON claim_grounding_link_review_selected_references
+WHEN instr(NEW.link_review_id,char(0))>0 OR instr(NEW.source_reference_id,char(0))>0
+BEGIN SELECT RAISE(ABORT,'claim link provenance identity contains NUL'); END;
+CREATE TRIGGER claim_grounding_link_review_seal_complete BEFORE INSERT ON claim_grounding_link_review_seals
+WHEN (SELECT count(*) FROM claim_grounding_link_review_selected_references r WHERE r.link_review_id=NEW.link_review_id)!=NEW.selected_count
+BEGIN SELECT RAISE(ABORT,'claim link review seal is incomplete'); END;
+CREATE TRIGGER claim_grounding_link_review_seal_binding BEFORE INSERT ON claim_grounding_link_review_seals
+WHEN NOT EXISTS(SELECT 1 FROM claim_grounding_link_reviews h WHERE h.link_review_id=NEW.link_review_id
+ AND h.selected_count=NEW.selected_count AND h.census_id=NEW.census_id AND h.candidate_id=NEW.candidate_id
+ AND h.census_fingerprint=NEW.census_fingerprint AND h.manifest_fingerprint=NEW.manifest_fingerprint
+ AND h.expected_publication_fingerprint=NEW.expected_publication_fingerprint
+ AND h.observed_set_fingerprint=NEW.observed_set_fingerprint
+ AND h.selected_evidence_fingerprint=NEW.selected_evidence_fingerprint)
+BEGIN SELECT RAISE(ABORT,'claim link review seal binding changed'); END;
+CREATE TRIGGER claim_grounding_link_review_seals_nul_guard BEFORE INSERT ON claim_grounding_link_review_seals
+WHEN instr(NEW.link_review_id,char(0))>0 OR instr(NEW.census_id,char(0))>0
+ OR instr(NEW.candidate_id,char(0))>0 OR instr(NEW.census_fingerprint,char(0))>0
+ OR instr(NEW.manifest_fingerprint,char(0))>0 OR instr(NEW.expected_publication_fingerprint,char(0))>0
+ OR instr(NEW.observed_set_fingerprint,char(0))>0 OR instr(NEW.selected_evidence_fingerprint,char(0))>0
+ OR instr(NEW.issuance_seal,char(0))>0
+BEGIN SELECT RAISE(ABORT,'claim link seal identity contains NUL'); END;
+CREATE TRIGGER claim_grounding_link_reviews_privacy_delete_only BEFORE DELETE ON claim_grounding_link_reviews
+WHEN EXISTS(SELECT 1 FROM sessions WHERE session_id=OLD.session_id)
+BEGIN SELECT RAISE(ABORT,'claim link review requires session privacy deletion'); END;
+CREATE TRIGGER claim_grounding_link_review_references_privacy_delete_only BEFORE DELETE ON claim_grounding_link_review_selected_references
+WHEN EXISTS(SELECT 1 FROM claim_grounding_link_reviews h WHERE h.link_review_id=OLD.link_review_id)
+BEGIN SELECT RAISE(ABORT,'claim link provenance requires parent privacy deletion'); END;
+CREATE TRIGGER claim_grounding_link_review_seals_privacy_delete_only BEFORE DELETE ON claim_grounding_link_review_seals
+WHEN EXISTS(SELECT 1 FROM claim_grounding_link_reviews h WHERE h.link_review_id=OLD.link_review_id)
+BEGIN SELECT RAISE(ABORT,'claim link seal requires parent privacy deletion'); END;
+COMMIT;
+"""

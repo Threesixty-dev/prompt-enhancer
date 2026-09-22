@@ -840,6 +840,11 @@ export function ProjectAutomationSettings({
                           <div><dt>Power admission</dt><dd>{grant.scope.resource_policy.pause_on_battery ? "Battery/unknown pauses new work only" : "Historical continue policy (unsupported)"}</dd></div>
                           <div><dt>Boundary</dt><dd>{grant.scope.local_only ? "Local only" : "Invalid"}</dd></div>
                         </dl>
+                        {grant.state === "revoked" && (
+                          <p className="automation-grants__warning">
+                            Revocation recorded; active work may still be stopping. Check the Job Centre for the current job state. Durable receipts remain.
+                          </p>
+                        )}
                         <details className="automation-grants__metric-scope">
                           <summary>{grant.scope.metric_keys.length} selected {grant.scope.metric_keys.length === 1 ? "metric" : "metrics"}</summary>
                           <ul>
@@ -856,7 +861,7 @@ export function ProjectAutomationSettings({
                           <div aria-label={`Confirm ${confirming} grant`} className="automation-grants__confirm" role="group">
                             <p>
                               {confirming === "revoke"
-                                ? "Revoke this exact grant and cancel its active jobs? Durable receipts remain."
+                                ? "Revoke this exact grant? Active work may still be stopping afterward. Check the Job Centre. Durable receipts remain."
                                 : "Renew this exact scope for a fresh 30 days? Current consent and readiness will be checked again."}
                             </p>
                             <button

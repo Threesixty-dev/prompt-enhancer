@@ -4611,6 +4611,199 @@
         "title": "AgentMessageAttachment",
         "type": "object"
       },
+      "AgentMessageSearchHit": {
+        "additionalProperties": false,
+        "description": "First visible-message match per chat; the query is never echoed.",
+        "properties": {
+          "excerpt": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "history_revision": {
+            "minimum": 1.0,
+            "title": "History Revision",
+            "type": "integer"
+          },
+          "match_event_seq": {
+            "minimum": 1.0,
+            "title": "Match Event Seq",
+            "type": "integer"
+          },
+          "project_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Project Name",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "project_id",
+          "project_name",
+          "title",
+          "match_event_seq",
+          "history_revision",
+          "role",
+          "excerpt"
+        ],
+        "title": "AgentMessageSearchHit",
+        "type": "object"
+      },
+      "AgentMessageSearchPage": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "agent-message-search.v1",
+            "default": "agent-message-search.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/AgentMessageSearchHit"
+            },
+            "maxItems": 50,
+            "title": "Matches",
+            "type": "array"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "maximum": 2000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Snapshot",
+            "type": "string"
+          },
+          "total": {
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "snapshot",
+          "limit",
+          "offset",
+          "total",
+          "complete",
+          "matches"
+        ],
+        "title": "AgentMessageSearchPage",
+        "type": "object"
+      },
+      "AgentMessageSearchRequest": {
+        "additionalProperties": false,
+        "description": "Owner-requested local search of opted-in visible messages only.\n\nThe request is never durable state: callers must not put its query in a\nURL, log, export, or snapshot. Search is a case-insensitive Unicode-token\nphrase; punctuation and quotes are literal input, not FTS grammar.",
+        "properties": {
+          "include_archived": {
+            "default": false,
+            "title": "Include Archived",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{32}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "query": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "AgentMessageSearchRequest",
+        "type": "object"
+      },
       "AgentMetricEvidenceFileContract": {
         "additionalProperties": false,
         "properties": {
@@ -5281,8 +5474,8 @@
             "$ref": "#/components/schemas/AgentOrchestrationBoundary"
           },
           "contract_version": {
-            "const": "local-agent-orchestration.v22",
-            "default": "local-agent-orchestration.v22",
+            "const": "local-agent-orchestration.v23",
+            "default": "local-agent-orchestration.v23",
             "title": "Contract Version",
             "type": "string"
           },
@@ -5303,8 +5496,8 @@
             "$ref": "#/components/schemas/AgentOrchestrationProtocol"
           },
           "route_coverage": {
-            "const": "all_agent_routes_plus_controller_runtime_routes",
-            "default": "all_agent_routes_plus_controller_runtime_routes",
+            "const": "selected_agent_routes_plus_controller_runtime_routes",
+            "default": "selected_agent_routes_plus_controller_runtime_routes",
             "title": "Route Coverage",
             "type": "string"
           },
@@ -6570,6 +6763,54 @@
           "writes"
         ],
         "title": "AgentTurnSummary",
+        "type": "object"
+      },
+      "AgentWebFetchCapability": {
+        "additionalProperties": false,
+        "description": "Local capability metadata; availability does not grant network authority.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "agent-web-fetch-capability.v1",
+            "default": "agent-web-fetch-capability.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "network_scope": {
+            "const": "public_https",
+            "default": "public_https",
+            "title": "Network Scope",
+            "type": "string"
+          },
+          "policy_version": {
+            "const": "governed-web-fetch.v1",
+            "default": "governed-web-fetch.v1",
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "reason_code": {
+            "enum": [
+              "available",
+              "governed_fetcher_unavailable"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "requires_per_fetch_approval": {
+            "const": true,
+            "default": true,
+            "title": "Requires Per Fetch Approval",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available",
+          "reason_code"
+        ],
+        "title": "AgentWebFetchCapability",
         "type": "object"
       },
       "AgentWriteProposal": {
@@ -10258,6 +10499,868 @@
           "input_tokens"
         ],
         "title": "ChatInputTokenCount",
+        "type": "object"
+      },
+      "ClaimCensusCandidateManifestEntry": {
+        "additionalProperties": false,
+        "description": "Content-free identity and coordinate of one reviewable response clause.",
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "clause_index": {
+            "exclusiveMaximum": 128.0,
+            "minimum": 0.0,
+            "title": "Clause Index",
+            "type": "integer"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "message_sequence": {
+            "minimum": 0.0,
+            "title": "Message Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "message_id",
+          "message_sequence",
+          "clause_index"
+        ],
+        "title": "ClaimCensusCandidateManifestEntry",
+        "type": "object"
+      },
+      "ClaimCensusClassification": {
+        "enum": [
+          "material_claim",
+          "excluded"
+        ],
+        "title": "ClaimCensusClassification",
+        "type": "string"
+      },
+      "ClaimCensusClassificationEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "classification": {
+            "$ref": "#/components/schemas/ClaimCensusClassification"
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClaimCensusExclusionReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "candidate_id",
+          "classification"
+        ],
+        "title": "ClaimCensusClassificationEntry",
+        "type": "object"
+      },
+      "ClaimCensusExclusionReason": {
+        "enum": [
+          "not_a_completion_or_verification_claim",
+          "duplicate_or_superseded_claim",
+          "non_assertive_status_or_qualification"
+        ],
+        "title": "ClaimCensusExclusionReason",
+        "type": "string"
+      },
+      "ClaimCensusSourceManifest": {
+        "additionalProperties": false,
+        "description": "A structurally complete response-only review set; never contains prose.\n\nThis DTO does not authenticate the origin of ``text_extraction_complete``.\nA later native source composition must bind it to a sealed current run\nbefore it can support an owned review or any metric authority.",
+        "properties": {
+          "candidate_count": {
+            "maximum": 12800.0,
+            "minimum": 0.0,
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimCensusCandidateManifestEntry"
+            },
+            "maxItems": 12800,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "clause_algorithm": {
+            "const": "message-clause-coordinates-en-pl-v1",
+            "default": "message-clause-coordinates-en-pl-v1",
+            "title": "Clause Algorithm",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "manifest_fingerprint": {
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "policy_version": {
+            "const": "native-reviewed-agent-claim-census-v1",
+            "default": "native-reviewed-agent-claim-census-v1",
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "claim-grounding-census-v1",
+            "default": "claim-grounding-census-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_schema_version": {
+            "title": "Source Schema Version",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "text_adapter_version": {
+            "title": "Text Adapter Version",
+            "type": "string"
+          },
+          "text_extraction_complete": {
+            "const": true,
+            "default": true,
+            "title": "Text Extraction Complete",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "source_schema_version",
+          "text_adapter_version",
+          "candidates",
+          "candidate_count",
+          "manifest_fingerprint"
+        ],
+        "title": "ClaimCensusSourceManifest",
+        "type": "object"
+      },
+      "ClaimGroundingBeginDto": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimGroundingCandidateDto"
+            },
+            "maxItems": 12800,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "content_persisted": {
+            "const": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/ClaimCensusSourceManifest"
+          },
+          "review_expires_at": {
+            "format": "date-time",
+            "title": "Review Expires At",
+            "type": "string"
+          },
+          "review_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Review Fingerprint",
+            "type": "string"
+          },
+          "review_receipt_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Review Receipt Id",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "manifest",
+          "candidates",
+          "review_receipt_id",
+          "review_fingerprint",
+          "review_expires_at",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "ClaimGroundingBeginDto",
+        "type": "object"
+      },
+      "ClaimGroundingCandidateDto": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "clause_index": {
+            "minimum": 0.0,
+            "title": "Clause Index",
+            "type": "integer"
+          },
+          "message_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "message_sequence": {
+            "minimum": 0.0,
+            "title": "Message Sequence",
+            "type": "integer"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "message_id",
+          "message_sequence",
+          "clause_index",
+          "text"
+        ],
+        "title": "ClaimGroundingCandidateDto",
+        "type": "object"
+      },
+      "ClaimGroundingCensusDto": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_count": {
+            "maximum": 12800.0,
+            "minimum": 0.0,
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "candidate_prose_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Candidate Prose Persisted",
+            "type": "boolean"
+          },
+          "census_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Census Fingerprint",
+            "type": "string"
+          },
+          "census_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Census Id",
+            "type": "string"
+          },
+          "manifest_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "measured": {
+            "const": false,
+            "default": false,
+            "title": "Measured",
+            "type": "boolean"
+          },
+          "metadata_persisted": {
+            "const": true,
+            "default": true,
+            "title": "Metadata Persisted",
+            "type": "boolean"
+          },
+          "metric_authority_established": {
+            "const": false,
+            "default": false,
+            "title": "Metric Authority Established",
+            "type": "boolean"
+          },
+          "proposal_only": {
+            "const": true,
+            "default": true,
+            "title": "Proposal Only",
+            "type": "boolean"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "census_id",
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "manifest_fingerprint",
+          "census_fingerprint",
+          "candidate_count"
+        ],
+        "title": "ClaimGroundingCensusDto",
+        "type": "object"
+      },
+      "ClaimGroundingCensusListDto": {
+        "additionalProperties": false,
+        "properties": {
+          "high_water_census_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Water Census Id"
+          },
+          "high_water_created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Water Created At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimGroundingCensusDto"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "snapshot_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "snapshot_id",
+          "total",
+          "offset"
+        ],
+        "title": "ClaimGroundingCensusListDto",
+        "type": "object"
+      },
+      "ClaimGroundingLinkCandidateManifestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "census_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Census Fingerprint",
+            "type": "string"
+          },
+          "census_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Census Id",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "manifest_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "material_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimGroundingLinkMaterialCandidateDto"
+            },
+            "maxItems": 12800,
+            "title": "Material Candidates",
+            "type": "array"
+          },
+          "measured": {
+            "const": false,
+            "default": false,
+            "title": "Measured",
+            "type": "boolean"
+          },
+          "metric_authority_established": {
+            "const": false,
+            "default": false,
+            "title": "Metric Authority Established",
+            "type": "boolean"
+          },
+          "observed_checks": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimGroundingLinkObservedCheckMetadataDto"
+            },
+            "maxItems": 4000,
+            "title": "Observed Checks",
+            "type": "array"
+          },
+          "observed_set_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Observed Set Fingerprint",
+            "type": "string"
+          },
+          "observed_set_policy_version": {
+            "const": "native-reviewed-claim-link-coverage-v1",
+            "title": "Observed Set Policy Version",
+            "type": "string"
+          },
+          "observed_set_schema_version": {
+            "const": "claim-grounding-observed-set-v1",
+            "title": "Observed Set Schema Version",
+            "type": "string"
+          },
+          "proposal_only": {
+            "const": true,
+            "default": true,
+            "title": "Proposal Only",
+            "type": "boolean"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_schema_version": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+            "title": "Source Schema Version",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "text_adapter_version": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+            "title": "Text Adapter Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "census_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "census_fingerprint",
+          "manifest_fingerprint",
+          "observed_set_fingerprint",
+          "source_schema_version",
+          "text_adapter_version",
+          "observed_set_schema_version",
+          "observed_set_policy_version",
+          "material_candidates",
+          "observed_checks"
+        ],
+        "title": "ClaimGroundingLinkCandidateManifestDto",
+        "type": "object"
+      },
+      "ClaimGroundingLinkMaterialCandidateDto": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "clause_index": {
+            "exclusiveMaximum": 128.0,
+            "minimum": 0.0,
+            "title": "Clause Index",
+            "type": "integer"
+          },
+          "message_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "message_sequence": {
+            "minimum": 0.0,
+            "title": "Message Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "message_id",
+          "message_sequence",
+          "clause_index"
+        ],
+        "title": "ClaimGroundingLinkMaterialCandidateDto",
+        "type": "object"
+      },
+      "ClaimGroundingLinkObservedCheckDto": {
+        "additionalProperties": false,
+        "properties": {
+          "effect_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Preview"
+          },
+          "invocation_preview": {
+            "title": "Invocation Preview",
+            "type": "string"
+          },
+          "observed_sequence": {
+            "minimum": 0.0,
+            "title": "Observed Sequence",
+            "type": "integer"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "check_failed"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "source_reference_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Reference Id",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_reference_id",
+          "observed_sequence",
+          "outcome",
+          "tool_name",
+          "invocation_preview",
+          "effect_preview"
+        ],
+        "title": "ClaimGroundingLinkObservedCheckDto",
+        "type": "object"
+      },
+      "ClaimGroundingLinkObservedCheckMetadataDto": {
+        "additionalProperties": false,
+        "properties": {
+          "check_kind": {
+            "const": "test",
+            "title": "Check Kind",
+            "type": "string"
+          },
+          "classifier_version": {
+            "const": "local-command-rules-v1",
+            "title": "Classifier Version",
+            "type": "string"
+          },
+          "exit_code": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Exit Code",
+            "type": "integer"
+          },
+          "normalizer_version": {
+            "const": "strict-shell-free-v2",
+            "title": "Normalizer Version",
+            "type": "string"
+          },
+          "observed_sequence": {
+            "maximum": 4000000000.0,
+            "minimum": 0.0,
+            "title": "Observed Sequence",
+            "type": "integer"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "check_failed"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "outcome_interpreter_version": {
+            "const": "pytest-exit-status-v1",
+            "title": "Outcome Interpreter Version",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "provider_execution_status": {
+            "const": "completed",
+            "title": "Provider Execution Status",
+            "type": "string"
+          },
+          "rule_id": {
+            "enum": [
+              "test.pytest",
+              "test.py_test"
+            ],
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "source_completion_schema_version": {
+            "const": "observed-check-completion-v1",
+            "title": "Source Completion Schema Version",
+            "type": "string"
+          },
+          "source_reference_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Reference Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_reference_id",
+          "observed_sequence",
+          "provider",
+          "check_kind",
+          "outcome",
+          "provider_execution_status",
+          "exit_code",
+          "source_completion_schema_version",
+          "outcome_interpreter_version",
+          "classifier_version",
+          "normalizer_version",
+          "rule_id"
+        ],
+        "title": "ClaimGroundingLinkObservedCheckMetadataDto",
+        "type": "object"
+      },
+      "ClaimGroundingLinkReviewDto": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "census_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Census Fingerprint",
+            "type": "string"
+          },
+          "census_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Census Id",
+            "type": "string"
+          },
+          "claim_clause": {
+            "title": "Claim Clause",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "manifest_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "measured": {
+            "const": false,
+            "default": false,
+            "title": "Measured",
+            "type": "boolean"
+          },
+          "metric_authority_established": {
+            "const": false,
+            "default": false,
+            "title": "Metric Authority Established",
+            "type": "boolean"
+          },
+          "observed_checks": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimGroundingLinkObservedCheckDto"
+            },
+            "maxItems": 128,
+            "title": "Observed Checks",
+            "type": "array"
+          },
+          "observed_set_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Observed Set Fingerprint",
+            "type": "string"
+          },
+          "proposal_only": {
+            "const": true,
+            "default": true,
+            "title": "Proposal Only",
+            "type": "boolean"
+          },
+          "review_expires_at": {
+            "format": "date-time",
+            "title": "Review Expires At",
+            "type": "string"
+          },
+          "review_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Review Fingerprint",
+            "type": "string"
+          },
+          "review_receipt_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Review Receipt Id",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "census_id",
+          "candidate_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "census_fingerprint",
+          "manifest_fingerprint",
+          "observed_set_fingerprint",
+          "review_receipt_id",
+          "review_fingerprint",
+          "review_expires_at",
+          "claim_clause",
+          "observed_checks"
+        ],
+        "title": "ClaimGroundingLinkReviewDto",
+        "type": "object"
+      },
+      "ClaimGroundingProposalDto": {
+        "additionalProperties": false,
+        "properties": {
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "measured": {
+            "const": false,
+            "default": false,
+            "title": "Measured",
+            "type": "boolean"
+          },
+          "metric_authority_established": {
+            "const": false,
+            "default": false,
+            "title": "Metric Authority Established",
+            "type": "boolean"
+          },
+          "proposal_only": {
+            "const": true,
+            "default": true,
+            "title": "Proposal Only",
+            "type": "boolean"
+          },
+          "reviewed_census": {
+            "$ref": "#/components/schemas/ReviewedClaimCensus"
+          }
+        },
+        "required": [
+          "reviewed_census"
+        ],
+        "title": "ClaimGroundingProposalDto",
         "type": "object"
       },
       "ClaudeCodeLocalSourceStatus": {
@@ -20255,7 +21358,8 @@
           "typed_objective",
           "semantic_unit_extractor",
           "reviewed_requirement_plan",
-          "reviewed_requirement_action"
+          "reviewed_requirement_action",
+          "reviewed_requirement_verification"
         ],
         "title": "MetricMeasuredPath",
         "type": "string"
@@ -20271,7 +21375,8 @@
           "add_objective_opportunity_link_adapter",
           "add_requirement_plan_extractor",
           "confirm_requirement_plan_evidence",
-          "compose_requirement_action_evidence"
+          "compose_requirement_action_evidence",
+          "issue_reviewed_observed_check"
         ],
         "title": "MetricNextStepCode",
         "type": "string"
@@ -20280,8 +21385,8 @@
         "additionalProperties": false,
         "properties": {
           "catalog_version": {
-            "const": "metric-operability-v4",
-            "default": "metric-operability-v4",
+            "const": "metric-operability-v6",
+            "default": "metric-operability-v6",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -25797,6 +26902,684 @@
         "title": "ModelRuntimeInventoryDto",
         "type": "object"
       },
+      "ObservedCheckAuthorityProvenance": {
+        "additionalProperties": false,
+        "description": "Restart-readable, content-free distinction for a CP34 observed result.",
+        "properties": {
+          "authority_record_id": {
+            "title": "Authority Record Id",
+            "type": "string"
+          },
+          "candidate_manifest_fingerprint": {
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "check_kind": {
+            "const": "test",
+            "default": "test",
+            "title": "Check Kind",
+            "type": "string"
+          },
+          "classifier_version": {
+            "const": "local-command-rules-v1",
+            "title": "Classifier Version",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "coverage_review_reference_id": {
+            "title": "Coverage Review Reference Id",
+            "type": "string"
+          },
+          "coverage_review_version": {
+            "const": "native-full-criterion-coverage-v1",
+            "title": "Coverage Review Version",
+            "type": "string"
+          },
+          "exit_code": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Exit Code",
+            "type": "integer"
+          },
+          "full_criterion_coverage_acknowledged": {
+            "const": true,
+            "title": "Full Criterion Coverage Acknowledged",
+            "type": "boolean"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "normalizer_version": {
+            "const": "strict-shell-free-v2",
+            "title": "Normalizer Version",
+            "type": "string"
+          },
+          "observed_outcome": {
+            "enum": [
+              "passed",
+              "check_failed"
+            ],
+            "title": "Observed Outcome",
+            "type": "string"
+          },
+          "observed_sequence": {
+            "maximum": 4000000000.0,
+            "minimum": 0.0,
+            "title": "Observed Sequence",
+            "type": "integer"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "opportunity_set_fingerprint": {
+            "title": "Opportunity Set Fingerprint",
+            "type": "string"
+          },
+          "outcome_interpreter_version": {
+            "const": "pytest-exit-status-v1",
+            "title": "Outcome Interpreter Version",
+            "type": "string"
+          },
+          "provenance_fingerprint": {
+            "title": "Provenance Fingerprint",
+            "type": "string"
+          },
+          "provider_execution_status": {
+            "const": "completed",
+            "default": "completed",
+            "title": "Provider Execution Status",
+            "type": "string"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_plan_confirmation_id": {
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_proposal_id": {
+            "title": "Requirement Plan Proposal Id",
+            "type": "string"
+          },
+          "rule_id": {
+            "enum": [
+              "test.pytest",
+              "test.py_test"
+            ],
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "observed-check-authority-provenance-v1",
+            "default": "observed-check-authority-provenance-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_completion_schema_version": {
+            "const": "observed-check-completion-v1",
+            "title": "Source Completion Schema Version",
+            "type": "string"
+          },
+          "source_reference_id": {
+            "title": "Source Reference Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authority_record_id",
+          "session_id",
+          "opportunity_set_fingerprint",
+          "opportunity_id",
+          "requirement_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_proposal_id",
+          "candidate_manifest_fingerprint",
+          "source_reference_id",
+          "coverage_review_reference_id",
+          "observed_sequence",
+          "observed_outcome",
+          "exit_code",
+          "source_completion_schema_version",
+          "outcome_interpreter_version",
+          "classifier_version",
+          "normalizer_version",
+          "rule_id",
+          "coverage_review_version",
+          "full_criterion_coverage_acknowledged",
+          "provenance_fingerprint"
+        ],
+        "title": "ObservedCheckAuthorityProvenance",
+        "type": "object"
+      },
+      "ObservedCheckCandidate": {
+        "additionalProperties": false,
+        "description": "One content-free, server-resolved observed test completion.",
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "check_kind": {
+            "const": "test",
+            "default": "test",
+            "title": "Check Kind",
+            "type": "string"
+          },
+          "classifier_version": {
+            "const": "local-command-rules-v1",
+            "title": "Classifier Version",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "exit_code": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Exit Code",
+            "type": "integer"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "normalizer_version": {
+            "const": "strict-shell-free-v2",
+            "title": "Normalizer Version",
+            "type": "string"
+          },
+          "observed_outcome": {
+            "enum": [
+              "passed",
+              "check_failed"
+            ],
+            "title": "Observed Outcome",
+            "type": "string"
+          },
+          "observed_sequence": {
+            "maximum": 4000000000.0,
+            "minimum": 0.0,
+            "title": "Observed Sequence",
+            "type": "integer"
+          },
+          "outcome_interpreter_version": {
+            "const": "pytest-exit-status-v1",
+            "default": "pytest-exit-status-v1",
+            "title": "Outcome Interpreter Version",
+            "type": "string"
+          },
+          "provider_execution_status": {
+            "const": "completed",
+            "default": "completed",
+            "title": "Provider Execution Status",
+            "type": "string"
+          },
+          "rule_id": {
+            "enum": [
+              "test.pytest",
+              "test.py_test"
+            ],
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "source_completion_schema_version": {
+            "const": "observed-check-completion-v1",
+            "default": "observed-check-completion-v1",
+            "title": "Source Completion Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "observed_sequence",
+          "observed_outcome",
+          "exit_code",
+          "classifier_version",
+          "normalizer_version",
+          "rule_id"
+        ],
+        "title": "ObservedCheckCandidate",
+        "type": "object"
+      },
+      "ObservedCheckCandidateManifest": {
+        "additionalProperties": false,
+        "description": "Bounded candidate set for one current verification opportunity.",
+        "properties": {
+          "candidate_manifest_fingerprint": {
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ObservedCheckCandidate"
+            },
+            "maxItems": 4000,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "expected_predecessor_authority_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Authority Id"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "opportunity_set_fingerprint": {
+            "title": "Opportunity Set Fingerprint",
+            "type": "string"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_plan_confirmation_id": {
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_proposal_id": {
+            "title": "Requirement Plan Proposal Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "requirement-observed-check-review-v1",
+            "default": "requirement-observed-check-review-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "through_revision": {
+            "maximum": 32000.0,
+            "minimum": 0.0,
+            "title": "Through Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "opportunity_set_fingerprint",
+          "opportunity_id",
+          "requirement_id",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_proposal_id",
+          "through_revision",
+          "candidate_manifest_fingerprint",
+          "candidates"
+        ],
+        "title": "ObservedCheckCandidateManifest",
+        "type": "object"
+      },
+      "ObservedCheckCriterionReview": {
+        "additionalProperties": false,
+        "description": "One ephemeral native review of a selected check and exact requirement.",
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/ObservedCheckCandidate"
+          },
+          "candidate_manifest_fingerprint": {
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "check_effect_preview": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check Effect Preview"
+          },
+          "check_invocation_preview": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Check Invocation Preview",
+            "type": "string"
+          },
+          "check_tool_name": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Check Tool Name",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "expected_predecessor_authority_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Authority Id"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "full_criterion_coverage_acknowledgement_required": {
+            "const": true,
+            "default": true,
+            "title": "Full Criterion Coverage Acknowledgement Required",
+            "type": "boolean"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "objective_result_issued": {
+            "const": false,
+            "default": false,
+            "title": "Objective Result Issued",
+            "type": "boolean"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "opportunity_set_fingerprint": {
+            "title": "Opportunity Set Fingerprint",
+            "type": "string"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_plan_confirmation_id": {
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_proposal_id": {
+            "title": "Requirement Plan Proposal Id",
+            "type": "string"
+          },
+          "requirement_text": {
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Requirement Text",
+            "type": "string"
+          },
+          "review_expires_at": {
+            "format": "date-time",
+            "title": "Review Expires At",
+            "type": "string"
+          },
+          "review_fingerprint": {
+            "title": "Review Fingerprint",
+            "type": "string"
+          },
+          "review_receipt_id": {
+            "title": "Review Receipt Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "requirement-observed-check-review-v1",
+            "default": "requirement-observed-check-review-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "through_revision": {
+            "maximum": 32000.0,
+            "minimum": 0.0,
+            "title": "Through Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "opportunity_set_fingerprint",
+          "opportunity_id",
+          "requirement_id",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_proposal_id",
+          "through_revision",
+          "candidate_manifest_fingerprint",
+          "candidate",
+          "requirement_text",
+          "check_tool_name",
+          "check_invocation_preview",
+          "review_receipt_id",
+          "review_fingerprint",
+          "review_expires_at"
+        ],
+        "title": "ObservedCheckCriterionReview",
+        "type": "object"
+      },
+      "ObservedCheckIssueRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_manifest_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "confirmation": {
+            "const": "issue_exact_local_requirement_observed_check_result",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "expected_predecessor_authority_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Authority Id"
+          },
+          "expected_source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "full_criterion_coverage_acknowledged": {
+            "const": true,
+            "title": "Full Criterion Coverage Acknowledged",
+            "type": "boolean"
+          },
+          "review_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Review Fingerprint",
+            "type": "string"
+          },
+          "review_receipt_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Review Receipt Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "through_revision": {
+            "maximum": 32000.0,
+            "minimum": 0.0,
+            "title": "Through Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "through_revision",
+          "candidate_manifest_fingerprint",
+          "review_receipt_id",
+          "review_fingerprint",
+          "full_criterion_coverage_acknowledged",
+          "confirmation"
+        ],
+        "title": "ObservedCheckIssueRequest",
+        "type": "object"
+      },
+      "ObservedCheckPreflightCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_predecessor_authority_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Authority Id"
+          },
+          "expected_source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "through_revision": {
+            "maximum": 32000.0,
+            "minimum": 0.0,
+            "title": "Through Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "through_revision"
+        ],
+        "title": "ObservedCheckPreflightCommand",
+        "type": "object"
+      },
+      "ObservedCheckReviewCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_manifest_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "confirmation": {
+            "const": "open_exact_local_requirement_observed_check_review",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "expected_predecessor_authority_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Authority Id"
+          },
+          "expected_source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "through_revision": {
+            "maximum": 32000.0,
+            "minimum": 0.0,
+            "title": "Through Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "through_revision",
+          "candidate_manifest_fingerprint",
+          "confirmation"
+        ],
+        "title": "ObservedCheckReviewCommand",
+        "type": "object"
+      },
       "OnboardingAccept": {
         "additionalProperties": false,
         "properties": {
@@ -28456,6 +30239,17 @@
             ],
             "title": "Expected Predecessor Authority Id"
           },
+          "expected_source_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Source Run Id"
+          },
           "opportunity_id": {
             "title": "Opportunity Id",
             "type": "string"
@@ -28466,6 +30260,39 @@
           },
           "outcome": {
             "$ref": "#/components/schemas/RequirementAcceptanceOutcome"
+          },
+          "review_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Fingerprint"
+          },
+          "review_receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Receipt Id"
+          },
+          "source_window_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Window Fingerprint"
           }
         },
         "required": [
@@ -29139,6 +30966,186 @@
         ],
         "title": "RequirementActionEvidenceSource",
         "type": "string"
+      },
+      "RequirementActionGuidedAuthoringReview": {
+        "additionalProperties": false,
+        "properties": {
+          "all_requirements_and_candidates_included": {
+            "const": true,
+            "default": true,
+            "title": "All Requirements And Candidates Included",
+            "type": "boolean"
+          },
+          "authoring_receipt_expires_at": {
+            "format": "date-time",
+            "title": "Authoring Receipt Expires At",
+            "type": "string"
+          },
+          "authoring_receipt_id": {
+            "title": "Authoring Receipt Id",
+            "type": "string"
+          },
+          "candidate_manifest_fingerprint": {
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "candidate_memberships": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionReviewCandidate"
+            },
+            "maxItems": 4000,
+            "title": "Candidate Memberships",
+            "type": "array"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionCandidate"
+            },
+            "maxItems": 4000,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "contract_version": {
+            "const": "requirement-action-guided-authoring-v1",
+            "default": "requirement-action-guided-authoring-v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "descriptor_set_fingerprint": {
+            "title": "Descriptor Set Fingerprint",
+            "type": "string"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "raw_text_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Text Persisted",
+            "type": "boolean"
+          },
+          "requirement_plan_confirmation_id": {
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_evidence_fingerprint": {
+            "title": "Requirement Plan Evidence Fingerprint",
+            "type": "string"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionReviewRequirement"
+            },
+            "maxItems": 1000,
+            "title": "Requirements",
+            "type": "array"
+          },
+          "review_context_expires_at": {
+            "format": "date-time",
+            "title": "Review Context Expires At",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_evidence_fingerprint",
+          "candidate_manifest_fingerprint",
+          "authoring_receipt_id",
+          "descriptor_set_fingerprint",
+          "requirements",
+          "candidates",
+          "candidate_memberships",
+          "review_context_expires_at",
+          "authoring_receipt_expires_at"
+        ],
+        "title": "RequirementActionGuidedAuthoringReview",
+        "type": "object"
+      },
+      "RequirementActionGuidedAuthoringReviewCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_manifest_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "confirmation": {
+            "const": "open_exact_local_requirement_action_guided_authoring",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "expected_source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "requirement_plan_confirmation_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_evidence_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Requirement Plan Evidence Fingerprint",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_evidence_fingerprint",
+          "candidate_manifest_fingerprint",
+          "confirmation"
+        ],
+        "title": "RequirementActionGuidedAuthoringReviewCommand",
+        "type": "object"
       },
       "RequirementActionImportDto": {
         "additionalProperties": false,
@@ -30664,6 +32671,189 @@
         "title": "RequirementPlanExclusionReason",
         "type": "string"
       },
+      "RequirementPlanGuidedAuthoringCandidate": {
+        "additionalProperties": false,
+        "description": "One exact ephemeral source clause available only to native authoring.",
+        "properties": {
+          "candidate_kind": {
+            "enum": [
+              "user_clause",
+              "plan"
+            ],
+            "title": "Candidate Kind",
+            "type": "string"
+          },
+          "clause_index": {
+            "exclusiveMaximum": 128.0,
+            "minimum": 0.0,
+            "title": "Clause Index",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TextMessageKind"
+          },
+          "message_sequence": {
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Message Sequence",
+            "type": "integer"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TextRole"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_sequence",
+          "clause_index",
+          "role",
+          "kind",
+          "text",
+          "candidate_kind"
+        ],
+        "title": "RequirementPlanGuidedAuthoringCandidate",
+        "type": "object"
+      },
+      "RequirementPlanGuidedAuthoringReview": {
+        "additionalProperties": false,
+        "description": "One native-only, expiring authoring surface for a sealed source window.",
+        "properties": {
+          "all_candidates_included": {
+            "const": true,
+            "default": true,
+            "title": "All Candidates Included",
+            "type": "boolean"
+          },
+          "authoring_receipt_expires_at": {
+            "format": "date-time",
+            "title": "Authoring Receipt Expires At",
+            "type": "string"
+          },
+          "authoring_receipt_id": {
+            "title": "Authoring Receipt Id",
+            "type": "string"
+          },
+          "candidate_clauses": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementPlanGuidedAuthoringCandidate"
+            },
+            "maxItems": 12800,
+            "title": "Candidate Clauses",
+            "type": "array"
+          },
+          "contract_version": {
+            "const": "requirement-plan-guided-authoring-v1",
+            "default": "requirement-plan-guided-authoring-v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "manifest_fingerprint": {
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "raw_text_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Text Persisted",
+            "type": "boolean"
+          },
+          "review_context_expires_at": {
+            "format": "date-time",
+            "title": "Review Context Expires At",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "manifest_fingerprint",
+          "authoring_receipt_id",
+          "candidate_clauses",
+          "review_context_expires_at",
+          "authoring_receipt_expires_at"
+        ],
+        "title": "RequirementPlanGuidedAuthoringReview",
+        "type": "object"
+      },
+      "RequirementPlanGuidedAuthoringReviewCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "open_exact_local_requirement_plan_guided_authoring",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "expected_source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "manifest_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "manifest_fingerprint",
+          "confirmation"
+        ],
+        "title": "RequirementPlanGuidedAuthoringReviewCommand",
+        "type": "object"
+      },
       "RequirementPlanImportDto": {
         "additionalProperties": false,
         "properties": {
@@ -30745,8 +32935,11 @@
         "description": "Content-free durable commitment to an ephemeral producer claim.",
         "properties": {
           "authority": {
-            "const": "untrusted_provenance_claim_commitment",
             "default": "untrusted_provenance_claim_commitment",
+            "enum": [
+              "untrusted_provenance_claim_commitment",
+              "untrusted_local_authoring_commitment"
+            ],
             "title": "Authority",
             "type": "string"
           },
@@ -30755,8 +32948,11 @@
             "type": "string"
           },
           "kind": {
-            "const": "local_coding_agent",
             "default": "local_coding_agent",
+            "enum": [
+              "local_coding_agent",
+              "local_review_ui"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -31738,6 +33934,124 @@
         "title": "RequirementVerificationMethod",
         "type": "string"
       },
+      "RequirementVerificationOpportunityReview": {
+        "additionalProperties": false,
+        "properties": {
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "coordinate": {
+            "$ref": "#/components/schemas/RequirementCoordinate"
+          },
+          "expected_predecessor_authority_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Authority Id"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "opportunity_set_fingerprint": {
+            "title": "Opportunity Set Fingerprint",
+            "type": "string"
+          },
+          "policy_version": {
+            "const": "current-r8-reviewed-r6-clause-only-v1",
+            "default": "current-r8-reviewed-r6-clause-only-v1",
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_plan_confirmation_id": {
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_proposal_id": {
+            "title": "Requirement Plan Proposal Id",
+            "type": "string"
+          },
+          "requirement_text": {
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Requirement Text",
+            "type": "string"
+          },
+          "review_expires_at": {
+            "format": "date-time",
+            "title": "Review Expires At",
+            "type": "string"
+          },
+          "review_fingerprint": {
+            "title": "Review Fingerprint",
+            "type": "string"
+          },
+          "review_receipt_id": {
+            "title": "Review Receipt Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "requirement-verification-native-review-v1",
+            "default": "requirement-verification-native-review-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "through_revision": {
+            "maximum": 32000.0,
+            "minimum": 0.0,
+            "title": "Through Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "opportunity_set_fingerprint",
+          "opportunity_id",
+          "requirement_id",
+          "coordinate",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_proposal_id",
+          "through_revision",
+          "review_receipt_id",
+          "review_fingerprint",
+          "review_expires_at",
+          "requirement_text"
+        ],
+        "title": "RequirementVerificationOpportunityReview",
+        "type": "object"
+      },
       "RequirementVerificationOutcome": {
         "enum": [
           "passed",
@@ -31769,6 +34083,46 @@
           "result"
         ],
         "title": "RequirementVerificationResultAppendCommand",
+        "type": "object"
+      },
+      "RequirementVerificationReviewCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "open_exact_local_requirement_verification_review",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "expected_predecessor_authority_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Authority Id"
+          },
+          "expected_source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "through_revision": {
+            "maximum": 32000.0,
+            "minimum": 0.0,
+            "title": "Through Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "through_revision",
+          "confirmation"
+        ],
+        "title": "RequirementVerificationReviewCommand",
         "type": "object"
       },
       "RequirementVerificationServiceErrorDetailDto": {
@@ -31960,6 +34314,86 @@
           }
         },
         "title": "ReviewedAutomationResourcePolicyRequest",
+        "type": "object"
+      },
+      "ReviewedClaimCensus": {
+        "additionalProperties": false,
+        "description": "Content-free proposal input, not native-confirmed or metric authority.",
+        "properties": {
+          "census_fingerprint": {
+            "title": "Census Fingerprint",
+            "type": "string"
+          },
+          "classifications": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimCensusClassificationEntry"
+            },
+            "maxItems": 12800,
+            "title": "Classifications",
+            "type": "array"
+          },
+          "complete_candidate_classification_acknowledged": {
+            "const": true,
+            "title": "Complete Candidate Classification Acknowledged",
+            "type": "boolean"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "issuer_version": {
+            "const": "reviewed-agent-response-census-v1",
+            "default": "reviewed-agent-response-census-v1",
+            "title": "Issuer Version",
+            "type": "string"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "manifest_fingerprint": {
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "policy_version": {
+            "const": "native-reviewed-agent-claim-census-v1",
+            "default": "native-reviewed-agent-claim-census-v1",
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "claim-grounding-census-v1",
+            "default": "claim-grounding-census-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_fingerprint",
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "classifications",
+          "complete_candidate_classification_acknowledged",
+          "census_fingerprint"
+        ],
+        "title": "ReviewedClaimCensus",
         "type": "object"
       },
       "RevokeAgentMcpConnection": {
@@ -37520,6 +39954,36 @@
         "title": "UpdateAgentProject",
         "type": "object"
       },
+      "UpdateAgentSessionParameters": {
+        "additionalProperties": false,
+        "description": "Revision-bound sampling change for one idle live Agent chat.",
+        "properties": {
+          "expected_parameters": {
+            "$ref": "#/components/schemas/AgentModelParameters"
+          },
+          "expected_project_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Expected Project Id",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/AgentModelParameters"
+          }
+        },
+        "required": [
+          "expected_project_id",
+          "expected_revision",
+          "expected_parameters",
+          "parameters"
+        ],
+        "title": "UpdateAgentSessionParameters",
+        "type": "object"
+      },
       "UpdateChannel": {
         "enum": [
           "stable",
@@ -38238,6 +40702,23 @@
             "default": true,
             "title": "Applied",
             "type": "boolean"
+          },
+          "artifact_projection": {
+            "default": "not_applicable",
+            "enum": [
+              "not_applicable",
+              "complete",
+              "recovery_required"
+            ],
+            "title": "Artifact Projection",
+            "type": "string"
+          },
+          "artifact_versions_advanced": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Artifact Versions Advanced",
+            "type": "integer"
           },
           "contents_reviewed": {
             "const": false,
@@ -40273,6 +42754,81 @@
           }
         },
         "summary": "List Catalog Sessions",
+        "tags": [
+          "local-agent"
+        ]
+      }
+    },
+    "/v1/agent/catalog/sessions/message-search": {
+      "post": {
+        "operationId": "search_catalog_messages_v1_agent_catalog_sessions_message_search_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentMessageSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMessageSearchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Catalog Messages",
         "tags": [
           "local-agent"
         ]
@@ -44986,6 +47542,91 @@
         ]
       }
     },
+    "/v1/agent/sessions/{session_id}/parameters": {
+      "put": {
+        "operationId": "update_session_parameters_v1_agent_sessions__session_id__parameters_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgentSessionParameters"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Session Parameters",
+        "tags": [
+          "local-agent"
+        ]
+      }
+    },
     "/v1/agent/sessions/{session_id}/stop": {
       "post": {
         "operationId": "stop_v1_agent_sessions__session_id__stop_post",
@@ -46954,6 +49595,72 @@
           }
         },
         "summary": "Propose Write Transaction",
+        "tags": [
+          "local-agent"
+        ]
+      }
+    },
+    "/v1/agent/web-fetch-capability": {
+      "get": {
+        "description": "Content-free availability only; it never grants per-fetch authority.",
+        "operationId": "web_fetch_capability_v1_agent_web_fetch_capability_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentWebFetchCapability"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Web Fetch Capability",
         "tags": [
           "local-agent"
         ]
@@ -60322,6 +63029,1026 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/claim-grounding-review/begin": {
+      "post": {
+        "operationId": "begin_v1_sessions__session_id__claim_grounding_review_begin_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "expected_source_run_id": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Expected Source Run Id",
+                    "type": "string"
+                  },
+                  "expected_source_window_fingerprint": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Expected Source Window Fingerprint",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expected_source_run_id",
+                  "expected_source_window_fingerprint"
+                ],
+                "title": "ClaimGroundingReviewCommand",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimGroundingBeginDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Begin",
+        "tags": [
+          "claim-grounding-review"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/claim-grounding-review/consume": {
+      "post": {
+        "operationId": "consume_v1_sessions__session_id__claim_grounding_review_consume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "classifications": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "candidate_id": {
+                          "title": "Candidate Id",
+                          "type": "string"
+                        },
+                        "classification": {
+                          "enum": [
+                            "material_claim",
+                            "excluded"
+                          ],
+                          "title": "ClaimCensusClassification",
+                          "type": "string"
+                        },
+                        "exclusion_reason": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "not_a_completion_or_verification_claim",
+                                "duplicate_or_superseded_claim",
+                                "non_assertive_status_or_qualification"
+                              ],
+                              "title": "ClaimCensusExclusionReason",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "candidate_id",
+                        "classification"
+                      ],
+                      "title": "ClaimCensusClassificationEntry",
+                      "type": "object"
+                    },
+                    "maxItems": 12800,
+                    "title": "Classifications",
+                    "type": "array"
+                  },
+                  "manifest_fingerprint": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Manifest Fingerprint",
+                    "type": "string"
+                  },
+                  "review_fingerprint": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Review Fingerprint",
+                    "type": "string"
+                  },
+                  "review_receipt_id": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Review Receipt Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "review_receipt_id",
+                  "review_fingerprint",
+                  "manifest_fingerprint",
+                  "classifications"
+                ],
+                "title": "ClaimGroundingConsumeCommand",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimGroundingProposalDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Consume",
+        "tags": [
+          "claim-grounding-review"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/claim-grounding-review/links/begin": {
+      "post": {
+        "operationId": "begin_v1_sessions__session_id__claim_grounding_review_links_begin_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "candidate_id": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Candidate Id",
+                    "type": "string"
+                  },
+                  "census_id": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Census Id",
+                    "type": "string"
+                  },
+                  "selected_check_references": {
+                    "items": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
+                    },
+                    "maxItems": 128,
+                    "title": "Selected Check References",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "census_id",
+                  "candidate_id",
+                  "selected_check_references"
+                ],
+                "title": "ClaimGroundingLinkBeginCommand",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimGroundingLinkReviewDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Begin",
+        "tags": [
+          "claim-grounding-review"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/claim-grounding-review/links/candidates/{census_id}": {
+      "get": {
+        "operationId": "candidates_v1_sessions__session_id__claim_grounding_review_links_candidates__census_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "census_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Census Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimGroundingLinkCandidateManifestDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Candidates",
+        "tags": [
+          "claim-grounding-review"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/claim-grounding-review/persist": {
+      "post": {
+        "operationId": "persist_v1_sessions__session_id__claim_grounding_review_persist_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "classifications": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "candidate_id": {
+                          "title": "Candidate Id",
+                          "type": "string"
+                        },
+                        "classification": {
+                          "enum": [
+                            "material_claim",
+                            "excluded"
+                          ],
+                          "title": "ClaimCensusClassification",
+                          "type": "string"
+                        },
+                        "exclusion_reason": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "not_a_completion_or_verification_claim",
+                                "duplicate_or_superseded_claim",
+                                "non_assertive_status_or_qualification"
+                              ],
+                              "title": "ClaimCensusExclusionReason",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "candidate_id",
+                        "classification"
+                      ],
+                      "title": "ClaimCensusClassificationEntry",
+                      "type": "object"
+                    },
+                    "maxItems": 12800,
+                    "title": "Classifications",
+                    "type": "array"
+                  },
+                  "manifest_fingerprint": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Manifest Fingerprint",
+                    "type": "string"
+                  },
+                  "review_fingerprint": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Review Fingerprint",
+                    "type": "string"
+                  },
+                  "review_receipt_id": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "title": "Review Receipt Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "review_receipt_id",
+                  "review_fingerprint",
+                  "manifest_fingerprint",
+                  "classifications"
+                ],
+                "title": "ClaimGroundingPersistCommand",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimGroundingCensusDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Persist",
+        "tags": [
+          "claim-grounding-review"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/claim-grounding-review/recovery-status": {
+      "get": {
+        "operationId": "recovery_v1_sessions__session_id__claim_grounding_review_recovery_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimGroundingCensusDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recovery",
+        "tags": [
+          "claim-grounding-review"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/claim-grounding-review/saved-census/{census_id}": {
+      "get": {
+        "operationId": "get_saved_v1_sessions__session_id__claim_grounding_review_saved_census__census_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "census_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Census Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimGroundingCensusDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Saved",
+        "tags": [
+          "claim-grounding-review"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/claim-grounding-review/saved-censuses": {
+      "get": {
+        "operationId": "list_saved_v1_sessions__session_id__claim_grounding_review_saved_censuses_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_total",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot Total"
+            }
+          },
+          {
+            "in": "query",
+            "name": "high_water_created_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "High Water Created At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "high_water_census_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "High Water Census Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimGroundingCensusListDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Saved",
+        "tags": [
+          "claim-grounding-review"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/declared-task-profile": {
       "get": {
         "operationId": "current_profile_v1_sessions__session_id__declared_task_profile_get",
@@ -62317,6 +66044,298 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/requirement-action-evidence/guided-authoring/proposals": {
+      "post": {
+        "operationId": "create_guided_authoring_proposal_v1_sessions__session_id__requirement_action_evidence_guided_authoring_proposals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Content-free local UI graph, bound to one ephemeral source review.",
+                "properties": {
+                  "authoring_receipt_id": {
+                    "title": "Authoring Receipt Id",
+                    "type": "string"
+                  },
+                  "candidate_manifest_fingerprint": {
+                    "title": "Candidate Manifest Fingerprint",
+                    "type": "string"
+                  },
+                  "complete_requirement_link_classification_acknowledged": {
+                    "const": true,
+                    "title": "Complete Requirement Link Classification Acknowledged",
+                    "type": "boolean"
+                  },
+                  "expected_predecessor_confirmation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Expected Predecessor Confirmation Id"
+                  },
+                  "expected_source_run_id": {
+                    "title": "Expected Source Run Id",
+                    "type": "string"
+                  },
+                  "links": {
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "File proposal for one exact requirement and zero or more actions.",
+                      "properties": {
+                        "action_candidate_indexes": {
+                          "default": [],
+                          "items": {
+                            "type": "integer"
+                          },
+                          "maxItems": 4000,
+                          "title": "Action Candidate Indexes",
+                          "type": "array"
+                        },
+                        "requirement_index": {
+                          "exclusiveMaximum": 1000,
+                          "minimum": 0,
+                          "title": "Requirement Index",
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "requirement_index"
+                      ],
+                      "title": "RequirementActionLinkEntry",
+                      "type": "object"
+                    },
+                    "maxItems": 1000,
+                    "title": "Links",
+                    "type": "array"
+                  },
+                  "requirement_plan_confirmation_id": {
+                    "title": "Requirement Plan Confirmation Id",
+                    "type": "string"
+                  },
+                  "requirement_plan_evidence_fingerprint": {
+                    "title": "Requirement Plan Evidence Fingerprint",
+                    "type": "string"
+                  },
+                  "source_window_fingerprint": {
+                    "title": "Source Window Fingerprint",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expected_source_run_id",
+                  "source_window_fingerprint",
+                  "requirement_plan_confirmation_id",
+                  "requirement_plan_evidence_fingerprint",
+                  "candidate_manifest_fingerprint",
+                  "authoring_receipt_id",
+                  "links",
+                  "complete_requirement_link_classification_acknowledged"
+                ],
+                "title": "RequirementActionGuidedAuthoringCommand",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Guided Authoring Proposal",
+        "tags": [
+          "requirement-action-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-action-evidence/guided-authoring/review": {
+      "post": {
+        "operationId": "open_guided_authoring_v1_sessions__session_id__requirement_action_evidence_guided_authoring_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementActionGuidedAuthoringReviewCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionGuidedAuthoringReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Guided Authoring",
+        "tags": [
+          "requirement-action-evidence"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/requirement-action-evidence/import": {
       "post": {
         "operationId": "import_file_v1_sessions__session_id__requirement_action_evidence_import_post",
@@ -63029,6 +67048,425 @@
           }
         },
         "summary": "Contract",
+        "tags": [
+          "requirement-plan-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-plan-evidence/guided-authoring/proposals": {
+      "post": {
+        "operationId": "create_guided_proposal_v1_sessions__session_id__requirement_plan_evidence_guided_authoring_proposals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Content-free graph authored from one expiring native source surface.",
+                "properties": {
+                  "authoring_receipt_id": {
+                    "title": "Authoring Receipt Id",
+                    "type": "string"
+                  },
+                  "complete_user_clause_classification_acknowledged": {
+                    "const": true,
+                    "title": "Complete User Clause Classification Acknowledged",
+                    "type": "boolean"
+                  },
+                  "excluded_user_clauses": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "basis_coordinate": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "clause_index": {
+                                  "exclusiveMaximum": 128,
+                                  "minimum": 0,
+                                  "title": "Clause Index",
+                                  "type": "integer"
+                                },
+                                "message_sequence": {
+                                  "maximum": 1000000000,
+                                  "minimum": 0,
+                                  "title": "Message Sequence",
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "message_sequence",
+                                "clause_index"
+                              ],
+                              "title": "RequirementCoordinate",
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "coordinate": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "clause_index": {
+                              "exclusiveMaximum": 128,
+                              "minimum": 0,
+                              "title": "Clause Index",
+                              "type": "integer"
+                            },
+                            "message_sequence": {
+                              "maximum": 1000000000,
+                              "minimum": 0,
+                              "title": "Message Sequence",
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "message_sequence",
+                            "clause_index"
+                          ],
+                          "title": "RequirementCoordinate",
+                          "type": "object"
+                        },
+                        "reason": {
+                          "enum": [
+                            "not_requirement",
+                            "superseded",
+                            "withdrawn",
+                            "duplicate",
+                            "out_of_scope",
+                            "already_satisfied_or_closed"
+                          ],
+                          "title": "RequirementPlanExclusionReason",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "coordinate",
+                        "reason"
+                      ],
+                      "title": "ExcludedRequirementClause",
+                      "type": "object"
+                    },
+                    "maxItems": 1000,
+                    "title": "Excluded User Clauses",
+                    "type": "array"
+                  },
+                  "expected_predecessor_confirmation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Expected Predecessor Confirmation Id"
+                  },
+                  "expected_source_run_id": {
+                    "title": "Expected Source Run Id",
+                    "type": "string"
+                  },
+                  "manifest_fingerprint": {
+                    "title": "Manifest Fingerprint",
+                    "type": "string"
+                  },
+                  "plan_items": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "clause_index": {
+                          "exclusiveMaximum": 128,
+                          "minimum": 0,
+                          "title": "Clause Index",
+                          "type": "integer"
+                        },
+                        "message_sequence": {
+                          "maximum": 1000000000,
+                          "minimum": 0,
+                          "title": "Message Sequence",
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "message_sequence",
+                        "clause_index"
+                      ],
+                      "title": "PlanCoordinate",
+                      "type": "object"
+                    },
+                    "maxItems": 1000,
+                    "title": "Plan Items",
+                    "type": "array"
+                  },
+                  "requirements": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "coordinate": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "clause_index": {
+                              "exclusiveMaximum": 128,
+                              "minimum": 0,
+                              "title": "Clause Index",
+                              "type": "integer"
+                            },
+                            "message_sequence": {
+                              "maximum": 1000000000,
+                              "minimum": 0,
+                              "title": "Message Sequence",
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "message_sequence",
+                            "clause_index"
+                          ],
+                          "title": "RequirementCoordinate",
+                          "type": "object"
+                        },
+                        "disposition": {
+                          "enum": [
+                            "linked",
+                            "not_linked",
+                            "pending"
+                          ],
+                          "title": "RequirementDisposition",
+                          "type": "string"
+                        },
+                        "plan_indexes": {
+                          "default": [],
+                          "items": {
+                            "type": "integer"
+                          },
+                          "maxItems": 1000,
+                          "title": "Plan Indexes",
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "coordinate",
+                        "disposition"
+                      ],
+                      "title": "RequirementEvidenceEntry",
+                      "type": "object"
+                    },
+                    "maxItems": 1000,
+                    "title": "Requirements",
+                    "type": "array"
+                  },
+                  "source_window_fingerprint": {
+                    "title": "Source Window Fingerprint",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expected_source_run_id",
+                  "source_window_fingerprint",
+                  "manifest_fingerprint",
+                  "authoring_receipt_id",
+                  "requirements",
+                  "excluded_user_clauses",
+                  "plan_items",
+                  "complete_user_clause_classification_acknowledged"
+                ],
+                "title": "RequirementPlanGuidedAuthoringCommand",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "A new inert guided requirement-plan proposal was created."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Guided Proposal",
+        "tags": [
+          "requirement-plan-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-plan-evidence/guided-authoring/review": {
+      "post": {
+        "operationId": "open_guided_authoring_v1_sessions__session_id__requirement_plan_evidence_guided_authoring_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementPlanGuidedAuthoringReviewCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanGuidedAuthoringReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Guided Authoring",
         "tags": [
           "requirement-plan-evidence"
         ]
@@ -64020,6 +68458,139 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/requirement-verification-evidence/objective-results/{authority_record_id}/observed-check-provenance": {
+      "get": {
+        "operationId": "observed_check_provenance_v1_sessions__session_id__requirement_verification_evidence_objective_results__authority_record_id__observed_check_provenance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "authority_record_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Authority Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservedCheckAuthorityProvenance"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "Local authentication is required."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The exact evidence authority was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The definitions, source window, or authority changed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 422 Observed Check Provenance V1 Sessions  Session Id  Requirement Verification Evidence Objective Results  Authority Record Id  Observed Check Provenance Get"
+                }
+              }
+            },
+            "description": "The bounded request or evidence command is invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The local evidence authority is unavailable."
+          }
+        },
+        "summary": "Observed Check Provenance",
+        "tags": [
+          "requirement-verification-evidence"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/current": {
       "post": {
         "operationId": "issue_current_opportunities_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets_current_post",
@@ -64309,6 +68880,732 @@
           }
         },
         "summary": "Snapshot",
+        "tags": [
+          "requirement-verification-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/observed-checks/preflight": {
+      "post": {
+        "operationId": "observed_check_preflight_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__observed_checks_preflight_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_set_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Opportunity Set Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Opportunity Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservedCheckPreflightCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservedCheckCandidateManifest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "Local authentication is required."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The exact evidence authority was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The definitions, source window, or authority changed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 422 Observed Check Preflight V1 Sessions  Session Id  Requirement Verification Evidence Opportunity Sets  Opportunity Set Fingerprint  Opportunities  Opportunity Id  Observed Checks Preflight Post"
+                }
+              }
+            },
+            "description": "The bounded request or evidence command is invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The local evidence authority is unavailable."
+          }
+        },
+        "summary": "Observed Check Preflight",
+        "tags": [
+          "requirement-verification-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/observed-checks/{candidate_id}/issue": {
+      "post": {
+        "operationId": "issue_observed_check_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__observed_checks__candidate_id__issue_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_set_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Opportunity Set Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Opportunity Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 16,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Ephemeral same-origin browser session; API tokens and Bearer credentials are rejected.",
+            "in": "cookie",
+            "name": "prompt_enhancer_session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exact same-origin browser mutation origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          {
+            "description": "CSRF proof bound to the ephemeral browser session.",
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One-shot native capability bound to this POST path and the exact request-body SHA-256.",
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservedCheckIssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationEvidenceMutationDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationEvidenceMutationDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "An ephemeral browser session is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "Same-origin, CSRF, or body-bound native proof failed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The exact evidence authority was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The definitions, source window, or authority changed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 422 Issue Observed Check V1 Sessions  Session Id  Requirement Verification Evidence Opportunity Sets  Opportunity Set Fingerprint  Opportunities  Opportunity Id  Observed Checks  Candidate Id  Issue Post"
+                }
+              }
+            },
+            "description": "The bounded request or evidence command is invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 503 Issue Observed Check V1 Sessions  Session Id  Requirement Verification Evidence Opportunity Sets  Opportunity Set Fingerprint  Opportunities  Opportunity Id  Observed Checks  Candidate Id  Issue Post"
+                }
+              }
+            },
+            "description": "Native user presence or local evidence is unavailable."
+          }
+        },
+        "security": [],
+        "summary": "Issue Observed Check",
+        "tags": [
+          "requirement-verification-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/observed-checks/{candidate_id}/review": {
+      "post": {
+        "operationId": "review_observed_check_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__observed_checks__candidate_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_set_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Opportunity Set Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Opportunity Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Ephemeral same-origin browser session; API tokens and Bearer credentials are rejected.",
+            "in": "cookie",
+            "name": "prompt_enhancer_session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exact same-origin browser mutation origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          {
+            "description": "CSRF proof bound to the ephemeral browser session.",
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One-shot native capability bound to this POST path and the exact request-body SHA-256.",
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservedCheckReviewCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservedCheckCriterionReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "An ephemeral browser session is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "Same-origin, CSRF, or body-bound native proof failed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The exact evidence authority was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The definitions, source window, or authority changed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 422 Review Observed Check V1 Sessions  Session Id  Requirement Verification Evidence Opportunity Sets  Opportunity Set Fingerprint  Opportunities  Opportunity Id  Observed Checks  Candidate Id  Review Post"
+                }
+              }
+            },
+            "description": "The bounded request or evidence command is invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 503 Review Observed Check V1 Sessions  Session Id  Requirement Verification Evidence Opportunity Sets  Opportunity Set Fingerprint  Opportunities  Opportunity Id  Observed Checks  Candidate Id  Review Post"
+                }
+              }
+            },
+            "description": "Native user presence or local evidence is unavailable."
+          }
+        },
+        "security": [],
+        "summary": "Review Observed Check",
+        "tags": [
+          "requirement-verification-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-verification-evidence/opportunity-sets/{opportunity_set_fingerprint}/opportunities/{opportunity_id}/review": {
+      "post": {
+        "operationId": "review_opportunity_v1_sessions__session_id__requirement_verification_evidence_opportunity_sets__opportunity_set_fingerprint__opportunities__opportunity_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_set_fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Opportunity Set Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "opportunity_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Opportunity Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Ephemeral same-origin browser session; API tokens and Bearer credentials are rejected.",
+            "in": "cookie",
+            "name": "prompt_enhancer_session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exact same-origin browser mutation origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          {
+            "description": "CSRF proof bound to the ephemeral browser session.",
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One-shot native capability bound to this POST path and the exact request-body SHA-256.",
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementVerificationReviewCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationOpportunityReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "An ephemeral browser session is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                }
+              }
+            },
+            "description": "Same-origin, CSRF, or body-bound native proof failed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The exact evidence authority was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                }
+              }
+            },
+            "description": "The definitions, source window, or authority changed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 422 Review Opportunity V1 Sessions  Session Id  Requirement Verification Evidence Opportunity Sets  Opportunity Set Fingerprint  Opportunities  Opportunity Id  Review Post"
+                }
+              }
+            },
+            "description": "The bounded request or evidence command is invalid."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationMessageErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequirementVerificationServiceErrorDto"
+                    }
+                  ],
+                  "title": "Response 503 Review Opportunity V1 Sessions  Session Id  Requirement Verification Evidence Opportunity Sets  Opportunity Set Fingerprint  Opportunities  Opportunity Id  Review Post"
+                }
+              }
+            },
+            "description": "Native user presence or local evidence is unavailable."
+          }
+        },
+        "security": [],
+        "summary": "Review Opportunity",
         "tags": [
           "requirement-verification-evidence"
         ]

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isLocalProvider } from "../../shared/api/contracts";
 import { ProviderBadge, providersOf } from "../../shared/ui/ProviderBadge";
 import type {
   CodexSession,
@@ -9,6 +8,7 @@ import type {
 import { TransportError } from "../../shared/api/httpTransport";
 import type { AppRoute } from "../../shared/platform/platform";
 import { isPseudonym } from "../../shared/platform/platform";
+import { parseSessionCatalogPage } from "../../shared/api/sessionCatalogContract";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
 import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { Icon } from "../../shared/ui/Icon";
@@ -23,6 +23,8 @@ import {
 type ProjectSort = "recent" | "name" | "sessions";
 
 const PROJECT_RENDER_PAGE = 30;
+const CATALOG_PAGE_SIZE = 100;
+const CATALOG_REQUEST_DEADLINE_MS = 15_000;
 
 interface ProjectCatalogItem {
   projectId: string;
@@ -32,150 +34,6 @@ interface ProjectCatalogItem {
   completeSessionCount: number;
   /** Distinct providers that contributed sessions, in stable display order. */
   providers: string[];
-}
-
-const CATALOG_SESSION_KEYS = [
-  "adapter_version",
-  "ended_at",
-  "events_complete",
-  "installation_id",
-  "project_display_name",
-  "project_display_name_origin",
-  "project_id",
-  "project_manual_label_revision",
-  "provider",
-  "provider_version",
-  "session_display_name",
-  "session_display_name_origin",
-  "session_id",
-  "session_manual_label_revision",
-  "source_schema_version",
-  "started_at",
-  "terminal_state",
-] as const;
-const SAFE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$/;
-const RFC3339_DATE_TIME =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-](\d{2}):(\d{2}))$/;
-const SESSION_STATES = new Set([
-  "completed",
-  "interrupted",
-  "failed",
-  "blocked",
-  "abandoned",
-  "unknown",
-]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function hasExactKeys(
-  value: Record<string, unknown>,
-  keys: readonly string[],
-): boolean {
-  const actual = Object.keys(value);
-  return actual.length === keys.length && keys.every((key) => actual.includes(key));
-}
-
-function safeNullableLabel(
-  value: unknown,
-  maxLength: number,
-): value is string | null {
-  return (
-    value === null ||
-    (typeof value === "string" &&
-      value.length >= 1 &&
-      value.length <= maxLength &&
-      !/[\u0000-\u001f\u007f]/.test(value))
-  );
-}
-
-function safeNullableVersion(value: unknown): value is string | null {
-  return value === null || (typeof value === "string" && SAFE_VERSION.test(value));
-}
-
-function safeDate(value: unknown, nullable = false): boolean {
-  if (nullable && value === null) return true;
-  if (typeof value !== "string") return false;
-  const match = RFC3339_DATE_TIME.exec(value);
-  if (match === null) return false;
-  const [
-    ,
-    yearText,
-    monthText,
-    dayText,
-    hourText,
-    minuteText,
-    secondText,
-    zone,
-    offsetHourText,
-    offsetMinuteText,
-  ] = match;
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  const second = Number(secondText);
-  const offsetHour = zone === "Z" ? 0 : Number(offsetHourText);
-  const offsetMinute = zone === "Z" ? 0 : Number(offsetMinuteText);
-  const maxDay =
-    year >= 1 && month >= 1 && month <= 12
-      ? new Date(Date.UTC(year, month, 0)).getUTCDate()
-      : 0;
-  return (
-    day >= 1 &&
-    day <= maxDay &&
-    hour <= 23 &&
-    minute <= 59 &&
-    second <= 59 &&
-    offsetHour <= 23 &&
-    offsetMinute <= 59 &&
-    !Number.isNaN(new Date(value).valueOf())
-  );
-}
-
-function safeCatalogSession(value: unknown): value is CodexSession {
-  if (!isRecord(value) || !hasExactKeys(value, CATALOG_SESSION_KEYS)) return false;
-  const origins = new Set(["provider", "manual", "unknown"]);
-  return (
-    isLocalProvider(value.provider) &&
-    isPseudonym(value.installation_id as string) &&
-    isPseudonym(value.project_id as string) &&
-    isPseudonym(value.session_id as string) &&
-    safeNullableLabel(value.project_display_name, 120) &&
-    safeNullableLabel(value.session_display_name, 160) &&
-    origins.has(value.project_display_name_origin as string) &&
-    origins.has(value.session_display_name_origin as string) &&
-    Number.isSafeInteger(value.project_manual_label_revision) &&
-    (value.project_manual_label_revision as number) >= 0 &&
-    Number.isSafeInteger(value.session_manual_label_revision) &&
-    (value.session_manual_label_revision as number) >= 0 &&
-    safeNullableVersion(value.provider_version) &&
-    typeof value.adapter_version === "string" &&
-    SAFE_VERSION.test(value.adapter_version) &&
-    safeNullableVersion(value.source_schema_version) &&
-    safeDate(value.started_at) &&
-    safeDate(value.ended_at, true) &&
-    (value.terminal_state === null ||
-      SESSION_STATES.has(value.terminal_state as string)) &&
-    typeof value.events_complete === "boolean"
-  );
-}
-
-function safeCatalogResponse(value: unknown): CodexSession[] | null {
-  if (
-    !isRecord(value) ||
-    !hasExactKeys(value, ["sessions", "limit", "offset"]) ||
-    value.limit !== 100 ||
-    value.offset !== 0 ||
-    !Array.isArray(value.sessions) ||
-    value.sessions.length > 100 ||
-    !value.sessions.every(safeCatalogSession)
-  ) {
-    return null;
-  }
-  return value.sessions;
 }
 
 function visibleLabel(value: string | null | undefined, fallback: string): string {
@@ -252,7 +110,10 @@ export function ProjectCatalog({
   coverageProvider?: Provider;
 }) {
   const [sessions, setSessions] = useState<CodexSession[] | null>(null);
+  const [catalogComplete, setCatalogComplete] = useState(false);
+  const [loadingOffset, setLoadingOffset] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [moreError, setMoreError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ProjectSort>("recent");
@@ -260,38 +121,152 @@ export function ProjectCatalog({
     () => new Set(),
   );
   const [comparison, setComparison] = useState<ResolvedProjectComparison | null>(null);
+  const [comparisonTransport, setComparisonTransport] =
+    useState<PromptEnhancerTransport | null>(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const [comparisonError, setComparisonError] = useState("");
   const comparisonController = useRef<AbortController | null>(null);
   const comparisonButtonRef = useRef<HTMLButtonElement | null>(null);
+  const catalogRequest = useRef<{
+    controller: AbortController;
+    generation: number;
+    offset: number;
+    timeout: number;
+  } | null>(null);
+  const catalogGeneration = useRef(0);
+  const [catalogOwner, setCatalogOwner] =
+    useState<PromptEnhancerTransport | null>(null);
+  const catalogIsCurrent = catalogOwner === transport;
+  const visibleSessions = catalogIsCurrent ? sessions : null;
+  const visibleError = catalogIsCurrent ? error : "";
+  const visibleMoreError = catalogIsCurrent ? moreError : "";
 
-  useEffect(() => {
+  function clearCatalogRequest() {
+    const request = catalogRequest.current;
+    if (request === null) return;
+    catalogRequest.current = null;
+    window.clearTimeout(request.timeout);
+    request.controller.abort();
+    setLoadingOffset(null);
+  }
+
+  function cancelCatalogRequest() {
+    const request = catalogRequest.current;
+    if (request === null) return;
+    const wasFirstPage = request.offset === 0;
+    clearCatalogRequest();
+    if (wasFirstPage) {
+      setError("The catalog request was cancelled. Reload the catalog to try again.");
+    } else {
+      setMoreError(
+        "The next catalog page was cancelled. Loaded projects are unchanged; try again or reload the catalog.",
+      );
+    }
+  }
+
+  function loadCatalogPage(offset: number, existing: readonly CodexSession[]) {
+    if (catalogRequest.current !== null) return;
     const controller = new AbortController();
-    setError("");
-    setSessions(null);
-    transport
-      .listCodexSessions(100, 0, controller.signal)
+    const generation = catalogGeneration.current;
+    const request = {
+      controller,
+      generation,
+      offset,
+      timeout: 0,
+    };
+    const ownsRequest = () =>
+      catalogRequest.current === request &&
+      request.generation === catalogGeneration.current &&
+      !controller.signal.aborted;
+    const finish = () => {
+      if (catalogRequest.current !== request) return;
+      catalogRequest.current = null;
+      window.clearTimeout(request.timeout);
+      setLoadingOffset(null);
+    };
+    request.timeout = window.setTimeout(() => {
+      if (catalogRequest.current !== request) return;
+      catalogRequest.current = null;
+      controller.abort();
+      setLoadingOffset(null);
+      if (offset === 0) {
+        setError("The local project catalog request timed out. Reload the catalog to try again.");
+      } else {
+        setMoreError(
+          "The next catalog page timed out. Loaded projects are unchanged; try again or reload the catalog.",
+        );
+      }
+    }, CATALOG_REQUEST_DEADLINE_MS);
+    catalogRequest.current = request;
+    setLoadingOffset(offset);
+    if (offset === 0) setError("");
+    else setMoreError("");
+
+    void Promise.resolve()
+      .then(() => {
+        if (!ownsRequest()) return undefined;
+        return transport.listCodexSessions(
+          CATALOG_PAGE_SIZE,
+          offset,
+          controller.signal,
+        );
+      })
       .then((response) => {
-        if (controller.signal.aborted) return;
-        const parsed = safeCatalogResponse(response);
-        if (parsed === null) {
-          setError("The locally indexed project catalog response was invalid.");
+        if (!ownsRequest()) return;
+        const parsed = parseSessionCatalogPage(response, offset);
+        const allSessions = [...existing, ...(parsed ?? [])];
+        const uniqueSessionCount = new Set(
+          allSessions.map((session) => session.session_id),
+        ).size;
+        if (parsed === null || uniqueSessionCount !== allSessions.length) {
+          if (offset === 0) {
+            setError("The locally indexed project catalog response was invalid.");
+          } else {
+            setMoreError(
+              "The catalog changed or the next page could not be verified. Loaded projects are unchanged; try again or reload the catalog.",
+            );
+          }
           return;
         }
-        setSessions(parsed);
-        const availableProjects = new Set(parsed.map((session) => session.project_id));
-        setSelectedProjectIds((selected) => new Set([...selected].filter((id) => availableProjects.has(id))));
+        setSessions(allSessions);
+        setCatalogOwner(transport);
+        setCatalogComplete(parsed.length < CATALOG_PAGE_SIZE);
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (!ownsRequest()) return;
+        if (offset === 0) {
           setError("The locally indexed project catalog could not be loaded.");
+        } else {
+          setMoreError(
+            "More projects could not be loaded. Loaded projects are unchanged; try again or reload the catalog.",
+          );
         }
-      });
-    return () => controller.abort();
+      })
+      .finally(finish);
+  }
+
+  useEffect(() => {
+    catalogGeneration.current += 1;
+    clearCatalogRequest();
+    comparisonController.current?.abort();
+    comparisonController.current = null;
+    setComparisonLoading(false);
+    setSelectedProjectIds(new Set());
+    setComparison(null);
+    setComparisonTransport(null);
+    setComparisonError("");
+    setSessions(null);
+    setCatalogOwner(transport);
+    setCatalogComplete(false);
+    setError("");
+    setMoreError("");
+    loadCatalogPage(0, []);
+    return clearCatalogRequest;
   }, [retryKey, transport]);
 
   useEffect(
     () => () => {
+      clearCatalogRequest();
       comparisonController.current?.abort();
     },
     [],
@@ -303,7 +278,7 @@ export function ProjectCatalog({
 
   const projects = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const items = buildCatalog(sessions ?? []).filter((project) => {
+    const items = buildCatalog(visibleSessions ?? []).filter((project) => {
       if (!normalizedQuery) return true;
       return (
         project.displayName.toLocaleLowerCase().includes(normalizedQuery) ||
@@ -331,7 +306,11 @@ export function ProjectCatalog({
         left.displayName.localeCompare(right.displayName)
       );
     });
-  }, [query, sessions, sort]);
+  }, [query, sort, visibleSessions]);
+  const loadedProjectCount = useMemo(
+    () => buildCatalog(visibleSessions ?? []).length,
+    [visibleSessions],
+  );
   const hiddenSelectedCount = useMemo(() => {
     const visibleProjectIds = new Set(projects.map((project) => project.projectId));
     return [...selectedProjectIds].filter(
@@ -359,11 +338,36 @@ export function ProjectCatalog({
     });
   }
 
+  function loadMoreCatalog() {
+    if (!catalogIsCurrent || visibleSessions === null || catalogComplete) return;
+    loadCatalogPage(visibleSessions.length, visibleSessions);
+  }
+
+  function restartCatalog() {
+    catalogGeneration.current += 1;
+    clearCatalogRequest();
+    comparisonController.current?.abort();
+    comparisonController.current = null;
+    setSessions(null);
+    setCatalogOwner(null);
+    setCatalogComplete(false);
+    setLoadingOffset(null);
+    setError("");
+    setMoreError("");
+    setSelectedProjectIds(new Set());
+    setComparison(null);
+    setComparisonTransport(null);
+    setComparisonLoading(false);
+    setComparisonError("");
+    setRetryKey((value) => value + 1);
+  }
+
   async function compareSelectedProjects() {
     const projectIds = [...selectedProjectIds];
     if (projectIds.length < 1 || projectIds.length > 25) return;
     comparisonController.current?.abort();
     const controller = new AbortController();
+    const generation = catalogGeneration.current;
     comparisonController.current = controller;
     setComparisonError("");
     setComparisonLoading(true);
@@ -375,7 +379,7 @@ export function ProjectCatalog({
         },
         controller.signal,
       );
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || generation !== catalogGeneration.current) return;
       const resolved = resolveProjectComparison(response, projectIds.length);
       if (resolved === null) {
         setComparisonError(
@@ -384,8 +388,9 @@ export function ProjectCatalog({
         return;
       }
       setComparison(resolved);
+      setComparisonTransport(transport);
     } catch (reason: unknown) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || generation !== catalogGeneration.current) return;
       if (reason instanceof TransportError && reason.status === 409) {
         setComparisonError(
           "One or more selected projects are no longer available in the safe local index.",
@@ -405,13 +410,14 @@ export function ProjectCatalog({
     }
   }
 
-  if (comparison !== null) {
+  if (comparison !== null && comparisonTransport === transport) {
     return (
       <section className="project-catalog">
         <ProjectComparison
           comparison={comparison}
           onBack={() => {
             setComparison(null);
+            setComparisonTransport(null);
             window.setTimeout(() => comparisonButtonRef.current?.focus(), 0);
           }}
         />
@@ -437,6 +443,19 @@ export function ProjectCatalog({
 
       <MetricCoveragePanel provider={coverageProvider} transport={transport} />
 
+      {visibleSessions !== null && (
+        <div className="project-catalog__paging-actions">
+          <button
+            className="button button--ghost button--compact"
+            disabled={loadingOffset !== null}
+            onClick={restartCatalog}
+            type="button"
+          >
+            Reload catalog
+          </button>
+        </div>
+      )}
+
       <div className="project-catalog__controls" role="search">
         <label className="field project-catalog__search">
           <span>Find a project or session</span>
@@ -461,7 +480,7 @@ export function ProjectCatalog({
         </label>
       </div>
 
-      {selectedProjectIds.size > 0 && (
+      {catalogIsCurrent && selectedProjectIds.size > 0 && (
         <aside
           aria-busy={comparisonLoading}
           aria-label="Project aggregate selection"
@@ -477,6 +496,10 @@ export function ProjectCatalog({
             )}
             {comparisonLoading && <small>Combining selected projects locally</small>}
             {selectedProjectIds.size === 25 && <small>Selection limit reached</small>}
+            <small>
+              Combine uses all analyzed work for each selected project, not only
+              loaded catalog sessions.
+            </small>
           </span>
           <button
             className="button button--primary button--compact"
@@ -489,23 +512,40 @@ export function ProjectCatalog({
           </button>
         </aside>
       )}
-      {comparisonError && (
+      {catalogIsCurrent && comparisonError && (
         <p className="project-catalog__comparison-error" role="alert">
           {comparisonError}
         </p>
       )}
 
-      {error ? (
-        <ErrorState message={error} onRetry={() => setRetryKey((value) => value + 1)} />
-      ) : sessions === null ? (
-        <LoadingState label="Loading the local project catalog..." />
+      {visibleError ? (
+        <ErrorState
+          actionLabel="Reload catalog"
+          message={visibleError}
+          onRetry={restartCatalog}
+        />
+      ) : visibleSessions === null ? (
+        <>
+          <LoadingState label="Loading the local project catalog..." />
+          {loadingOffset !== null && (
+            <button
+              className="button button--ghost"
+              onClick={cancelCatalogRequest}
+              type="button"
+            >
+              Cancel catalog request
+            </button>
+          )}
+        </>
       ) : projects.length === 0 ? (
         <div className="empty-inbox">
           <span><Icon name="search" /></span>
           <h2>{query.trim() ? "No matching projects" : "No indexed projects"}</h2>
           <p>
             {query.trim()
-              ? "Try a different local label."
+              ? catalogComplete
+                ? "Try a different local label or reload the catalog."
+                : "No matches in the loaded index. Load the next page or try a different local label."
               : "Use Data sources to run a bounded, content-discarding index first."}
           </p>
         </div>
@@ -570,8 +610,8 @@ export function ProjectCatalog({
                 </button>
               </div>
               <dl className="project-catalog-card__facts">
-                <div><dt>Sessions</dt><dd>{project.sessions.length}</dd></div>
-                <div><dt>Complete streams</dt><dd>{project.completeSessionCount}</dd></div>
+                <div><dt>Loaded sessions</dt><dd>{project.sessions.length}</dd></div>
+                <div><dt>Complete loaded streams</dt><dd>{project.completeSessionCount}</dd></div>
                 <div><dt>Activity</dt><dd>{visibleDate(project.latestStartedAt)}</dd></div>
               </dl>
             </article>
@@ -579,12 +619,51 @@ export function ProjectCatalog({
         </div>
       )}
       <BoundedListPager label="Project catalog pages" page={projectPage} />
-      {sessions !== null && (
-        <p className="project-catalog__boundary" role="note">
-          This view reads at most 100 sessions from Prompt Enhancer's stored index. It
-          does not read or mutate any provider's cache; each project shows the sources
-          its sessions were captured from.
-        </p>
+      {visibleSessions !== null && (
+        <>
+          <p
+            aria-label="Loaded catalog coverage"
+            aria-live="polite"
+            className="project-catalog__boundary"
+            role="status"
+          >
+            Loaded index coverage: {loadedProjectCount} project{loadedProjectCount === 1 ? "" : "s"} from {visibleSessions.length} session{visibleSessions.length === 1 ? "" : "s"}. Project counts, search, and sorting cover only these loaded index records; this view does not read or mutate any provider cache.
+            {catalogComplete
+              ? " End of the current index reached. Reload catalog to refresh it."
+              : " More current index records may be available."}
+          </p>
+          {!catalogComplete && (
+            <div className="project-catalog__paging-actions">
+              <button
+                className="button button--secondary"
+                disabled={loadingOffset !== null}
+                onClick={loadMoreCatalog}
+                type="button"
+              >
+                {loadingOffset === null
+                  ? `Load next ${CATALOG_PAGE_SIZE} sessions`
+                  : "Loading next catalog page..."}
+              </button>
+              {loadingOffset !== null && (
+                <button
+                  className="button button--ghost"
+                  onClick={cancelCatalogRequest}
+                  type="button"
+                >
+                  Cancel catalog request
+                </button>
+              )}
+            </div>
+          )}
+          {visibleMoreError && (
+            <ErrorState
+              actionLabel="Retry next page"
+              message={visibleMoreError}
+              onRetry={loadMoreCatalog}
+              title="More catalog data needs attention"
+            />
+          )}
+        </>
       )}
     </section>
   );

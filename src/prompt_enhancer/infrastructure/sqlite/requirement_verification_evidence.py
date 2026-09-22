@@ -35,6 +35,7 @@ from ...application.analysis.requirement_verification_persistence import (
     MAX_REQUIREMENT_VERIFICATION_HISTORY_PER_OPPORTUNITY,
     MAX_REQUIREMENT_VERIFICATION_REVISIONS,
     REQUIREMENT_ACCEPTANCE_APPEND_CONFIRMATION,
+    ObservedCheckAuthorityProvenance,
     RequirementVerificationAuthorityDraft,
     RequirementVerificationAuthorityHead,
     RequirementVerificationAuthorityRecord,
@@ -352,12 +353,63 @@ class SqliteRequirementVerificationEvidenceRepository:
             self._validate_stored_set(set_record)
         return record
 
+    def get_observed_check_provenance(
+        self, session_id: str, authority_record_id: str
+    ) -> ObservedCheckAuthorityProvenance | None:
+        """Read a sealed observed-result sidecar without exposing source text."""
+        self._ensure_initialized()
+        require_safe_id(session_id)
+        require_safe_id(authority_record_id)
+        with self._connection_scope(readonly=True) as connection:
+            connection.execute("BEGIN")
+            try:
+                record, set_record = self._record_tx(connection, authority_record_id)
+                if (
+                    record is None
+                    or record.session_id != session_id
+                    or record.kind is not RequirementVerificationAuthorityRecordKind.OBJECTIVE_RESULT
+                ):
+                    result = None
+                else:
+                    result = self._observed_provenance_tx(connection, authority_record_id)
+                    if result is not None and set_record is not None:
+                        self._validate_observed_provenance(
+                            record, result, set_record.opportunities
+                        )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return result
+
     def append_authority(
         self, draft: RequirementVerificationAuthorityDraft
+    ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]:
+        return self._append_authority(draft, provenance=None)
+
+    def append_observed_authority(
+        self,
+        draft: RequirementVerificationAuthorityDraft,
+        provenance: ObservedCheckAuthorityProvenance,
+    ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]:
+        return self._append_authority(draft, provenance=provenance)
+
+    def _append_authority(
+        self,
+        draft: RequirementVerificationAuthorityDraft,
+        *,
+        provenance: ObservedCheckAuthorityProvenance | None,
     ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]:
         self._ensure_initialized()
         checked = RequirementVerificationAuthorityDraft.model_validate(
             draft.model_dump(mode="python")
+        )
+        checked_provenance = (
+            None
+            if provenance is None
+            else ObservedCheckAuthorityProvenance.model_validate(
+                provenance.model_dump(mode="python")
+            )
         )
         set_record = self.get_opportunity_set(
             checked.opportunity_set_fingerprint
@@ -370,6 +422,10 @@ class SqliteRequirementVerificationEvidenceRepository:
                 "requirement-verification opportunity set was not found"
             )
         self._validate_draft(checked, set_record.opportunities)
+        if checked_provenance is not None:
+            self._validate_observed_provenance(
+                checked, checked_provenance, set_record.opportunities
+            )
         with self._connection_scope() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -396,6 +452,19 @@ class SqliteRequirementVerificationEvidenceRepository:
                         raise RequirementVerificationConflictError(
                             "requirement-verification idempotency key was reused"
                         )
+                    if checked_provenance is not None:
+                        replay_provenance = self._observed_provenance_tx(
+                            connection, replay.authority_record_id
+                        )
+                        if replay_provenance is not None:
+                            self._validate_observed_provenance(
+                                replay, replay_provenance,
+                                persisted_set.opportunities,
+                            )
+                        if replay_provenance != checked_provenance:
+                            raise RequirementVerificationConflictError(
+                                "requirement-verification idempotency key was reused"
+                            )
                     snapshot = self._snapshot_tx(
                         connection,
                         checked.session_id,
@@ -427,7 +496,9 @@ class SqliteRequirementVerificationEvidenceRepository:
                 record = RequirementVerificationAuthorityRecord(
                     **checked.model_dump(mode="python"), revision=revision
                 )
-                self._insert_authority_tx(connection, record)
+                self._insert_authority_tx(
+                    connection, record, provenance=checked_provenance
+                )
                 hydrated, _ = self._record_tx(
                     connection,
                     record.authority_record_id,
@@ -1145,10 +1216,164 @@ class SqliteRequirementVerificationEvidenceRepository:
             ),
         )
 
+    def _validate_observed_provenance(
+        self,
+        draft: RequirementVerificationAuthorityDraft,
+        provenance: ObservedCheckAuthorityProvenance,
+        opportunities: AppIssuedRequirementVerificationOpportunitySet,
+    ) -> None:
+        result = draft.result
+        if (
+            result is None
+            or provenance.authority_record_id != draft.authority_record_id
+            or provenance.session_id != draft.session_id
+            or provenance.opportunity_set_fingerprint != draft.opportunity_set_fingerprint
+            or provenance.opportunity_id != draft.opportunity_id
+            or provenance.requirement_id != draft.requirement_id
+            or provenance.source_window_fingerprint
+            != opportunities.source_window_fingerprint
+            or provenance.requirement_plan_confirmation_id
+            != opportunities.requirement_plan_confirmation_id
+            or provenance.requirement_plan_proposal_id
+            != opportunities.requirement_plan_proposal_id
+            or result.method is not RequirementVerificationMethod.TEST
+            or result.observed_sequence != provenance.observed_sequence
+            or (
+                (result.outcome is RequirementVerificationOutcome.PASSED
+                 and provenance.observed_outcome != "passed")
+                or (result.outcome is RequirementVerificationOutcome.FAILED
+                    and provenance.observed_outcome != "check_failed")
+                or result.outcome not in {
+                    RequirementVerificationOutcome.PASSED,
+                    RequirementVerificationOutcome.FAILED,
+                }
+            )
+            or tuple(sorted((
+                provenance.source_reference_id,
+                provenance.coverage_review_reference_id,
+            ))) != result.receipt_reference_ids
+        ):
+            raise RequirementVerificationConflictError(
+                "observed-check provenance does not bind the authority result"
+            )
+        expected = self._observed_provenance_fingerprint(provenance, result)
+        if not hmac.compare_digest(provenance.provenance_fingerprint, expected):
+            raise RequirementVerificationConflictError(
+                "observed-check provenance fingerprint is invalid"
+            )
+
+    def _observed_provenance_fingerprint(
+        self,
+        provenance: ObservedCheckAuthorityProvenance,
+        result: AppIssuedRequirementVerificationResult,
+    ) -> str:
+        return self._identifiers.fingerprint(
+            "observed-check-authority-provenance-v1",
+            (
+                result.result_id,
+                result.result_fingerprint,
+                provenance.source_run_id,
+                provenance.source_window_fingerprint,
+                provenance.requirement_plan_confirmation_id,
+                provenance.requirement_plan_proposal_id,
+                provenance.candidate_manifest_fingerprint,
+                provenance.source_reference_id,
+                provenance.coverage_review_reference_id,
+                str(provenance.observed_sequence),
+                provenance.observed_outcome,
+                str(provenance.exit_code),
+                provenance.source_completion_schema_version,
+                provenance.outcome_interpreter_version,
+                provenance.classifier_version,
+                provenance.normalizer_version,
+                provenance.rule_id,
+                provenance.coverage_review_version,
+            ),
+        )
+
+    def _insert_observed_provenance_tx(
+        self,
+        connection: sqlite3.Connection,
+        provenance: ObservedCheckAuthorityProvenance,
+    ) -> None:
+        connection.execute(
+            """INSERT INTO requirement_verification_observed_check_provenance(
+                 authority_record_id,session_id,opportunity_set_fingerprint,
+                 opportunity_id,requirement_id,source_run_id,
+                 source_window_fingerprint,requirement_plan_confirmation_id,
+                 requirement_plan_proposal_id,candidate_manifest_fingerprint,
+                 source_reference_id,coverage_review_reference_id,observed_sequence,
+                 check_kind,provider_execution_status,observed_outcome,exit_code,
+                 source_completion_schema_version,outcome_interpreter_version,
+                 classifier_version,normalizer_version,rule_id,
+                 coverage_review_version,full_criterion_coverage_acknowledged,
+                 provenance_fingerprint,schema_version,local_only,content_persisted
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                provenance.authority_record_id,
+                provenance.session_id,
+                provenance.opportunity_set_fingerprint,
+                provenance.opportunity_id,
+                provenance.requirement_id,
+                provenance.source_run_id,
+                provenance.source_window_fingerprint,
+                provenance.requirement_plan_confirmation_id,
+                provenance.requirement_plan_proposal_id,
+                provenance.candidate_manifest_fingerprint,
+                provenance.source_reference_id,
+                provenance.coverage_review_reference_id,
+                provenance.observed_sequence,
+                provenance.check_kind,
+                provenance.provider_execution_status,
+                provenance.observed_outcome,
+                provenance.exit_code,
+                provenance.source_completion_schema_version,
+                provenance.outcome_interpreter_version,
+                provenance.classifier_version,
+                provenance.normalizer_version,
+                provenance.rule_id,
+                provenance.coverage_review_version,
+                int(provenance.full_criterion_coverage_acknowledged),
+                provenance.provenance_fingerprint,
+                provenance.schema_version,
+                int(provenance.local_only),
+                int(provenance.content_persisted),
+            ),
+        )
+
+    def _observed_provenance_tx(
+        self, connection: sqlite3.Connection, authority_record_id: str
+    ) -> ObservedCheckAuthorityProvenance | None:
+        row = connection.execute(
+            """SELECT authority_record_id,session_id,opportunity_set_fingerprint,
+                      opportunity_id,requirement_id,source_run_id,
+                      source_window_fingerprint,requirement_plan_confirmation_id,
+                      requirement_plan_proposal_id,candidate_manifest_fingerprint,
+                      source_reference_id,coverage_review_reference_id,observed_sequence,
+                      check_kind,provider_execution_status,observed_outcome,exit_code,
+                      source_completion_schema_version,outcome_interpreter_version,
+                      classifier_version,normalizer_version,rule_id,
+                      coverage_review_version,full_criterion_coverage_acknowledged,
+                      provenance_fingerprint,schema_version,local_only,content_persisted
+               FROM requirement_verification_observed_check_provenance
+               WHERE authority_record_id=?""",
+            (authority_record_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return ObservedCheckAuthorityProvenance.model_validate(dict(row))
+        except (TypeError, ValueError) as error:
+            raise DatabaseInvariantError(
+                "observed-check provenance is invalid"
+            ) from error
+
     def _insert_authority_tx(
         self,
         connection: sqlite3.Connection,
         record: RequirementVerificationAuthorityRecord,
+        *,
+        provenance: ObservedCheckAuthorityProvenance | None = None,
     ) -> None:
         result = record.result
         acceptance = record.acceptance
@@ -1212,6 +1437,8 @@ class SqliteRequirementVerificationEvidenceRepository:
                    ) VALUES(?,?,?)""",
                 (record.authority_record_id, ordinal, receipt_reference_id),
             )
+        if provenance is not None:
+            self._insert_observed_provenance_tx(connection, provenance)
         connection.execute(
             """INSERT INTO requirement_verification_authority_record_seals(
                  authority_record_id,session_id,opportunity_set_fingerprint,

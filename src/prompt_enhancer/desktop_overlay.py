@@ -15,6 +15,7 @@ import json
 from pathlib import PureWindowsPath
 import re
 import socket
+import sys
 from threading import Event, RLock, Thread
 import time
 from types import ModuleType
@@ -45,6 +46,11 @@ from .infrastructure.native_lifecycle import (
     NativeLifecycleMarkerError,
     NativeWindowKind,
 )
+from .infrastructure.windows_desktop_prerequisites import (
+    PrerequisiteState,
+    detect_webview2_runtime,
+)
+from .infrastructure.windows_runtime_bootstrap import bootstrap_current_embedded_windows_runtime
 from .infrastructure.windows_single_instance import (
     WindowsSingleInstanceError,
     acquire_windows_instance,
@@ -93,7 +99,24 @@ _FAILURE_MESSAGES = {
     "lifecycle_marker_unavailable": "The native lifecycle status could not be recorded safely.",
 }
 
-if frozenset(_FAILURE_MESSAGES) != NATIVE_FAILURE_REASON_CODES:
+# These codes are preflight-only and are never persisted in the native
+# lifecycle marker, whose vocabulary remains exactly NATIVE_FAILURE_REASON_CODES.
+_PREFLIGHT_FAILURE_MESSAGES = {
+    "webview2_runtime_missing": (
+        "The Microsoft Edge WebView2 Runtime is not installed. Install it from "
+        "the official Microsoft WebView2 page, then restart Prompt Enhancer: "
+        "https://developer.microsoft.com/microsoft-edge/webview2/"
+    ),
+    "webview2_runtime_unverified": (
+        "Prompt Enhancer could not verify the Microsoft Edge WebView2 Runtime. "
+        "Check Windows registry access and try again; no installation was attempted."
+    ),
+}
+_DESKTOP_FAILURE_MESSAGES = {**_FAILURE_MESSAGES, **_PREFLIGHT_FAILURE_MESSAGES}
+
+if frozenset(_FAILURE_MESSAGES) != NATIVE_FAILURE_REASON_CODES or (
+    frozenset(_PREFLIGHT_FAILURE_MESSAGES) & NATIVE_FAILURE_REASON_CODES
+):
     raise RuntimeError("native lifecycle failure vocabulary is inconsistent")
 
 
@@ -110,7 +133,7 @@ class DesktopOverlayError(RuntimeError):
     ) -> None:
         super().__init__(message)
         self.reason_code = (
-            reason_code if reason_code in _FAILURE_MESSAGES else "desktop_failed"
+            reason_code if reason_code in _DESKTOP_FAILURE_MESSAGES else "desktop_failed"
         )
         self.components = tuple(
             component for component in components if isinstance(component, RuntimeComponent)
@@ -1154,7 +1177,7 @@ def _safe_desktop_failure(
         code = "local_state_unavailable"
     else:
         code = default_code
-    code = code if code in _FAILURE_MESSAGES else "desktop_failed"
+    code = code if code in _DESKTOP_FAILURE_MESSAGES else "desktop_failed"
     failure_type = (
         DesktopOverlayServiceError
         if isinstance(error, DesktopOverlayServiceError)
@@ -1163,7 +1186,7 @@ def _safe_desktop_failure(
         else DesktopOverlayError
     )
     return failure_type(
-        _FAILURE_MESSAGES[code],
+        _DESKTOP_FAILURE_MESSAGES[code],
         reason_code=code,
         components=components,
         cleanup_reason_code=cleanup_code,
@@ -1286,6 +1309,7 @@ def run_desktop_overlay(settings: AppSettings) -> None:
             "desktop overlay is currently available only on Windows",
             reason_code="unsupported_platform",
         )
+    _require_webview2_runtime()
     marker = NativeLifecycleMarker(
         settings.native_overlay_lifecycle_path,
         NativeWindowKind.OVERLAY,
@@ -1331,11 +1355,32 @@ def run_desktop_agent(settings: AppSettings) -> None:
             "desktop Agent is currently available only on Windows",
             reason_code="unsupported_platform",
         )
+    _require_webview2_runtime()
     marker = NativeLifecycleMarker(
         settings.native_agent_lifecycle_path,
         NativeWindowKind.AGENT,
     )
     _run_with_lifecycle_marker(marker, lambda: _run_desktop_agent(settings, marker))
+
+
+def _require_webview2_runtime() -> None:
+    """Fail safely before creating lifecycle state or starting any service."""
+
+    try:
+        detection = detect_webview2_runtime()
+    except Exception:
+        detection = None
+    if detection is not None and detection.state is PrerequisiteState.PRESENT:
+        return
+    reason_code = (
+        "webview2_runtime_missing"
+        if detection is not None and detection.state is PrerequisiteState.MISSING
+        else "webview2_runtime_unverified"
+    )
+    raise DesktopOverlayDependencyError(
+        _PREFLIGHT_FAILURE_MESSAGES[reason_code],
+        reason_code=reason_code,
+    ) from None
 
 
 def launch_desktop_agent(settings: AppSettings) -> None:
@@ -1389,8 +1434,8 @@ def _failure_notice(
     components: tuple[RuntimeComponent, ...] = (),
     cleanup_reason_code: str | None = None,
 ) -> str:
-    code = reason_code if reason_code in _FAILURE_MESSAGES else "desktop_failed"
-    notice = f"{_FAILURE_MESSAGES[code]}\n\nDiagnostic code: {code}"
+    code = reason_code if reason_code in _DESKTOP_FAILURE_MESSAGES else "desktop_failed"
+    notice = f"{_DESKTOP_FAILURE_MESSAGES[code]}\n\nDiagnostic code: {code}"
     safe_components = tuple(
         component.value for component in components if isinstance(component, RuntimeComponent)
     )
@@ -1446,7 +1491,9 @@ def _show_safe_agent_error(
 def desktop_main() -> int:
     """Console-free Windows entry point for the React/WebView overlay."""
 
+    runtime_bootstrap = None
     try:
+        runtime_bootstrap = bootstrap_current_embedded_windows_runtime()
         run_desktop_overlay(AppSettings.from_env())
     except Exception as error:
         failure = _safe_desktop_failure(error)
@@ -1454,13 +1501,23 @@ def desktop_main() -> int:
             failure.reason_code, failure.components, failure.cleanup_reason_code
         )
         return 1
+    finally:
+        if runtime_bootstrap is not None:
+            handling_exception = sys.exc_info()[0] is not None
+            try:
+                runtime_bootstrap.close()
+            except Exception:
+                if not handling_exception:
+                    return 1
     return 0
 
 
 def agent_desktop_main() -> int:
     """Console-free Windows entry point for the protected Agent window."""
 
+    runtime_bootstrap = None
     try:
+        runtime_bootstrap = bootstrap_current_embedded_windows_runtime()
         launch_desktop_agent(AppSettings.from_env())
     except Exception as error:
         failure = _safe_desktop_failure(error)
@@ -1468,6 +1525,14 @@ def agent_desktop_main() -> int:
             failure.reason_code, failure.components, failure.cleanup_reason_code
         )
         return 1
+    finally:
+        if runtime_bootstrap is not None:
+            handling_exception = sys.exc_info()[0] is not None
+            try:
+                runtime_bootstrap.close()
+            except Exception:
+                if not handling_exception:
+                    return 1
     return 0
 
 

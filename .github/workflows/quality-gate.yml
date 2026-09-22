@@ -147,6 +147,12 @@ jobs:
       - name: Build production frontend
         run: npm run build
 
+      - name: Check Agent bundle graph fixtures
+        run: node --test scripts/check-agent-bundle-budget.test.mjs
+
+      - name: Check Agent bundle budget
+        run: npm run check:bundle-budget
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 

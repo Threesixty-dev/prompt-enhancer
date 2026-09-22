@@ -23,6 +23,10 @@ from .contracts import (
     PowerSourceReader,
     PowerSourceState,
 )
+from .cancellation import (
+    AnalysisJobCancellationAdmission,
+    AnalysisJobCancellationSignals,
+)
 from .service import (
     AnalysisJobConflictError,
     AnalysisJobCooperativeStop,
@@ -58,6 +62,8 @@ __all__ = [
     "AnalysisJobState",
     "PowerSourceReader",
     "PowerSourceState",
+    "AnalysisJobCancellationAdmission",
+    "AnalysisJobCancellationSignals",
     "AnalysisJobConflictError",
     "AnalysisJobCooperativeStop",
     "AnalysisJobExecutionContext",

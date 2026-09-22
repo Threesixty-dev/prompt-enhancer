@@ -1,5 +1,26 @@
 # Prompt Enhancer finish goal
 
+CP14 loading evidence: [Agent initial-load dependency audit](checkpoint-beta-readiness-14.md).
+CP15 loading evidence: [Project Catalog retrieval-cap readiness](checkpoint-beta-readiness-15.md).
+CP16 loading evidence: [Sessions Catalog read reliability](checkpoint-beta-readiness-16.md).
+CP17 loading evidence: [MetricCoveragePanel read recovery](checkpoint-beta-readiness-17.md).
+CP18 loading evidence: [ProjectWorkspace session recovery](checkpoint-beta-readiness-18.md).
+CP19 loading evidence: [Session drilldown read recovery](checkpoint-beta-readiness-19.md).
+CP20 loading evidence: [Session radar provenance and recovery](checkpoint-beta-readiness-20.md).
+CP21 loading evidence: [Agent workspace navigation](checkpoint-beta-readiness-21.md).
+CP22 loading evidence: [Agent current-conversation navigation](checkpoint-beta-readiness-22.md).
+CP23 evidence: [Agent close-draft ownership](checkpoint-beta-readiness-23.md) (automated validation complete; owner review pending).
+CP24 evidence: [Provider capability truthfulness](checkpoint-beta-readiness-24.md) (bounded automation validated; owner review pending; no beta or v1 claim).
+CP25 evidence: [Analysis Job Centre authoritative-absence recovery](checkpoint-beta-readiness-25.md) (bounded automation validated; owner review pending; no beta or v1 claim).
+
+CP33 evidence: [transport-owned Agent drafts and handoff](checkpoint-beta-readiness-33.md) (automated implementation and targeted validation complete; broader owner/native/release acceptance pending).
+
+CP33 historical evidence remains split, but the current owning AgentPage suite
+is 191/191 green (`f73966`), rather than a new 216-test aggregate. Earlier
+focused handoff/draft/channel/runtime receipts remain recorded in
+[checkpoint 33](checkpoint-beta-readiness-33.md). The CP36 handoff repair is
+separately tracked below. This is not a whole-product release claim.
+
 Status: Converge-06 automated implementation complete; C07a automated staging foundation validated/complete; C07b.1 automated security slice validated/complete; C07b.2 offline manifest-verification slice complete after owning gates; C07b.3 standalone read-only MSIX preflight implementation and automated validation complete; C07b.4 staged package-review automated slice complete; C07 remains partial; installer/relaunch/rollback, owner visual, packaged and final release evidence remain pending
 Established: 2026-08-29
 Expanded and reconciled: 2026-09-04
@@ -65,6 +86,11 @@ and release-tool CLI; see the
 [C07b.3 handoff](checkpoint-converge-07b3-handoff.md).
 C07b.4 connects that preflight only to authenticated staged-package review;
 see the [C07b.4 handoff](checkpoint-converge-07b4-handoff.md).
+Separately, a bounded frontend/accessibility convergence batch is recorded in the
+[Opus-Convergence-01 handoff](checkpoint-opus-convergence-01-handoff.md) and its
+[acceptance review](opus-convergence-acceptance-review.md); its final full unit
+receipt has landed (2861 passed across 192 files, zero failures), and it remains a
+working checkpoint that **advances no checkpoint, including C07**.
 
 ## Automatic execution directive
 
@@ -252,7 +278,7 @@ control execution and release status.
 | Converge-03 | SOTA-focused Agent information architecture | Automated implementation complete; owner visual review pending | Chat owns the viewport; composer and latest reply stay visible at 720 px; secondary tools use coherent disclosures/drawers; one runtime state is announced; responsive, accessibility and real-loopback gates are green. See [handoff](checkpoint-converge-03-handoff.md). |
 | Converge-04 | Packaged real Agent core loop and cleanup | Automated acceptance instrumentation complete; packaged owner/hardware execution pending | The page-owned receipt now requires recovered history, workspace, two-model lifecycle, complete/Stop turns, approved write/command, review, artifact, context and final cleanup evidence. Native dialogs, physical placement/VRAM, terminal census and package restart remain owner-gated. See [handoff](checkpoint-converge-04-handoff.md). |
 | Converge-05 | Trusted MCP and external-client production acceptance | 05a and 05b automated instrumentation complete; both real owner journeys pending | The trusted-MCP ledger requires install, admission, host/call/stop, update, rollback, retained-generation cleanup and uninstall. The external-controller ledger requires connect/discover/own/stream/Stop/reconnect/handoff/revoke/refusal/cleanup with exact process and activity ordering. One real MCPB lifecycle and one current external-controller lifecycle still need owner execution. See the [05a handoff](checkpoint-converge-05a-handoff.md) and [05b handoff](checkpoint-converge-05b-handoff.md). |
-| Converge-06 | Metric validity and product-surface simplification | Automated implementation complete; owner visual review pending | Core/Review/Labs navigation and the 39 operational vs 20 canonical vs 10 historical metric presentation are implemented; existing 20/16/4 presentation is preserved, with no new calculators/adapters or scientific-validity claim. Data sources delivers 12 projects per page, collapsed lazy sessions, 20 rows per expanded page, metadata-only search, accurate hidden selections, Clear selection and transport-generation resets. |
+| Converge-06 | Metric validity and product-surface simplification | Automated implementation complete; owner visual review pending | Core/Review/Labs navigation and the 39 operational vs 20 canonical vs 10 historical metric presentation are implemented; current 20/17/3 presentation is preserved, with no new calculators/adapters or scientific-validity claim. Data sources delivers 12 projects per page, collapsed lazy sessions, 20 rows per expanded page, metadata-only search, accurate hidden selections, Clear selection and transport-generation resets. |
 | Converge-07 | Signed Windows updater and final release | **Partial: C07a foundation and C07b.1/C07b.2 slices validated; C07b.3 preflight and C07b.4 staged review automated slice complete** | C07a covers fenced signed-manifest download/stage/progress/cancel/retry and truthful downloaded-not-installable UI. C07b.1 adds scoped private update-root DACL preparation and durable signed-envelope replay CAS; C07b.2 adds deterministic public build-manifest boundaries; C07b.3 adds a standalone read-only MSIX identity/digest/signer-pin preflight and CLI; C07b.4 exposes only fenced verified/rejected review of the authenticated fixed staged candidate, without persisting a verified badge or enabling apply. Publisher/native signer positive acceptance, installer/MSIX handoff, relaunch, rollback, public release trust and the complete packaged north-star journey remain open. See [C07b.4 handoff](checkpoint-converge-07b4-handoff.md). |
 | Goal-00 | Product contract, privacy boundaries and finish definition | Complete | This document exists, the active goal matches it and the dirty worktree is preserved. |
 | Store-05c | Exact local MCP update, one retained rollback generation, uninstall and interrupted-operation cleanup | Complete; owner UI review pending | Install/update/rollback/uninstall/cleanup survive failure and restart tests; UI and API agree; one protected app reload passes with no terminal, MCP or model leak. |
@@ -287,7 +313,7 @@ one review too large, but it may not silently absorb a later checkpoint.
 | Store-07 | Malicious metadata, transports, schemas and process behavior fail closed without leaking data or leaving children. | Automated complete through Store-07e. Registry presentation, redirect/DNS/proxy/TLS/stream hostility, local process containment, schema/replay, exact vault binding, canary non-disclosure and project/chat/client isolation are green. Owner trusted-MCP click-through remains Acceptance-01. See [Store-07a handoff](checkpoint-mcp-store-07a-handoff.md), [Store-07b handoff](checkpoint-mcp-store-07b-handoff.md), [Store-07c handoff](checkpoint-mcp-store-07c-handoff.md), [Store-07d handoff](checkpoint-mcp-store-07d-handoff.md), and [Store-07e handoff](checkpoint-mcp-store-07e-handoff.md). |
 | Converge-05a | A trusted local MCPB has one fail-closed, content-free lifecycle receipt in the ordinary Agent/Store UI. | Automated instrumentation complete: exact plan/project/chat/snapshot/host binding; fresh approved call; stop; update; rollback; retained-generation cleanup; uninstall; cross-scope/stale/out-of-order refusal; settings-unmount persistence and responsive tests. Packaged third-party execution remains owner-gated. See [handoff](checkpoint-converge-05a-handoff.md). |
 | Converge-05b | One external controller proves the complete governed Agent lifecycle without inheriting native approval authority. | Automated instrumentation complete: a page-owned ten-step receipt is exact-project/chat/credential/process bound; in-flight admission, sequence gaps, Stop, reconnect without resubmission, two-party handoff, revoke/refusal and native cleanup are fail-closed. Current external-client owner execution remains pending. See [handoff](checkpoint-converge-05b-handoff.md). |
-| Converge-06 | Primary navigation is simplified into Core, Review and Labs while metric counts remain truthful and separately presented. | Automated implementation complete; owner visual review pending. Existing 39 operational/task, 20 canonical and 10 historical definitions remain separate, including the 20/16/4 presentation; no new calculators/adapters or scientific-validity claim. Data sources paging/disclosure and selection behavior are delivered. See [handoff](checkpoint-converge-06-handoff.md). |
+| Converge-06 | Primary navigation is simplified into Core, Review and Labs while metric counts remain truthful and separately presented. | Automated implementation complete; owner visual review pending. Existing 39 operational/task, 20 canonical and 10 historical definitions remain separate, including the current 20/17/3 presentation; no new calculators/adapters or scientific-validity claim. Data sources paging/disclosure and selection behavior are delivered. See [handoff](checkpoint-converge-06-handoff.md). |
 | Acceptance-01 | Previously automated Agent, Runtime, Workspace and Store milestones receive the remaining physical owner evidence without reopening their scope. | Retained-chat restart; real CPU/GPU/split admission; model switch/unload and VRAM release; native picker/confirmation; workspace and Store click ledgers. |
 | Sweep-01a | Every route and interactive element has an inventory tied to a real contract and test. Dead, duplicated and misleading controls are fixed or explicitly gated. | Route/control/state matrix; click and keyboard automation; no unexplained disabled controls; no console errors. |
 | Sweep-01b | The application uses one coherent responsive design system for hierarchy, panes, icons, focus, status, empty/loading/error states and reduced motion. | 320/360/768/1440 px visual matrix, forced colors, keyboard order and automated accessibility checks. |
@@ -733,9 +759,9 @@ valuable regression obligations, but none may skip the current evidence ladder.
 6. **Converge-06 — metric validity and surface simplification (automated
    implementation complete; owner visual review pending).** Separate the
    existing 39 operational/task definitions from the 20 canonical coaching
-   contracts and 10 historical lexical rules; preserve the 20/16/4 presentation,
-   retire legacy default duplication, resolve or visibly block the four
-   provider-adapter gaps, and require a representative human holdout for
+   contracts and 10 historical lexical rules; preserve the current 20/17/3
+   presentation, retire legacy default duplication, resolve or visibly block
+   the three provider/composition gaps, and require a representative human holdout for
    calibration claims. Core/Review/Labs navigation and Data sources paging,
    disclosure and exact-selection behavior are delivered.
 7. **Converge-07 — signed Windows update and final release.** C07a’s automated
@@ -758,7 +784,7 @@ the current dependency checkpoint; it is never hidden as historical debt.
 Converge-06 is **automated implementation complete; owner visual review
 pending**. Core, Review and Labs now have an explicit boundary, while the
 existing 39 operational/task definitions, 20 canonical coaching contracts and
-10 historical lexical rules remain separate, including the 20/16/4
+10 historical lexical rules remain separate, including the current 20/17/3
 presentation. Data sources delivers 12 projects per page, collapsed lazy session
 lists, 20 rows per expanded page, metadata-only search, accurate hidden
 selections, Clear selection and transport-generation resets. No new
@@ -837,9 +863,336 @@ See the [C07b.4 handoff](checkpoint-converge-07b4-handoff.md).
 
 ## Final release gate
 
+The active bounded Sessions Catalog read-reliability review is recorded in
+[beta-readiness checkpoint 16](checkpoint-beta-readiness-16.md). Production
+implementation and its bounded automated validation are complete; consult the
+authoritative checkpoint for its receipts. No beta or release claim is made.
+
+The separate bounded MetricCoveragePanel read-recovery lifecycle is recorded in
+[beta-readiness checkpoint 17](checkpoint-beta-readiness-17.md). Its current
+backend, frontend, browser, build, API, bundle-budget, and strict E2E receipts
+are recorded there, alongside the final green loopback and privacy receipts.
+It changes neither calculators nor calibration, and makes no owner, native,
+model, beta, or release claim.
+
+The bounded ProjectWorkspace project-session read-recovery slice is recorded in
+[beta-readiness checkpoint 18](checkpoint-beta-readiness-18.md). Its focused
+automated, final loopback, and privacy receipts are recorded there. It does not
+prove beta, v1, native, model, or release readiness.
+
+The bounded session-drilldown read-recovery slice is recorded in
+[beta-readiness checkpoint 19](checkpoint-beta-readiness-19.md). Its final
+loopback, build, privacy, and focused Agent regression receipts are recorded
+there. No beta or release claim is made.
+
+The bounded session-radar source/provenance and recovery slice is recorded in
+[beta-readiness checkpoint 20](checkpoint-beta-readiness-20.md). Its focused
+automated receipts do not prove beta, v1, native, model, or release readiness.
+
+The bounded Agent workspace-navigation slice is recorded in
+[beta-readiness checkpoint 21](checkpoint-beta-readiness-21.md). Its current
+bounded automated evidence does not establish beta, v1, native, model, or
+release proof; its whole-Agent receipt remains explicitly split rather than a
+single all-717-green run.
+
+The bounded Agent current-conversation navigation slice has completed automated
+implementation and awaits owner review in [beta-readiness checkpoint
+22](checkpoint-beta-readiness-22.md). It establishes no beta, v1, native,
+hardware, model, or release claim.
+
+The current bounded acceptance slice is recorded in
+[beta-readiness checkpoint 03](checkpoint-beta-readiness-03.md). It adds
+synthetic exact-clause review and separate native human dispositions while
+keeping historical metrics immutable. Final broad gates remain pending.
+
+Current attachment validation is recorded in
+[beta-readiness checkpoint 04](checkpoint-beta-readiness-04.md); it is bounded
+validated status and does not close the finish goal.
+
+Model-independent Agent text drafting is recorded in
+[beta-readiness checkpoint 05](checkpoint-beta-readiness-05.md). It keeps
+per-chat drafts in memory while Send remains explicitly runtime-gated. The
+bounded implementation and owning tests/build/loopback/privacy/browser
+receipts are recorded; owner/native/model/GPU, reload, persistence and release
+acceptance remain open, and no beta or release claim is made.
+
+Runtime coordinator read-failure handling is tracked in
+[beta-readiness checkpoint 06](checkpoint-beta-readiness-06.md). Its bounded
+bounded automated validation is recorded; cached runtime context
+must remain stale/last-confirmed, the local GET deadline must abort late reads
+and release Refresh, Apply must fail-closed, and recovery must remain manual
+without auto-loading models.
+
+Models-page catalog, compatibility, and runtime-read recovery is tracked in
+[beta-readiness checkpoint 08](checkpoint-beta-readiness-08.md); synthetic
+receipts cover last-good chat/catalog retention, explicit timeout recovery,
+fresh-action guards, and stale-result fencing. Remaining gates are pending.
+
+The explicit Models-to-Agent handoff boundary is tracked in
+[beta-readiness checkpoint 09](checkpoint-beta-readiness-09.md). Models chat
+remains temporary and unsaved; the consent dialog routes only the current
+model alias (or null) into a new Agent setup and performs no transcript
+migration, automatic session/model start, send, or storage write. Beta/v1 and
+owner gates remain open.
+
+Temporary Models-chat discard protection is recorded in
+[beta-readiness checkpoint 10](checkpoint-beta-readiness-10.md). Its bounded
+implementation and automated validation are complete, but beta, v1, native,
+GPU/runtime, and release certification remain open.
+
+Agent exit-risk, per-chat unsent drafts, workspace dirtiness, and stale event
+activity reconciliation are recorded in [beta-readiness checkpoint 11](checkpoint-beta-readiness-11.md).
+The bounded slice does not certify beta/v1, native close, force-kill, crash,
+autosave, persistence, or the remaining managed-history and foreign-return
+navigation gaps.
+
+Bounded saved-message search is recorded in [beta-readiness checkpoint 12](checkpoint-beta-readiness-12.md).
+It is local-history-only, separately scoped from metadata search, explicitly
+non-semantic, and its bounded implementation and automated receipts are
+complete; it does not certify beta/v1 or release acceptance.
+
+Metric-operability recoverability and the R8 owner-bound reconciliation notice
+are recorded in [beta-readiness checkpoint 13](checkpoint-beta-readiness-13.md).
+The bounded implementation and automated validation are complete, including
+loopback cleanup and privacy/diff gates. Native, calibration, adapter-gap,
+performance, beta, and release gates remain open.
+
+Explicit idle-chat generation-settings editing is tracked in
+[beta-readiness checkpoint 07](checkpoint-beta-readiness-07.md). Implementation
+is complete, and bounded automated validation is complete;
+revision-fenced settings persistence, model-neutral editing, truthful capacity
+refusal, conflict reload, and preserved draft/history guards are implemented.
+Root receipts now also cover 2,979/2,979 full frontend tests, 69/69 owning
+generation/runtime tests, focused accessibility follow-up, final disposable
+loopback, and post-cleanup privacy. Owner/native/model/release gates remain
+open; no beta or release claim is made. See the
+[checkpoint-07 evidence boundary](checkpoint-beta-readiness-07.md#evidence-boundary).
+
+The beta-readiness checkpoint-02 evidence workspace is recorded in
+[checkpoint-beta-readiness-02](checkpoint-beta-readiness-02.md). Its current
+integrated 36/36 frontend (4 files, 5.99s), 46/46 backend, six new browser
+checks, build/API/strict-TypeScript, built real-loopback 16/16, full frontend
+2906/2906, standard browser 194 passed/6 intentional screenshot skips/0 failed,
+and the post-cleanup privacy scan are green bounded receipts. Preparation is an
+explicit POST after click, with no mount mutation, and inspection remains
+revision-bound. This does not close the finish goal or promote C07; the four
+canonical provider/composition gaps remain 16 shipped conditional paths, 0
+profile gaps, 4 provider/composition gaps.
+
 The finish goal is achieved only when all workstreams above have direct current
 evidence, no required feature remains labelled partial or unavailable, every
 protected action has the intended review boundary, all automated suites pass,
 the production app reloads cleanly, and the owner can complete the representative
 Agent + model + files + artifact + MCP + external-orchestrator walkthrough without
 using a hidden workaround.
+
+The bounded Agent retained-resume ownership slice is recorded in
+[beta-readiness checkpoint 26](checkpoint-beta-readiness-26.md). Its corrected
+synthetic/browser, strict-E2E, build, API, and built-loopback receipts are
+recorded there; owner, native, model, updater, packaging, and release gates
+remain pending.
+
+The CP27 metric-operability correction is recorded in
+[beta-readiness checkpoint 27](checkpoint-beta-readiness-27.md). It fixes the
+reviewed-action prerequisite ordering and extends only the exact M62 action
+source-authority trigger for current R8 seals. The current catalog is v5 at
+17/0/3, scoped to complete Claude transcript, confirmed plan, and
+native-reviewed links; the guided proposal UX remains open. Engineering
+validation is green through backend 129/129, browser 13/13, built loopback
+27/27, OpenAPI 6/6, schema 51 cases, and final privacy; the native interaction
+was synthetic/faked and no real model was run, so no provider, native, or
+release claim is made;
+CP28 owns the known Find-next composer-pointer defect.
+
+The CP28 live-log layout correction is recorded in
+[beta-readiness checkpoint 28](checkpoint-beta-readiness-28.md). It adds an
+intrinsic live-main minimum and 12rem conversation-stage minimum so a short
+desktop viewport cannot collapse the live log; the retained-history fallback
+is unchanged. Focused CSS, owning-unit, transcript, related-browser, build,
+built-loopback, strict-E2E/bundle, and expanded navigation 42/42 (`d3ce66`)
+receipts are recorded there; owner review remains pending. The guided
+reviewed-proposal UX and beta/v1 release gates remain open.
+
+The CP29 guided requirement-plan authoring automated slice is complete in
+[beta-readiness checkpoint 29](checkpoint-beta-readiness-29.md). It offers a
+native-confirmed bounded source read, complete requirement/exclusion and
+plan/link classification, an inert `local_review_ui` proposal, and the
+existing separate native review/decision. Fresh analysis can consume only a
+confirmed plan. Build, strict/API/bundle, focused frontend, and built-loopback
+receipts are recorded, including final privacy/diff (`7ea9db`); owner-native
+walkthrough and beta/release gates remain open. CP30 now adds automated guided
+requirement-action authoring: a native bounded source review, a content-free
+`local_review_ui` inert proposal, and the existing separate native review and
+decision before fresh analysis can bind it. Its focused browser, backend,
+frontend, build, loopback, and final privacy/diff receipts are recorded in
+[checkpoint 30](checkpoint-beta-readiness-30.md); this is not owner-native,
+beta/v1, or release acceptance. CP31 has completed its automated UI slice:
+retained-chat Resume and Export now state independent local-transport
+capabilities instead of silently doing nothing. Its focused evidence, build,
+and final privacy receipt are recorded in
+[checkpoint 31](checkpoint-beta-readiness-31.md). Owner/native walkthrough,
+beta/v1, and release acceptance remain open. CP32's automated bounded
+context-preflight implementation and tests are complete; see
+[checkpoint 32](checkpoint-beta-readiness-32.md) for the 58/58 runtime,
+build/typecheck, bundle, and synthetic browser evidence. The initial 57/58
+run exposed a lower-revision polling stall that was fixed before final
+verification. No dedicated timeout-browser, owner/native, beta/v1, or release
+claim is made.
+
+CP34 remains IN PROGRESS; see [checkpoint
+34](checkpoint-beta-readiness-34.md). CP34a's direct-pytest foundation is
+251/251 (`a567b2`) with compatibility 55/55 (`dd7161`); generic tool success
+is not objective proof. CP34b backend review/issuance and CP34c owner-facing
+provenance UI are implemented. Current frontend validation is 63/63
+(`5bc422`), synthetic beta-metrics browser 10/10 (`f54d63`), build
+(`fdf621`), and bundle (`04c179`). The corrected built-loopback gate is 28/28
+green (`74f7e4`) and the standalone synthetic canonical-head seed proof is
+green (`33ec74`). This only proves a cold-state fictional binding with native
+actions unavailable and zero protected POSTs; it is not positive native
+issuance. Privacy is currently OPEN/RED: the latest scan (`b755ae`) found only
+two residual synthetic `.tmp-cp34-privacy` databases. Owner/native and
+release/beta acceptance remain open; no release claim is made.
+
+CP35 automated targeted gates pass; see [checkpoint
+35](checkpoint-beta-readiness-35.md). It distinguishes a missing or expired
+ephemeral requirement-plan review context from the existing no-publication 404
+and generic 503, and directs recovery through fresh analysis rather than a
+same-run retry. Backend is 28/28 (`ea7d6a`), frontend 36/36 (`770513`), and
+fresh built-loopback 28/28 (`eab410`) with terminal cleanup (`ca8957`). Privacy
+remains OPEN/RED (`b755ae`); owner/native and release/beta acceptance remain
+open.
+
+CP36 is IN PROGRESS; see [checkpoint
+36](checkpoint-beta-readiness-36.md). It repairs an own-window handoff that a
+same-owner catalog refresh could silently drop while target lookup was pending.
+The deterministic regression was red (`b033be`) and the focused three-test
+repair is green (`b9b037`); the current owning AgentPage suite is 191/191
+green (`f73966`) and fresh built-loopback is 28/28 green (`51691f`) with
+cleanup and zero models. The initial complete frontend suite later reached
+its terminal result of **3,426 passed and 2 failed across 240 files**
+(`36ab9b`); see [CP37](checkpoint-beta-readiness-37.md). A later complete
+frontend rerun passed **3,429/3,429 across 240 files** (`9fefea`). This remains
+synthetic window lifecycle evidence only, not native or release acceptance.
+
+CP38 remains IN PROGRESS; see [checkpoint-beta-readiness-38](checkpoint-beta-readiness-38.md).
+WSP-07 adds a default-off, native-gated governed public-HTTPS opt-in for plain
+text or HTML responses, with per-request approval and truthful outbound-network
+copy. The raw reader now replaces the rejected 50 ms buffered-reader workaround
+while retaining the standard-library HTTP parser and exact `Connection: close`
+ownership. Adapter/policy **33/33** (`f609f7`), local-agent **57/57**
+(`ed7e1c`), schema **6/6** (`f7548f`), production build (`13c2aa`), delayed
+HTTPConnection detach/cleanup (`0e1451`), replacement reader **4/4**
+(`4d359e`), and general built integration **28/28** (`9efc3e`) are green.
+The prior socketpair reds (`c20779`, `528818`) remain historical evidence, not
+the current boundary. The complete frontend suite passed **3,436/3,436 across
+240 files** (`26665f`); the dedicated synthetic browser suite passed **8/8**;
+and the production-built WSP-07 journey passed **29/29** (`b97baa`, wrapper
+`3b28f5`) with cleanup, zero-model, and no-server-failure checks. Earlier
+built-fixture reds (`ae4dbb`, `7cf8d0`) are historical. Privacy is red
+(`564e73`) for exactly two residual synthetic database artifacts. Native, owner, beta, and
+release gates remain open.
+
+CP39 remains IN PROGRESS; see [checkpoint-beta-readiness-39](checkpoint-beta-readiness-39.md).
+Reviewed directory moves now report a server-issued artifact projection
+(`complete`, `not_applicable`, or `recovery_required`) without claiming that
+subtree contents were reviewed. The historical nested-artifact RED
+(`a1c8f6`) is superseded by focused backend evidence 40/40 (`7b382f`) and
+the original focused directory regression at root receipt `7dfbfa` (not a
+whole-application integration result), plus independent policy evidence 5/5.
+The final frozen module ledger
+is 151/151 in 65.23s (`e633a5`) across split overlapping artifact (35), directory (9),
+policy (5), local (57), and lifecycle (45) checks; earlier 149/149
+(`d24ecd`, terminal `100141`) is interim. Build `030503`, bundle `639510`,
+schema `d55fea`, TypeScript `6a1b40`, and API drift `d85b29` are green. The
+final general built regression is 29/29 (`3cac22`) with cleanup, zero models, and no
+server failure; source-budget, concurrency, and warning checks are covered,
+while final backend recovery review remains open. Owner click-later checks
+cover folder movement, artifact history, and interrupted resume; no native
+claim is made. Privacy remains OPEN/RED: latest scan `05e478` found exactly
+two known synthetic `.tmp-cp34-privacy` metrics databases and no new finding;
+`.tmp-cp39-lifecycle` is a known leftover, not a scanner finding. Owner/native,
+release, and beta acceptance remain open.
+
+CP40's scoped automated implementation is complete; owner/native/release
+acceptance remains pending. See [checkpoint-beta-readiness-40](checkpoint-beta-readiness-40.md).
+The current metric summary is v6 **20/18/0/2**, correcting the historical
+20/16/4 and v5 20/17/0/3 summaries without rewriting earlier checkpoint
+records: 18 paths are conditional on evidence, with two explicit provider
+adapter gaps. Reviewed requirement verification requires complete compatible
+Codex source, a native-reviewed plan, an observed check, and a fresh sealed
+analysis; it does not turn a provider-reported check into human coverage.
+The bounded fresh-analysis handoff keeps the saved evidence snapshot immutable
+and gives the owner an explicit action through the existing guarded
+Panel/Overlay command. Focused frontend evidence is 92/92 (`f9286f`), with
+the v6 catalog/parser/panel slice 45/45 (`e5bf80`). The repaired schema
+artifact is exact 1/1 (`7587c8`) after re-export (`a54297`) and generated
+type/check validation (`87aaf7`); v6 build is green (`18d276`) and the general
+built-loopback regression with the v6 inventory is 29/29 (`fb0489`, 31.6s;
+terminal `0b2fdf`) with cleanup confirmed and zero model runtimes; it is not
+fresh-action browser proof. Scoped backend evidence covers 14
+catalog/API and 11 verification tests, nonadditive and not native/provider/
+runtime/owner acceptance. CP40's automated scoped gates are complete; privacy,
+native owner, packaged/release, and full beta gates remain open.
+
+CP41's scoped automated implementation is complete; see
+[checkpoint-beta-readiness-41](checkpoint-beta-readiness-41.md). The honest
+automation-revocation UI, bounded Codex waits, publication-cutoff handling,
+and same-worker quarantine are covered by scoped evidence: ProjectAutomation
+Settings **17/17** (`3bd335`), shared chat cancellation **19/19** (`8d3d73`),
+source integration **1/1** (`507d5d`), same-worker quarantine **1/1**
+(`c6710f`), and the seven-file root suite **116/116** (`82864f`). Build and
+TypeScript passed (`c8397b`); the final general built-loopback regression is
+**29/29** (`cf3694`, 29.8s) with cleanup, zero models, and no server failure.
+The UI does not claim that active execution or cleanup has completed. No hard
+global runtime deadline or cross-process restart quarantine is claimed, and
+native-owner, provider/model, privacy, packaged/release, and overall beta
+acceptance remain open.
+
+CP42's scoped automated implementation is complete; see
+[checkpoint-beta-readiness-42](checkpoint-beta-readiness-42.md). Durable-first
+in-process per-job cancellation signals, bootstrap registry identity,
+per-lease registration cleanup, admission-race recheck, publication precedence,
+worker isolation, and cleanup quarantine are covered by the six-file root suite
+**35 passed in 60.78s** (`1b7727`): cancellation propagation, publication
+races, fake Stdio cancellation, cancellation signals, publication context, and
+queue. The fake Stdio get-barrier wait interrupted in under 0.5s and fake close
+was verified; cleanup-race coverage now performs an actual cancellation, and
+overlapping-attempt registry behavior is covered. Root regression remains
+**92 passed** (`2528a5`). No actual provider process/model or native UI was
+tested. Scoped verification, privacy, owner/native, packaged/release, and
+overall beta acceptance remain open. Final privacy scan `11e602` is not green:
+it reports exactly two known synthetic `.tmp-cp34-privacy/test_current_source_review_the{0,1}/metrics.sqlite3`
+artifacts and no new findings; release cleanliness remains outstanding.
+
+CP43's scoped automated implementation is complete; see
+[checkpoint-beta-readiness-43](checkpoint-beta-readiness-43.md). Saved-message
+search recovery preserves snapshot pagination boundaries, refuses the four
+client-success drift predicates, and keeps restart recovery actionable while
+disabling stale results/load-more. Backend search is 10/10 (`4981e0`), frontend
+dialog/catalog-rail plus search API is 57/57 (`07d997`), build/TypeScript passed
+(`70289d`), and general built-loopback regression is 29/29 in 30.6s (`255fb0`)
+with cleanup/listener/temp/model checks green. This is not dedicated pagination
+browser proof or a full-goal/beta claim. Privacy scan `0fa9dc` remains not green
+with exactly two known synthetic CP34 prohibited database artifacts.
+
+CP44's scoped automated implementation is complete; see
+[checkpoint-beta-readiness-44](checkpoint-beta-readiness-44.md). Artifact capture
+keeps metadata-only review separate from mutation outcome: definite failures
+say nothing was captured, while ambiguous responses block resubmission and
+request one read-only refresh. Root evidence is 273 passed (`63454a`), the
+AgentPage gate is 197 passed (`5f9677`), build `884c15` passed, and general
+built-loopback regression is 29/29 (`aeebeb`) with cleanup receipt `2be5b7`.
+No real native capture, provider/model, or overall beta acceptance is claimed.
+Privacy scan `7b659a` remains not green with the same two known synthetic CP34
+database artifacts.
+
+CP45a claim-grounding contracts foundation is scoped verified complete; full CP45 remains in progress; see
+[checkpoint-beta-readiness-45](checkpoint-beta-readiness-45.md). The keyed
+proposal remains non-native-authoritative, with no API, database, UI, or
+capability promotion. Root's combined synthetic baseline is 43 passed in
+1.25s (receipt `14b72a`), comprising the 24-test baseline, 11 owning tests,
+and 8 adversarial tests, with diff checks green. Privacy scan `230cf8` remains not green with exactly
+two known synthetic CP34 artifacts and no new findings. The measured-path
+operability inventory remains 18/20; whole-CP45 completion and release/beta
+acceptance are not claimed. No production wiring, UI change, build, or browser
+proof is claimed.

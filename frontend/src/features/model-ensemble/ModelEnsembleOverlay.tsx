@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   CodexSession,
   ModelEnsembleAttemptStage,
@@ -270,6 +270,37 @@ export function ModelEnsembleOverlay({
   const canonicalHeadRef = useRef<ModelEnsembleCanonicalHead | null>(null);
   const coordinatorRef = useRef<PollCoordinator | null>(null);
   const pendingActionRef = useRef<"analyze" | "cancel" | null>(null);
+  const analysisOwner = useMemo(() => snapshot === null ? null : {
+    transport,
+    watchId: snapshot.watch.watch_id,
+    sessionId: snapshot.watch.session_id,
+  }, [snapshot?.watch.session_id, snapshot?.watch.watch_id, transport]);
+  const analysisOwnerRef = useRef(analysisOwner);
+  analysisOwnerRef.current = analysisOwner;
+  const previousAnalysisOwnerRef = useRef(analysisOwner);
+  const definitionsOutOfDateRef = useRef(definitionsOutOfDate);
+  definitionsOutOfDateRef.current = definitionsOutOfDate;
+
+  useLayoutEffect(() => {
+    if (previousAnalysisOwnerRef.current === analysisOwner) return;
+    previousAnalysisOwnerRef.current = analysisOwner;
+    // A watch/session/transport replacement abandons the old command. Release
+    // its coordinator slot synchronously so the new owner can issue once; the
+    // old promise is still fenced when it eventually settles.
+    if (pendingActionRef.current !== null) {
+      pendingActionRef.current = null;
+      setPendingAction(null);
+      coordinatorRef.current?.endCommand();
+    }
+  }, [analysisOwner]);
+  useLayoutEffect(() => {
+    // StrictMode performs a setup/cleanup/setup cycle; restore the owner on
+    // the second setup so the initial action remains usable in development.
+    analysisOwnerRef.current = analysisOwner;
+    return () => {
+      analysisOwnerRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const ready = () => setNativeHost(desktopWindowApi() !== null);
@@ -717,7 +748,13 @@ export function ModelEnsembleOverlay({
   }
 
   async function analyzeNow() {
-    if (!analyzeAvailable || snapshot === null || !beginAction("analyze")) return;
+    if (
+      analysisOwnerRef.current !== analysisOwner
+      || !analyzeAvailable
+      || snapshot === null
+      || definitionsOutOfDateRef.current !== null
+      || !beginAction("analyze")
+    ) return;
     setScopeError("");
     const coordinator = coordinatorRef.current;
     coordinator?.beginCommand();
@@ -725,7 +762,9 @@ export function ModelEnsembleOverlay({
     try {
       if (transport.enqueueModelEnsembleAnalysis !== undefined) {
         const head = await transport.enqueueModelEnsembleAnalysis(snapshot.watch.watch_id);
+        if (analysisOwnerRef.current !== analysisOwner) return;
         const exactRun = await resolveCommandRun(head);
+        if (analysisOwnerRef.current !== analysisOwner) return;
         if (head.latest_attempt?.state === "running") setDisarmedAttemptId(head.latest_attempt.attempt_id);
         if (exactRun !== null) setDefinitionsOutOfDate(null);
         applyCanonical(head, { watch: head.watch, latest_run: exactRun });
@@ -733,25 +772,32 @@ export function ModelEnsembleOverlay({
       } else {
         if (transport.refreshModelEnsembleWatch === undefined) throw new Error("unavailable");
         const next = await transport.refreshModelEnsembleWatch(snapshot.watch.watch_id);
+        if (analysisOwnerRef.current !== analysisOwner) return;
         if (next.latest_run !== null) setDefinitionsOutOfDate(null);
         applyCanonical(null, next);
         resumeDelay = watchSnapshotPollDelay(next);
       }
       followingLive.current = true;
     } catch (queueError) {
+      if (analysisOwnerRef.current !== analysisOwner) return;
       if (queueError instanceof MetricDefinitionsOutOfDateError) {
         refuseCommandDefinitions(queueError.mismatch);
       } else {
         setScopeError("Analysis could not be queued. The last complete receipt remains visible.");
       }
     } finally {
-      endAction();
-      coordinator?.endCommand(resumeDelay);
+      // A late completion from an old watch/transport must not clear a newer
+      // action's busy state.
+      if (analysisOwnerRef.current === analysisOwner) {
+        endAction();
+        coordinator?.endCommand(resumeDelay);
+      }
     }
   }
 
   async function cancelAnalysis() {
-    if (!cancelAvailable || snapshot === null || !beginAction("cancel")) return;
+    const owner = analysisOwner;
+    if (analysisOwnerRef.current !== owner || !cancelAvailable || snapshot === null || !beginAction("cancel")) return;
     setScopeError("");
     const coordinator = coordinatorRef.current;
     coordinator?.beginCommand();
@@ -759,19 +805,24 @@ export function ModelEnsembleOverlay({
     try {
       if (transport.cancelModelEnsembleAnalysis === undefined) throw new Error("unavailable");
       const next = await transport.cancelModelEnsembleAnalysis(snapshot.watch.watch_id);
+      if (analysisOwnerRef.current !== owner) return;
       const exactRun = await resolveCommandRun(next);
+      if (analysisOwnerRef.current !== owner) return;
       if (exactRun !== null) setDefinitionsOutOfDate(null);
       applyCanonical(next, { watch: next.watch, latest_run: exactRun });
       resumeDelay = canonicalHeadPollDelay(next);
     } catch (cancelError) {
+      if (analysisOwnerRef.current !== owner) return;
       if (cancelError instanceof MetricDefinitionsOutOfDateError) {
         refuseCommandDefinitions(cancelError.mismatch);
       } else {
         setScopeError("Cancellation could not be confirmed. The latest sealed snapshot remains visible.");
       }
     } finally {
-      endAction();
-      coordinator?.endCommand(resumeDelay);
+      if (analysisOwnerRef.current === owner) {
+        endAction();
+        coordinator?.endCommand(resumeDelay);
+      }
     }
   }
 
@@ -940,7 +991,6 @@ export function ModelEnsembleOverlay({
               exact within-session date cutoffs need complete provider timestamps and are not inferred.
             </p>
             {catalogError !== "" ? <p className="model-ensemble-overlay__scope-error" role="alert">{catalogError}</p> : null}
-            {scopeError !== "" ? <p className="model-ensemble-overlay__scope-error" role="alert">{scopeError}</p> : null}
             <button
               className="model-ensemble-overlay__watch-button"
               disabled={watchChanging || sessionId === "" || projectId === ""}
@@ -957,6 +1007,15 @@ export function ModelEnsembleOverlay({
             </button>
           </>
         )}
+        {/*
+          Analyze and Cancel are refused from the progress section, but a
+          synchronized watch collapses the scope panel. The refusal therefore
+          lives outside the collapsed/expanded branch, so a rejected command is
+          never silent and the retained receipt is never left looking accepted.
+        */}
+        {scopeError !== "" ? (
+          <p className="model-ensemble-overlay__scope-error" role="alert">{scopeError}</p>
+        ) : null}
       </section>
       {definitionsOutOfDate !== null ? (
         <MetricDefinitionsOutOfDateAlert compact mismatch={definitionsOutOfDate} />
@@ -1058,6 +1117,18 @@ export function ModelEnsembleOverlay({
                     : []}
                   evidenceEnabled={selectedPoint === null || selectedPoint.run_id === snapshot.latest_run.run_id}
                   evidenceSessionId={snapshot.watch.session_id}
+                  freshAnalysisAction={{
+                    onRun: analyzeNow,
+                    busy: pendingAction === "analyze",
+                    disabled: !analyzeAvailable || definitionsOutOfDate !== null,
+                    disabledReason: definitionsOutOfDate !== null
+                      ? "Update this client before starting a new analysis."
+                      : runningAttempt !== null || snapshot.watch.state === "running"
+                        ? "A local analysis is already running."
+                        : snapshot.watch.state === "queued"
+                          ? "Wait for the queued analysis to settle."
+                          : undefined,
+                  }}
                   transport={transport}
                 />
               ) : null}

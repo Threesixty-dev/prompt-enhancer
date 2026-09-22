@@ -485,6 +485,80 @@ describe("ModelEnsembleOverlay", () => {
     expect(await screen.findByRole("button", { name: /Analysis queued/i })).toBeDisabled();
   });
 
+  it("keeps a refused Analyze command visible after the scope panel collapses", async () => {
+    const head = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const idle = watchSnapshot(25, head);
+    idle.watch.state = "idle";
+    idle.watch.generation = 4;
+    idle.watch.progress_completed = 10;
+    // The watch is scoped to PROJECT_B/SESSION_B, so the catalog must contain
+    // that session: the synthetic catalog indexes a different project, which
+    // leaves the collapsed summary on its unknown-scope fallback copy.
+    const sessions = [
+      catalogSession(PROJECT_A, SESSION_A, "Example Alpha", "Older planning", "2040-01-01T09:00:00Z"),
+      catalogSession(PROJECT_B, SESSION_B, "Example Beta", "Recent implementation", "2040-01-02T09:00:00Z"),
+    ];
+    const refreshModelEnsembleWatch = vi.fn().mockRejectedValue(new Error("unavailable"));
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      listCodexSessions: vi.fn(async () => ({ sessions, limit: 100, offset: 0 })),
+      getActiveModelEnsembleWatch: vi.fn(async () => idle),
+      getModelEnsembleTrajectory: vi.fn(async () => trajectoryPage(
+        head,
+        radarRun("7".repeat(64), 1, "2040-01-02T09:00:00Z"),
+      )),
+      refreshModelEnsembleWatch,
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    expect(await screen.findByText("100% signal")).toBeVisible();
+    // Synchronizing the watch collapses the scope controls from an effect, so it
+    // commits after the receipt that "100% signal" waits for. Await the settled
+    // collapsed panel rather than asserting on the intervening frame; the
+    // refusal must not be collapsed with the controls.
+    expect(await screen.findByRole("button", { name: "Change" })).toBeVisible();
+    const scopeSummary = document.querySelector(".model-ensemble-overlay__scope-summary");
+    expect(scopeSummary).toHaveTextContent("Example Beta");
+    expect(scopeSummary).toHaveTextContent("Recent implementation");
+    fireEvent.click(screen.getByRole("button", { name: "Analyze now" }));
+
+    await waitFor(() => expect(refreshModelEnsembleWatch).toHaveBeenCalledOnce());
+    const refusal = await screen.findByText(/Analysis could not be queued\. The last complete receipt remains visible\./);
+    expect(refusal).toBeVisible();
+    expect(refusal).toHaveAttribute("role", "alert");
+    expect(screen.getByRole("button", { name: "Change" })).toBeVisible();
+    expect(screen.getByText("100% signal")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect(screen.getAllByText(/Analysis could not be queued/)).toHaveLength(1);
+  });
+
+  it("keeps a refused Cancel command visible beside the retained sealed snapshot", async () => {
+    const headRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const runningHead = canonicalHead(headRun);
+    const cancelModelEnsembleAnalysis = vi.fn().mockRejectedValue(new Error("unavailable"));
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => runningHead),
+      getModelEnsembleSnapshot: vi.fn(async () => headRun),
+      cancelModelEnsembleAnalysis,
+      getModelEnsembleTrajectory: vi.fn(async () => trajectoryPage(
+        headRun,
+        radarRun("7".repeat(64), 1, "2040-01-02T09:00:00Z"),
+      )),
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel analysis" }));
+
+    await waitFor(() => expect(cancelModelEnsembleAnalysis).toHaveBeenCalledWith("d".repeat(64)));
+    const refusal = await screen.findByText(/Cancellation could not be confirmed\. The latest sealed snapshot remains visible\./);
+    expect(refusal).toBeVisible();
+    expect(refusal).toHaveAttribute("role", "alert");
+    expect(screen.getByRole("button", { name: "Change" })).toBeVisible();
+    expect(screen.getByText("100% signal")).toBeVisible();
+  });
+
   it("queues once on a repeated Analyze click and keeps the separate Cancel control disarmed briefly", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const run = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
@@ -516,6 +590,130 @@ describe("ModelEnsembleOverlay", () => {
     });
     expect(screen.getByRole("button", { name: "Cancel analysis" })).toBeEnabled();
     vi.useRealTimers();
+  });
+
+  it("ignores a deferred analyze completion after the watch transport owner changes", async () => {
+    const oldRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const oldHead = idleCanonicalHead(oldRun);
+    let resolveOld: ((value: ModelEnsembleCanonicalHead) => void) | undefined;
+    const oldTransport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => oldHead),
+      getModelEnsembleSnapshot: vi.fn(async () => oldRun),
+      enqueueModelEnsembleAnalysis: vi.fn(() => new Promise<ModelEnsembleCanonicalHead>((resolve) => {
+        resolveOld = resolve;
+      })),
+    };
+    const view = render(<ModelEnsembleOverlay transport={oldTransport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Analyze now" }));
+
+    const replacementRun = radarRun("9".repeat(64), 0, "2040-01-02T10:00:01Z");
+    const replacementHead = idleCanonicalHead(replacementRun);
+    const replacementTransport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => replacementHead),
+      getModelEnsembleSnapshot: vi.fn(async () => replacementRun),
+    };
+    view.rerender(<ModelEnsembleOverlay transport={replacementTransport} />);
+    expect(await screen.findByText("0% signal")).toBeVisible();
+
+    await act(async () => resolveOld?.(oldHead));
+    expect(screen.getByText("0% signal")).toBeVisible();
+    expect(screen.queryByText("100% signal")).not.toBeInTheDocument();
+  });
+
+  it("lets the replacement owner start before the old analyze settles, without losing its busy state", async () => {
+    const oldRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const oldHead = idleCanonicalHead(oldRun);
+    let resolveOld: ((value: ModelEnsembleCanonicalHead) => void) | undefined;
+    const oldTransport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => oldHead),
+      getModelEnsembleSnapshot: vi.fn(async () => oldRun),
+      enqueueModelEnsembleAnalysis: vi.fn(() => new Promise<ModelEnsembleCanonicalHead>((resolve) => {
+        resolveOld = resolve;
+      })),
+    };
+    const view = render(<ModelEnsembleOverlay transport={oldTransport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Analyze now" }));
+
+    const replacementRun = radarRun("9".repeat(64), 0, "2040-01-02T10:00:01Z");
+    const replacementHead = idleCanonicalHead(replacementRun);
+    let resolveNew: ((value: ModelEnsembleCanonicalHead) => void) | undefined;
+    const replacementTransport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => replacementHead),
+      getModelEnsembleSnapshot: vi.fn(async () => replacementRun),
+      enqueueModelEnsembleAnalysis: vi.fn(() => new Promise<ModelEnsembleCanonicalHead>((resolve) => {
+        resolveNew = resolve;
+      })),
+    };
+    view.rerender(<ModelEnsembleOverlay transport={replacementTransport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Analyze now" }));
+    expect(replacementTransport.enqueueModelEnsembleAnalysis).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveOld?.(oldHead));
+    expect(screen.getByRole("button", { name: "Queueing analysis…" })).toBeDisabled();
+
+    await act(async () => resolveNew?.(canonicalHead(replacementRun)));
+    expect(await screen.findByText("0% signal")).toBeVisible();
+  });
+
+  it("does not let a late old cancellation clear a replacement owner's analyze action", async () => {
+    const oldRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const oldHead = canonicalHead(oldRun);
+    let resolveOld: ((value: ModelEnsembleCanonicalHead) => void) | undefined;
+    const oldTransport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => oldHead),
+      getModelEnsembleSnapshot: vi.fn(async () => oldRun),
+      cancelModelEnsembleAnalysis: vi.fn(() => new Promise<ModelEnsembleCanonicalHead>((resolve) => {
+        resolveOld = resolve;
+      })),
+    };
+    const view = render(<ModelEnsembleOverlay transport={oldTransport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel analysis" }));
+
+    const replacementRun = radarRun("9".repeat(64), 0, "2040-01-02T10:00:01Z");
+    const replacementHead = idleCanonicalHead(replacementRun);
+    let resolveNew: ((value: ModelEnsembleCanonicalHead) => void) | undefined;
+    const replacementTransport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => replacementHead),
+      getModelEnsembleSnapshot: vi.fn(async () => replacementRun),
+      enqueueModelEnsembleAnalysis: vi.fn(() => new Promise<ModelEnsembleCanonicalHead>((resolve) => {
+        resolveNew = resolve;
+      })),
+    };
+    view.rerender(<ModelEnsembleOverlay transport={replacementTransport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Analyze now" }));
+    expect(replacementTransport.enqueueModelEnsembleAnalysis).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveOld?.(canonicalHead(oldRun, "cancelled")));
+    expect(screen.getByRole("button", { name: "Queueing analysis…" })).toBeDisabled();
+    await act(async () => resolveNew?.(canonicalHead(replacementRun)));
+    expect(await screen.findByText("0% signal")).toBeVisible();
+  });
+
+  it("fences an unresolved analyze response when the overlay unmounts", async () => {
+    const run = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const head = idleCanonicalHead(run);
+    let resolveOld: ((value: ModelEnsembleCanonicalHead) => void) | undefined;
+    const getModelEnsembleSnapshot = vi.fn(async () => run);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => head),
+      getModelEnsembleSnapshot,
+      enqueueModelEnsembleAnalysis: vi.fn(() => new Promise<ModelEnsembleCanonicalHead>((resolve) => {
+        resolveOld = resolve;
+      })),
+    };
+    const view = render(<ModelEnsembleOverlay transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Analyze now" }));
+    const snapshotCallsBeforeUnmount = getModelEnsembleSnapshot.mock.calls.length;
+    view.unmount();
+    await act(async () => resolveOld?.(head));
+    expect(getModelEnsembleSnapshot.mock.calls.length).toBe(snapshotCallsBeforeUnmount);
   });
 
   it("uses the canonical head for dynamic stage status, heavy snapshot changes, and real cancellation", async () => {

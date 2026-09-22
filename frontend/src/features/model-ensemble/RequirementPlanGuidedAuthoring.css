@@ -1,0 +1,188 @@
+.requirement-plan-guided {
+  display: grid;
+  gap: 0.75rem;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  padding: 0.8rem;
+  border: 1px solid var(--accent, var(--teal-700, currentColor));
+  border-radius: 0.7rem;
+  background: var(--surface-raised, Canvas);
+  color: var(--text-primary, CanvasText);
+}
+
+.requirement-plan-guided > header,
+.requirement-plan-guided > footer {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-inline-size: 0;
+  flex-wrap: wrap;
+}
+
+.requirement-plan-guided > header > h4,
+.requirement-plan-guided > header > span {
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.requirement-plan-guided > header > h4 {
+  flex: 1 1 12rem;
+}
+
+.requirement-plan-guided > header > span {
+  color: var(--text-muted, GrayText);
+  font-variant-numeric: tabular-nums;
+}
+
+.requirement-plan-guided > header > button {
+  margin-inline-start: auto;
+}
+
+.requirement-plan-guided > p,
+.requirement-plan-guided article,
+.requirement-plan-guided fieldset,
+.requirement-plan-guided > footer {
+  min-inline-size: 0;
+}
+
+.requirement-plan-guided > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.requirement-plan-guided article {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-subtle, var(--pa-127-127-127-350));
+  border-radius: 0.6rem;
+  background: var(--surface, Canvas);
+}
+
+.requirement-plan-guided article > strong,
+.requirement-plan-guided article blockquote,
+.requirement-plan-guided label,
+.requirement-plan-guided legend,
+.requirement-plan-guided select {
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+
+.requirement-plan-guided article blockquote {
+  max-block-size: 12rem;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  overflow: auto;
+  border-inline-start: 3px solid var(--accent, var(--teal-700, currentColor));
+  background: var(--surface-raised, Canvas);
+  white-space: pre-wrap;
+}
+
+.requirement-plan-guided fieldset {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--border-subtle, var(--pa-127-127-127-350));
+  border-radius: 0.55rem;
+}
+
+.requirement-plan-guided legend {
+  padding-inline: 0.25rem;
+  font-weight: 650;
+}
+
+.requirement-plan-guided label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 0;
+  padding: 0.35rem 0;
+}
+
+.requirement-plan-guided input[type="checkbox"],
+.requirement-plan-guided input[type="radio"] {
+  flex: 0 0 auto;
+  min-inline-size: 1.25rem;
+  min-block-size: 1.25rem;
+  margin: 0.2rem 0 0;
+}
+
+.requirement-plan-guided select {
+  inline-size: 100%;
+  min-block-size: 2.75rem;
+  min-inline-size: 0;
+  padding: 0.45rem 0.55rem;
+  color: inherit;
+  background: var(--surface, Canvas);
+}
+
+.requirement-plan-guided > footer {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.requirement-plan-guided > footer > button {
+  min-block-size: 2.75rem;
+}
+
+.requirement-plan-guided > footer > button:last-child {
+  margin-inline-start: auto;
+}
+
+.requirement-plan-guided [role="alert"] {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--danger, var(--p-c73a45, currentColor));
+  border-radius: 0.55rem;
+  overflow-wrap: anywhere;
+  background: var(--surface, Canvas);
+}
+
+.requirement-plan-guided :where(button, input, select):focus-visible {
+  outline: 3px solid var(--focus-ring, Highlight);
+  outline-offset: 3px;
+}
+
+@media (max-width: 42rem) {
+  .requirement-plan-guided > header > button,
+  .requirement-plan-guided > footer > button,
+  .requirement-plan-guided > footer > button:last-child {
+    inline-size: 100%;
+    margin-inline-start: 0;
+  }
+
+  .requirement-plan-guided > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 22.5rem) {
+  .requirement-plan-guided {
+    padding: 0.65rem;
+  }
+
+  .requirement-plan-guided article,
+  .requirement-plan-guided fieldset {
+    padding: 0.55rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .requirement-plan-guided,
+  .requirement-plan-guided article,
+  .requirement-plan-guided fieldset,
+  .requirement-plan-guided article blockquote,
+  .requirement-plan-guided [role="alert"] {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .requirement-plan-guided article blockquote {
+    border-inline-start-color: CanvasText;
+  }
+}

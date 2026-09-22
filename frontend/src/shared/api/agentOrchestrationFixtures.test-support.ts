@@ -90,9 +90,9 @@ export function exampleAgentOrchestrationManifest(): AgentOrchestrationManifest 
   ];
 
   return {
-    contract_version: "local-agent-orchestration.v22",
+    contract_version: "local-agent-orchestration.v23",
     transport: "loopback_http",
-    route_coverage: "all_agent_routes_plus_controller_runtime_routes",
+    route_coverage: "selected_agent_routes_plus_controller_runtime_routes",
     authentication: {
       primary_scheme: "bearer",
       authorization_header: "Authorization: Bearer <token>",

@@ -19,6 +19,7 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.transports.stdio_
     REQUEST_METHOD_ALLOWLIST,
     StdioJsonRpcTransport,
 )
+from prompt_enhancer.infrastructure.providers.codex_app_server.transports import stdio_jsonl
 
 
 def test_transport_rejects_non_allowlisted_calls_before_process_start(
@@ -82,3 +83,51 @@ def test_transport_wait_honors_runtime_shutdown_before_provider_timeout() -> Non
 
     assert time.monotonic() - started < 0.25
     assert transport._process is None
+
+
+def test_transport_rechecks_scoped_cutoff_after_dequeue_before_accepting_response() -> None:
+    transport = StdioJsonRpcTransport()
+    transport._lines.put(b'{"id":1,"result":{}}\n')
+    observed = [10.0, 11.0]
+
+    def deadline_clock() -> float:
+        return observed.pop(0)
+
+    with runtime_request_scope(
+        threading.Event(),
+        deadline_monotonic=11.0,
+        deadline_reason="automation_publication_deadline_exceeded",
+        monotonic_clock=deadline_clock,
+    ), pytest.raises(
+        RuntimeCooperativeStop,
+        match="^automation_publication_deadline_exceeded$",
+    ):
+        transport._next_message(deadline=time.monotonic() + 10)
+
+    assert transport._process is None
+
+
+def test_expired_scoped_deadline_refuses_to_start_or_write_provider_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    starts: list[object] = []
+
+    def forbidden_start() -> object:
+        starts.append(object())
+        raise AssertionError("expired request must not start a provider helper")
+
+    monkeypatch.setattr(stdio_jsonl, "start_codex_app_server_process", forbidden_start)
+    transport = StdioJsonRpcTransport()
+
+    with runtime_request_scope(
+        threading.Event(),
+        deadline_monotonic=4.0,
+        deadline_reason="automation_publication_deadline_exceeded",
+        monotonic_clock=lambda: 4.0,
+    ), pytest.raises(
+        RuntimeCooperativeStop,
+        match="^automation_publication_deadline_exceeded$",
+    ):
+        transport._request("thread/list", {"useStateDbOnly": True})
+
+    assert starts == []

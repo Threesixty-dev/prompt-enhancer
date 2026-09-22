@@ -21,6 +21,14 @@ AgentOrchestrationAccess = Literal[
 ]
 AgentOrchestrationResponse = Literal["json", "binary", "sse", "no_content"]
 
+_NON_CONTROLLER_AGENT_PATHS = frozenset(
+    {
+        "/v1/agent/web-fetch-capability",
+        "/v1/agent/catalog/sessions/message-search",
+        "/v1/agent/sessions/{session_id}/parameters",
+    }
+)
+
 
 class AgentOrchestrationAuthentication(StrictModel):
     primary_scheme: Literal["bearer"] = "bearer"
@@ -125,13 +133,13 @@ class AgentOrchestrationProtocol(StrictModel):
 
 
 class AgentOrchestrationManifest(StrictModel):
-    contract_version: Literal["local-agent-orchestration.v22"] = (
-        "local-agent-orchestration.v22"
+    contract_version: Literal["local-agent-orchestration.v23"] = (
+        "local-agent-orchestration.v23"
     )
     transport: Literal["loopback_http"] = "loopback_http"
     route_coverage: Literal[
-        "all_agent_routes_plus_controller_runtime_routes"
-    ] = "all_agent_routes_plus_controller_runtime_routes"
+        "selected_agent_routes_plus_controller_runtime_routes"
+    ] = "selected_agent_routes_plus_controller_runtime_routes"
     authentication: AgentOrchestrationAuthentication = Field(
         default_factory=AgentOrchestrationAuthentication
     )
@@ -145,16 +153,16 @@ class AgentOrchestrationManifest(StrictModel):
     endpoints: tuple[AgentOrchestrationEndpoint, ...]
 
     @model_validator(mode="after")
-    def validate_complete_v22_surface(self) -> "AgentOrchestrationManifest":
+    def validate_complete_v23_surface(self) -> "AgentOrchestrationManifest":
         """Reject a downgraded or internally inconsistent discovery document.
 
         The same strict model is used by the bundled controller client, so a
-        process cannot silently replace the complete v22 contract with a small
+        process cannot silently replace the complete v23 contract with a small
         allowlist or relabel native-only operations as bearer-authorized.
         """
 
         if len(self.endpoints) != 77:
-            raise ValueError("the v22 controller surface must declare 77 routes")
+            raise ValueError("the v23 controller surface must declare 77 routes")
         operations = [item.operation for item in self.endpoints]
         if len(operations) != len(set(operations)):
             raise ValueError("controller operation names must be unique")
@@ -173,6 +181,8 @@ class AgentOrchestrationManifest(StrictModel):
                 raise ValueError("controller path templates must be local relative paths")
             if any(part == ".." for part in path.split("/")):
                 raise ValueError("controller path templates cannot traverse")
+            if path in _NON_CONTROLLER_AGENT_PATHS:
+                raise ValueError("non-controller Agent routes cannot enter the manifest")
             if separator and query not in {
                 "after={sequence}",
                 "expected_revision={expected_revision}",
@@ -189,7 +199,7 @@ class AgentOrchestrationManifest(StrictModel):
             else:
                 raise ValueError("controller routes must stay on the declared local API")
         if agent_routes != 72 or runtime_routes != 5:
-            raise ValueError("the v22 controller route groups are incomplete")
+            raise ValueError("the v23 controller route groups are incomplete")
 
         native_operations = {
             item.operation
@@ -249,12 +259,12 @@ class AgentOrchestrationManifest(StrictModel):
             "stop_local_runtime",
         }
         if not required.issubset(operations):
-            raise ValueError("the v22 controller lifecycle is incomplete")
+            raise ValueError("the v23 controller lifecycle is incomplete")
         return self
 
 
 def agent_orchestration_manifest() -> AgentOrchestrationManifest:
-    """Return the content-free v22 controller discovery document."""
+    """Return the content-free v23 controller discovery document."""
 
     endpoint = AgentOrchestrationEndpoint
     return AgentOrchestrationManifest(

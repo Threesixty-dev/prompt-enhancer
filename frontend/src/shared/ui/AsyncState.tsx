@@ -9,17 +9,28 @@ export function LoadingState({ label }: { label: string }) {
   );
 }
 
+type ErrorStateRecovery =
+  | {
+    actionLabel?: string;
+    onRetry: () => void;
+    recovery?: never;
+  }
+  | {
+    actionLabel?: never;
+    onRetry?: never;
+    recovery: "preserve-work-before-reload";
+  };
+
 export function ErrorState({
   message,
   onRetry,
+  recovery,
   title = "Something needs attention",
-  actionLabel = "Try again",
+  actionLabel,
 }: {
   message: string;
-  onRetry?: () => void;
   title?: string;
-  actionLabel?: string;
-}) {
+} & ErrorStateRecovery) {
   return (
     <div className="async-state async-state--error" role="alert">
       <span className="async-state__icon">
@@ -28,10 +39,13 @@ export function ErrorState({
       <div>
         <strong>{title}</strong>
         <p>{message}</p>
+        {recovery === "preserve-work-before-reload" && (
+          <p>Preserve or copy unsent drafts and unsaved file work before explicitly reloading the app.</p>
+        )}
       </div>
       {onRetry && (
         <button className="button button--secondary" onClick={onRetry} type="button">
-          {actionLabel}
+          {actionLabel ?? "Try again"}
         </button>
       )}
     </div>

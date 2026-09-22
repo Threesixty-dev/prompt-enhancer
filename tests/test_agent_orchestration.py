@@ -22,10 +22,10 @@ def test_orchestration_manifest_is_content_free_and_marks_native_boundaries() ->
     payload = manifest.model_dump(mode="json")
     serialized = json.dumps(payload, sort_keys=True)
 
-    assert payload["contract_version"] == "local-agent-orchestration.v22"
+    assert payload["contract_version"] == "local-agent-orchestration.v23"
     assert payload["transport"] == "loopback_http"
     assert payload["route_coverage"] == (
-        "all_agent_routes_plus_controller_runtime_routes"
+        "selected_agent_routes_plus_controller_runtime_routes"
     )
     assert payload["authentication"] == {
         "primary_scheme": "bearer",
@@ -224,12 +224,22 @@ def test_orchestration_manifest_covers_every_agent_route_and_only_real_routes(
     )
     application = bootstrap_local_application(settings)
     schema = application.create_http_app().openapi()
+    http_methods = {
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "head",
+        "options",
+        "trace",
+    }
     actual_agent_routes = {
         (method.upper(), path)
         for path, operations in schema["paths"].items()
         if path.startswith("/v1/agent")
         for method in operations
-        if method in {"get", "post", "patch", "delete"}
+        if method in http_methods
     }
     manifest = agent_orchestration_manifest()
     declared_agent_routes = {
@@ -237,14 +247,30 @@ def test_orchestration_manifest_covers_every_agent_route_and_only_real_routes(
         for endpoint in manifest.endpoints
         if endpoint.path_template.startswith("/v1/agent")
     }
-    assert len(actual_agent_routes) == 72
-    assert declared_agent_routes == actual_agent_routes
+    excluded_agent_routes = {
+        ("GET", "/v1/agent/web-fetch-capability"): (
+            "native capability metadata, not controller authority"
+        ),
+        ("POST", "/v1/agent/catalog/sessions/message-search"): (
+            "private body-only message search"
+        ),
+        ("PUT", "/v1/agent/sessions/{session_id}/parameters"): (
+            "native session settings control"
+        ),
+    }
+    assert len(actual_agent_routes) == 75
+    assert len(declared_agent_routes) == 72
+    assert declared_agent_routes.isdisjoint(excluded_agent_routes.keys())
+    assert (
+        declared_agent_routes | excluded_agent_routes.keys()
+        == actual_agent_routes
+    )
 
     actual_routes = {
         (method.upper(), path)
         for path, operations in schema["paths"].items()
         for method in operations
-        if method in {"get", "post", "patch", "delete"}
+        if method in http_methods
     }
     declared_routes = {
         (endpoint.method, endpoint.path_template.split("?", 1)[0])

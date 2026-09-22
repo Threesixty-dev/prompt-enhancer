@@ -1,0 +1,12 @@
+.agent-attachment-retry-checklist {
+  border: 1px solid var(--line, currentColor);
+  border-radius: .5rem;
+  margin: .6rem 0;
+  padding: .65rem;
+}
+
+.agent-attachment-retry-checklist ul { margin: .45rem 0; padding-left: 1.2rem; }
+.agent-attachment-retry-checklist li { align-items: center; display: flex; flex-wrap: wrap; gap: .5rem; justify-content: space-between; margin: .35rem 0; }
+.agent-attachment-retry-checklist li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.agent-attachment-retry-checklist__matched, .agent-attachment-retry-checklist__omitted { color: var(--ink-650, currentColor); font-weight: 600; }
+.agent-attachment-retry-checklist__warning { margin-bottom: 0; overflow-wrap: anywhere; }

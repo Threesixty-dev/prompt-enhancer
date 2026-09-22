@@ -96,7 +96,7 @@ def _path_snapshot(path: Path) -> tuple[tuple[int, ...], ...]:
         current = current.parent
 
 
-def _stable_metadata(metadata: os.stat_result) -> tuple[int, int, int, int, int, int, int]:
+def _stable_metadata(metadata: os.stat_result) -> tuple[int | None, ...]:
     return (
         metadata.st_dev,
         metadata.st_ino,
@@ -104,7 +104,30 @@ def _stable_metadata(metadata: os.stat_result) -> tuple[int, int, int, int, int,
         metadata.st_mtime_ns,
         metadata.st_ctime_ns,
         metadata.st_nlink,
-        stat.S_IFMT(metadata.st_mode),
+        metadata.st_mode,
+        getattr(metadata, "st_birthtime_ns", None),
+        getattr(metadata, "st_file_attributes", 0),
+    )
+
+
+def _same_path_and_descriptor(path: os.stat_result, descriptor: os.stat_result) -> bool:
+    if os.name != "nt":
+        return _stable_metadata(path) == _stable_metadata(descriptor)
+    # CPython 3.13 Windows lstat ctime may mean birth time, unlike fstat.
+    # Raw ctime remains checked in each API's before/after snapshot.
+    # https://docs.python.org/3.13/library/os.html#os.stat_result
+    def snapshot(value: os.stat_result) -> tuple[int, ...]:
+        return (value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+                value.st_size, value.st_mtime_ns,
+                getattr(value, "st_birthtime_ns", value.st_ctime_ns),
+                getattr(value, "st_file_attributes", 0))
+
+    return (
+        bool(path.st_ino and descriptor.st_ino)
+        and all(stat.S_ISREG(value.st_mode) and value.st_nlink == 1
+                and not getattr(value, "st_file_attributes", 0) & 0x400
+                for value in (path, descriptor))
+        and snapshot(path) == snapshot(descriptor)
     )
 
 
@@ -124,7 +147,8 @@ def _read_regular(path: Path, *, maximum: int, exact: int | None = None) -> byte
         path_snapshot = _path_snapshot(path)
         metadata = path.lstat()
         if (
-            not stat.S_ISREG(metadata.st_mode)
+            _stable_metadata(metadata) != path_snapshot[0]
+            or not stat.S_ISREG(metadata.st_mode)
             or stat.S_ISLNK(metadata.st_mode)
             or metadata.st_nlink != 1
             or bool(getattr(metadata, "st_file_attributes", 0) & 0x400)
@@ -135,7 +159,7 @@ def _read_regular(path: Path, *, maximum: int, exact: int | None = None) -> byte
             return None
         descriptor = _open_readonly(path)
         opened = os.fstat(descriptor)
-        if _stable_metadata(metadata) != _stable_metadata(opened):
+        if not _same_path_and_descriptor(metadata, opened):
             return None
         chunks: list[bytes] = []
         total = 0

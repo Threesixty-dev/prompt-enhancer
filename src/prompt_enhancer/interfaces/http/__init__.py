@@ -26,7 +26,11 @@ from .automation_grant_routes import create_automation_grant_router
 from .application_update_routes import create_application_update_router
 from .control_plane_routes import create_control_plane_router
 from .estimator_routes import create_estimator_router
-from .paid_product_routes import create_paid_product_readiness_router
+from .paid_product_routes import (
+    create_paid_product_readiness_router,
+    create_stripe_testmode_webhook_router,
+)
+from .paid_checkout_routes import create_paid_checkout_router
 from .social_routes import (
     create_social_mutation_router,
     create_social_readiness_router,
@@ -52,6 +56,8 @@ __all__ = (
     "create_application_update_router",
     "create_estimator_router",
     "create_paid_product_readiness_router",
+    "create_stripe_testmode_webhook_router",
+    "create_paid_checkout_router",
     "create_social_mutation_router",
     "create_social_readiness_router",
     "create_task_query_router",

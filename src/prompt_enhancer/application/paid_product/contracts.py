@@ -301,6 +301,26 @@ class SignedBillingWebhook(StrictModel):
     _expires = field_validator("expires_at")(_optional_utc)
 
 
+class StripeSubscriptionBinding(StrictModel):
+    """Server-created, privacy-safe binding for one Stripe subscription.
+
+    The values are installation-keyed pseudonyms of provider identifiers.  A
+    webhook payload, including its metadata, can never create this binding.
+    """
+
+    organization_id: str
+    customer_pseudonym: str
+    subscription_pseudonym: str
+    price_pseudonym: str
+    feature: EntitlementFeature
+    created_at: datetime
+
+    _ids = field_validator(
+        "organization_id", "customer_pseudonym", "subscription_pseudonym", "price_pseudonym"
+    )(_pseudonym)
+    _created = field_validator("created_at")(_utc)
+
+
 class SpendPolicy(StrictModel):
     organization_id: str
     user_id: str
@@ -632,6 +652,7 @@ __all__ = [
     "RemoteAnalysisApproval",
     "RetentionClass",
     "SignedBillingWebhook",
+    "StripeSubscriptionBinding",
     "SpendHold",
     "SpendHoldState",
     "SpendPolicy",

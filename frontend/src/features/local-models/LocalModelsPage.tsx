@@ -99,6 +99,51 @@ interface ActiveOverviewLoad {
   controller: AbortController;
   generation: number;
 }
+type StatusReadResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+const STATUS_READ_TIMEOUT_MS = 10_000;
+
+function boundedStatusRead<T>(
+  read: (signal: AbortSignal) => Promise<T>,
+  parent: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController();
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let timeout: number | null = null;
+    const cleanup = () => {
+      if (timeout !== null) window.clearTimeout(timeout);
+      parent.removeEventListener("abort", abort);
+    };
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const abort = () => {
+      controller.abort();
+      finish(() => reject(new TransportError("Local status read was superseded", 499)));
+    };
+    parent.addEventListener("abort", abort, { once: true });
+    if (parent.aborted) {
+      abort();
+      return;
+    }
+    timeout = window.setTimeout(() => {
+      controller.abort();
+      finish(() => reject(new TransportError("Local status read timed out", 408)));
+    }, STATUS_READ_TIMEOUT_MS);
+    try {
+      Promise.resolve(read(controller.signal)).then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error)),
+      );
+    } catch (caught) {
+      finish(() => reject(caught));
+    }
+  });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -210,7 +255,7 @@ function operationFailure(caught: unknown, label: string): string {
   const reason = caught instanceof TransportError ? caught.reasonCode : null;
   if (label.startsWith("download-")) {
     if (reason === "download_revision_conflict") {
-      return "This download changed in another view. Its durable state was reloaded; review it before trying again.";
+      return "This download changed in another view. Refresh the model catalog before trying again.";
     }
     if (reason === "download_cleanup_failed") {
       return "The transfer stopped, but deletion of its owned partial could not be confirmed. The download remains blocked for review.";
@@ -218,7 +263,7 @@ function operationFailure(caught: unknown, label: string): string {
     if (reason === "provenance_mismatch" || reason === "file_not_eligible") {
       return "The repository no longer matches the immutable revision, digest, size, or licence you confirmed. Look it up again before retrying.";
     }
-    return "That download command could not be confirmed. Its current durable state was reloaded.";
+    return "That download command could not be confirmed. Refresh the model catalog before trying again.";
   }
   if (label === "download") {
     return status === 409
@@ -229,7 +274,7 @@ function operationFailure(caught: unknown, label: string): string {
     return "A model request is still active. Finish or stop it before switching or unloading the shared runtime.";
   }
   if (reason === "runtime_revision_conflict") {
-    return "The shared runtime changed in another view. Its current state was reloaded; review it before trying again.";
+    return "The shared runtime changed in another view. Refresh its status before trying again.";
   }
   if (reason === "runtime_cleanup_unconfirmed") {
     return "The old process exited, but GPU-memory cleanup could not be verified. No replacement model was loaded.";
@@ -238,7 +283,7 @@ function operationFailure(caught: unknown, label: string): string {
     return "The previous runtime did not confirm a safe stop. New launches remain quarantined.";
   }
   if (reason === "runtime_activation_superseded") {
-    return "A newer runtime command replaced this one. The current shared state was reloaded.";
+    return "A newer runtime command replaced this one. Refresh its status before trying again.";
   }
   if (reason === "runtime_shutdown_in_progress") {
     return "The app is shutting down its owned runtime. Wait for the local service to restart before loading a model.";
@@ -257,8 +302,8 @@ function operationFailure(caught: unknown, label: string): string {
   }
   if (status === 422) return "That is not a usable GGUF file or folder.";
   if (status === 502) return "The runtime process did not become healthy. No model was marked ready.";
-  if (status === 409) return "The operation conflicted with current local state. The latest state was reloaded.";
-  return "That operation did not complete. The latest local state was reloaded.";
+  if (status === 409) return "The operation conflicted with current local state. Refresh its status before trying again.";
+  return "That operation did not complete. Refresh the relevant local status before trying again.";
 }
 
 function LocalModelsHeader() {
@@ -286,6 +331,8 @@ function LocalModelsHeader() {
  */
 export function LocalModelsPage({
   transport,
+  onOpenAgentChat,
+  onTemporaryChatDirtyChange,
 }: {
   transport: Pick<
     PromptEnhancerTransport,
@@ -295,12 +342,20 @@ export function LocalModelsPage({
     "scanLocalModelFolder" | "getLocalModelCompatibility" | "getLocalRuntime" | "switchLocalRuntime" | "stopLocalRuntime"
     | "pauseLocalModelDownload" | "resumeLocalModelDownload" | "retryLocalModelDownload" | "cancelLocalModelDownload"
   >>;
+  onOpenAgentChat?: (modelAlias: string | null) => void;
+  onTemporaryChatDirtyChange?: (dirty: boolean) => void;
 }) {
   const [overview, setOverview] = useState<LocalModelsOverview | null>(null);
+  const overviewState = useRef<LocalModelsOverview | null>(null);
+  const [catalogReadFailed, setCatalogReadFailed] = useState(false);
   const [compatibility, setCompatibility] = useState<LocalModelCompatibilityCatalog | null>(null);
   const [runtime, setRuntime] = useState<LocalRuntimeCoordinatorStatus | null>(null);
+  const [compatibilityReadFailed, setCompatibilityReadFailed] = useState(false);
+  const [runtimeReadFailed, setRuntimeReadFailed] = useState(false);
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [state, setState] = useState<"loading" | "ready" | "unavailable" | "error">("loading");
   const [busy, setBusy] = useState<string>("");
+  const busyState = useRef("");
   const [message, setMessage] = useState<string>("");
   const [devices, setDevices] = useState<Record<string, DeviceMode>>({});
   const [layers, setLayers] = useState<Record<string, string>>({});
@@ -317,8 +372,10 @@ export function LocalModelsPage({
   const contextGeneration = useRef(0);
   const loadGeneration = useRef(0);
   const commandGeneration = useRef(0);
+  const runtimeRevision = useRef<number | null>(null);
   const activeLoad = useRef<ActiveOverviewLoad | null>(null);
   const activeLookup = useRef<AbortController | null>(null);
+  overviewState.current = overview;
   const coordinatedLifecycle = transport.getLocalRuntime !== undefined
     && transport.switchLocalRuntime !== undefined
     && transport.stopLocalRuntime !== undefined;
@@ -327,7 +384,7 @@ export function LocalModelsPage({
     mounted.current && contextGeneration.current === context
   ), []);
 
-  const load = useCallback(async (kind: OverviewLoadKind, context: number) => {
+  const load = useCallback(async (kind: OverviewLoadKind, context: number, allowRuntimeReadDuringCommand = false) => {
     if (!isCurrentContext(context)) return;
     if (kind === "poll" && activeLoad.current !== null) return;
 
@@ -345,27 +402,68 @@ export function LocalModelsPage({
       && activeLoad.current === ticket
       && loadGeneration.current === ticket.generation
     );
-    try {
-      const [value, compatibilityValue, runtimeValue] = await Promise.all([
-        transport.getLocalModels(ticket.controller.signal),
-        transport.getLocalModelCompatibility?.(ticket.controller.signal).catch(() => null)
-          ?? Promise.resolve(null),
-        coordinatedLifecycle
-          ? transport.getLocalRuntime!(ticket.controller.signal)
-          : Promise.resolve(null),
-      ]);
+    const catalogRead = boundedStatusRead((signal) => transport.getLocalModels(signal), ticket.controller.signal)
+      .then((value): StatusReadResult<LocalModelsOverview> => ({ ok: true, value }), (error): StatusReadResult<LocalModelsOverview> => ({ ok: false, error }));
+    const compatibilityRead: Promise<StatusReadResult<LocalModelCompatibilityCatalog>> | null = transport.getLocalModelCompatibility === undefined
+      ? null
+      : boundedStatusRead((signal) => transport.getLocalModelCompatibility!(signal), ticket.controller.signal)
+        .then((value): StatusReadResult<LocalModelCompatibilityCatalog> => ({ ok: true, value }), (error): StatusReadResult<LocalModelCompatibilityCatalog> => ({ ok: false, error }));
+    const runtimeRead: Promise<StatusReadResult<LocalRuntimeCoordinatorStatus>> | null = coordinatedLifecycle
+      ? boundedStatusRead((signal) => transport.getLocalRuntime!(signal), ticket.controller.signal)
+        .then((value): StatusReadResult<LocalRuntimeCoordinatorStatus> => ({ ok: true, value }), (error): StatusReadResult<LocalRuntimeCoordinatorStatus> => ({ ok: false, error }))
+      : null;
+    if (runtimeRead !== null) setRuntimeLoading(true);
+    const catalogSettled = catalogRead.then((result) => {
       if (!ownsResult()) return;
-      if (!safeOverview(value)) { setState("error"); return; }
-      setOverview(value);
-      setCompatibility(compatibilityValue);
-      setRuntime(runtimeValue);
+      if (!result.ok || !safeOverview(result.value)) {
+        setCatalogReadFailed(true);
+        if (overviewState.current === null) {
+          setState(!result.ok && result.error instanceof TransportError && result.error.status === 404 ? "unavailable" : "error");
+        }
+        return;
+      }
+      overviewState.current = result.value;
+      setOverview(result.value);
+      setCatalogReadFailed(false);
       setState("ready");
-    } catch (caught) {
+    });
+    const compatibilitySettled = compatibilityRead?.then((result) => {
       if (!ownsResult()) return;
-      setState(caught instanceof TransportError && caught.status === 404 ? "unavailable" : "error");
-    } finally {
-      if (activeLoad.current === ticket) activeLoad.current = null;
-    }
+      if (result.ok) {
+        setCompatibility(result.value);
+        setCompatibilityReadFailed(false);
+      } else {
+        setCompatibilityReadFailed(true);
+      }
+    }) ?? Promise.resolve();
+    const runtimeSettled = runtimeRead?.then((result) => {
+      if (!ownsResult()) return;
+      if (busyState.current.startsWith("runtime:") && !allowRuntimeReadDuringCommand) {
+        setRuntimeReadFailed(true);
+        setRuntimeLoading(false);
+        return;
+      }
+      if (result.ok) {
+        const value = result.value;
+        if (runtimeRevision.current !== null && value.revision < runtimeRevision.current) {
+          setRuntimeReadFailed(true);
+        } else {
+          runtimeRevision.current = value.revision;
+          setRuntime(value);
+          setRuntimeReadFailed(false);
+        }
+      } else {
+        setRuntimeReadFailed(true);
+      }
+      setRuntimeLoading(false);
+    }) ?? Promise.resolve().then(() => {
+      if (!ownsResult()) return;
+      setRuntime(null);
+      setRuntimeReadFailed(false);
+      setRuntimeLoading(false);
+    });
+    await Promise.all([catalogSettled, compatibilitySettled, runtimeSettled]);
+    if (activeLoad.current === ticket) activeLoad.current = null;
   }, [coordinatedLifecycle, isCurrentContext, transport]);
 
   useEffect(() => {
@@ -375,10 +473,17 @@ export function LocalModelsPage({
     commandGeneration.current += 1;
     activeLoad.current?.controller.abort();
     activeLoad.current = null;
+    overviewState.current = null;
     setOverview(null);
+    setCatalogReadFailed(false);
     setCompatibility(null);
     setRuntime(null);
+    runtimeRevision.current = null;
+    setCompatibilityReadFailed(false);
+    setRuntimeReadFailed(false);
+    setRuntimeLoading(coordinatedLifecycle);
     setState("loading");
+    busyState.current = "";
     setBusy("");
     setMessage("");
     setRemote(null);
@@ -407,18 +512,39 @@ export function LocalModelsPage({
     const command = commandGeneration.current + 1;
     commandGeneration.current = command;
     if (!isCurrentContext(context)) return;
+    const runtimeCommand = label.startsWith("runtime:");
+    if (runtimeCommand) {
+      activeLoad.current?.controller.abort();
+      activeLoad.current = null;
+      setRuntimeReadFailed(true);
+    }
+    busyState.current = label;
     setBusy(label);
     setMessage("");
     try {
       await action();
       if (!isCurrentContext(context) || commandGeneration.current !== command) return;
       if (okMessage) setMessage(okMessage);
-      await load("reload", context);
+      if (runtimeCommand) {
+        busyState.current = "";
+        setBusy("");
+        await load("reload", context, true);
+      } else {
+        await load("reload", context);
+      }
     } catch (caught) {
       if (!isCurrentContext(context) || commandGeneration.current !== command) return;
       setMessage(operationFailure(caught, label));
+      if (runtimeCommand) {
+        busyState.current = "";
+        setBusy("");
+        void load("reload", context, true);
+      }
     } finally {
-      if (isCurrentContext(context) && commandGeneration.current === command) setBusy("");
+      if (isCurrentContext(context) && commandGeneration.current === command) {
+        busyState.current = "";
+        setBusy("");
+      }
     }
   }
 
@@ -496,11 +622,13 @@ export function LocalModelsPage({
   }
 
   const selectedRemote = remote?.files.find((f) => f.filename === chosenFile) ?? null;
+  const catalogEvidenceFresh = overview !== null && !catalogReadFailed;
   const requiredDownloadBytes = selectedRemote?.size_bytes && overview
     ? selectedRemote.size_bytes + overview.download_reserve_bytes
     : null;
   const storageFitsDownload = Boolean(
-    overview
+    catalogEvidenceFresh
+    && overview
     && requiredDownloadBytes !== null
     && overview.storage_free_bytes !== null
     && overview.storage_free_bytes !== undefined
@@ -513,7 +641,8 @@ export function LocalModelsPage({
     && selectedRemote?.eligible && selectedRemote.sha256 && selectedRemote.size_bytes,
   );
   const downloadable = Boolean(
-    downloadIdentityEligible
+    catalogEvidenceFresh
+    && downloadIdentityEligible
     && storageFitsDownload
     && overview?.download_ledger_error_code === null,
   );
@@ -550,8 +679,16 @@ export function LocalModelsPage({
     || runtime?.state === "loading";
   const coordinatorCleanupBlocked = runtime?.state === "cleanup_unknown"
     || runtime?.state === "quarantined";
+  const runtimeEvidenceFresh = !coordinatedLifecycle || (runtime !== null && !runtimeReadFailed);
+  const retainedUnloadAvailable = runtime?.served !== undefined
+    && runtime?.served !== null
+    && !coordinatorTransition
+    && !coordinatorCleanupBlocked
+    && (runtime?.active_requests ?? 0) === 0;
   const coordinatorMutationBlocked = coordinatedLifecycle && (
-    runtime === null
+    !catalogEvidenceFresh
+    || !runtimeEvidenceFresh
+    || runtime === null
     || coordinatorTransition
     || coordinatorCleanupBlocked
     || (runtime.active_requests ?? 0) > 0
@@ -639,16 +776,36 @@ export function LocalModelsPage({
         </p>
       )}
 
+      {catalogReadFailed && (
+        <div className="local-models__error" role="alert">
+          The installed-model catalog could not be refreshed. Displayed models and storage evidence are last confirmed; new downloads, chat sends, launches, switches, and removal stay off until Retry verifies the catalog.
+          <button className="button button--ghost" onClick={() => void load("reload", contextGeneration.current)} type="button">Retry model catalog</button>
+        </div>
+      )}
+
+      {coordinatedLifecycle && runtimeReadFailed && (
+        <div className="local-models__error" role="alert">
+          Shared runtime status is unavailable. Model launch, switching, and removal stay disabled until Refresh verifies it again.
+          {runtime?.served ? ` Last confirmed runtime: ${runtime.served.alias} at revision ${runtime.revision}.${retainedUnloadAvailable ? " Its exact unload request remains available." : " Its unload remains subject to the retained active-request and cleanup guards."}` : ""}
+        </div>
+      )}
+      {coordinatedLifecycle && (
+        <button className="button button--ghost" disabled={runtimeLoading || busy !== ""} onClick={() => void load("reload", contextGeneration.current)} type="button">Refresh runtime status</button>
+      )}
+      {compatibilityReadFailed && (
+        <p className="local-models__hint">Executable compatibility receipt is unavailable. Installed-model details remain last confirmed where shown.</p>
+      )}
+
       {coordinatedLifecycle && runtime && (
         <article
           aria-label="Shared model runtime lifecycle"
           className="local-models__coordinator"
-          data-state={runtime.state}
+          data-state={runtimeReadFailed ? "unavailable" : runtime.state}
         >
           <header>
             <span>
               <small>One app-owned process</small>
-              <strong>Shared runtime {coordinatorStateLabel(runtime.state)}</strong>
+              <strong>{runtimeReadFailed ? `Shared runtime last confirmed ${coordinatorStateLabel(runtime.state)}` : `Shared runtime ${coordinatorStateLabel(runtime.state)}`}</strong>
             </span>
             <span className="local-models__state">Revision {runtime.revision}</span>
           </header>
@@ -715,8 +872,13 @@ export function LocalModelsPage({
             const startBusyKey = `runtime:start:${item.record.alias}`;
             const stopBusyKey = `runtime:stop:${item.record.alias}`;
             const lifecycleDisabled = busy !== ""
+              || !catalogEvidenceFresh
               || !overview.runtime_available
               || coordinatorMutationBlocked;
+            const exactUnloadDisabled = busy !== ""
+              || coordinatorTransition
+              || coordinatorCleanupBlocked
+              || (runtime?.active_requests ?? 0) > 0;
             const placementNoteId = `local-model-placement-${modelIndex}`;
             const compatibilityItem: LocalModelCompatibility | null = compatibility?.models.find(
               (model) => model.alias === item.record.alias,
@@ -782,6 +944,8 @@ export function LocalModelsPage({
                   {lifecycleDisabled
                     ? busy !== ""
                       ? " Wait for the current model operation to finish before changing placement."
+                      : !catalogEvidenceFresh
+                        ? " Placement cannot be changed until the installed-model catalog is refreshed."
                       : !overview.runtime_available
                         ? " Placement cannot be changed because the local model runtime is unavailable."
                         : " Placement cannot be changed until the shared runtime transition or cleanup is resolved."
@@ -849,7 +1013,7 @@ export function LocalModelsPage({
                   {coordinatedLifecycle ? servedByCoordinator && runtime && transport.stopLocalRuntime ? (
                     <button
                       className="button button--ghost"
-                      disabled={lifecycleDisabled}
+                      disabled={exactUnloadDisabled}
                       onClick={() => void run(stopBusyKey, () => transport.stopLocalRuntime!({
                         alias: item.record.alias,
                         expected_revision: runtime.revision,
@@ -863,7 +1027,7 @@ export function LocalModelsPage({
                       Deactivate
                     </button>
                   )}
-                  <button className="button button--ghost" disabled={busy !== "" || coordinatorMutationBlocked || (coordinatedLifecycle && servedByCoordinator)} onClick={() => { if (window.confirm(`Remove ${item.record.display_name} from the registry? The weights stay on disk.`)) void run(item.record.alias, () => transport.removeLocalModel(item.record.alias, false), "Removed."); }} type="button">
+                  <button className="button button--ghost" disabled={busy !== "" || !catalogEvidenceFresh || coordinatorMutationBlocked || (coordinatedLifecycle && servedByCoordinator)} onClick={() => { if (window.confirm(`Remove ${item.record.display_name} from the registry? The weights stay on disk.`)) void run(item.record.alias, () => transport.removeLocalModel(item.record.alias, false), "Removed."); }} type="button">
                     Remove
                   </button>
                 </div>
@@ -880,7 +1044,13 @@ export function LocalModelsPage({
         </ul>
       </section>
 
-      <LocalModelChatPanel models={displayedModels} transport={transport} />
+      <LocalModelChatPanel
+        models={displayedModels}
+        onOpenAgentChat={onOpenAgentChat}
+        onTemporaryChatDirtyChange={onTemporaryChatDirtyChange}
+        runtimeReadiness={!catalogEvidenceFresh || (coordinatedLifecycle && !runtimeEvidenceFresh) ? "unverified" : "verified"}
+        transport={transport}
+      />
 
       <section aria-labelledby="add-model-title" className="local-models__section">
         <h2 id="add-model-title">Add a model</h2>

@@ -18,12 +18,14 @@ const SESSION_ID = "a".repeat(32);
 const PROJECT_ID = "b".repeat(32);
 const MODEL_A = "example-model-a";
 const MODEL_B = "example-model-b";
+const initialParameters = { temperature: 0.2, top_p: 0.95, max_tokens: 1400, enable_thinking: false };
 
 type RuntimeTransport = Partial<Pick<
   PromptEnhancerTransport,
   "getLocalRuntime" | "switchLocalRuntime" | "stopLocalRuntime"
   | "getLocalModelPlacement"
   | "getAgentCatalogSession" | "getAgentSessionContext" | "switchAgentSessionModel"
+  | "getAgentSession" | "updateAgentSessionParameters"
 >>;
 
 function deferred<T>() {
@@ -88,6 +90,7 @@ function session(alias = MODEL_A, running = false): AgentSessionView {
     session_id: SESSION_ID,
     settings: {
       workspace: "D:\\example\\project",
+      project_id: PROJECT_ID,
       model_alias: alias,
       parameters: {
         temperature: 0.2,
@@ -316,6 +319,7 @@ function renderControl(options: {
       return currentRuntime;
     }),
     getAgentCatalogSession: vi.fn(async () => catalogSession()),
+    getAgentSession: vi.fn(async () => session()),
     switchAgentSessionModel: vi.fn(async () => {
       currentSessionContext = chatContext({
         revision: currentSessionContext.revision + 1,
@@ -323,6 +327,10 @@ function renderControl(options: {
       });
       return updated;
     }),
+    updateAgentSessionParameters: vi.fn(async (_sessionId: string, request: { expected_project_id: string; expected_revision: number; expected_parameters: AgentSessionView["settings"]["parameters"]; parameters: AgentSessionView["settings"]["parameters"] }) => ({
+      ...session(),
+      settings: { ...session().settings, parameters: request.parameters },
+    })),
   };
   Object.assign(transport, options.transportOverrides);
   const callbacks = {
@@ -370,6 +378,193 @@ function renderControl(options: {
 }
 
 describe("AgentRuntimeControl", () => {
+  it.each(["immediate", "deferred"] as const)("abandons an unresolved settings-catalog read on chat switch and permits the reopened chat to save when its catalog resolves %s", async (resolution) => {
+    const oldCatalogRead = deferred<AgentCatalogSession>();
+    const reopenedCatalogRead = deferred<AgentCatalogSession>();
+    const secondSessionId = "d".repeat(32);
+    const secondProjectId = "e".repeat(32);
+    const secondSession: AgentSessionView = {
+      ...session(MODEL_B),
+      session_id: secondSessionId,
+      settings: { ...session(MODEL_B).settings, model_alias: MODEL_B, project_id: secondProjectId },
+    };
+    const getAgentCatalogSession = vi.fn((sessionId: string, _signal?: AbortSignal) => (
+      sessionId === SESSION_ID
+        ? oldCatalogRead.promise
+        : resolution === "immediate"
+          ? Promise.resolve({ ...catalogSession(MODEL_B, 9), session_id: secondSessionId, project_id: secondProjectId })
+          : reopenedCatalogRead.promise
+    ));
+    const { rerenderCurrent, transport } = renderControl({
+      variant: "composer",
+      transportOverrides: { getAgentCatalogSession },
+    });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    const summary = within(panel).getByLabelText(/Model and context settings\./u);
+    fireEvent.click(summary);
+    await waitFor(() => expect(getAgentCatalogSession).toHaveBeenCalledWith(SESSION_ID, expect.any(AbortSignal)));
+    const oldSignal = getAgentCatalogSession.mock.calls[0]?.[1] as AbortSignal;
+
+    rerenderCurrent(secondSession);
+    fireEvent.click(summary);
+    fireEvent.click(summary);
+    await waitFor(() => expect(getAgentCatalogSession).toHaveBeenCalledWith(secondSessionId, expect.any(AbortSignal)));
+    expect(getAgentCatalogSession).toHaveBeenCalledTimes(2);
+    expect(oldSignal.aborted).toBe(true);
+    fireEvent.click(screen.getByText("Generation settings", { selector: "summary" }));
+    fireEvent.change(screen.getByLabelText("Generation max tokens"), { target: { value: "2048" } });
+    if (resolution === "deferred") {
+      expect(screen.getByRole("button", { name: "Save generation settings" })).toBeDisabled();
+      await act(async () => reopenedCatalogRead.resolve({
+        ...catalogSession(MODEL_B, 9), session_id: secondSessionId, project_id: secondProjectId,
+      }));
+    }
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save generation settings" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Save generation settings" }));
+    await waitFor(() => expect(transport.updateAgentSessionParameters).toHaveBeenCalledWith(secondSessionId, expect.objectContaining({
+      expected_project_id: secondProjectId,
+      expected_revision: 9,
+    }), expect.any(AbortSignal)));
+
+    await act(async () => oldCatalogRead.resolve(catalogSession()));
+    expect(transport.updateAgentSessionParameters).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a late settings-catalog response from a replaced transport", async () => {
+    const oldCatalogRead = deferred<AgentCatalogSession>();
+    const oldGetCatalog = vi.fn((_sessionId: string, _signal?: AbortSignal) => oldCatalogRead.promise);
+    const { rerenderTransport, transport } = renderControl({
+      variant: "composer",
+      transportOverrides: { getAgentCatalogSession: oldGetCatalog },
+    });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    const summary = within(panel).getByLabelText(/Model and context settings\./u);
+    fireEvent.click(summary);
+    await waitFor(() => expect(oldGetCatalog).toHaveBeenCalledOnce());
+    const oldSignal = oldGetCatalog.mock.calls[0]?.[1] as AbortSignal;
+    const replacementGetCatalog = vi.fn(async () => catalogSession(MODEL_A, 10));
+
+    rerenderTransport({ ...transport, getAgentCatalogSession: replacementGetCatalog });
+    fireEvent.click(summary);
+    fireEvent.click(summary);
+    await waitFor(() => expect(replacementGetCatalog).toHaveBeenCalledWith(SESSION_ID, expect.any(AbortSignal)));
+    expect(oldSignal.aborted).toBe(true);
+    await act(async () => oldCatalogRead.resolve(catalogSession(MODEL_A, 4)));
+
+    fireEvent.click(screen.getByText("Generation settings", { selector: "summary" }));
+    fireEvent.change(screen.getByLabelText("Generation max tokens"), { target: { value: "2048" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save generation settings" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Save generation settings" }));
+    await waitFor(() => expect(transport.updateAgentSessionParameters).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+      expected_revision: 10,
+    }), expect.any(AbortSignal)));
+  });
+
+  it("does not reuse a completed settings catalog after replacing its transport", async () => {
+    const replacementCatalogRead = deferred<AgentCatalogSession>();
+    const { rerenderTransport, transport } = renderControl({ variant: "composer" });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    const summary = within(panel).getByLabelText(/Model and context settings\./u);
+    fireEvent.click(summary);
+    await waitFor(() => expect(transport.getAgentCatalogSession).toHaveBeenCalledOnce());
+
+    const replacementGetCatalog = vi.fn((_sessionId: string, _signal?: AbortSignal) => replacementCatalogRead.promise);
+    rerenderTransport({ ...transport, getAgentCatalogSession: replacementGetCatalog });
+    fireEvent.click(summary);
+    fireEvent.click(summary);
+    await waitFor(() => expect(replacementGetCatalog).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByText("Generation settings", { selector: "summary" }));
+    fireEvent.change(screen.getByLabelText("Generation max tokens"), { target: { value: "2048" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save generation settings" }));
+    expect(transport.updateAgentSessionParameters).not.toHaveBeenCalled();
+
+    await act(async () => replacementCatalogRead.resolve(catalogSession(MODEL_A, 12)));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save generation settings" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Save generation settings" }));
+    await waitFor(() => expect(transport.updateAgentSessionParameters).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+      expected_revision: 12,
+    }), expect.any(AbortSignal)));
+  });
+
+  it("times out a hanging settings-catalog read, then accepts only the manual retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const firstCatalogRead = deferred<AgentCatalogSession>();
+      const getAgentCatalogSession = vi.fn()
+        .mockImplementationOnce((_sessionId: string, _signal?: AbortSignal) => firstCatalogRead.promise)
+        .mockResolvedValueOnce(catalogSession(MODEL_A, 11));
+      const { transport } = renderControl({
+        variant: "composer",
+        transportOverrides: { getAgentCatalogSession },
+      });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      const summary = within(panel).getByLabelText(/Model and context settings\./u);
+      fireEvent.click(summary);
+      await act(async () => { await Promise.resolve(); });
+      const firstSignal = getAgentCatalogSession.mock.calls[0]?.[1] as AbortSignal;
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); await Promise.resolve(); });
+      expect(firstSignal.aborted).toBe(true);
+      expect(within(panel).getByRole("alert")).toHaveTextContent("Generation settings could not load");
+
+      fireEvent.click(summary);
+      fireEvent.click(summary);
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(getAgentCatalogSession).toHaveBeenCalledTimes(2);
+      await act(async () => firstCatalogRead.resolve(catalogSession(MODEL_A, 4)));
+
+      fireEvent.click(screen.getByText("Generation settings", { selector: "summary" }));
+      fireEvent.change(screen.getByLabelText("Generation max tokens"), { target: { value: "2048" } });
+      expect(screen.getByRole("button", { name: "Save generation settings" })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "Save generation settings" }));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(transport.updateAgentSessionParameters).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+        expected_revision: 11,
+      }), expect.any(AbortSignal));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("blocks Save after a catalog failure but lets Reload restore current catalog CAS", async () => {
+    const getAgentCatalogSession = vi.fn()
+      .mockRejectedValueOnce(new Error("synthetic catalog failure"))
+      .mockResolvedValueOnce(catalogSession(MODEL_A, 11));
+    const { transport } = renderControl({
+      variant: "composer",
+      transportOverrides: { getAgentCatalogSession },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Model and context settings/i }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Generation settings could not load"));
+    fireEvent.click(screen.getByText("Generation settings", { selector: "summary" }));
+    fireEvent.change(screen.getByLabelText("Generation max tokens"), { target: { value: "2048" } });
+    expect(screen.getByRole("button", { name: "Save generation settings" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Reload current settings" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save generation settings" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Save generation settings" }));
+    await waitFor(() => expect(transport.updateAgentSessionParameters).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+      expected_project_id: PROJECT_ID,
+      expected_revision: 11,
+    }), expect.any(AbortSignal)));
+  });
+
+  it("saves generation settings from the existing composer disclosure with catalog CAS", async () => {
+    const { transport, callbacks } = renderControl({ variant: "composer" });
+    fireEvent.click(screen.getByRole("button", { name: /Model and context settings/i }));
+    await waitFor(() => expect(transport.getAgentCatalogSession).toHaveBeenCalledWith(SESSION_ID, expect.any(AbortSignal)));
+    fireEvent.click(screen.getByText("Generation settings", { selector: "summary" }));
+    fireEvent.change(screen.getByLabelText("Generation max tokens"), { target: { value: "2048" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save generation settings" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Save generation settings" }));
+    await waitFor(() => expect(transport.updateAgentSessionParameters).toHaveBeenCalledWith(SESSION_ID, expect.objectContaining({
+      expected_project_id: PROJECT_ID,
+      expected_revision: 4,
+      expected_parameters: initialParameters,
+      parameters: { ...initialParameters, max_tokens: 2048 },
+    }), expect.any(AbortSignal)));
+    expect(callbacks.onSessionUpdated).toHaveBeenCalled();
+  });
+
   it("keeps model selection usable in a dismissible composer popover", async () => {
     renderControl({
       initialSessionContext: measuredChatContext(),
@@ -390,6 +585,7 @@ describe("AgentRuntimeControl", () => {
     const chooser = within(panel).getByRole("dialog", { name: "Choose model and runtime settings" });
     expect(within(chooser).getByText("Nothing changes until Apply succeeds.", { exact: false })).toBeVisible();
     expect(within(chooser).getByLabelText("Model")).toHaveValue(MODEL_A);
+    expect(within(chooser).getByLabelText("Model")).not.toHaveAccessibleDescription();
     expect(within(chooser).getByLabelText("Model placement")).toHaveValue("split");
     expect(within(chooser).getByLabelText("Context limit")).toHaveValue("8192");
     expect(within(chooser).getByRole("button", { name: "Applied" })).toBeDisabled();
@@ -700,6 +896,279 @@ describe("AgentRuntimeControl", () => {
       .toHaveTextContent("640 input / 8192 · 7552 available · turn 2"));
   });
 
+  it("keeps a permanently pending preflight on one 10-second budget, including older receipts", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = chatContext({
+        revision: 3,
+        unknown_reason: "turn_pending_preflight",
+        turn_id: "d".repeat(32),
+        turn_number: 2,
+        model_alias: MODEL_A,
+      });
+      const olderPending = { ...pending, revision: 2 };
+      let reads = 0;
+      const getAgentSessionContext = vi.fn(async () => {
+        reads += 1;
+        return reads === 1 ? pending : olderPending;
+      });
+      renderControl({
+        current: session(MODEL_A, true),
+        transportOverrides: { getAgentSessionContext },
+      });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(getAgentSessionContext).toHaveBeenCalledOnce();
+
+      for (let index = 0; index < 4; index += 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(500);
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+      }
+      expect(getAgentSessionContext.mock.calls.length).toBeGreaterThan(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8_000);
+        await Promise.resolve();
+      });
+      expect(panel).toHaveTextContent(/Exact context preflight did not settle within 10 seconds.*Refresh to retry/u);
+      expect(panel).toHaveAttribute("aria-busy", "false");
+      const readsAfterExpiry = getAgentSessionContext.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(getAgentSessionContext).toHaveBeenCalledTimes(readsAfterExpiry);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("aborts a hung context read at 10 seconds and leaves context unknown", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = deferred<AgentSessionContextStatus>();
+      let signal: AbortSignal | undefined;
+      const getAgentSessionContext = vi.fn((_sessionId: string, readSignal?: AbortSignal) => {
+        signal = readSignal;
+        return pending.promise;
+      });
+      renderControl({
+        current: session(MODEL_A, true),
+        transportOverrides: { getAgentSessionContext },
+      });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(signal?.aborted).toBe(false);
+      expect(panel).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+        await Promise.resolve();
+      });
+      expect(signal?.aborted).toBe(true);
+      expect(panel).toHaveAttribute("aria-busy", "false");
+      expect(panel).toHaveTextContent(/Exact context preflight did not settle within 10 seconds.*Refresh to retry/u);
+      await act(async () => pending.resolve({
+        ...measuredChatContext(),
+        revision: 4,
+        context: { ...measuredChatContext().context!, used_tokens: 733, available_output_tokens: 7459 },
+      }));
+      expect(panel).toHaveTextContent(/Exact context preflight did not settle within 10 seconds.*Refresh to retry/u);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restarts an expired preflight only after explicit Refresh and adopts the exact receipt", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = chatContext({
+        revision: 3,
+        unknown_reason: "turn_pending_preflight",
+        turn_id: "d".repeat(32),
+        turn_number: 2,
+        model_alias: MODEL_A,
+      });
+      const exact = {
+        ...measuredChatContext(),
+        revision: 4,
+      };
+      let allowExact = false;
+      const getAgentSessionContext = vi.fn(async () => allowExact ? exact : pending);
+      renderControl({
+        current: session(MODEL_A, true),
+        transportOverrides: { getAgentSessionContext },
+      });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+        await Promise.resolve();
+      });
+      expect(panel).toHaveTextContent(/Exact context preflight did not settle within 10 seconds.*Refresh to retry/u);
+      const readsBeforeRefresh = getAgentSessionContext.mock.calls.length;
+
+      allowExact = true;
+      fireEvent.click(within(panel).getByRole("button", { name: "Refresh" }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getAgentSessionContext.mock.calls.length).toBeGreaterThan(readsBeforeRefresh);
+      expect(within(panel).getByText("Context use").parentElement)
+        .toHaveTextContent("640 input / 8192 · 7552 available · turn 2");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops a pending preflight after a GET rejection and exposes Refresh recovery", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = chatContext({
+        revision: 3,
+        unknown_reason: "turn_pending_preflight",
+        turn_id: "d".repeat(32),
+        turn_number: 2,
+        model_alias: MODEL_A,
+      });
+      const getAgentSessionContext = vi.fn()
+        .mockResolvedValueOnce(pending)
+        .mockRejectedValueOnce(new Error("synthetic context GET failed"));
+      renderControl({
+        current: session(MODEL_A, true),
+        transportOverrides: { getAgentSessionContext },
+      });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(within(panel).getByText("Context use").parentElement)
+        .toHaveTextContent("Measuring exact context · turn 2…");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getAgentSessionContext).toHaveBeenCalledTimes(2);
+      expect(within(panel).getByText("Context evidence could not be refreshed. It remains unknown; use Refresh to retry.")).toBeVisible();
+      expect(panel).toHaveAttribute("aria-busy", "false");
+      const readsAfterFailure = getAgentSessionContext.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(getAgentSessionContext).toHaveBeenCalledTimes(readsAfterFailure);
+      expect(panel).not.toHaveTextContent("Measuring exact context");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("announces an unresolved composer context failure once when its evidence is expanded", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = chatContext({
+        revision: 3,
+        unknown_reason: "turn_pending_preflight",
+        turn_id: "d".repeat(32),
+        turn_number: 2,
+        model_alias: MODEL_A,
+      });
+      const getAgentSessionContext = vi.fn()
+        .mockResolvedValueOnce(pending)
+        .mockRejectedValueOnce(new Error("synthetic context GET failed"));
+      renderControl({
+        current: session(MODEL_A, true),
+        transportOverrides: { getAgentSessionContext },
+        variant: "composer",
+      });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      fireEvent.click(within(panel).getByLabelText(/Model and context settings\./u));
+      fireEvent.click(within(panel).getByText("Context, compatibility & runtime evidence"));
+      const recovery = "Context evidence could not be refreshed. It remains unknown; use Refresh to retry.";
+      expect(within(panel).getAllByRole("status").filter((node) => node.textContent === recovery)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fences a late context result after transport replacement", async () => {
+    const oldRead = deferred<AgentSessionContextStatus>();
+    let oldSignal: AbortSignal | undefined;
+    const oldGet = vi.fn((_sessionId: string, signal?: AbortSignal) => {
+      oldSignal = signal;
+      return oldRead.promise;
+    });
+    const { rerenderTransport, transport } = renderControl({
+      current: session(MODEL_A, true),
+      transportOverrides: { getAgentSessionContext: oldGet },
+    });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    await waitFor(() => expect(oldGet).toHaveBeenCalledOnce());
+    const replacementGet = vi.fn(async () => measuredChatContext());
+    rerenderTransport({ ...transport, getAgentSessionContext: replacementGet });
+    await waitFor(() => expect(replacementGet).toHaveBeenCalledOnce());
+    expect(oldSignal?.aborted).toBe(true);
+    expect(within(panel).getByText("Context use").parentElement)
+      .toHaveTextContent("640 input / 8192 · 7552 available · turn 2");
+    await act(async () => oldRead.resolve({
+      ...measuredChatContext(),
+      revision: 5,
+      context: { ...measuredChatContext().context!, used_tokens: 111, available_output_tokens: 8081 },
+    }));
+    expect(within(panel).getByText("Context use").parentElement)
+      .toHaveTextContent("640 input / 8192 · 7552 available · turn 2");
+  });
+
+  it("fences a late context result after session, model, and turn replacement", async () => {
+    const oldRead = deferred<AgentSessionContextStatus>();
+    const replacementSessionId = "d".repeat(32);
+    let replacement = false;
+    const oldContext = chatContext({
+      revision: 3,
+      unknown_reason: "turn_pending_preflight",
+      turn_id: "e".repeat(32),
+      turn_number: 2,
+      model_alias: MODEL_A,
+    });
+    const newContext = {
+      ...measuredChatContext(),
+      session_id: replacementSessionId,
+      model_alias: MODEL_B,
+      turn_id: "f".repeat(32),
+      turn_number: 3,
+    };
+    const getAgentSessionContext = vi.fn(async () => replacement ? newContext : oldRead.promise);
+    const { rerenderCurrent } = renderControl({
+      current: session(MODEL_A, true),
+      transportOverrides: { getAgentSessionContext },
+    });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    await waitFor(() => expect(getAgentSessionContext).toHaveBeenCalledOnce());
+    replacement = true;
+    const next = {
+      ...session(MODEL_B, true),
+      session_id: replacementSessionId,
+      model_alias: MODEL_B,
+      turns: 3,
+      settings: { ...session(MODEL_B, true).settings, model_alias: MODEL_B },
+    };
+    rerenderCurrent(next);
+    await waitFor(() => expect(getAgentSessionContext).toHaveBeenCalledWith(replacementSessionId, expect.any(AbortSignal)));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(within(panel).getByText("Context use").parentElement)
+      .toHaveTextContent("640 input / 8192 · 7552 available · turn 3");
+    await act(async () => oldRead.resolve(oldContext));
+    expect(within(panel).getByText("Context use").parentElement)
+      .toHaveTextContent("640 input / 8192 · 7552 available · turn 3");
+  });
+
   it("rejects context evidence bound to a different model than the current chat", async () => {
     renderControl({
       initialSessionContext: {
@@ -736,6 +1205,281 @@ describe("AgentRuntimeControl", () => {
     expect(within(panel).getByLabelText("Model")).toHaveValue(MODEL_B);
     fireEvent.click(within(panel).getByText("Runtime details"));
     expect(within(panel).getAllByText(MODEL_B)).toHaveLength(2);
+  });
+
+  it("does not mark a replacement transport stale when the old runtime read rejects late", async () => {
+    const oldRead = deferred<LocalRuntimeCoordinatorStatus>();
+    const oldGetRuntime = vi.fn((_signal?: AbortSignal) => oldRead.promise);
+    const { rerenderTransport, transport } = renderControl({ transportOverrides: { getLocalRuntime: oldGetRuntime } });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    await waitFor(() => expect(oldGetRuntime).toHaveBeenCalledTimes(1));
+    const oldSignal = oldGetRuntime.mock.calls[0]?.[0] as AbortSignal;
+    const replacementGetRuntime = vi.fn(async () => runtime(MODEL_B, { revision: 10 }));
+
+    rerenderTransport({ ...transport, getLocalRuntime: replacementGetRuntime });
+    await waitFor(() => expect(replacementGetRuntime).toHaveBeenCalledTimes(1));
+    await act(async () => { oldRead.reject(new Error("synthetic old transport failure")); });
+
+    expect(oldSignal.aborted).toBe(true);
+    expect(panel).toHaveAttribute("data-state", "ready");
+    expect(within(panel).queryByRole("alert")).toBeNull();
+    expect(within(panel).getByLabelText("Model")).toHaveValue(MODEL_B);
+  });
+
+  it.each(["panel", "composer"] as const)("marks a failed runtime refresh stale and restores it only after Refresh in the %s", async (variant) => {
+    const getLocalRuntime = vi.fn()
+      .mockResolvedValueOnce(runtime())
+      .mockRejectedValueOnce(new Error("synthetic runtime refresh failure"))
+      .mockResolvedValueOnce(runtime(MODEL_B, { revision: 8 }));
+    const { callbacks, transport } = renderControl({ variant, transportOverrides: { getLocalRuntime } });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(1));
+    let controls = within(panel);
+    if (variant === "composer") {
+      fireEvent.click(within(panel).getByLabelText(/Model and context settings\./u));
+      controls = within(within(panel).getByRole("dialog", { name: "Choose model and runtime settings" }));
+    }
+
+    fireEvent.change(controls.getByLabelText("Model"), { target: { value: MODEL_B } });
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(2));
+    expect(panel).toHaveAttribute("data-state", "unavailable");
+    expect(within(panel).getByRole("alert")).toHaveTextContent("Runtime status is unavailable");
+    expect(controls.getByLabelText("Model")).toHaveValue(MODEL_B);
+    expect(controls.getByRole("button", { name: "Switch model" })).toBeDisabled();
+    if (variant === "composer") {
+      expect(within(panel).getByLabelText(/Model and context settings\./u)).toHaveAttribute("data-pending-selection", "true");
+    }
+    expect(transport.switchLocalRuntime).not.toHaveBeenCalled();
+    expect(transport.stopLocalRuntime).not.toHaveBeenCalled();
+    expect(callbacks.onRuntimeStatus).toHaveBeenLastCalledWith(null);
+
+    fireEvent.click(controls.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(panel).toHaveAttribute("data-state", "ready"));
+    expect(controls.getByLabelText("Model")).toHaveValue(MODEL_B);
+    expect(controls.getByRole("button", { name: "Switch model" })).toBeEnabled();
+    expect(callbacks.onRuntimeStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      revision: 8,
+      served: expect.objectContaining({ alias: MODEL_B }),
+    }));
+    expect(transport.switchLocalRuntime).not.toHaveBeenCalled();
+    expect(transport.stopLocalRuntime).not.toHaveBeenCalled();
+  });
+
+  it("offers Refresh after an initial runtime read failure without waiting indefinitely", async () => {
+    const getLocalRuntime = vi.fn()
+      .mockRejectedValueOnce(new Error("synthetic initial runtime failure"))
+      .mockResolvedValueOnce(runtime(null, { revision: 8 }));
+    const { transport } = renderControl({ transportOverrides: { getLocalRuntime } });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(1));
+    expect(panel).toHaveAttribute("data-state", "unavailable");
+    expect(within(panel).getByRole("alert")).toHaveTextContent("Retry after the local service reconnects");
+    expect(within(panel).getByRole("button", { name: "Start model" })).toBeDisabled();
+    expect(transport.switchLocalRuntime).not.toHaveBeenCalled();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(panel).toHaveAttribute("data-state", "idle"));
+    expect(within(panel).getByRole("button", { name: "Start model" })).toBeEnabled();
+  });
+
+  it("times out a never-settling initial runtime read and recovers only from manual Refresh", async () => {
+    vi.useFakeTimers();
+    try {
+      const initial = deferred<LocalRuntimeCoordinatorStatus>();
+      const getLocalRuntime = vi.fn()
+        .mockImplementationOnce((_signal?: AbortSignal) => initial.promise)
+        .mockResolvedValueOnce(runtime(null, { revision: 8 }));
+      const { transport } = renderControl({ transportOverrides: { getLocalRuntime } });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      await act(async () => { await Promise.resolve(); });
+      const initialSignal = getLocalRuntime.mock.calls[0]?.[0] as AbortSignal;
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); await Promise.resolve(); await Promise.resolve(); });
+      expect(initialSignal.aborted).toBe(true);
+      expect(panel).toHaveAttribute("data-state", "unavailable");
+      expect(within(panel).getByRole("alert")).toHaveTextContent("Retry after the local service reconnects");
+      expect(within(panel).getByRole("button", { name: "Start model" })).toBeDisabled();
+      expect(transport.switchLocalRuntime).not.toHaveBeenCalled();
+
+      fireEvent.click(within(panel).getByRole("button", { name: "Refresh" }));
+      await act(async () => { await Promise.resolve(); });
+      expect(getLocalRuntime).toHaveBeenCalledTimes(2);
+      expect(panel).toHaveAttribute("data-state", "idle");
+      expect(within(panel).getByRole("button", { name: "Start model" })).toBeEnabled();
+
+      await act(async () => { initial.resolve(runtime(MODEL_A, { revision: 99 })); });
+      expect(panel).toHaveAttribute("data-state", "idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an unchanged composer choice out of pending state while its runtime snapshot is stale", async () => {
+    const getLocalRuntime = vi.fn()
+      .mockResolvedValueOnce(runtime())
+      .mockRejectedValueOnce(new Error("synthetic runtime refresh failure"));
+    renderControl({ variant: "composer", transportOverrides: { getLocalRuntime } });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    const summary = within(panel).getByLabelText(/Model and context settings\./u);
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(1));
+
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(2));
+    expect(summary).toHaveAttribute("data-pending-selection", "false");
+    fireEvent.click(summary);
+    expect(within(panel).getByText("Context, compatibility & runtime evidence").parentElement)
+      .toHaveTextContent("last confirmed");
+  });
+
+  it("keeps the last-confirmed Stop available after a hanging refresh times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = deferred<LocalRuntimeCoordinatorStatus>();
+      const getLocalRuntime = vi.fn()
+        .mockResolvedValueOnce(runtime())
+        .mockImplementationOnce((_signal?: AbortSignal) => pending.promise);
+      const { transport } = renderControl({ transportOverrides: { getLocalRuntime } });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      await act(async () => { await Promise.resolve(); });
+
+      fireEvent(window, new Event("focus"));
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); await Promise.resolve(); });
+      expect(panel).toHaveAttribute("data-state", "unavailable");
+      fireEvent.click(within(panel).getByRole("button", { name: "Stop" }));
+      await act(async () => { await Promise.resolve(); });
+      expect(transport.stopLocalRuntime).toHaveBeenCalledWith({
+        alias: MODEL_A,
+        expected_revision: 7,
+      }, expect.any(AbortSignal));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears a superseded runtime-read deadline when an exact Stop begins", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = deferred<LocalRuntimeCoordinatorStatus>();
+      const getLocalRuntime = vi.fn()
+        .mockResolvedValueOnce(runtime())
+        .mockImplementationOnce((_signal?: AbortSignal) => pending.promise);
+      const { transport } = renderControl({ transportOverrides: { getLocalRuntime } });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      await act(async () => { await Promise.resolve(); });
+
+      fireEvent(window, new Event("focus"));
+      await act(async () => { await Promise.resolve(); });
+      expect(vi.getTimerCount()).toBe(1);
+      fireEvent.click(within(panel).getByRole("button", { name: "Stop" }));
+      await act(async () => { await Promise.resolve(); });
+
+      expect(transport.stopLocalRuntime).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not clear stale status from a lower-revision retry", async () => {
+    const getLocalRuntime = vi.fn()
+      .mockResolvedValueOnce(runtime(MODEL_A, { revision: 9 }))
+      .mockRejectedValueOnce(new Error("synthetic runtime refresh failure"))
+      .mockResolvedValueOnce(runtime(MODEL_A, { revision: 8 }));
+    renderControl({ transportOverrides: { getLocalRuntime } });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(1));
+
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(2));
+    expect(panel).toHaveAttribute("data-state", "unavailable");
+    fireEvent.click(within(panel).getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(3));
+
+    expect(panel).toHaveAttribute("data-state", "unavailable");
+    expect(within(panel).getByRole("alert")).toHaveTextContent("Runtime status is unavailable");
+  });
+
+  it("clears a superseded runtime-read deadline on transport replacement", async () => {
+    vi.useFakeTimers();
+    try {
+      const oldRead = deferred<LocalRuntimeCoordinatorStatus>();
+      const oldGetRuntime = vi.fn((_signal?: AbortSignal) => oldRead.promise);
+      const { rerenderTransport, transport } = renderControl({ transportOverrides: { getLocalRuntime: oldGetRuntime } });
+      const panel = screen.getByRole("region", { name: "Shared local model runtime" });
+      await act(async () => { await Promise.resolve(); });
+      const oldSignal = oldGetRuntime.mock.calls[0]?.[0] as AbortSignal;
+      const replacementGetRuntime = vi.fn(async () => runtime(MODEL_B, { revision: 10 }));
+
+      rerenderTransport({ ...transport, getLocalRuntime: replacementGetRuntime });
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(oldSignal.aborted).toBe(true);
+      expect(panel).toHaveAttribute("data-state", "ready");
+      expect(within(panel).queryByRole("alert")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears a runtime-read deadline after unmount without publishing a late snapshot", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = deferred<LocalRuntimeCoordinatorStatus>();
+      const getLocalRuntime = vi.fn((_signal?: AbortSignal) => pending.promise);
+      const { callbacks, rendered } = renderControl({ transportOverrides: { getLocalRuntime } });
+      await act(async () => { await Promise.resolve(); });
+      const signal = getLocalRuntime.mock.calls[0]?.[0] as AbortSignal;
+      const callsBeforeUnmount = callbacks.onRuntimeStatus.mock.calls.length;
+      rendered.unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      await act(async () => { pending.resolve(runtime(MODEL_B, { revision: 10 })); });
+
+      expect(signal.aborted).toBe(true);
+      expect(callbacks.onRuntimeStatus).toHaveBeenCalledTimes(callsBeforeUnmount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an exact last-confirmed stop available while a runtime status retry is stale", async () => {
+    const getLocalRuntime = vi.fn()
+      .mockResolvedValueOnce(runtime())
+      .mockRejectedValueOnce(new Error("synthetic runtime refresh failure"));
+    const { transport } = renderControl({ transportOverrides: { getLocalRuntime } });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(1));
+
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(getLocalRuntime).toHaveBeenCalledTimes(2));
+    expect(within(panel).getByText(/Stop will target the last confirmed example-model-a runtime at revision 7/i)).toBeVisible();
+    fireEvent.click(within(panel).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(transport.stopLocalRuntime).toHaveBeenCalledWith({
+      alias: MODEL_A,
+      expected_revision: 7,
+    }, expect.any(AbortSignal)));
+    await waitFor(() => expect(panel).toHaveAttribute("data-state", "idle"));
+  });
+
+  it("retains a runtime operation error when its status refresh succeeds", async () => {
+    const switchLocalRuntime = vi.fn(async () => {
+      throw new TransportError("synthetic runtime conflict", 409, "runtime_revision_conflict");
+    });
+    const { transport } = renderControl({ transportOverrides: { switchLocalRuntime } });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    await within(panel).findByText("Ready");
+
+    fireEvent.change(within(panel).getByLabelText("Model"), { target: { value: MODEL_B } });
+    const apply = within(panel).getByRole("button", { name: "Switch model" });
+    await waitFor(() => expect(apply).toBeEnabled());
+    fireEvent.click(apply);
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("Runtime state changed in another view");
+    expect(transport.getLocalRuntime).toHaveBeenCalledTimes(2);
+    expect(panel).toHaveAttribute("data-state", "ready");
   });
 
   it("does not let an old chat-context response cross a chat switch", async () => {
@@ -857,6 +1601,76 @@ describe("AgentRuntimeControl", () => {
     expect(within(panel).getByRole("button", { name: "Applied" })).toBeDisabled();
   });
 
+  it.each(["panel", "composer"] as const)("retries a failed live placement admission from Refresh in the %s", async (variant) => {
+    const retry = deferred<LocalModelPlacementAdmission>();
+    let reads = 0;
+    const getLocalModelPlacement = vi.fn(async () => {
+      reads += 1;
+      if (reads === 1) throw new Error("synthetic placement read failure");
+      return retry.promise;
+    });
+    renderControl({
+      initialRuntime: runtime(null),
+      transportOverrides: { getLocalModelPlacement },
+      variant,
+    });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    if (variant === "composer") {
+      fireEvent.click(within(panel).getByLabelText(/Model and context settings\./u));
+    }
+    const failure = variant === "composer"
+      ? "Placement admission could not be refreshed. Apply stays disabled; use Refresh to retry the check."
+      : "Placement admission could not be refreshed; Apply stays disabled.";
+    const checking = variant === "composer"
+      ? "Checking verified placement admission. Apply stays disabled until it returns."
+      : "Checking current placement admission…";
+
+    await within(panel).findByText(failure);
+    const apply = within(panel).getByRole("button", { name: "Start model" });
+    expect(apply).toBeDisabled();
+    expect(apply).toHaveAccessibleDescription(/verified placement admission or retry/i);
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(getLocalModelPlacement).toHaveBeenCalledTimes(2));
+    await within(panel).findByText(checking);
+    expect(apply).toBeDisabled();
+
+    await act(async () => retry.resolve(placement(MODEL_A, 8192)));
+    await waitFor(() => expect(apply).toBeEnabled());
+  });
+
+  it("disables Start model while a live Refresh replaces previously admitted placement evidence", async () => {
+    const retry = deferred<LocalModelPlacementAdmission>();
+    let reads = 0;
+    const getLocalModelPlacement = vi.fn(async () => {
+      reads += 1;
+      if (reads === 1) return placement(MODEL_A, 8192);
+      return retry.promise;
+    });
+    renderControl({
+      initialRuntime: runtime(null),
+      transportOverrides: { getLocalModelPlacement },
+    });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    const apply = within(panel).getByRole("button", { name: "Start model" });
+    await waitFor(() => expect(apply).toBeEnabled());
+    fireEvent.click(within(panel).getByRole("button", { name: "Refresh" }));
+    await within(panel).findByText("Checking current placement admission…");
+    expect(apply).toBeDisabled();
+
+    await act(async () => retry.resolve({
+      ...placement(MODEL_A, 8192),
+      options: [
+        { device: "gpu" as const, state: "blocked" as const, reason_code: "gpu_estimate_exceeds_free_memory" as const, recommended_gpu_layers: null, estimated_vram_required_mb: null },
+        { device: "split" as const, state: "blocked" as const, reason_code: "split_estimate_exceeds_free_memory" as const, recommended_gpu_layers: null, estimated_vram_required_mb: null },
+        { device: "cpu" as const, state: "blocked" as const, reason_code: "context_exceeds_model_metadata" as const, recommended_gpu_layers: null, estimated_vram_required_mb: null },
+      ],
+    }));
+    const placementSelect = within(panel).getByLabelText("Placement") as HTMLSelectElement;
+    await waitFor(() => expect(within(placementSelect).getByRole("option", { name: /GPU · unavailable/ })).toBeDisabled());
+    expect(apply).toBeDisabled();
+  });
+
   it("preserves a pending runtime selection across an independently resolving model-catalog refresh", async () => {
     const { rerenderModels } = renderControl();
     const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
@@ -878,9 +1692,12 @@ describe("AgentRuntimeControl", () => {
     const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
     await within(panel).findByText("Ready");
 
-    expect(within(panel).getByLabelText("Model")).toBeDisabled();
-    expect(within(panel).getByLabelText("Placement")).toBeDisabled();
-    expect(within(panel).getByLabelText("Context limit")).toBeDisabled();
+    for (const label of ["Model", "Placement", "Context limit"]) {
+      const control = within(panel).getByLabelText(label);
+      expect(control).toBeDisabled();
+      expect(control).toHaveAccessibleDescription(/finish or stop active responses/i);
+      expect(control).not.toHaveAccessibleDescription(/already applied/i);
+    }
     const apply = within(panel).getByRole("button", { name: "Applied" });
     const stop = within(panel).getByRole("button", { name: "Stop" });
     expect(apply).toBeDisabled();
@@ -889,6 +1706,52 @@ describe("AgentRuntimeControl", () => {
     expect(stop).toHaveAccessibleDescription(/finish or stop active responses/i);
     expect(within(panel).getByText(/Finish or stop active responses/)).toBeVisible();
     expect(transport.switchLocalRuntime).not.toHaveBeenCalled();
+  });
+
+  it("names the in-flight operation on the selects it disables, and drops it once settled", async () => {
+    const pending = deferred<LocalRuntimeCoordinatorStatus>();
+    const switchLocalRuntime = vi.fn((_request: unknown, _signal?: AbortSignal) => pending.promise);
+    renderControl({ transportOverrides: { switchLocalRuntime } });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    await within(panel).findByText("Ready");
+
+    fireEvent.change(within(panel).getByLabelText("Model"), { target: { value: MODEL_B } });
+    const switchButton = within(panel).getByRole("button", { name: "Switch model" });
+    await waitFor(() => expect(switchButton).toBeEnabled());
+    fireEvent.click(switchButton);
+    await waitFor(() => expect(switchLocalRuntime).toHaveBeenCalledTimes(1));
+
+    for (const label of ["Model", "Placement", "Context limit"]) {
+      const control = within(panel).getByLabelText(label);
+      expect(control).toBeDisabled();
+      expect(control).toHaveAccessibleDescription(/model change is in progress/i);
+      expect(control).not.toHaveAccessibleDescription(/runtime stop/i);
+    }
+
+    await act(async () => pending.resolve(runtime(MODEL_B, { revision: 8 })));
+    await waitFor(() => expect(within(panel).getByLabelText("Model")).toBeEnabled());
+    for (const label of ["Model", "Placement", "Context limit"]) {
+      expect(within(panel).getByLabelText(label)).not.toHaveAccessibleDescription();
+    }
+  });
+
+  it("offers no runtime selects or stale disabled reason when the coordinator is unavailable", async () => {
+    renderControl({
+      transportOverrides: {
+        getLocalRuntime: undefined,
+        switchLocalRuntime: undefined,
+        stopLocalRuntime: undefined,
+      },
+    });
+    const section = (await screen.findByText("Model runtime")).closest("section");
+
+    expect(section).toHaveAttribute("data-state", "unavailable");
+    expect(within(section!).getByText(/Update the local app to use coordinated placement and context controls/u))
+      .toBeVisible();
+    expect(screen.queryByLabelText("Model")).toBeNull();
+    expect(screen.queryByLabelText("Placement")).toBeNull();
+    expect(screen.queryByLabelText("Context limit")).toBeNull();
+    expect(screen.queryByText(/is in progress/u)).toBeNull();
   });
 
   it("stops only the served revision and keeps chat state intact", async () => {
@@ -1009,5 +1872,78 @@ describe("AgentRuntimeControl", () => {
     await waitFor(() => expect(transport.switchAgentSessionModel).toHaveBeenCalledTimes(2));
     expect(transport.switchLocalRuntime).toHaveBeenCalledTimes(1);
     expect(await within(panel).findByRole("status")).toHaveTextContent("This chat is bound to it.");
+  });
+
+  it("measures a chat identity change that arrived during a stop operation", async () => {
+    const pendingStop = deferred<LocalRuntimeCoordinatorStatus>();
+    const stopLocalRuntime = vi.fn((_request: unknown, _signal?: AbortSignal) => pendingStop.promise);
+    const nextTurnContext: AgentSessionContextStatus = {
+      ...measuredChatContext(),
+      revision: 3,
+      turn_number: 3,
+      context: {
+        ...measuredChatContext().context!,
+        used_tokens: 900,
+        available_output_tokens: 7292,
+      },
+    };
+    const getAgentSessionContext = vi.fn()
+      .mockResolvedValueOnce(measuredChatContext())
+      .mockResolvedValueOnce(nextTurnContext);
+    const { rerenderCurrent } = renderControl({
+      transportOverrides: { getAgentSessionContext, stopLocalRuntime },
+    });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    await waitFor(() => expect(within(panel).getByText("Context use").parentElement)
+      .toHaveTextContent("640 input"));
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(stopLocalRuntime).toHaveBeenCalledTimes(1));
+    expect(within(panel).getByLabelText("Placement"))
+      .toHaveAccessibleDescription(/runtime stop is in progress/i);
+    rerenderCurrent({ ...session(), turns: 3 });
+    expect(getAgentSessionContext).toHaveBeenCalledTimes(1);
+    expect(within(panel).getByText("Context use").parentElement)
+      .toHaveTextContent("checking this chat's context evidence");
+
+    await act(async () => pendingStop.resolve(runtime(null, { revision: 8 })));
+
+    await waitFor(() => expect(getAgentSessionContext).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(within(panel).getByText("Context use").parentElement)
+      .toHaveTextContent("900 input / 8192 · 7292 available · turn 3"));
+    expect(panel).toHaveAttribute("aria-busy", "false");
+  });
+
+  it("dismisses the composer popover on Escape without stealing focus from the composer", async () => {
+    renderControl({
+      initialSessionContext: measuredChatContext(),
+      variant: "composer",
+    });
+    const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
+    const summary = await within(panel).findByLabelText(
+      "Model and context settings. Example Model A. 8% context. Ready.",
+    );
+    const outside = document.createElement("input");
+    document.body.append(outside);
+
+    try {
+      fireEvent.click(summary);
+      outside.focus();
+      fireEvent.keyDown(outside, { key: "Escape" });
+
+      expect(summary.closest("details")).not.toHaveAttribute("open");
+      expect(outside).toHaveFocus();
+
+      fireEvent.click(summary);
+      const chooser = within(panel).getByRole("dialog", { name: "Choose model and runtime settings" });
+      const modelSelect = within(chooser).getByLabelText("Model");
+      modelSelect.focus();
+      fireEvent.keyDown(modelSelect, { key: "Escape" });
+
+      expect(summary.closest("details")).not.toHaveAttribute("open");
+      expect(summary).toHaveFocus();
+    } finally {
+      outside.remove();
+    }
   });
 });

@@ -17,6 +17,8 @@ class RuntimeComponent(StrEnum):
     LOCAL_AGENT_SERVICE = "local_agent_service"
     MCP_MANAGED_RUNTIME_SERVICE = "mcp_managed_runtime_service"
     MODEL_EVALUATION_SERVICE = "model_evaluation_service"
+    CLAIM_GROUNDING_REVIEW_SERVICE = "claim_grounding_review_service"
+    CLAIM_GROUNDING_LINK_REVIEW_SERVICE = "claim_grounding_link_review_service"
     APPLICATION_UPDATE_SERVICE = "application_update_service"
 
 

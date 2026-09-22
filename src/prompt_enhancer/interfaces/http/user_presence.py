@@ -45,11 +45,28 @@ _SAFE_ACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
             r"^/v1/sessions/[a-f0-9]{64}/requirement-plan-evidence/"
+            r"guided-authoring/review$"
+        ),
+        "Open exact local clauses to author one requirement-plan proposal",
+    ),
+    (
+        re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/requirement-plan-evidence/"
             r"proposals/[a-f0-9]{64}/decision$"
         ),
         (
             "Confirm or reject one reviewed active-requirement "
             "classification and plan-link proposal"
+        ),
+    ),
+    (
+        re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/requirement-action-evidence/"
+            r"guided-authoring/review$"
+        ),
+        (
+            "Open exact local requirements plus redacted action invocation "
+            "and effect details to author one link proposal"
         ),
     ),
     (
@@ -68,6 +85,29 @@ _SAFE_ACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
             r"proposals/[a-f0-9]{64}/decision$"
         ),
         "Confirm or reject one reviewed requirement-to-action link proposal",
+    ),
+    (
+        re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/requirement-verification-evidence/"
+            r"opportunity-sets/[a-f0-9]{64}/opportunities/[a-f0-9]{64}/review$"
+        ),
+        "Open the exact current local clause for one verification opportunity",
+    ),
+    (
+        re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/requirement-verification-evidence/"
+            r"opportunity-sets/[a-f0-9]{64}/opportunities/[a-f0-9]{64}/"
+            r"observed-checks/[a-f0-9]{64}/review$"
+        ),
+        "Open one exact requirement and provider-reported observed check review",
+    ),
+    (
+        re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/requirement-verification-evidence/"
+            r"opportunity-sets/[a-f0-9]{64}/opportunities/[a-f0-9]{64}/"
+            r"observed-checks/[a-f0-9]{64}/issue$"
+        ),
+        "Issue one observed-check result after native criterion coverage review",
     ),
     (
         re.compile(
@@ -260,7 +300,9 @@ class UserPresenceApprovalManager:
 
     @staticmethod
     def action_label(method: str, path: str) -> str | None:
-        if method != "POST" or not path.isascii() or len(path) > 256:
+        # A verification review carries three 64-hex scoped identifiers; the
+        # route remains closed by the exact allowlist below but exceeds 256.
+        if method != "POST" or not path.isascii() or len(path) > 512:
             return None
         for pattern, label in _SAFE_ACTIONS:
             if pattern.fullmatch(path) is not None:

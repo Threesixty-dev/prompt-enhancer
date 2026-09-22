@@ -1,0 +1,82 @@
+.observed-check-evidence {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border-subtle, #c7cbd1);
+  border-radius: .5rem;
+  background: var(--surface-raised, #fff);
+}
+
+.observed-check-evidence header p,
+.observed-check-evidence > p,
+.observed-check-evidence__review p {
+  color: var(--text-muted, #5b6470);
+}
+
+.observed-check-evidence ul {
+  display: grid;
+  gap: .5rem;
+  padding-left: 1.25rem;
+}
+
+.observed-check-evidence li,
+.observed-check-evidence__candidate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem .75rem;
+}
+
+.observed-check-evidence button {
+  min-height: 2.25rem;
+}
+
+.observed-check-evidence__candidates,
+.observed-check-evidence__review {
+  display: grid;
+  gap: .65rem;
+  margin-top: .75rem;
+  padding: .75rem;
+  border-top: 1px solid var(--border-subtle, #c7cbd1);
+}
+
+.observed-check-evidence pre {
+  max-width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.observed-check-evidence__review label {
+  font-weight: 600;
+}
+
+.observed-check-evidence__review input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.observed-check-evidence [role="alert"] {
+  color: var(--danger-text, #9b1c1c);
+}
+
+@media (max-width: 40rem) {
+  .observed-check-evidence {
+    padding: .75rem;
+  }
+
+  .observed-check-evidence li,
+  .observed-check-evidence__candidate {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .observed-check-evidence button {
+    width: 100%;
+  }
+}
+
+@media (forced-colors: active) {
+  .observed-check-evidence {
+    border: 1px solid CanvasText;
+  }
+}

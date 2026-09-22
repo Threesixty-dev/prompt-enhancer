@@ -59,9 +59,25 @@
   position: relative;
   min-width: 0;
   min-height: 0;
+  /* A page zoomed past the fitted width overflows here and nowhere else: the
+     preview shell clips, so an enlarged page can never widen the dialog or the
+     document. */
   overflow: auto;
+  /* Panning a zoomed page must not chain into the viewer or the document. */
+  overscroll-behavior: contain;
+  /* Reserving the scrollbar keeps the measured stage width constant when a
+     zoom or page step changes the canvas height, so the fit calculation cannot
+     cancel and restart the render it just started. */
+  scrollbar-gutter: stable;
   padding: 12px;
   background: color-mix(in srgb, var(--canvas) 96%, #ffffff 4%);
+}
+
+/* The stage only takes focus while it actually scrolls, so keyboard users can
+   pan a zoomed page without a dead tab stop at the fitted size. */
+.agent-pdf-preview__stage:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .agent-pdf-preview__state {
@@ -86,6 +102,14 @@
 
 .agent-pdf-preview__canvas {
   display: block;
+  /* The global img/video/canvas reset caps every canvas at max-width 100%,
+     which clamps the used width to the stage content box and silently re-fits
+     each zoom step: the backing store grows while the presented page keeps the
+     fitted width. The rendered page must own its width and let the stage
+     scroll instead. Auto margins centre a fitted page and resolve to 0 once
+     the page is wider than the stage, so overflow stays on the scrollable
+     side. */
+  max-width: none;
   margin: 0 auto;
   background: white;
   box-shadow: 0 12px 36px rgb(0 0 0 / 20%);

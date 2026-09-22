@@ -8,24 +8,14 @@ type RevisionResponse = {
   json(): Promise<unknown>;
 };
 
-type RevisionFetch = (
-  input: string,
-  init: RequestInit,
-) => Promise<RevisionResponse>;
+type RevisionFetch = (input: string, init: RequestInit) => Promise<RevisionResponse>;
 
 type RevisionWindow = Pick<
   Window,
-  | "addEventListener"
-  | "removeEventListener"
-  | "setInterval"
-  | "clearInterval"
-  | "fetch"
+  "addEventListener" | "removeEventListener" | "setInterval" | "clearInterval" | "fetch"
 >;
 
-type RevisionDocument = Pick<
-  Document,
-  "addEventListener" | "removeEventListener" | "visibilityState"
->;
+type RevisionDocument = Pick<Document, "addEventListener" | "removeEventListener" | "visibilityState">;
 
 export interface UiRevisionGuardOptions {
   /** Keep synthetic and development previews completely inert. */
@@ -38,7 +28,16 @@ export interface UiRevisionGuardOptions {
   readonly browserDocument?: RevisionDocument;
 }
 
+export interface UiRevisionSnapshot {
+  readonly status: "idle" | "available" | "reload_requested" | "reload_failed";
+  readonly reloadBlocked: boolean;
+}
+
 export interface DisposableUiRevisionGuard {
+  getSnapshot(): UiRevisionSnapshot;
+  subscribe(listener: () => void): () => void;
+  setReloadBlocked(blocked: boolean): void;
+  requestReload(): boolean;
   dispose(): void;
 }
 
@@ -57,131 +56,134 @@ export function deriveLoadedUiRevision(moduleUrl: string): string | null {
     return null;
   }
 
-  if (parsedUrl.search !== "" || parsedUrl.hash !== "") {
-    return null;
-  }
+  if (parsedUrl.search !== "" || parsedUrl.hash !== "") return null;
 
   const match = parsedUrl.pathname.match(/(?:^|\/)(assets\/[^/]+\.js)$/);
   const revision = match?.[1] ?? null;
-  return revision !== null && HASHED_JAVASCRIPT_REVISION.test(revision)
-    ? revision
-    : null;
+  return revision !== null && HASHED_JAVASCRIPT_REVISION.test(revision) ? revision : null;
 }
 
 function revisionFromPayload(payload: unknown): string | null {
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    return null;
-  }
-
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return null;
   const keys = Object.keys(payload);
-  if (keys.length !== 1 || keys[0] !== "revision") {
-    return null;
-  }
-
+  if (keys.length !== 1 || keys[0] !== "revision") return null;
   const revision = (payload as Record<string, unknown>).revision;
-  return typeof revision === "string" &&
-    HASHED_JAVASCRIPT_REVISION.test(revision)
+  return typeof revision === "string" && HASHED_JAVASCRIPT_REVISION.test(revision)
     ? revision
     : null;
 }
 
-const INERT_GUARD: DisposableUiRevisionGuard = Object.freeze({
-  dispose() {},
-});
+function inertGuard(): DisposableUiRevisionGuard {
+  const snapshot = Object.freeze<UiRevisionSnapshot>({ status: "idle", reloadBlocked: false });
+  return Object.freeze({
+    getSnapshot: () => snapshot,
+    subscribe: () => () => {},
+    setReloadBlocked: () => {},
+    requestReload: () => false,
+    dispose: () => {},
+  });
+}
+
+const INERT_GUARD = inertGuard();
 
 /**
- * Reload a production SPA once when its loaded JS asset no longer matches the
- * revision served by the same local origin. Network and schema failures are
- * deliberately ignored: this guard never calls a provider or application API.
+ * Observe the same-origin build revision and offer, but never automatically
+ * perform, a one-shot interface refresh when the loaded asset is stale.
  */
-export function startUiRevisionGuard(
-  options: UiRevisionGuardOptions,
-): DisposableUiRevisionGuard {
-  if (!options.enabled) {
-    return INERT_GUARD;
-  }
+export function startUiRevisionGuard(options: UiRevisionGuardOptions): DisposableUiRevisionGuard {
+  if (!options.enabled) return INERT_GUARD;
 
   const loadedRevision = deriveLoadedUiRevision(options.moduleUrl);
-  if (loadedRevision === null) {
-    return INERT_GUARD;
-  }
+  if (loadedRevision === null) return INERT_GUARD;
 
   const browserWindow = options.browserWindow ?? window;
   const browserDocument = options.browserDocument ?? document;
-  const fetchImpl =
-    options.fetchImpl ?? browserWindow.fetch.bind(browserWindow);
+  const fetchImpl = options.fetchImpl ?? browserWindow.fetch.bind(browserWindow);
   const reload = options.reload ?? (() => window.location.reload());
-
+  const listeners = new Set<() => void>();
   let disposed = false;
-  let reloadRequested = false;
+  let checkingStopped = false;
   let checkInFlight = false;
+  let intervalId: ReturnType<RevisionWindow["setInterval"]> | null = null;
+  let snapshot = Object.freeze<UiRevisionSnapshot>({ status: "idle", reloadBlocked: false });
 
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
+  const updateSnapshot = (next: UiRevisionSnapshot) => {
+    if (snapshot.status === next.status && snapshot.reloadBlocked === next.reloadBlocked) return;
+    snapshot = Object.freeze(next);
+    notify();
+  };
+  const stopChecking = () => {
+    if (checkingStopped) return;
+    checkingStopped = true;
+    if (intervalId !== null) browserWindow.clearInterval(intervalId);
+    browserWindow.removeEventListener("focus", onFocus);
+    browserDocument.removeEventListener("visibilitychange", onVisibilityChange);
+  };
   const checkRevision = async () => {
-    if (disposed || reloadRequested || checkInFlight) {
-      return;
-    }
-
+    if (disposed || checkingStopped || checkInFlight) return;
     checkInFlight = true;
     try {
-      const response = await fetchImpl(UI_REVISION_PATH, {
-        cache: "no-store",
-        credentials: "same-origin",
-      });
-      if (disposed || !response.ok) {
-        return;
-      }
-
+      const response = await fetchImpl(UI_REVISION_PATH, { cache: "no-store", credentials: "same-origin" });
+      if (disposed || !response.ok) return;
       const currentRevision = revisionFromPayload(await response.json());
-      if (
-        disposed ||
-        currentRevision === null ||
-        currentRevision === loadedRevision
-      ) {
-        return;
-      }
-
-      reloadRequested = true;
-      dispose();
-      try {
-        reload();
-      } catch {
-        // A reload failure must not trigger repeated attempts or leak listeners.
-      }
+      if (disposed || currentRevision === null || currentRevision === loadedRevision) return;
+      stopChecking();
+      if (!disposed) updateSnapshot({ status: "available", reloadBlocked: snapshot.reloadBlocked });
     } catch {
-      // Offline, malformed, and transient local-server responses fail closed.
+      // Offline, malformed, and transient local-server responses remain unknown.
     } finally {
       checkInFlight = false;
     }
   };
-
-  const onFocus = () => {
-    void checkRevision();
-  };
+  const onFocus = () => { void checkRevision(); };
   const onVisibilityChange = () => {
-    if (browserDocument.visibilityState === "visible") {
-      void checkRevision();
-    }
+    if (browserDocument.visibilityState === "visible") void checkRevision();
   };
-  const intervalId = browserWindow.setInterval(() => {
-    if (browserDocument.visibilityState === "visible") {
-      void checkRevision();
-    }
-  }, UI_REVISION_INTERVAL_MS);
 
+  intervalId = browserWindow.setInterval(() => {
+    if (browserDocument.visibilityState === "visible") void checkRevision();
+  }, UI_REVISION_INTERVAL_MS);
   browserWindow.addEventListener("focus", onFocus);
   browserDocument.addEventListener("visibilitychange", onVisibilityChange);
-
-  function dispose() {
-    if (disposed) {
-      return;
-    }
-    disposed = true;
-    browserWindow.clearInterval(intervalId);
-    browserWindow.removeEventListener("focus", onFocus);
-    browserDocument.removeEventListener("visibilitychange", onVisibilityChange);
-  }
-
   void checkRevision();
 
-  return { dispose };
+  return {
+    getSnapshot: () => snapshot,
+    subscribe(listener) {
+      if (disposed) return () => {};
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    setReloadBlocked(blocked) {
+      if (disposed || snapshot.reloadBlocked === blocked) return;
+      updateSnapshot({ status: snapshot.status, reloadBlocked: blocked });
+    },
+    requestReload() {
+      if (disposed || snapshot.status !== "available" || snapshot.reloadBlocked) return false;
+      // Recheck at the one explicit action boundary before invoking reload.
+      if (snapshot.reloadBlocked) return false;
+      updateSnapshot({ status: "reload_requested", reloadBlocked: false });
+      // Subscribers run synchronously. A newly reported exit risk or disposal
+      // must win over this request before the browser action is invoked.
+      if (disposed || snapshot.reloadBlocked) {
+        if (!disposed) updateSnapshot({ status: "available", reloadBlocked: snapshot.reloadBlocked });
+        return false;
+      }
+      try {
+        reload();
+      } catch {
+        if (!disposed) updateSnapshot({ status: "reload_failed", reloadBlocked: false });
+      }
+      return true;
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      stopChecking();
+      listeners.clear();
+    },
+  };
 }

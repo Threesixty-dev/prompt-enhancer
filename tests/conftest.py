@@ -106,6 +106,14 @@ def downgrade_agent_catalog_post_v20() -> Callable[[sqlite3.Connection], None]:
     def downgrade(connection: sqlite3.Connection) -> None:
         connection.execute("PRAGMA foreign_keys = OFF")
 
+        # Schemas 32/31.  Historical fixtures start before the directory
+        # relocation journal and retained-message search projection existed.
+        connection.execute("DROP TABLE IF EXISTS agent_artifact_directory_move_resolutions")
+        connection.execute("DROP TABLE IF EXISTS agent_artifact_directory_move_intent_children")
+        connection.execute("DROP TABLE IF EXISTS agent_artifact_directory_move_intents")
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_fts")
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_messages")
+
         # Schema 30. Historical fixtures have no checksum provenance sidecar.
         connection.execute(
             "DROP TABLE IF EXISTS agent_catalog_migration_checksums"

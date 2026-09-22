@@ -248,6 +248,28 @@ def test_persisted_high_water_never_lengthens_rebased_monotonic_cutoff() -> None
     ]
 
 
+def test_automation_source_scope_reuses_persisted_publication_cutoff_only():
+    wall = MutableWallClock(STARTED_AT)
+    monotonic = MutableMonotonicClock(100.0)
+    repository = PublicationRepository(_active_job())
+    context = _context(repository, wall, monotonic)
+
+    assert context.automation_runtime_deadline_monotonic() == 1_900.0
+    assert repository.checked_at == []
+
+    manual = repository.job.model_copy(
+        update={
+            "identity": repository.job.identity.model_copy(
+                update={"automation_grant_id": None}
+            )
+        }
+    )
+    manual_repository = PublicationRepository(manual)
+    manual_context = _context(manual_repository, wall, monotonic)
+
+    assert manual_context.automation_runtime_deadline_monotonic() is None
+
+
 def test_monotonic_regression_uses_fixed_clock_failure() -> None:
     wall = MutableWallClock(STARTED_AT)
     monotonic = MutableMonotonicClock(100.0)

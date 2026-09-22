@@ -1,6 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ModelEnsembleRun } from "../../shared/api/contracts";
+import type {
+  ModelEnsembleRun,
+  ModelRequirementVerificationEvidenceBinding,
+} from "../../shared/api/contracts";
+import { syntheticMetricPublicationV2 } from "../../test/metricPublicationV2Fixture";
 import { MetricWorkspace } from "./MetricWorkspace";
 import {
   modelEnsembleAxisPlottedLabel,
@@ -61,8 +65,187 @@ const run: ModelEnsembleRadarData = {
 };
 
 const transport = { getModelPredictiveMetricDetail: vi.fn(() => new Promise<never>(() => undefined)) };
+const verificationBinding: ModelRequirementVerificationEvidenceBinding = {
+  evidence_source: "awaiting_evidence",
+  requirement_plan_confirmation_id: "a".repeat(64),
+  requirement_plan_proposal_id: "b".repeat(64),
+  requirement_plan_evidence_fingerprint: "c".repeat(64),
+  requirement_plan_schema_version: "requirement-plan-evidence-v1",
+  requirement_plan_policy_version: "reviewed-requirement-plan-v1",
+  requirement_plan_review_rubric_version: "active-requirement-plan-review-rubric-v1",
+  opportunity_count: 1,
+  opportunity_set_fingerprint: "d".repeat(64),
+  evidence_set_fingerprint: null,
+  through_revision: null,
+  authority_head_count: 0,
+  objective_result_count: 0,
+  native_acceptance_count: 0,
+  resolved_opportunity_count: 0,
+  met_requirement_count: 0,
+  opportunity_issuer_version: "reviewed-r6-requirement-opportunity-issuer-v1",
+  result_issuer_version: "local-objective-verification-result-issuer-v1",
+  acceptance_issuer_version: "native-explicit-requirement-acceptance-issuer-v1",
+  evidence_schema_version: "requirement-verification-evidence-v1",
+  evidence_policy_version: "app-issued-reviewed-requirement-verification-v1",
+  persistence_schema_version: "requirement-verification-persistence-v1",
+  evidence_projection_version: "reviewed-requirement-verification-objective-projection-v1",
+  objective_projection_version: "reviewed-requirement-verification-objective-projection-v1",
+  binding_schema_version: "session-requirement-verification-evidence-binding-v1",
+  binding_fingerprint: "e".repeat(64),
+  local_only: true,
+  content_persisted: false,
+};
+
+function syntheticR8Publication(): NonNullable<ModelEnsembleRun["metric_publication_v2"]> {
+  const publication = syntheticMetricPublicationV2({
+    "outcome.verified_requirement_coverage": {
+      value_state: "known",
+      numerator: 0,
+      denominator: 1,
+      explanation_code: "app_issued_requirement_verification_pending",
+    },
+  });
+  publication.projection_version = "metric-contract-v2-projection-8";
+  publication.metrics.forEach((item) => {
+    item.state.projection_version = "metric-contract-v2-projection-8";
+  });
+  return publication;
+}
+
+const verificationRun: ModelEnsembleRadarData = {
+  ...run,
+  typed_metrics: [],
+  metric_publication_v2: syntheticR8Publication(),
+};
+const claimRun: ModelEnsembleRadarData = {
+  ...run,
+  typed_metrics: [],
+  metric_publication_v2: (() => {
+    const publication = syntheticMetricPublicationV2({
+      "outcome.agent_claim_grounding": { value_state: "known", numerator: 1, denominator: 2, explanation_code: "typed_requirement_ratio" },
+    });
+    publication.projection_version = "metric-contract-v2-projection-8";
+    publication.metrics.forEach((item) => { item.state.projection_version = "metric-contract-v2-projection-8"; });
+    return publication;
+  })(),
+};
+
+function verificationStage(runId: string): ModelEnsembleRun {
+  return {
+    run_id: runId,
+    requirement_verification_evidence_binding: verificationBinding,
+  } as unknown as ModelEnsembleRun;
+}
 
 describe("metric workspace surfaces share one axis presentation", () => {
+  it("mounts verification evidence only for the active r8 requirement metric and its matching stage run", () => {
+    const runId = "f".repeat(64);
+    const props = {
+      lensId: "outcome-evidence" as const,
+      mode: "full" as const,
+      onLensChange: vi.fn(),
+      run: verificationRun,
+      runId,
+      snapshotLabel: "Synthetic",
+      transport: { ...transport, issueCurrentRequirementVerificationOpportunities: vi.fn() },
+      evidenceSessionId: "0".repeat(64),
+      evidenceEnabled: true,
+    };
+    const view = render(<MetricWorkspace {...props} stageRun={verificationStage(runId)} />);
+    expect(screen.getByRole("heading", { name: "Requirement verification evidence" })).toBeVisible();
+
+    view.rerender(<MetricWorkspace {...props} stageRun={verificationStage("1".repeat(64))} />);
+    expect(screen.queryByRole("heading", { name: "Requirement verification evidence" })).toBeNull();
+
+    view.rerender(<MetricWorkspace {...props} lensId="task-framing" stageRun={verificationStage(runId)} />);
+    expect(screen.queryByRole("heading", { name: "Requirement verification evidence" })).toBeNull();
+
+    view.rerender(<MetricWorkspace {...props} evidenceEnabled={false} stageRun={verificationStage(runId)} />);
+    expect(screen.queryByRole("heading", { name: "Requirement verification evidence" })).toBeNull();
+  });
+
+  it("mounts claim review only for the live active claim-grounding metric", () => {
+    const runId = "c".repeat(64);
+    const claimTransport = {
+      ...transport,
+      getUserPresenceCapability: vi.fn().mockResolvedValue({ confirmation_available: true, mode: "native_bridge_bound_token" }),
+      getRequirementPlanEvidenceContract: vi.fn(), beginClaimGroundingReview: vi.fn(), consumeClaimGroundingReview: vi.fn(),
+    };
+    const props = { lensId: "outcome-evidence" as const, mode: "full" as const, onLensChange: vi.fn(), run: claimRun, runId, stageRun: { run_id: runId } as ModelEnsembleRun, snapshotLabel: "Synthetic", transport: claimTransport, evidenceSessionId: "0".repeat(64), evidenceEnabled: true };
+    const view = render(<MetricWorkspace {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: /Agent claim grounding/i }));
+    expect(screen.getByText(/Review assistant completion claims/i)).toBeVisible();
+    view.rerender(<MetricWorkspace {...props} lensId="task-framing" />);
+    expect(screen.queryByText(/Review assistant completion claims/i)).toBeNull();
+    view.rerender(<MetricWorkspace {...props} evidenceEnabled={false} />);
+    expect(screen.queryByText(/Review assistant completion claims/i)).toBeNull();
+    view.rerender(<MetricWorkspace {...props} evidenceEnabled={true} runId={"d".repeat(64)} />);
+    expect(screen.queryByText(/Review assistant completion claims/i)).toBeNull();
+  });
+
+  it("shows the production current-evidence notice after validated explicit R8 preparation without changing its saved run", async () => {
+    const runId = "f".repeat(64);
+    const savedRun = structuredClone(verificationRun);
+    const issue = vi.fn().mockResolvedValue({ applied: true, snapshot: {
+      revision: 1, local_only: true, content_persisted: false,
+      persistence_schema_version: "requirement-verification-persistence-v1",
+      authority_heads: [],
+      evidence: {
+        evidence_schema_version: "requirement-verification-evidence-v1",
+        evidence_policy_version: "app-issued-reviewed-requirement-verification-v1",
+        projection_version: "reviewed-requirement-verification-objective-projection-v1",
+        evidence_set_fingerprint: "1".repeat(64), local_only: true, content_persisted: false,
+        verification_results: [], acceptance_authorities: [],
+        opportunities: {
+          session_id: "0".repeat(64), source_window_fingerprint: "3".repeat(64),
+          requirement_plan_confirmation_id: "a".repeat(64), requirement_plan_proposal_id: "b".repeat(64), requirement_plan_evidence_fingerprint: "c".repeat(64),
+          requirement_plan_schema_version: "requirement-plan-evidence-v1", requirement_plan_policy_version: "reviewed-requirement-plan-v1", requirement_plan_review_rubric_version: "active-requirement-plan-review-rubric-v1",
+          opportunity_set_fingerprint: "d".repeat(64), opportunities: [{ opportunity_id: "4".repeat(64), requirement_id: "5".repeat(64), requirement_index: 0, coordinate: { message_sequence: 1, clause_index: 0 } }],
+          complete_active_requirement_enumeration: true, issuer_version: "reviewed-r6-requirement-opportunity-issuer-v1", evidence_schema_version: "requirement-verification-evidence-v1", evidence_policy_version: "app-issued-reviewed-requirement-verification-v1", local_only: true, content_persisted: false,
+        },
+      },
+    } });
+    const freshAnalysis = vi.fn()
+      .mockRejectedValueOnce(new Error("synthetic fresh analysis failure"))
+      .mockResolvedValue(undefined);
+    const workspaceProps = { evidenceEnabled: true, evidenceSessionId: "0".repeat(64), lensId: "outcome-evidence" as const, mode: "full" as const, onLensChange: vi.fn(), run: verificationRun, runId, snapshotLabel: "Synthetic", stageRun: verificationStage(runId), transport: { ...transport, issueCurrentRequirementVerificationOpportunities: issue }, freshAnalysisAction: { onRun: freshAnalysis } };
+    const view = render(<MetricWorkspace {...workspaceProps} />);
+    const receiptSummaryBefore = screen.getByLabelText("20-contract receipt summary").textContent;
+    const selectedMetricBefore = screen.getAllByText("Verified requirement coverage").map((node) => node.textContent);
+    fireEvent.click(screen.getByRole("button", { name: "Prepare current reviewed requirements" }));
+    await screen.findByText("Current evidence prepared; this analysis snapshot has not been changed.");
+    expect(issue).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Current evidence changed for this session and run. Displayed metrics remain the saved analysis snapshot/).closest("[role=status]")).not.toBeNull();
+    const freshButton = screen.getByRole("button", { name: "Run fresh analysis" });
+    fireEvent.click(freshButton);
+    fireEvent.click(freshButton);
+    expect(freshAnalysis).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(freshAnalysis).toHaveBeenCalledTimes(1));
+    fireEvent.click(freshButton);
+    expect(freshAnalysis).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("region", { name: /metric workspace/i })).toHaveAttribute("data-run-id", runId);
+    expect(screen.getByLabelText("20-contract receipt summary")).toHaveTextContent(receiptSummaryBefore ?? "");
+    expect(screen.getAllByText("Verified requirement coverage").map((node) => node.textContent)).toEqual(selectedMetricBefore);
+    expect(verificationRun).toEqual(savedRun);
+    const throwing = vi.fn(() => { throw new Error("synthetic observer failure"); });
+    view.rerender(<MetricWorkspace {...workspaceProps} onEvidenceChanged={throwing} />);
+    fireEvent.click(screen.getByRole("button", { name: "Prepare current reviewed requirements" }));
+    await waitFor(() => expect(throwing).toHaveBeenCalledTimes(1));
+    const rejecting = vi.fn(() => Promise.reject(new Error("synthetic observer rejection")));
+    view.rerender(<MetricWorkspace {...workspaceProps} onEvidenceChanged={rejecting} />);
+    fireEvent.click(screen.getByRole("button", { name: "Prepare current reviewed requirements" }));
+    await waitFor(() => expect(rejecting).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/Displayed metrics remain the saved analysis snapshot/)).toBeVisible();
+    expect(screen.getByLabelText("20-contract receipt summary")).toHaveTextContent(receiptSummaryBefore ?? "");
+    expect(screen.getAllByText("Verified requirement coverage").map((node) => node.textContent)).toEqual(selectedMetricBefore);
+    expect(verificationRun).toEqual(savedRun);
+    const nextRunId = "9".repeat(64);
+    view.rerender(<MetricWorkspace {...workspaceProps} runId={nextRunId} stageRun={verificationStage(nextRunId)} />);
+    fireEvent.click(freshButton);
+    expect(freshAnalysis).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/Current evidence changed for this session and run/)).toBeNull();
+  });
+
   it("partitions the canonical 20-contract receipt ledger without promoting state-only or missing entries", () => {
     render(
       <MetricWorkspace lensId="collaboration-flow" mode="full" onLensChange={vi.fn()} run={run} runId={"e".repeat(64)} snapshotLabel="Synthetic" transport={transport} />,

@@ -134,7 +134,7 @@ describe("AgentWorkspaceDiscoveryPanel", () => {
       regex: true,
     }, expect.any(AbortSignal));
     fireEvent.click(screen.getByRole("button", { name: "Open search result src/example.ts line 7" }));
-    expect(openFile).toHaveBeenCalledExactlyOnceWith("src/example.ts");
+    expect(openFile).toHaveBeenCalledExactlyOnceWith("src/example.ts", 7);
   });
 
   it("labels partial coverage and drops stale results after a closed search error", async () => {

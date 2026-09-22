@@ -6,6 +6,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from ...domain import DataTier
+from ..runtime_cancellation import RuntimeCleanupUnconfirmed, RuntimeCooperativeStop
 
 from ..analysis import (
     SESSION_TEXT_ANALYSIS_CONFIRMATION,
@@ -149,6 +150,18 @@ class SessionQualityAutomationHandler:
             )
         except SessionTextAnalysisCooperativeStop as error:
             raise AnalysisJobCooperativeStop(error.reason_code) from None
+        except RuntimeCooperativeStop:
+            # The source can leave an owned bounded provider wait as soon as
+            # the worker scope reaches its deadline or shutdown.  Resolve the
+            # stop through the queue context so the durable publication root
+            # decides whether this is a terminal cutoff or retry-safe stop.
+            context.publication_checkpoint()
+            raise AnalysisJobExecutionError(
+                "provider_read_interrupted",
+                retryable=True,
+            ) from None
+        except RuntimeCleanupUnconfirmed:
+            raise
         except (
             SessionTextAnalysisConsentError,
             SessionTextAnalysisSelectionError,

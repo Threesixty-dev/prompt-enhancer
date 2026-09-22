@@ -379,7 +379,34 @@ describe("ProjectAutomationSettings", () => {
       expect.any(AbortSignal),
     ));
     expect(await screen.findByText("revoked")).toBeVisible();
+    expect(await screen.findByText(
+      /revocation recorded; active work may still be stopping\. check the job centre/i,
+    )).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/cancel its active jobs/i);
     expect(screen.queryByRole("button", { name: "Revoke grant" })).not.toBeInTheDocument();
+  });
+
+  it("does not report revocation when the command fails", async () => {
+    const local = localTransport([grant()]);
+    local.revokeAutomationGrant.mockRejectedValueOnce(
+      new TransportError("PRIVATE-REVOKE-CANARY", 503),
+    );
+    renderLocal(local.transport);
+    await screen.findByText(`Grant ${grantId.slice(0, 8)}…${grantId.slice(-6)}`);
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke grant" }));
+    const revokeGroup = screen.getByRole("group", { name: "Confirm revoke grant" });
+    expect(within(revokeGroup).getByText(
+      /active work may still be stopping afterward/i,
+    )).toBeVisible();
+    fireEvent.click(within(revokeGroup).getByRole("button", { name: "Confirm revoke" }));
+
+    expect(await screen.findByText(/local automation command could not be verified/i)).toBeVisible();
+    expect(screen.queryByText(
+      "Revocation recorded; active work may still be stopping. Check the Job Centre for the current job state. Durable receipts remain.",
+    )).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm revoke" })).toBeVisible();
+    expect(document.body.textContent).not.toContain("PRIVATE-REVOKE-CANARY");
   });
 
   it("polls all due grants truthfully, refreshes receipts, and links to the Job Centre", async () => {

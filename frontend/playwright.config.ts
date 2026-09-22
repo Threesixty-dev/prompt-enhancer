@@ -5,6 +5,7 @@ export default defineConfig({
   testIgnore: [
     "intercepted-contract.spec.ts",
     "loopback-built.spec.ts",
+    "loopback-lazy-recovery.spec.ts",
     "social-direct-transfer.spec.ts",
   ],
   fullyParallel: true,

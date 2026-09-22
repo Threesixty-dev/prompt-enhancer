@@ -19,7 +19,7 @@ import { checkpointHead, checkpointRun, checkpointTrajectory, CHECKPOINT_SESSION
 import "../../src/features/calibration/CalibrationPage.css";
 import type {
   AgentArtifact, AgentArtifactCapturePreview, AgentArtifactDetail, AgentArtifactExport, AgentArtifactPage, AgentArtifactPageQuery, AgentAttachment, AgentCatalogPageQuery, AgentCatalogSession, AgentCatalogSessionPage, AgentCatalogSessionPageQuery, AgentEvent, AgentHardeningSnapshot, AgentHistoryExport, AgentMcpClientSetup, AgentMcpConnectionList, AgentMessageAttachment, AgentProject, AgentProjectPage, AgentSessionContextStatus, AgentSessionForkReceipt, AgentSessionView, AgentWorkspaceFile, LocalModelCompatibilityCatalog, LocalModelPlacementAdmission, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, McpRegistryCatalog, McpRegistryServerReview, SessionTimeline,
-  PeerLink, PromptCheckRecord, PromptCheckResult, PromptEnhancerTransport, SessionJudgments, SharedFolder, CalibrationReview,
+  PeerLink, PromptCheckRecord, PromptCheckResult, PromptEnhancerTransport, SessionJudgments, SessionMetric, SharedFolder, CalibrationReview, UpdateAgentSessionParameters,
 } from "../../src/shared/api/contracts";
 import { TransportError } from "../../src/shared/api/httpTransport";
 import { createSyntheticTransport } from "../../src/shared/api/syntheticTransport";
@@ -40,9 +40,24 @@ const panel = parameters.get("panel") ?? "models";
 const closingFixture = panel === "agent-closing";
 const modelRaceFixture = panel === "agent-model-race";
 const modelCompletionFixture = panel === "models-completion";
+const modelsRecoveryFixture = panel === "models-recovery";
+const modelsRecoveryCase = parameters.get("case") ?? "initial";
 const agentCompletionFixture = panel === "agent-completion";
 const agentTurnFixture = panel === "agent-turn";
 const agentShellFixture = panel === "agent-shell";
+const agentDraftingFixture = panel === "agent-drafting";
+const agentDraftingNoModelFixture = agentDraftingFixture && parameters.get("state") === "no-model";
+const agentWebFetchFixture = panel === "agent-web-fetch";
+const agentWebFetchNativeAvailable = parameters.get("native") === "available";
+const agentWebFetchRejectFirst = parameters.get("state") === "reject-retry";
+const agentRuntimeRecoveryFixture = panel === "agent-runtime-recovery";
+const agentRuntimeRecoveryContextMode = agentRuntimeRecoveryFixture
+  ? parameters.get("context") ?? "ready"
+  : "ready";
+const agentRuntimeRecoveryPendingContextFixture = agentRuntimeRecoveryContextMode === "pending";
+const agentGenerationSettingsFixture = panel === "agent-generation-settings";
+const agentGenerationSettingsConflictFixture = agentGenerationSettingsFixture && parameters.get("state") === "conflict";
+const agentGenerationSettingsNoModelFixture = agentGenerationSettingsFixture && parameters.get("state") === "no-model";
 const agentMcpStoreFixture = panel === "agent-mcp-store";
 const agentMcpStoreHostileFixture = agentMcpStoreFixture && parameters.get("state") === "hostile";
 const agentMcpStoreScaleFixture = agentMcpStoreFixture && parameters.get("state") === "scale";
@@ -50,13 +65,19 @@ const agentMcpProjectToolsFixture = panel === "agent-mcp-project-tools";
 const agentMcpCallFixture = panel === "agent-mcp-call";
 const agentMcpCallCompletedFixture = agentMcpCallFixture && parameters.get("state") === "completed";
 const agentControllerOwnershipFixture = panel === "agent-controller-ownership";
+const agentPlacementFixture = panel === "agent-placement";
+const agentPlacementFailureFixture = agentPlacementFixture && parameters.get("state") === "failure";
+const agentPlacementBlockedFixture = agentPlacementFixture && parameters.get("state") === "blocked";
 const multimodalFixture = agentShellFixture && parameters.get("multimodal") === "1";
 const agentHistoryFixture = panel === "agent-history";
+const branchAttachmentFixture = agentHistoryFixture && parameters.get("branchAttachments") === "1";
+const branchAttachmentOnlyFixture = branchAttachmentFixture && parameters.get("only") === "1";
+const branchLongNameFixture = branchAttachmentFixture && parameters.get("longName") === "1";
 const agentStressFixture = panel === "agent-stress";
 const artifactViewerFixture = panel === "artifact-viewers";
 const artifactCaptureWorkflowFixture = panel === "artifact-capture";
 const artifactLifecycleFixture = panel === "artifact-lifecycle";
-const agentCatalogFixture = agentShellFixture || agentMcpStoreFixture || agentMcpProjectToolsFixture || agentHistoryFixture || agentStressFixture || agentControllerOwnershipFixture;
+const agentCatalogFixture = agentShellFixture || agentDraftingFixture || agentRuntimeRecoveryFixture || agentGenerationSettingsFixture || modelsRecoveryFixture || agentMcpStoreFixture || agentMcpProjectToolsFixture || agentHistoryFixture || agentStressFixture || agentControllerOwnershipFixture || agentPlacementFixture || agentWebFetchFixture;
 const agentWorkspaceFixture = agentTurnFixture || agentShellFixture;
 const agentStoppingFixture = panel === "agent-stopping";
 const agentCommandFixture = panel === "agent-command-cleanup";
@@ -372,7 +393,7 @@ const agentMcpOwnershipConnections: AgentMcpConnectionList = {
     },
   ],
 };
-const agentMcpSetupEndpoint = "http://127.0.0.1:4173/mcp/agent";
+const agentMcpSetupEndpoint = new URL("/mcp/agent", window.location.origin).toString();
 const agentMcpSetup: AgentMcpClientSetup = {
   contract_version: "agent-mcp-client-setup.v1",
   endpoint_url: agentMcpSetupEndpoint,
@@ -592,7 +613,7 @@ function artifactLineageExport(
   versionId: string,
 ): AgentArtifactExport {
   const version = detail.versions.find((candidate) => candidate.version_id === versionId);
-  if (version === undefined) return unavailable();
+  if (version === undefined) throw new Error("Synthetic artifact version is unavailable.");
   return {
     contract_version: "agent-artifact-export.v1",
     exported_at: at,
@@ -625,34 +646,77 @@ function placementAdmission(alias: string, contextSize: number): LocalModelPlace
   };
 }
 
+function livePlacementAdmission(alias: string, contextSize: number): LocalModelPlacementAdmission {
+  if (!agentPlacementBlockedFixture) return placementAdmission(alias, contextSize);
+  return {
+    ...placementAdmission(alias, contextSize),
+    gpu_memory_free_mb: 1024,
+    options: [
+      { device: "gpu", state: "blocked", reason_code: "gpu_estimate_exceeds_free_memory", recommended_gpu_layers: null, estimated_vram_required_mb: null },
+      { device: "split", state: "blocked", reason_code: "split_estimate_exceeds_free_memory", recommended_gpu_layers: null, estimated_vram_required_mb: null },
+      { device: "cpu", state: "available", reason_code: "cpu_available", recommended_gpu_layers: 0, estimated_vram_required_mb: 0 },
+    ],
+  };
+}
+
 let model: LocalModelStatus = {
   record: {
     alias: modelAlias, display_name: "Example Small CPU", format: "gguf",
     path: "D:/example/models/example.gguf", context_size: 4096,
     default_device: "cpu", added_at: at, provenance_verified: false,
   },
-  runtime: { state: panel === "agent" || closingFixture || modelRaceFixture ? "stopped" : "running", device: "cpu" },
+  runtime: { state: panel === "agent" || agentDraftingFixture || closingFixture || modelRaceFixture || agentPlacementFixture ? "stopped" : "running", device: "cpu" },
   endpoint_path: `/v1/local-models/${modelAlias}/chat/completions`,
   placement: placementAdmission(modelAlias, 4096),
 };
-let runtimeAlias: string | null = modelAlias;
+let runtimeAlias: string | null = agentPlacementFixture || agentDraftingFixture || agentGenerationSettingsNoModelFixture ? null : modelAlias;
 let runtimeDevice: "cpu" | "gpu" | "split" = "cpu";
 let runtimeContextSize = 4096;
 let runtimeRevision = 7;
 let runtimeHasMeasuredRequest = agentShellFixture;
+let placementFixtureReads = 0;
+let placementFixtureStarts = 0;
+let pendingPlacementFixture: { resolve: () => void } | null = null;
+let runtimeRecoveryFailureArmed = false;
+let runtimeRecoveryReads = 0;
+let runtimeRecoveryContextReads = 0;
+let runtimeRecoveryContextStartedAt: number | null = null;
+let runtimeRecoveryStarts = 0;
+let runtimeRecoveryStops = 0;
+let runtimeRecoverySends = 0;
+
+if (agentPlacementFixture) document.documentElement.dataset.agentPlacementStarts = "0";
+if (agentRuntimeRecoveryFixture) {
+  document.documentElement.dataset.runtimeRecoveryReads = "0";
+  document.documentElement.dataset.runtimeRecoveryContextReads = "0";
+  document.documentElement.dataset.runtimeRecoveryStarts = "0";
+  document.documentElement.dataset.runtimeRecoveryStops = "0";
+  document.documentElement.dataset.runtimeRecoverySends = "0";
+  document.documentElement.dataset.runtimeRecoveryRevision = String(runtimeRevision);
+}
+
+function resolvePlacementFixtureRead(): void {
+  pendingPlacementFixture?.resolve();
+  pendingPlacementFixture = null;
+}
+
+if (agentPlacementFixture) {
+  window.addEventListener("synthetic-placement-resolve", resolvePlacementFixtureRead);
+}
 let sessions: AgentSessionView[] = [];
-if (closingFixture || modelRaceFixture || agentCompletionFixture || agentWorkspaceFixture || agentMcpProjectToolsFixture || agentMcpCallFixture || agentStoppingFixture || agentCommandFixture) {
+if (closingFixture || modelRaceFixture || agentCompletionFixture || agentWorkspaceFixture || agentMcpProjectToolsFixture || agentMcpCallFixture || agentStoppingFixture || agentCommandFixture || agentPlacementFixture || agentRuntimeRecoveryFixture || agentGenerationSettingsFixture || (agentDraftingFixture && !agentDraftingNoModelFixture)) {
   sessions = [{ contract_version: "local-agent.v9", cleanup_unconfirmed: false, session_id: sessionId, closing: closingFixture, stopping: false,
-    settings: { workspace: "D:/example/project", project_id: agentShellFixture || agentMcpProjectToolsFixture ? agentProjectId : null, model_alias: modelAlias, parameters: {
-      temperature: 0.2, top_p: 0.95, max_tokens: 1400, enable_thinking: agentCompletionFixture },
+    settings: { workspace: "D:/example/project", project_id: agentShellFixture || agentDraftingFixture || agentMcpProjectToolsFixture || agentGenerationSettingsFixture ? agentProjectId : null, model_alias: agentGenerationSettingsNoModelFixture ? null : modelAlias, parameters: {
+      temperature: 0.2, top_p: 0.95, max_tokens: agentGenerationSettingsFixture && parameters.get("state") === "ready" ? 8192 : agentGenerationSettingsConflictFixture ? 1536 : 1400, enable_thinking: agentCompletionFixture },
       instructions: null, allow_writes: agentWorkspaceFixture, allow_commands: agentWorkspaceFixture || agentCommandFixture, allow_web: false,
-      max_steps: 10, command_timeout_seconds: 120, title: closingFixture ? "Example closing session" : agentCompletionFixture ? "Example incomplete-response session" : agentTurnFixture ? "Example turn receipts" : agentShellFixture || agentMcpProjectToolsFixture ? "Synthetic coding chat" : "Example model-control session",
-      retention_policy: "metadata_only" },
-    created_at: at, running: false, last_seq: 0, pending_approval_id: null, model_alias: modelAlias, turns: 1,
+      max_steps: 10, command_timeout_seconds: 120, title: agentGenerationSettingsFixture ? "Synthetic generation settings chat" : closingFixture ? "Example closing session" : agentCompletionFixture ? "Example incomplete-response session" : agentTurnFixture ? "Example turn receipts" : agentShellFixture || agentDraftingFixture || agentMcpProjectToolsFixture ? "Synthetic coding chat" : "Example model-control session",
+      retention_policy: agentGenerationSettingsFixture ? "local_history" : "metadata_only" },
+    created_at: at, running: agentRuntimeRecoveryPendingContextFixture, last_seq: 0, pending_approval_id: null, model_alias: agentGenerationSettingsNoModelFixture ? null : modelAlias, turns: 1,
     history_revision: 0, recovered: false, authority_revalidated: true, history_write_failed: false, recovery_state: "current" }];
 }
 let closeFailures = closingFixture ? 1 : 0;
 let events: AgentEvent[] = [];
+let childEvents: AgentEvent[] = [];
 let shares: SharedFolder[] = [];
 let links: PeerLink[] = [];
 let checks: PromptCheckRecord[] = [];
@@ -664,6 +728,41 @@ let holdNextModelRead = false;
 let heldModelRead: { snapshot: LocalModelsOverview; resolve: (value: LocalModelsOverview) => void } | null = null;
 let attachmentSequence = 0;
 let stagedAttachments: AgentAttachment[] = [];
+let branchAttachmentUploads = 0;
+let branchManualSends = 0;
+let draftingManualSends = 0;
+let draftingRuntimeStarts = 0;
+let modelsRecoveryRuntimeReads = 0;
+let modelsRecoveryStreamAttempts = 0;
+let modelsRecoveryStreamAborts = 0;
+let modelsRecoveryStarts = 0;
+let modelsRecoveryFailureArmed = modelsRecoveryCase === "initial";
+let modelsRecoveryAllowed = false;
+let modelsRecoveryPendingStream: { resolve: (value: Awaited<ReturnType<PromptEnhancerTransport["streamLocalModelChat"]>>) => void } | null = null;
+if (modelsRecoveryFixture) {
+  document.documentElement.dataset.modelsRecoveryRuntimeReads = "0";
+  document.documentElement.dataset.modelsRecoveryStreamAttempts = "0";
+  document.documentElement.dataset.modelsRecoveryStreamAborts = "0";
+  document.documentElement.dataset.modelsRecoveryStarts = "0";
+}
+if (agentDraftingFixture) {
+  document.documentElement.dataset.draftingSessionId = sessionId;
+  document.documentElement.dataset.draftingManualSends = "0";
+  document.documentElement.dataset.draftingRuntimeStarts = "0";
+  if (!agentDraftingNoModelFixture) document.documentElement.dataset.draftingBoundModelAlias = modelAlias;
+}
+if (agentGenerationSettingsFixture) {
+  document.documentElement.dataset.generationSettingsAttempts = "0";
+  document.documentElement.dataset.generationSettingsSaves = "0";
+  document.documentElement.dataset.generationSettingsStartAttempts = "0";
+  document.documentElement.dataset.generationSettingsSendAttempts = "0";
+}
+function updateBranchAttachmentCounters() {
+  if (!branchAttachmentFixture) return;
+  document.documentElement.dataset.branchAttachmentUploads = String(branchAttachmentUploads);
+  document.documentElement.dataset.branchManualSends = String(branchManualSends);
+}
+if (branchAttachmentFixture) updateBranchAttachmentCounters();
 const documentAttachmentPreviews = new Map<string, string>();
 let hardeningRequests = 0;
 let acceptanceRequests = 0;
@@ -696,6 +795,17 @@ function messageAttachment(attachment: AgentAttachment): AgentMessageAttachment 
   };
 }
 
+const branchSourceAttachment: AgentMessageAttachment = {
+  contract_version: "agent-attachment.v2",
+  attachment_id: "6".repeat(32), display_name: branchLongNameFixture ? "synthetic-branch-attachment-with-a-deliberately-long-fictional-name.txt" : "synthetic-branch.txt", kind: "document",
+  media_type: "text/plain", byte_size: 36,
+  sha256: "9a7bcb576476cceaf8c61ce60a3c69f193ee19d498aab873bb520d81cbae6f45",
+  width: null, height: null, duration_ms: null, sample_rate_hz: null, channels: null,
+  routing: "local_text_projection", document_format: "plain_text", projected_characters: 35,
+  projection_truncated: false, omitted_features: [], context_tokens: null,
+  context_cost_source: "runtime_unreported",
+};
+
 function overview(): LocalModelsOverview {
   const alternate: LocalModelStatus = {
     record: {
@@ -711,7 +821,7 @@ function overview(): LocalModelsOverview {
     contract_version: "local-models.v1", runtime_available: true,
     storage_root: "D:/example/models", storage_free_bytes: 64 * 1024 ** 3,
     download_reserve_bytes: 512 * 1024 ** 2, download_ledger_error_code: null,
-    models: agentShellFixture
+    models: agentShellFixture || agentDraftingFixture || agentRuntimeRecoveryFixture
       ? [{ ...model, runtime: { state: runtimeAlias === modelAlias ? "running" : "stopped", device: runtimeAlias === modelAlias ? runtimeDevice : null } }, alternate]
       : [model], downloads: [],
     hardware: { gpu_name: "Synthetic GPU", gpu_memory_mb: 16000, gpu_memory_free_mb: 12000,
@@ -941,7 +1051,11 @@ if (agentHistoryFixture) {
       byte_size: retainedArtifactBytes,
     })],
   });
-  events.push(event("user", { text: "Explain the retained synthetic module.", turn_id: summary.turn_id }));
+  events.push(event("user", {
+    text: branchAttachmentOnlyFixture ? "" : "Explain the retained synthetic module.",
+    turn_id: summary.turn_id,
+    attachments: branchAttachmentFixture ? [branchSourceAttachment] : [],
+  }));
   events.push(event("tool_result", {
     turn_id: summary.turn_id,
     tool: "write_file",
@@ -957,6 +1071,10 @@ if (agentHistoryFixture) {
     turn_id: summary.turn_id,
   }));
   events.push(event("done", { turn_id: summary.turn_id, turn_summary: summary }));
+  if (branchAttachmentFixture) {
+    document.documentElement.dataset.branchSourceEventCount = String(events.length);
+    document.documentElement.dataset.branchSourceAttachmentDigest = branchSourceAttachment.sha256;
+  }
 }
 
 if (agentStressFixture) {
@@ -984,7 +1102,7 @@ let agentProjects: AgentProject[] = agentStressFixture
     }))
   : [
       { contract_version: "agent-catalog.v2", project_id: agentProjectId, name: "Example coding project", created_at: at, updated_at: at,
-        revision: 1, pinned: true, archived_at: null, session_count: agentHistoryFixture ? 1 : 2, is_default: true },
+        revision: 1, pinned: true, archived_at: null, session_count: agentDraftingNoModelFixture ? 0 : agentHistoryFixture ? 1 : 2, is_default: true },
       { contract_version: "agent-catalog.v2", project_id: secondAgentProjectId, name: "Second example project", created_at: at, updated_at: at,
         revision: 1, pinned: false, archived_at: null, session_count: 0, is_default: false },
     ];
@@ -1008,11 +1126,16 @@ let agentCatalogSessions: AgentCatalogSession[] = agentStressFixture ? Array.fro
   turn_count: index === 0 ? 1 : 0,
   conversation_available: index === 0,
   lineage: null,
-})) : agentHistoryFixture ? [
+})) : agentDraftingNoModelFixture ? [] : agentHistoryFixture ? [
   { contract_version: "agent-catalog.v2", session_id: sessionId, project_id: agentProjectId, title: "Saved restart chat",
     workspace: "D:/example/project", model_alias: modelAlias, created_at: at, updated_at: at, last_opened_at: at,
     revision: 1, pinned: true, archived_at: null, history_state: "durable_local", retention_policy: "local_history",
     history_revision: events.length, last_event_seq: events.length, turn_count: 1, conversation_available: true, lineage: null },
+] : agentGenerationSettingsFixture ? [
+  { contract_version: "agent-catalog.v2", session_id: sessionId, project_id: agentProjectId, title: "Synthetic generation settings chat",
+    workspace: "D:/example/project", model_alias: agentGenerationSettingsNoModelFixture ? null : modelAlias, created_at: at, updated_at: at, last_opened_at: at,
+    revision: 4, pinned: true, archived_at: null, history_state: "durable_local", retention_policy: "local_history",
+    history_revision: 0, last_event_seq: 0, turn_count: 0, conversation_available: true, lineage: null },
 ] : [
   { contract_version: "agent-catalog.v2", session_id: sessionId, project_id: agentProjectId, title: "Synthetic coding chat",
     workspace: "D:/example/project", model_alias: modelAlias, created_at: at, updated_at: at, last_opened_at: at,
@@ -1062,6 +1185,7 @@ const stressArtifacts: AgentArtifact[] = agentStressFixture ? Array.from({ lengt
 }) : [];
 const agentStressSnapshot = "9".repeat(64);
 let agentForkReceipt: AgentSessionForkReceipt | null = null;
+let webFetchCapabilityReads = 0;
 
 async function unavailable(): Promise<never> {
   throw new Error("This operation is outside the synthetic acceptance fixture.");
@@ -1153,6 +1277,7 @@ function retainedEventsForExport(source: AgentEvent[]): AgentHistoryExport["even
     ) return [];
     return [{
       at: entry.at,
+      attachments: entry.attachments,
       call_id: entry.call_id,
       kind: entry.kind,
       ok: entry.ok,
@@ -1224,6 +1349,11 @@ const transport = {
   },
   getLocalModelCompatibility: async () => compatibilityCatalog(),
   activateLocalModel: async () => {
+    if (modelsRecoveryFixture) {
+      modelsRecoveryStarts += 1;
+      document.documentElement.dataset.modelsRecoveryStarts = String(modelsRecoveryStarts);
+    }
+    if (agentGenerationSettingsFixture) document.documentElement.dataset.generationSettingsStartAttempts = String(Number(document.documentElement.dataset.generationSettingsStartAttempts ?? "0") + 1);
     model = { ...model, runtime: { state: "running", device: "cpu" } };
     return model;
   },
@@ -1233,7 +1363,22 @@ const transport = {
   },
   removeLocalModel: unavailable, getLocalModelRemoteFiles: unavailable,
   startLocalModelDownload: unavailable, addLocalModel: unavailable,
-  streamLocalModelChat: async (_alias, _request, onDelta) => {
+  streamLocalModelChat: async (_alias, _request, onDelta, signal) => {
+    if (modelsRecoveryFixture) {
+      modelsRecoveryStreamAttempts += 1;
+      document.documentElement.dataset.modelsRecoveryStreamAttempts = String(modelsRecoveryStreamAttempts);
+      signal?.addEventListener("abort", () => {
+        modelsRecoveryStreamAborts += 1;
+        document.documentElement.dataset.modelsRecoveryStreamAborts = String(modelsRecoveryStreamAborts);
+      }, { once: true });
+      if (modelsRecoveryCase === "stream") {
+        onDelta({ content: "Synthetic partial reply before the runtime outage." });
+        await new Promise<Awaited<ReturnType<PromptEnhancerTransport["streamLocalModelChat"]>>>((resolve) => {
+          modelsRecoveryPendingStream = { resolve };
+        });
+        return { content: "Synthetic late reply that must be ignored.", reasoning: "", finish_reason: "stop", elapsed_ms: 10 };
+      }
+    }
     if (modelCompletionFixture) {
       if (_request.messages.some((entry) => entry.role === "assistant" && entry.content === "Synthetic unfinished reply.")) {
         throw new Error("An incomplete reply entered the next model history.");
@@ -1249,10 +1394,86 @@ const transport = {
       reasoning: "Synthetic reasoning: check the example acceptance condition.", finish_reason: "stop", elapsed_ms: 10 };
   },
   ...(agentCatalogFixture ? {
-    getLocalRuntime: async () => runtimeCoordinator(),
+    getLocalRuntime: async () => {
+      if (modelsRecoveryFixture) {
+        modelsRecoveryRuntimeReads += 1;
+        document.documentElement.dataset.modelsRecoveryRuntimeReads = String(modelsRecoveryRuntimeReads);
+        if (modelsRecoveryFailureArmed && !modelsRecoveryAllowed) {
+          throw new TransportError("Synthetic runtime status read failed", 503, "runtime_not_healthy");
+        }
+      }
+      if (agentRuntimeRecoveryFixture) {
+        runtimeRecoveryReads += 1;
+        document.documentElement.dataset.runtimeRecoveryReads = String(runtimeRecoveryReads);
+        if (runtimeRecoveryFailureArmed) {
+          runtimeRecoveryFailureArmed = false;
+          throw new TransportError("Synthetic runtime status read failed", 503, "runtime_not_healthy");
+        }
+      }
+      return runtimeCoordinator();
+    },
+    ...(agentPlacementFixture || agentRuntimeRecoveryFixture ? {
+      getLocalModelPlacement: async (alias: string, contextSize: number) => {
+        const placementRead = ++placementFixtureReads;
+        if (agentPlacementFixture) await new Promise<void>((resolve) => { pendingPlacementFixture = { resolve }; });
+        if (agentPlacementFailureFixture && placementRead === 1) {
+          throw new Error("Synthetic live placement admission is temporarily unavailable.");
+        }
+        return livePlacementAdmission(alias, contextSize);
+      },
+    } : {}),
     getAgentSessionContext: async (id): Promise<AgentSessionContextStatus> => {
       const current = sessions.find((entry) => entry.session_id === id);
       if (!current) return unavailable();
+      if (agentRuntimeRecoveryFixture && agentRuntimeRecoveryContextMode !== "ready") {
+        runtimeRecoveryContextReads += 1;
+        document.documentElement.dataset.runtimeRecoveryContextReads = String(runtimeRecoveryContextReads);
+        const now = Date.now();
+        const startedAt = runtimeRecoveryContextStartedAt ?? now;
+        runtimeRecoveryContextStartedAt = startedAt;
+        if (now - startedAt >= 10_000) {
+          return {
+            contract_version: "agent-session-context.v1",
+            session_id: id,
+            revision: 4,
+            binding_state: "bound",
+            source: "runtime_chat_template_preflight",
+            unknown_reason: null,
+            turn_id: "6".repeat(32),
+            turn_number: current.turns,
+            model_alias: modelAlias,
+            observed_at: at,
+            context: {
+              state: "known",
+              used_tokens: 640,
+              limit_tokens: 4096,
+              requested_output_tokens: 1400,
+              available_output_tokens: 3456,
+              source: "runtime_chat_input_tokens",
+              scope: "last_request",
+              policy: "exact_admitted",
+              compacted_messages: 0,
+              reason_code: null,
+            },
+          };
+        }
+        if (agentRuntimeRecoveryContextMode === "hung") {
+          return new Promise<AgentSessionContextStatus>(() => undefined);
+        }
+        return {
+          contract_version: "agent-session-context.v1",
+          session_id: id,
+          revision: 3,
+          binding_state: "unmeasured",
+          source: "runtime_chat_template_preflight",
+          unknown_reason: "turn_pending_preflight",
+          turn_id: "6".repeat(32),
+          turn_number: current.turns,
+          model_alias: modelAlias,
+          observed_at: null,
+          context: null,
+        };
+      }
       if (
         agentShellFixture
         && current.model_alias === modelAlias
@@ -1284,6 +1505,7 @@ const transport = {
           },
         };
       }
+      const history = id === forkedAgentSessionId ? childEvents : events;
       return {
         contract_version: "agent-session-context.v1",
         session_id: id,
@@ -1301,17 +1523,46 @@ const transport = {
       };
     },
     switchLocalRuntime: async (request) => {
+      if (modelsRecoveryFixture) {
+        modelsRecoveryStarts += 1;
+        document.documentElement.dataset.modelsRecoveryStarts = String(modelsRecoveryStarts);
+      }
+      if (agentRuntimeRecoveryFixture) {
+        runtimeRecoveryStarts += 1;
+        document.documentElement.dataset.runtimeRecoveryStarts = String(runtimeRecoveryStarts);
+        document.documentElement.dataset.runtimeRecoveryLastStartAlias = request.alias;
+        document.documentElement.dataset.runtimeRecoveryLastExpectedRevision = String(request.expected_revision);
+      }
+      if (agentDraftingFixture) {
+        draftingRuntimeStarts += 1;
+        document.documentElement.dataset.draftingRuntimeStarts = String(draftingRuntimeStarts);
+      }
+      if (agentPlacementFixture) {
+        placementFixtureStarts += 1;
+        document.documentElement.dataset.agentPlacementStarts = String(placementFixtureStarts);
+      }
       runtimeAlias = request.alias;
       runtimeDevice = request.device ?? "split";
       runtimeContextSize = request.context_size ?? 8192;
       runtimeHasMeasuredRequest = false;
       runtimeRevision += 1;
+      if (agentRuntimeRecoveryFixture) document.documentElement.dataset.runtimeRecoveryRevision = String(runtimeRevision);
       return runtimeCoordinator();
     },
-    stopLocalRuntime: async () => {
+    stopLocalRuntime: async (request: { alias: string; expected_revision: number }) => {
+      if (agentRuntimeRecoveryFixture) {
+        runtimeRecoveryStops += 1;
+        document.documentElement.dataset.runtimeRecoveryStops = String(runtimeRecoveryStops);
+        document.documentElement.dataset.runtimeRecoveryStopAlias = request.alias;
+        document.documentElement.dataset.runtimeRecoveryStopRevision = String(request.expected_revision);
+        if (request.alias !== runtimeAlias || request.expected_revision !== runtimeRevision) {
+          throw new TransportError("Synthetic stale runtime stop", 409, "runtime_revision_conflict");
+        }
+      }
       runtimeAlias = null;
       runtimeHasMeasuredRequest = false;
       runtimeRevision += 1;
+      if (agentRuntimeRecoveryFixture) document.documentElement.dataset.runtimeRecoveryRevision = String(runtimeRevision);
       return runtimeCoordinator();
     },
     ...(agentStressFixture ? {
@@ -1330,10 +1581,11 @@ const transport = {
     getAgentPersistedEvents: async (projectId, id, after) => {
       const record = agentCatalogSessions.find((entry) => entry.project_id === projectId && entry.session_id === id);
       if (!record || record.retention_policy !== "local_history") return unavailable();
+      const history = id === forkedAgentSessionId ? childEvents : events;
       return {
         contract_version: "local-agent.v9" as const,
         session_id: id,
-        events: events.filter((entry) => (
+        events: history.filter((entry) => (
           entry.seq > after && entry.seq <= record.last_event_seq
         )).slice(0, agentStressFixture ? 500 : events.length),
         running: false,
@@ -1342,7 +1594,7 @@ const transport = {
         cleanup_unconfirmed: false,
         pending_approval_id: null,
         last_seq: record.last_event_seq,
-        first_seq: events.length ? events[0].seq : 0,
+        first_seq: history.length ? history[0].seq : 0,
       };
     },
     resumeAgentSession: async (projectId, id) => {
@@ -1467,8 +1719,37 @@ const transport = {
         model_alias: request.model_alias,
       };
       sessions = sessions.map((entry) => entry.session_id === id ? updated : entry);
+      if (agentDraftingFixture) document.documentElement.dataset.draftingBoundModelAlias = request.model_alias;
       agentCatalogSessions = agentCatalogSessions.map((entry) => entry.session_id === id
         ? { ...entry, model_alias: request.model_alias, revision: entry.revision + 1 }
+        : entry);
+      return updated;
+    },
+    updateAgentSessionParameters: async (id: string, request: UpdateAgentSessionParameters) => {
+      const attemptCount = Number(document.documentElement.dataset.generationSettingsAttempts ?? "0") + 1;
+      document.documentElement.dataset.generationSettingsAttempts = String(attemptCount);
+      const existing = sessions.find((entry) => entry.session_id === id);
+      const catalog = agentCatalogSessions.find((entry) => entry.session_id === id);
+      if (agentGenerationSettingsConflictFixture && attemptCount === 1 && existing && catalog) {
+      const conflictParameters = { ...existing.settings.parameters, max_tokens: 1536 };
+        sessions = sessions.map((entry) => entry.session_id === id
+          ? { ...entry, settings: { ...entry.settings, parameters: conflictParameters } }
+          : entry);
+        agentCatalogSessions = agentCatalogSessions.map((entry) => entry.session_id === id
+          ? { ...entry, revision: entry.revision + 1, updated_at: at }
+          : entry);
+        throw new TransportError("Synthetic generation settings conflict", 409, "agent_catalog_session_revision_conflict");
+      }
+      if (!existing || !catalog || existing.running || existing.closing || catalog.project_id !== request.expected_project_id
+        || catalog.revision !== request.expected_revision
+        || JSON.stringify(existing.settings.parameters) !== JSON.stringify(request.expected_parameters)) {
+        throw new TransportError("Synthetic generation settings conflict", 409);
+      }
+      document.documentElement.dataset.generationSettingsSaves = String(Number(document.documentElement.dataset.generationSettingsSaves ?? "0") + 1);
+      const updated: AgentSessionView = { ...existing, settings: { ...existing.settings, parameters: request.parameters } };
+      sessions = sessions.map((entry) => entry.session_id === id ? updated : entry);
+      agentCatalogSessions = agentCatalogSessions.map((entry) => entry.session_id === id
+        ? { ...entry, revision: entry.revision + 1, updated_at: at }
         : entry);
       return updated;
     },
@@ -1495,6 +1776,7 @@ const transport = {
       const copiedTurnCount = events.filter((entry) => (
         entry.seq <= branchEventSeq && entry.kind === "done"
       )).length;
+      childEvents = events.filter((entry) => entry.seq <= branchEventSeq);
       const child: AgentCatalogSession = {
         ...source,
         session_id: forkedAgentSessionId,
@@ -1535,6 +1817,10 @@ const transport = {
         staged_attachments_copied: false,
         artifacts_copied: false,
       };
+      if (branchAttachmentFixture) {
+        document.documentElement.dataset.branchChildSession = child.session_id;
+        document.documentElement.dataset.branchSourceSession = id;
+      }
       return agentForkReceipt;
     },
     updateAgentCatalogSession: async () => agentCatalogSessions[0],
@@ -1558,6 +1844,12 @@ const transport = {
       ? mediaType === "text/markdown" ? "markdown" as const : "plain_text" as const
       : null;
     const projectedText = kind === "document" ? (await upload.blob.text()).trim() : null;
+    const digest = branchAttachmentFixture
+      ? Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await upload.blob.arrayBuffer())))
+        .map((byte) => byte.toString(16).padStart(2, "0")).join("")
+      : attachmentSequence.toString(16).repeat(64).slice(0, 64);
+    if (branchAttachmentFixture) branchAttachmentUploads += 1;
+    updateBranchAttachmentCounters();
     const attachment: AgentAttachment = {
       contract_version: "agent-attachment.v2",
       attachment_id: attachmentSequence.toString(16).padStart(32, "0"),
@@ -1567,7 +1859,7 @@ const transport = {
       kind,
       media_type: mediaType,
       byte_size: upload.blob.size,
-      sha256: attachmentSequence.toString(16).repeat(64).slice(0, 64),
+      sha256: digest,
       width: kind === "image" ? 1 : null,
       height: kind === "image" ? 1 : null,
       duration_ms: kind === "audio" ? 1 : null,
@@ -1625,9 +1917,37 @@ const transport = {
   createAgentSession: async (settings) => {
     if (commandCleanupReported) throw new TransportError("Agent work paused", 409, "command_cleanup_unconfirmed");
     const created: AgentSessionView = { contract_version: "local-agent.v9", cleanup_unconfirmed: false, closing: false, stopping: false, session_id: sessionId,
-      settings, created_at: at, running: false, last_seq: 0, pending_approval_id: null, model_alias: modelAlias, turns: 0,
+      settings, created_at: at, running: false, last_seq: 0, pending_approval_id: null, model_alias: settings.model_alias ?? null, turns: 0,
       history_revision: 0, recovered: false, authority_revalidated: true, history_write_failed: false, recovery_state: "current" };
     sessions = [created];
+    if (agentWebFetchFixture) {
+      document.documentElement.dataset.webFetchCreateAllowWeb = String(settings.allow_web);
+      document.documentElement.dataset.webFetchCreateAllowWrites = String(settings.allow_writes);
+      document.documentElement.dataset.webFetchCreateAllowCommands = String(settings.allow_commands);
+    }
+    if (agentDraftingNoModelFixture) {
+      agentCatalogSessions = [{
+        contract_version: "agent-catalog.v2",
+        session_id: sessionId,
+        project_id: agentProjectId,
+        title: "Synthetic model-free drafting chat",
+        workspace: settings.workspace,
+        model_alias: settings.model_alias ?? null,
+        created_at: at,
+        updated_at: at,
+        last_opened_at: at,
+        revision: 1,
+        pinned: true,
+        archived_at: null,
+        history_state: "memory_only",
+        retention_policy: settings.retention_policy,
+        history_revision: 0,
+        last_event_seq: 0,
+        turn_count: 0,
+        conversation_available: true,
+        lineage: null,
+      }];
+    }
     events = [];
     return created;
   },
@@ -1641,9 +1961,30 @@ const transport = {
     sessions = []; events = [];
   },
   sendAgentMessage: async (_id, text, attachmentIds = []) => {
+    if (agentGenerationSettingsFixture) document.documentElement.dataset.generationSettingsSendAttempts = String(Number(document.documentElement.dataset.generationSettingsSendAttempts ?? "0") + 1);
     if (commandCleanupReported) throw new TransportError("Agent work paused", 409, "command_cleanup_unconfirmed");
     const attached = stagedAttachments.filter((attachment) => attachmentIds.includes(attachment.attachment_id));
-    events.push(event("user", { text, attachments: attached.map(messageAttachment) }));
+    if (agentRuntimeRecoveryFixture) {
+      runtimeRecoverySends += 1;
+      document.documentElement.dataset.runtimeRecoverySends = String(runtimeRecoverySends);
+    }
+    if (agentDraftingFixture) {
+      draftingManualSends += 1;
+      document.documentElement.dataset.draftingManualSends = String(draftingManualSends);
+      document.documentElement.dataset.draftingLastSendSession = _id;
+      document.documentElement.dataset.draftingLastSendText = text;
+    }
+    if (branchAttachmentFixture) branchManualSends += 1;
+    if (branchAttachmentFixture) {
+      document.documentElement.dataset.branchLastSendSession = _id;
+      document.documentElement.dataset.branchLastSendAttachments = attachmentIds.join(",");
+      updateBranchAttachmentCounters();
+    }
+    const targetEvents = _id === forkedAgentSessionId ? childEvents : events;
+    const childEvent = (kind: AgentEvent["kind"], extra: Partial<AgentEvent> = {}): AgentEvent => ({
+      ...event(kind, extra), seq: targetEvents.length + 1,
+    });
+    targetEvents.push(childEvent("user", { text, attachments: attached.map(messageAttachment) }));
     stagedAttachments = stagedAttachments.filter((attachment) => !attachmentIds.includes(attachment.attachment_id));
     for (const attachmentId of attachmentIds) documentAttachmentPreviews.delete(attachmentId);
     if (agentStoppingFixture && !cancelledExampleReleased) {
@@ -1651,24 +1992,31 @@ const transport = {
       return sessions[0];
     }
     if (agentCompletionFixture && sessions[0].turns === 1) {
-      events.push(event("assistant", { text: "Synthetic unfinished Agent reply.",
+      targetEvents.push(childEvent("assistant", { text: "Synthetic unfinished Agent reply.",
         reasoning: "Synthetic partial model trace.", stream_id: "e".repeat(32), stream_status: "failed" }));
-      events.push(event("error", { text: "The model reached its response token limit before finishing. Partial output was not used for tool actions or conversation history. Ask for a smaller step." }));
+      targetEvents.push(childEvent("error", { text: "The model reached its response token limit before finishing. Partial output was not used for tool actions or conversation history. Ask for a smaller step." }));
     } else {
-      events.push(event("assistant", { text: "Synthetic agent reply: no real files were read or changed.",
+      targetEvents.push(childEvent("assistant", { text: agentDraftingFixture ? "Synthetic drafting response returned from the in-memory transport." : "Synthetic agent reply: no real files were read or changed.",
         reasoning: sessions[0].settings.parameters?.enable_thinking ? "Synthetic reasoning: inspect the fictional request." : null }));
     }
-    events.push(event("done"));
-    sessions = [{ ...sessions[0], running: false, last_seq: events.length, turns: sessions[0].turns + 1 }];
+    targetEvents.push(childEvent("done"));
+    if (branchAttachmentFixture) document.documentElement.dataset.branchSourceEventCount = String(events.length);
+    if (_id === forkedAgentSessionId) {
+      agentCatalogSessions = agentCatalogSessions.map((entry) => entry.session_id === _id
+        ? { ...entry, last_event_seq: targetEvents.length, history_revision: targetEvents.length, turn_count: entry.turn_count + 1 }
+        : entry);
+    }
+    sessions = [{ ...sessions[0], running: false, last_seq: targetEvents.length, turns: sessions[0].turns + 1 }];
     // Make the UI enter the working state, then its event read supplies the done receipt.
     return { ...sessions[0], running: true };
   },
   getAgentEvents: async (_id, after) => {
     olderCommandSnapshotRead?.();
     olderCommandSnapshotRead = null;
-    return { contract_version: "local-agent.v9", cleanup_unconfirmed: sessions[0]?.cleanup_unconfirmed ?? false, closing: sessions[0]?.closing ?? false, stopping: sessions[0]?.stopping ?? false, session_id: sessionId,
-      events: events.filter((entry) => entry.seq > after), running: sessions[0]?.running ?? false,
-      pending_approval_id: sessions[0]?.pending_approval_id ?? null, last_seq: events.length, first_seq: events.length ? 1 : 0 };
+    const history = _id === forkedAgentSessionId ? childEvents : events;
+    return { contract_version: "local-agent.v9", cleanup_unconfirmed: sessions[0]?.cleanup_unconfirmed ?? false, closing: sessions[0]?.closing ?? false, stopping: sessions[0]?.stopping ?? false, session_id: _id,
+      events: history.filter((entry) => entry.seq > after), running: sessions[0]?.running ?? false,
+      pending_approval_id: sessions[0]?.pending_approval_id ?? null, last_seq: history.length, first_seq: history.length ? history[0].seq : 0 };
   },
   revalidateAgentAuthority: async (_id, request) => {
     const existing = sessions[0];
@@ -1803,9 +2151,26 @@ const transport = {
   getAgentWorkspaceFile: agentWorkspaceFixture ? async (id, path) => ({ contract_version: "local-agent-workspace.v1", session_id: id, path,
     content: "Current fictional file content\n", revision: "f".repeat(64), byte_size: 30, line_ending: "lf", editable: true }) : unavailable,
   previewAgentWorkspaceEdit: unavailable, applyAgentWorkspaceEdit: unavailable,
-  getUserPresenceCapability: async () => agentHistoryFixture || agentMcpCallFixture
+  getUserPresenceCapability: async () => agentHistoryFixture || agentMcpCallFixture || (agentWebFetchFixture && agentWebFetchNativeAvailable)
     ? ({ contract_version: "native-user-presence-capability-v1" as const, confirmation_available: true, mode: "native_bridge_bound_token" as const })
     : ({ contract_version: "native-user-presence-capability-v1" as const, confirmation_available: false, mode: "unavailable" as const }),
+  ...(agentWebFetchFixture ? {
+    getAgentWebFetchCapability: async () => {
+      webFetchCapabilityReads += 1;
+      document.documentElement.dataset.webFetchCapabilityReads = String(webFetchCapabilityReads);
+      if (agentWebFetchRejectFirst && webFetchCapabilityReads === 1) {
+        throw new TransportError("Synthetic governed web fetch capability read failed", 503, "web_fetch_capability_unavailable");
+      }
+      return {
+        contract_version: "agent-web-fetch-capability.v1" as const,
+        available: true,
+        policy_version: "governed-web-fetch.v1" as const,
+        reason_code: "available" as const,
+        requires_per_fetch_approval: true as const,
+        network_scope: "public_https" as const,
+      };
+    },
+  } : {}),
   checkPrompt: async () => { checks = [record()]; return result; },
   getPromptCheck: async () => record(),
   getPromptCheckHistory: async (limit, offset) => ({ contract_version: "prompt-check.v1", checks: [...checks], limit, offset }),
@@ -1985,14 +2350,38 @@ const liveTimeline: SessionTimeline = {
   counts: { events: 4, turns: 1, tools: 1, verifications_passed: 0, verifications_failed: 0, verifications_unknown: 0, tool_errors: 0 },
 };
 const liveTransport = { ...createSyntheticTransport(), getSessionTimeline: async () => liveTimeline };
-const radarMetricRows = [
+const radarMetricInputs: ReadonlyArray<readonly [string, number]> = [
   ["prompt.task_definition_coverage", 0.92], ["prompt.problem_evidence_quality", 0.78],
   ["prompt.context_sufficiency", 0.86], ["prompt.constraint_precision", 0.74],
   ["prompt.acceptance_testability", 0.88], ["prompt.deliverable_contract", 0.81],
   ["collaboration.ambiguity_resolution", 0.69], ["logic.requirement_action_traceability", 0.84],
   ["logic.open_loop_closure", 0.76], ["outcome.first_pass_verification", 0.91],
   ["outcome.verification_strategy_adequacy", 0.83], ["outcome.agent_claim_grounding", 0.89],
-].map(([metric_key, numeric_value]) => ({ metric_key, numeric_value, value_state: "known" as const }));
+];
+const radarMetricRows: SessionMetric[] = radarMetricInputs.map(([key, numeric_value]) => ({
+  key,
+  version: 1,
+  dimension: key.split(".")[0] ?? "synthetic",
+  display_name: key,
+  numeric_value,
+  text_value: null,
+  unit: "score",
+  source: "synthetic_fixture",
+  observed_count: 1,
+  eligible_count: 1,
+  coverage: 1,
+  confidence: 1,
+  metric_pack_key: "synthetic.workflow",
+  metric_pack_version: 1,
+  metric_engine_version: "synthetic-engine.v1",
+  redactor_version: "synthetic-redactor.v1",
+  model_id: null,
+  model_revision: null,
+  tokenizer_id: null,
+  prompt_version: null,
+  rubric_version: null,
+  computed_at: at,
+}));
 const radarTransport = {
   ...createSyntheticTransport(),
   getSessionMetrics: async (sessionId: string) => ({ session_id: sessionId, metrics: radarMetricRows }),
@@ -2142,6 +2531,27 @@ function AgentCommandControls() {
   </section>;
 }
 
+function AgentRuntimeRecoveryControls() {
+  return <section aria-label="Synthetic runtime recovery controls" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+    <p>In-memory runtime read failure injection only; no model or process is started.</p>
+    <button className="button button--ghost" disabled={runtimeRecoveryFailureArmed} type="button" onClick={() => {
+      runtimeRecoveryFailureArmed = true;
+    }}>Inject runtime read failure</button>
+  </section>;
+}
+
+function ModelsRecoveryControls() {
+  return <section aria-label="Synthetic models recovery controls" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+    <p>In-memory runtime read/stream failure controls only; no model or process is started.</p>
+    <button className="button button--ghost" onClick={() => { modelsRecoveryFailureArmed = true; modelsRecoveryAllowed = false; }} type="button">Inject runtime read failure</button>
+    <button className="button button--ghost" onClick={() => { modelsRecoveryAllowed = true; }} type="button">Allow runtime read recovery</button>
+    <button className="button button--ghost" onClick={() => {
+      modelsRecoveryPendingStream?.resolve({ content: "Synthetic late reply that must be ignored.", reasoning: "", finish_reason: "stop", elapsed_ms: 10 });
+      modelsRecoveryPendingStream = null;
+    }} type="button">Release late stream</button>
+  </section>;
+}
+
 const calibrationCaseTransport = {
   async reviewCalibrationCase(sid: string, budget: 6000 | 15000) {
     return exampleCalibrationReview(sid, {
@@ -2250,7 +2660,7 @@ const artifactViewerTransport: Pick<
         : new Uint8Array(candidate.latest_version.byte_size);
     const contentType = download ? "application/octet-stream" : candidate.latest_version.media_type;
     return {
-      blob: new Blob([payload], { type: contentType }),
+      blob: new Blob([new Uint8Array(payload)], { type: contentType }),
       contentType,
       filename: `agent-artifact-${candidate.artifact_id.slice(0, 8)}.${candidate.kind === "image" ? "png" : candidate.kind === "pdf" ? "pdf" : "xlsx"}`,
       byteSize: payload.byteLength,
@@ -2507,7 +2917,7 @@ const artifactCaptureTransport = {
     ) return unavailable();
     const contentType = download ? "application/octet-stream" : "application/pdf";
     return {
-      blob: new Blob([viewerPdfBytes], { type: contentType }),
+      blob: new Blob([new Uint8Array(viewerPdfBytes)], { type: contentType }),
       contentType,
       filename: "agent-artifact-11111111.pdf",
       byteSize: viewerPdfBytes.byteLength,
@@ -2571,8 +2981,10 @@ fixtureRoot.render(
     {modelRaceFixture && <ModelStatusRaceControls />}
     {agentStoppingFixture && <AgentStoppingControls />}
     {agentCommandFixture && <AgentCommandControls />}
-    {(panel === "models" || modelCompletionFixture) && <LocalModelsPage transport={transport} />}
-    {(panel === "agent" || closingFixture || modelRaceFixture || agentCompletionFixture || agentWorkspaceFixture || agentMcpStoreFixture || agentMcpProjectToolsFixture || agentMcpCallFixture || agentHistoryFixture || agentStressFixture || agentStoppingFixture || agentCommandFixture || agentControllerOwnershipFixture) && <AgentPage transport={transport} sessionId={agentWindow ? sessionId : undefined} windowMode={agentWindow} />}
+    {agentRuntimeRecoveryFixture && <AgentRuntimeRecoveryControls />}
+    {modelsRecoveryFixture && <ModelsRecoveryControls />}
+    {(panel === "models" || modelCompletionFixture || modelsRecoveryFixture) && <LocalModelsPage transport={transport} />}
+    {(panel === "agent" || closingFixture || modelRaceFixture || agentCompletionFixture || agentWorkspaceFixture || agentMcpStoreFixture || agentMcpProjectToolsFixture || agentMcpCallFixture || agentHistoryFixture || agentStressFixture || agentStoppingFixture || agentCommandFixture || agentControllerOwnershipFixture || agentPlacementFixture || agentDraftingFixture || agentRuntimeRecoveryFixture || agentGenerationSettingsFixture || agentWebFetchFixture) && <AgentPage transport={transport} sessionId={agentWindow ? sessionId : undefined} windowMode={agentWindow} />}
     {panel === "editor" && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={editorTransport} userPresenceAvailable />}
     {panel === "editor-inspection" && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={inspectionEditorTransport} userPresenceAvailable />}
     {editorWriteFailure && <AgentWorkspacePane pendingWrite={null} sessionId={sessionId} transport={writeFailureEditorTransport} userPresenceAvailable />}

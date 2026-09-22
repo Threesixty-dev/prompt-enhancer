@@ -72,6 +72,12 @@ REQUIREMENT_PLAN_DECISION_CONFIRMATION = (
 REQUIREMENT_PLAN_REVIEW_CONFIRMATION = (
     "open_exact_local_requirement_plan_clause_review"
 )
+REQUIREMENT_PLAN_GUIDED_AUTHORING_CONFIRMATION = (
+    "open_exact_local_requirement_plan_guided_authoring"
+)
+REQUIREMENT_PLAN_GUIDED_AUTHORING_CONTRACT_VERSION = (
+    "requirement-plan-guided-authoring-v1"
+)
 MAX_REQUIREMENT_PLAN_EVIDENCE_BYTES = 64 * 1024
 MAX_REQUIREMENT_PLAN_EVIDENCE_DEPTH = 8
 MAX_REQUIREMENT_PLAN_EVIDENCE_ITEMS = 6_000
@@ -487,6 +493,68 @@ class RequirementPlanProposalReview(StrictModel):
     )(_utc)
 
 
+class RequirementPlanGuidedAuthoringCandidate(StrictModel):
+    """One exact ephemeral source clause available only to native authoring."""
+
+    message_sequence: int = Field(ge=0, le=1_000_000_000)
+    clause_index: int = Field(ge=0, lt=MAX_REQUIREMENT_PLAN_CLAUSES_PER_MESSAGE)
+    role: TextRole
+    kind: TextMessageKind
+    text: str = Field(min_length=1, repr=False)
+    candidate_kind: Literal["user_clause", "plan"]
+
+    @model_validator(mode="after")
+    def exact_candidate_shape(self) -> "RequirementPlanGuidedAuthoringCandidate":
+        is_user = self.role is TextRole.USER and self.kind in {
+            TextMessageKind.REQUEST,
+            TextMessageKind.FEEDBACK,
+        }
+        is_plan = self.role is TextRole.AGENT and self.kind is TextMessageKind.PLAN
+        if (self.candidate_kind == "user_clause") != is_user or (
+            self.candidate_kind == "plan"
+        ) != is_plan:
+            raise ValueError("guided authoring candidate has the wrong source shape")
+        return self
+
+
+class RequirementPlanGuidedAuthoringReview(StrictModel):
+    """One native-only, expiring authoring surface for a sealed source window."""
+
+    contract_version: Literal[REQUIREMENT_PLAN_GUIDED_AUTHORING_CONTRACT_VERSION] = (
+        REQUIREMENT_PLAN_GUIDED_AUTHORING_CONTRACT_VERSION
+    )
+    session_id: str
+    source_run_id: str
+    source_window_fingerprint: str
+    expected_predecessor_confirmation_id: str | None = None
+    manifest_fingerprint: str
+    authoring_receipt_id: str
+    candidate_clauses: tuple[RequirementPlanGuidedAuthoringCandidate, ...] = Field(
+        max_length=MAX_REQUIREMENT_PLAN_REVIEW_CANDIDATES
+    )
+    review_context_expires_at: datetime
+    authoring_receipt_expires_at: datetime
+    all_candidates_included: Literal[True] = True
+    raw_text_persisted: Literal[False] = False
+    local_only: Literal[True] = True
+
+    _ids = field_validator(
+        "session_id",
+        "source_run_id",
+        "source_window_fingerprint",
+        "manifest_fingerprint",
+        "authoring_receipt_id",
+    )(_pseudonym)
+    _expiry = field_validator(
+        "review_context_expires_at", "authoring_receipt_expires_at"
+    )(_utc)
+
+    @field_validator("expected_predecessor_confirmation_id")
+    @classmethod
+    def optional_predecessor(cls, value: str | None) -> str | None:
+        return None if value is None else _pseudonym(value)
+
+
 @dataclass(frozen=True, slots=True)
 class _RequirementPlanReviewReceiptEntry:
     proposal_id: str
@@ -496,6 +564,18 @@ class _RequirementPlanReviewReceiptEntry:
     manifest_fingerprint: str
     reviewed_graph_fingerprint: str
     reviewed_candidate_set_fingerprint: str
+    expires_at: datetime
+    expires_monotonic: float
+
+
+@dataclass(frozen=True, slots=True)
+class _RequirementPlanGuidedAuthoringReceiptEntry:
+    session_id: str
+    source_run_id: str
+    source_window_fingerprint: str
+    manifest_fingerprint: str
+    expected_predecessor_confirmation_id: str | None
+    candidate_set_fingerprint: str
     expires_at: datetime
     expires_monotonic: float
 
@@ -542,14 +622,28 @@ class RequirementPlanProducer(StrictModel):
 class RequirementPlanProducerReceipt(StrictModel):
     """Content-free durable commitment to an ephemeral producer claim."""
 
-    kind: Literal["local_coding_agent"] = "local_coding_agent"
+    kind: Literal["local_coding_agent", "local_review_ui"] = "local_coding_agent"
     claim_fingerprint: str
-    authority: Literal["untrusted_provenance_claim_commitment"] = (
+    authority: Literal[
+        "untrusted_provenance_claim_commitment",
+        "untrusted_local_authoring_commitment",
+    ] = (
         "untrusted_provenance_claim_commitment"
     )
     raw_claim_persisted: Literal[False] = False
 
     _claim = field_validator("claim_fingerprint")(_pseudonym)
+
+    @model_validator(mode="after")
+    def exact_kind_authority(self) -> "RequirementPlanProducerReceipt":
+        expected = (
+            "untrusted_provenance_claim_commitment"
+            if self.kind == "local_coding_agent"
+            else "untrusted_local_authoring_commitment"
+        )
+        if self.authority != expected:
+            raise ValueError("requirement-plan producer kind and authority disagree")
+        return self
 
 
 class RequirementPlanEvidenceFileV1(StrictModel):
@@ -804,6 +898,10 @@ class InMemoryRequirementPlanReviewContextStore:
             str, _RequirementPlanReviewReceiptEntry
         ] = OrderedDict()
         self._receipt_tombstones: OrderedDict[str, str] = OrderedDict()
+        self._authoring_receipts: OrderedDict[
+            str, _RequirementPlanGuidedAuthoringReceiptEntry
+        ] = OrderedDict()
+        self._authoring_receipt_tombstones: OrderedDict[str, str] = OrderedDict()
 
     def publish(self, source_run_id: str, context: P1TextAnalysisInput) -> None:
         _pseudonym(source_run_id)
@@ -837,6 +935,275 @@ class InMemoryRequirementPlanReviewContextStore:
             source_window_fingerprint=source_window_fingerprint,
         )
         return self._manifest(entry)
+
+    def exact_active_requirement_clause(
+        self,
+        *,
+        session_id: str,
+        source_run_id: str,
+        source_window_fingerprint: str,
+        coordinate: RequirementCoordinate,
+    ) -> str:
+        """Return one bounded, ephemeral user requirement clause for native review.
+
+        This deliberately is not a context/message getter: callers can address
+        only one already-authoritative coordinate and cannot enumerate prose.
+        """
+        entry = self._require(
+            session_id=session_id,
+            source_run_id=source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+        )
+        for message in entry.context.messages:
+            if message.sequence != coordinate.message_sequence:
+                continue
+            if message.role is not TextRole.USER or message.kind not in {
+                TextMessageKind.REQUEST, TextMessageKind.FEEDBACK,
+            }:
+                raise RequirementPlanConflictError(
+                    "requirement coordinate is not a reviewable user clause"
+                )
+            try:
+                clauses = reviewable_message_clauses(message.text.get_secret_value())
+                return clauses[coordinate.clause_index]
+            except (IndexError, ValueError):
+                raise RequirementPlanConflictError(
+                    "requirement coordinate is absent from the current review context"
+                ) from None
+        raise RequirementPlanConflictError(
+            "requirement coordinate is absent from the current review context"
+        )
+
+    def exact_active_observed_check(
+        self,
+        *,
+        session_id: str,
+        source_run_id: str,
+        source_window_fingerprint: str,
+        source_reference_id: str,
+    ):
+        """Return one already-derived check and its exact local review descriptor.
+
+        This is deliberately an addressable lookup, not a context enumerator;
+        the caller must first validate an issued candidate manifest.
+        """
+        _pseudonym(source_reference_id)
+        entry = self._require(
+            session_id=session_id,
+            source_run_id=source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+        )
+        completion = next(
+            (
+                item
+                for item in entry.context.observed_check_completions
+                if item.source_reference_id == source_reference_id
+            ),
+            None,
+        )
+        descriptor = next(
+            (
+                item
+                for item in entry.context.action_descriptors
+                if item.source_reference_id == source_reference_id
+            ),
+            None,
+        )
+        if completion is None or descriptor is None:
+            raise RequirementPlanConflictError(
+                "observed check is absent from the current review context"
+            )
+        return completion, descriptor
+
+    def active_observed_check_candidates(
+        self,
+        *,
+        session_id: str,
+        source_run_id: str,
+        source_window_fingerprint: str,
+    ):
+        """Return only the content-free current observed-check candidates."""
+        entry = self._require(
+            session_id=session_id,
+            source_run_id=source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+        )
+        return entry.context.observed_check_completions
+
+    def project_current_claim_census(
+        self,
+        *,
+        session_id: str,
+        source_run_id: str,
+        source_window_fingerprint: str,
+        identifiers,
+    ):
+        """Project only the bounded response-clause census for native review.
+
+        This intentionally never returns the retained context or a general
+        message accessor.  The projection remains process-local and inherits
+        the exact sealed-run/TTL binding checked by ``_require``.
+        """
+        entry = self._require(
+            session_id=session_id,
+            source_run_id=source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+        )
+        from .claim_grounding_evidence import derive_claim_census_source_manifest
+
+        return derive_claim_census_source_manifest(
+            entry.context, source_run_id=source_run_id, identifiers=identifiers
+        )
+
+    def exact_active_claim_grounding_clause(self, *, session_id: str,
+                                            source_run_id: str,
+                                            source_window_fingerprint: str,
+                                            candidate_id: str,
+                                            manifest_fingerprint: str,
+                                            identifiers):
+        """Return one retained response clause without exposing its context."""
+        _pseudonym(candidate_id); _pseudonym(manifest_fingerprint)
+        manifest, candidates = self.project_current_claim_census(
+            session_id=session_id, source_run_id=source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+            identifiers=identifiers,
+        )
+        if manifest.manifest_fingerprint != manifest_fingerprint:
+            raise RequirementPlanConflictError("claim census manifest changed")
+        candidate = next((item for item in candidates if item.candidate_id == candidate_id), None)
+        if candidate is None:
+            raise RequirementPlanConflictError("claim clause is absent from the current review context")
+        return candidate
+
+    def open_guided_authoring(
+        self,
+        *,
+        session_id: str,
+        source_run_id: str,
+        source_window_fingerprint: str,
+        expected_predecessor_confirmation_id: str | None,
+        manifest_fingerprint: str,
+    ) -> RequirementPlanGuidedAuthoringReview:
+        """Return every bounded authoring candidate after native authorization."""
+
+        entry = self._require(
+            session_id=session_id,
+            source_run_id=source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+        )
+        manifest = self._manifest(entry)
+        if manifest.manifest_fingerprint != manifest_fingerprint:
+            raise RequirementPlanConflictError("requirement-plan authoring manifest changed")
+        candidates = self._guided_authoring_candidates(entry.context)
+        candidate_set_fingerprint = self._guided_candidate_set_fingerprint(candidates)
+        now = _utc(self._clock())
+        monotonic_now = self._monotonic_clock()
+        receipt_expires_at = min(
+            entry.expires_at, now + REQUIREMENT_PLAN_REVIEW_RECEIPT_TTL
+        )
+        authoring_receipt_id = self._token_factory()
+        _pseudonym(authoring_receipt_id)
+        receipt = _RequirementPlanGuidedAuthoringReceiptEntry(
+            session_id=session_id,
+            source_run_id=source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+            manifest_fingerprint=manifest.manifest_fingerprint,
+            expected_predecessor_confirmation_id=(
+                expected_predecessor_confirmation_id
+            ),
+            candidate_set_fingerprint=candidate_set_fingerprint,
+            expires_at=receipt_expires_at,
+            expires_monotonic=monotonic_now
+            + min(
+                REQUIREMENT_PLAN_REVIEW_RECEIPT_TTL.total_seconds(),
+                max(0.0, (entry.expires_at - now).total_seconds()),
+            ),
+        )
+        with self._lock:
+            self._expire_locked(now, monotonic_now)
+            if self._entries.get(source_run_id) is not entry:
+                raise RequirementPlanConflictError(
+                    "requirement-plan authoring context changed during review"
+                )
+            if (
+                authoring_receipt_id in self._authoring_receipts
+                or authoring_receipt_id in self._authoring_receipt_tombstones
+                or authoring_receipt_id in self._receipts
+                or authoring_receipt_id in self._receipt_tombstones
+            ):
+                raise RequirementPlanConflictError(
+                    "requirement-plan authoring receipt identity collided"
+                )
+            self._authoring_receipts[authoring_receipt_id] = receipt
+            while len(self._authoring_receipts) > self._max_active_receipts:
+                expired_id, _entry = self._authoring_receipts.popitem(last=False)
+                self._tombstone_authoring_receipt_locked(expired_id, "expired")
+        return RequirementPlanGuidedAuthoringReview(
+            session_id=session_id,
+            source_run_id=source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+            expected_predecessor_confirmation_id=expected_predecessor_confirmation_id,
+            manifest_fingerprint=manifest.manifest_fingerprint,
+            authoring_receipt_id=authoring_receipt_id,
+            candidate_clauses=candidates,
+            review_context_expires_at=entry.expires_at,
+            authoring_receipt_expires_at=receipt_expires_at,
+        )
+
+    def consume_guided_authoring_receipt(
+        self,
+        *,
+        authoring_receipt_id: str,
+        session_id: str,
+        source_run_id: str,
+        source_window_fingerprint: str,
+        manifest_fingerprint: str,
+        expected_predecessor_confirmation_id: str | None,
+    ) -> None:
+        """Consume one receipt only when its exact source candidates remain live."""
+
+        _pseudonym(authoring_receipt_id)
+        _pseudonym(session_id)
+        _pseudonym(source_run_id)
+        _pseudonym(source_window_fingerprint)
+        _pseudonym(manifest_fingerprint)
+        now = _utc(self._clock())
+        monotonic_now = self._monotonic_clock()
+        with self._lock:
+            self._expire_locked(now, monotonic_now)
+            receipt = self._authoring_receipts.pop(authoring_receipt_id, None)
+            self._tombstone_authoring_receipt_locked(authoring_receipt_id, "consumed")
+            entry = self._entries.get(source_run_id)
+            if receipt is None or entry is None:
+                raise RequirementPlanConflictError(
+                    "requirement-plan authoring receipt is unavailable"
+                )
+            if (
+                receipt.session_id != session_id
+                or receipt.source_run_id != source_run_id
+                or receipt.source_window_fingerprint != source_window_fingerprint
+                or receipt.manifest_fingerprint != manifest_fingerprint
+                or receipt.expected_predecessor_confirmation_id
+                != expected_predecessor_confirmation_id
+                or entry.context.session_id != session_id
+                or entry.context.analysis_window_fingerprint != source_window_fingerprint
+            ):
+                raise RequirementPlanConflictError(
+                    "requirement-plan authoring receipt belongs to another source"
+                )
+            manifest = self._manifest(entry)
+            current_candidates = self._guided_authoring_candidates(entry.context)
+            exact = (
+                receipt.expires_at > now
+                and receipt.expires_monotonic > monotonic_now
+                and manifest.manifest_fingerprint == manifest_fingerprint
+                and receipt.candidate_set_fingerprint
+                == self._guided_candidate_set_fingerprint(current_candidates)
+            )
+        if not exact:
+            raise RequirementPlanConflictError(
+                "requirement-plan authoring receipt binding changed"
+            )
 
     def review(
         self, proposal: "RequirementPlanProposalView"
@@ -1093,6 +1460,54 @@ class InMemoryRequirementPlanReviewContextStore:
             hashlib.sha256,
         ).hexdigest()
 
+    @staticmethod
+    def _guided_authoring_candidates(
+        context: P1TextAnalysisInput,
+    ) -> tuple[RequirementPlanGuidedAuthoringCandidate, ...]:
+        result: list[RequirementPlanGuidedAuthoringCandidate] = []
+        for message in sorted(context.messages, key=lambda item: item.sequence):
+            if not (
+                (message.role is TextRole.USER and message.kind in {
+                    TextMessageKind.REQUEST,
+                    TextMessageKind.FEEDBACK,
+                })
+                or (message.role is TextRole.AGENT and message.kind is TextMessageKind.PLAN)
+            ):
+                continue
+            candidate_kind: Literal["user_clause", "plan"] = (
+                "user_clause" if message.role is TextRole.USER else "plan"
+            )
+            for clause_index, text in enumerate(
+                reviewable_message_clauses(message.text.get_secret_value())
+            ):
+                result.append(
+                    RequirementPlanGuidedAuthoringCandidate(
+                        message_sequence=message.sequence,
+                        clause_index=clause_index,
+                        role=message.role,
+                        kind=message.kind,
+                        text=text,
+                        candidate_kind=candidate_kind,
+                    )
+                )
+        return tuple(result)
+
+    def _guided_candidate_set_fingerprint(
+        self, candidates: tuple[RequirementPlanGuidedAuthoringCandidate, ...]
+    ) -> str:
+        payload = json.dumps(
+            [item.model_dump(mode="json") for item in candidates],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("ascii")
+        return hmac.new(
+            self._candidate_binding_key,
+            b"prompt-enhancer/requirement-plan-guided-authoring-candidates/v1\0"
+            + payload,
+            hashlib.sha256,
+        ).hexdigest()
+
     def _require(
         self,
         *,
@@ -1109,7 +1524,7 @@ class InMemoryRequirementPlanReviewContextStore:
             self._expire_locked(now, monotonic_now)
             entry = self._entries.get(source_run_id)
             if entry is None:
-                raise RequirementPlanNotFoundError(
+                raise RequirementPlanReviewContextMissingError(
                     "fresh ephemeral requirement-plan review context is required"
                 )
             context = entry.context
@@ -1205,12 +1620,28 @@ class InMemoryRequirementPlanReviewContextStore:
         for review_id in expired_receipts:
             del self._receipts[review_id]
             self._tombstone_receipt_locked(review_id, "expired")
+        expired_authoring_receipts = tuple(
+            receipt_id
+            for receipt_id, entry in self._authoring_receipts.items()
+            if now >= entry.expires_at or monotonic_now >= entry.expires_monotonic
+        )
+        for receipt_id in expired_authoring_receipts:
+            del self._authoring_receipts[receipt_id]
+            self._tombstone_authoring_receipt_locked(receipt_id, "expired")
 
     def _tombstone_receipt_locked(self, review_id: str, state: str) -> None:
         self._receipt_tombstones[review_id] = state
         self._receipt_tombstones.move_to_end(review_id)
         while len(self._receipt_tombstones) > 64:
             self._receipt_tombstones.popitem(last=False)
+
+    def _tombstone_authoring_receipt_locked(
+        self, receipt_id: str, state: str
+    ) -> None:
+        self._authoring_receipt_tombstones[receipt_id] = state
+        self._authoring_receipt_tombstones.move_to_end(receipt_id)
+        while len(self._authoring_receipt_tombstones) > 64:
+            self._authoring_receipt_tombstones.popitem(last=False)
 
 
 def _requirement_plan_source_manifest_core_fingerprint(
@@ -1286,6 +1717,34 @@ def requirement_plan_graph_fingerprint(proposal: Any) -> str:
             for item in proposal.excluded_user_clauses
         ],
         "plan_items": [item.model_dump(mode="json") for item in proposal.plan_items],
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("ascii")
+    ).hexdigest()
+
+
+def _guided_authoring_payload_sha256(
+    session_id: str, command: RequirementPlanGuidedAuthoringCommand
+) -> str:
+    """Digest one canonical content-free browser submission, never a file."""
+
+    payload = {
+        "contract_version": REQUIREMENT_PLAN_GUIDED_AUTHORING_CONTRACT_VERSION,
+        "session_id": session_id,
+        "expected_source_run_id": command.expected_source_run_id,
+        "source_window_fingerprint": command.source_window_fingerprint,
+        "expected_predecessor_confirmation_id": (
+            command.expected_predecessor_confirmation_id
+        ),
+        "manifest_fingerprint": command.manifest_fingerprint,
+        "requirements": [item.model_dump(mode="json") for item in command.requirements],
+        "excluded_user_clauses": [
+            item.model_dump(mode="json") for item in command.excluded_user_clauses
+        ],
+        "plan_items": [item.model_dump(mode="json") for item in command.plan_items],
+        "complete_user_clause_classification_acknowledged": True,
     }
     return hashlib.sha256(
         json.dumps(
@@ -1696,6 +2155,68 @@ class RequirementPlanDecisionCommand(StrictModel):
         return self
 
 
+class RequirementPlanGuidedAuthoringCommand(StrictModel):
+    """Content-free graph authored from one expiring native source surface."""
+
+    expected_source_run_id: str
+    source_window_fingerprint: str
+    expected_predecessor_confirmation_id: str | None = None
+    manifest_fingerprint: str
+    authoring_receipt_id: str
+    requirements: tuple[RequirementEvidenceEntry, ...] = Field(
+        max_length=MAX_REQUIREMENT_PLAN_UNITS
+    )
+    excluded_user_clauses: tuple[ExcludedRequirementClause, ...] = Field(
+        max_length=MAX_REQUIREMENT_PLAN_UNITS
+    )
+    plan_items: tuple[PlanCoordinate, ...] = Field(
+        max_length=MAX_REQUIREMENT_PLAN_UNITS
+    )
+    complete_user_clause_classification_acknowledged: Literal[True]
+
+    _ids = field_validator(
+        "expected_source_run_id",
+        "source_window_fingerprint",
+        "manifest_fingerprint",
+        "authoring_receipt_id",
+    )(_pseudonym)
+
+    @field_validator("expected_predecessor_confirmation_id")
+    @classmethod
+    def optional_predecessor(cls, value: str | None) -> str | None:
+        return None if value is None else _pseudonym(value)
+
+    @model_validator(mode="after")
+    def normalized_graph(self) -> "RequirementPlanGuidedAuthoringCommand":
+        requirement_coordinates = tuple(
+            (item.coordinate.message_sequence, item.coordinate.clause_index)
+            for item in self.requirements
+        )
+        excluded_coordinates = tuple(
+            (item.coordinate.message_sequence, item.coordinate.clause_index)
+            for item in self.excluded_user_clauses
+        )
+        plan_coordinates = tuple(
+            (item.message_sequence, item.clause_index) for item in self.plan_items
+        )
+        if (
+            requirement_coordinates != tuple(sorted(set(requirement_coordinates)))
+            or excluded_coordinates != tuple(sorted(set(excluded_coordinates)))
+            or set(requirement_coordinates) & set(excluded_coordinates)
+            or plan_coordinates != tuple(sorted(set(plan_coordinates)))
+        ):
+            raise ValueError("guided requirement-plan graph is not normalized")
+        if sum(len(item.plan_indexes) for item in self.requirements) > (
+            MAX_REQUIREMENT_PLAN_LINKS
+        ) or any(
+            index >= len(self.plan_items)
+            for item in self.requirements
+            for index in item.plan_indexes
+        ):
+            raise ValueError("guided requirement-plan links are invalid")
+        return self
+
+
 class RequirementPlanDecisionRecord(StrictModel):
     decision_id: str
     proposal_id: str
@@ -2041,6 +2562,12 @@ class RequirementPlanNotFoundError(RequirementPlanEvidenceError):
     code = "requirement_plan_evidence_not_found"
 
 
+class RequirementPlanReviewContextMissingError(RequirementPlanNotFoundError):
+    """The required ephemeral review context is missing or has expired."""
+
+    code = "requirement_plan_review_context_missing"
+
+
 class RequirementPlanStaleWindowError(RequirementPlanEvidenceError):
     code = "requirement_plan_source_window_stale"
 
@@ -2175,6 +2702,161 @@ class RequirementPlanEvidenceService:
             ),
             file_json_schema=requirement_plan_evidence_file_json_schema(),
         )
+
+    def open_guided_authoring(
+        self,
+        *,
+        session_id: str,
+        expected_source_run_id: str,
+        source_window_fingerprint: str,
+        manifest_fingerprint: str,
+        expected_predecessor_confirmation_id: str | None,
+    ) -> RequirementPlanGuidedAuthoringReview:
+        if self._review_contexts is None:
+            raise RequirementPlanPersistenceError(
+                "ephemeral requirement-plan authoring is unavailable"
+            )
+        source = self._current_source(session_id)
+        if (
+            source.expected_source_run_id != expected_source_run_id
+            or source.source_window_fingerprint != source_window_fingerprint
+            or source.source_manifest.manifest_fingerprint != manifest_fingerprint
+        ):
+            raise RequirementPlanStaleWindowError(
+                "requirement-plan authoring source changed"
+            )
+        current = self._snapshot(session_id, source.source_window_fingerprint)
+        if current.confirmation_id != expected_predecessor_confirmation_id:
+            raise RequirementPlanConflictError(
+                "requirement-plan authoring predecessor changed"
+            )
+        return self._review_contexts.open_guided_authoring(
+            session_id=session_id,
+            source_run_id=source.expected_source_run_id,
+            source_window_fingerprint=source.source_window_fingerprint,
+            expected_predecessor_confirmation_id=current.confirmation_id,
+            manifest_fingerprint=source.source_manifest.manifest_fingerprint,
+        )
+
+    def create_guided_proposal(
+        self,
+        *,
+        session_id: str,
+        command: RequirementPlanGuidedAuthoringCommand,
+        idempotency_key: str,
+    ) -> tuple[RequirementPlanProposalView, bool]:
+        if self._review_contexts is None:
+            raise RequirementPlanPersistenceError(
+                "ephemeral requirement-plan authoring is unavailable"
+            )
+        self._validate_idempotency(session_id, idempotency_key)
+        source = self._current_source(session_id)
+        if (
+            source.expected_source_run_id != command.expected_source_run_id
+            or source.source_window_fingerprint != command.source_window_fingerprint
+            or source.source_manifest.manifest_fingerprint != command.manifest_fingerprint
+        ):
+            raise RequirementPlanStaleWindowError(
+                "requirement-plan authoring source changed"
+            )
+        current = self._snapshot(session_id, source.source_window_fingerprint)
+        if current.confirmation_id != command.expected_predecessor_confirmation_id:
+            raise RequirementPlanConflictError(
+                "requirement-plan authoring predecessor changed"
+            )
+        try:
+            validate_requirement_plan_coordinates(
+                requirements=command.requirements,
+                excluded_user_clauses=command.excluded_user_clauses,
+                plan_items=command.plan_items,
+                manifest=source.source_manifest,
+            )
+        except ValueError as error:
+            raise RequirementPlanInputError(
+                "guided requirement-plan graph is invalid"
+            ) from error
+        payload_sha256 = _guided_authoring_payload_sha256(session_id, command)
+        idempotency_digest = self._identifiers.fingerprint(
+            "requirement-plan-guided-authoring-idempotency-v1",
+            (session_id, idempotency_key),
+        )
+        proposal_id = self._identifiers.fingerprint(
+            "requirement-plan-proposal-v1", (session_id, idempotency_digest)
+        )
+        command_fingerprint = self._identifiers.fingerprint(
+            "requirement-plan-guided-authoring-command-v1",
+            (
+                session_id,
+                source.expected_source_run_id,
+                source.source_window_fingerprint,
+                command.expected_predecessor_confirmation_id or "none",
+                command.manifest_fingerprint,
+                payload_sha256,
+            ),
+        )
+        try:
+            existing = self._repository.get_proposal(proposal_id)
+        except RequirementPlanEvidenceError:
+            raise
+        except Exception:
+            raise RequirementPlanPersistenceError(
+                "requirement-plan proposal could not be read"
+            ) from None
+        if existing is not None:
+            proposal = existing.proposal
+            if (
+                proposal.session_id == session_id
+                and proposal.idempotency_key_digest == idempotency_digest
+                and proposal.command_fingerprint == command_fingerprint
+                and proposal.payload_sha256 == payload_sha256
+                and proposal.producer_receipt.kind == "local_review_ui"
+            ):
+                return existing, False
+            raise RequirementPlanConflictError("proposal idempotency key conflicts")
+        self._review_contexts.consume_guided_authoring_receipt(
+            authoring_receipt_id=command.authoring_receipt_id,
+            session_id=session_id,
+            source_run_id=source.expected_source_run_id,
+            source_window_fingerprint=source.source_window_fingerprint,
+            manifest_fingerprint=source.source_manifest.manifest_fingerprint,
+            expected_predecessor_confirmation_id=current.confirmation_id,
+        )
+        record = RequirementPlanProposalRecord(
+            proposal_id=proposal_id,
+            session_id=session_id,
+            source_run_id=source.expected_source_run_id,
+            source_window_fingerprint=source.source_window_fingerprint,
+            expected_predecessor_confirmation_id=current.confirmation_id,
+            payload_sha256=payload_sha256,
+            idempotency_key_digest=idempotency_digest,
+            command_fingerprint=command_fingerprint,
+            producer_receipt=RequirementPlanProducerReceipt(
+                kind="local_review_ui",
+                claim_fingerprint=self._identifiers.fingerprint(
+                    "requirement-plan-guided-authoring-claim-v1",
+                    (
+                        session_id,
+                        source.expected_source_run_id,
+                        source.source_window_fingerprint,
+                        command.manifest_fingerprint,
+                        payload_sha256,
+                    ),
+                ),
+                authority="untrusted_local_authoring_commitment",
+            ),
+            requirements=command.requirements,
+            excluded_user_clauses=command.excluded_user_clauses,
+            plan_items=command.plan_items,
+            created_at=self._clock(),
+        )
+        try:
+            return self._repository.issue_proposal(record)
+        except RequirementPlanConflictError:
+            raise
+        except Exception:
+            raise RequirementPlanPersistenceError(
+                "guided requirement-plan proposal could not be stored"
+            ) from None
 
     def preview(
         self, *, session_id: str, payload: bytes, now: datetime | None = None
@@ -2626,6 +3308,8 @@ __all__ = (
     "REQUIREMENT_PLAN_EVIDENCE_FILE_VERSION",
     "REQUIREMENT_PLAN_EVIDENCE_POLICY_VERSION",
     "REQUIREMENT_PLAN_EVIDENCE_SCHEMA_VERSION",
+    "REQUIREMENT_PLAN_GUIDED_AUTHORING_CONFIRMATION",
+    "REQUIREMENT_PLAN_GUIDED_AUTHORING_CONTRACT_VERSION",
     "REQUIREMENT_PLAN_FILE_CONSTRAINT_CODES",
     "REQUIREMENT_PLAN_FILE_CONSTRAINT_CONTRACT_VERSION",
     "REQUIREMENT_PLAN_IMPORT_CONFIRMATION",
@@ -2649,12 +3333,16 @@ __all__ = (
     "RequirementPlanEvidenceContract",
     "RequirementPlanEvidenceFileV1",
     "RequirementPlanEvidencePreview",
+    "RequirementPlanGuidedAuthoringCandidate",
+    "RequirementPlanGuidedAuthoringCommand",
+    "RequirementPlanGuidedAuthoringReview",
     "RequirementPlanEvidenceService",
     "RequirementPlanEvidenceSnapshot",
     "RequirementPlanExclusionReason",
     "RequirementPlanIdFactory",
     "RequirementPlanInputError",
     "RequirementPlanNotFoundError",
+    "RequirementPlanReviewContextMissingError",
     "RequirementPlanPersistenceError",
     "RequirementPlanProducer",
     "RequirementPlanProducerReceipt",

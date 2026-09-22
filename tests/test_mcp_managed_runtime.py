@@ -65,6 +65,8 @@ from prompt_enhancer.infrastructure.sqlite.agent_catalog import (
     AGENT_CATALOG_DATABASE_FILENAME,
     AGENT_CATALOG_SCHEMA_VERSION,
     AgentCatalogSqliteDatabase,
+    _AGENT_CATALOG_MIGRATIONS,
+    _AGENT_CATALOG_MIGRATION_CHECKSUMS,
 )
 from prompt_enhancer.infrastructure.sqlite.mcp_managed_runtime import (
     SqliteMcpManagedRuntimeReceiptRepository,
@@ -82,6 +84,65 @@ SESSION_ID = "d" * 32
 TURN_ID = "e" * 32
 PROTOCOL = "2025-11-25"
 NOW = datetime(2026, 8, 30, tzinfo=UTC)
+
+
+def _create_historical_agent_catalog(path, version: int) -> None:
+    """Build an exact supported historical catalog, with one synthetic row.
+
+    Do not simulate history by rewinding a current database: migrations 31 and
+    32 leave physical schema behind that would make a forward replay invalid.
+    """
+
+    assert version in {24, 25, 26, 27}
+    applied_at = NOW.isoformat(timespec="microseconds")
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            """
+            CREATE TABLE agent_catalog_schema_migrations (
+                version INTEGER PRIMARY KEY CHECK(version > 0),
+                applied_at TEXT NOT NULL
+            ) STRICT
+            """
+        )
+        for migration_version, statements in _AGENT_CATALOG_MIGRATIONS:
+            if migration_version > version:
+                break
+            for statement in statements:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO agent_catalog_schema_migrations(version, applied_at) VALUES (?, ?)",
+                (migration_version, applied_at),
+            )
+        connection.execute(f"PRAGMA user_version = {version}")
+        connection.execute(
+            """
+            INSERT INTO agent_projects(
+                project_id,name,created_at,updated_at,revision,pinned,archived_at,
+                is_default
+            ) VALUES (?,?,?,?,1,0,NULL,0)
+            """,
+            (PROJECT_ID, "Synthetic historical project", applied_at, applied_at),
+        )
+
+
+def _assert_current_catalog_integrity(database: AgentCatalogSqliteDatabase) -> None:
+    assert database.initialize() == AGENT_CATALOG_SCHEMA_VERSION
+    restarted = AgentCatalogSqliteDatabase(database.path)
+    assert restarted.initialize() == AGENT_CATALOG_SCHEMA_VERSION
+    with database.connect() as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == AGENT_CATALOG_SCHEMA_VERSION
+        assert connection.execute(
+            "SELECT name FROM agent_projects WHERE project_id=?", (PROJECT_ID,)
+        ).fetchone()[0] == "Synthetic historical project"
+        checksums = dict(
+            connection.execute(
+                "SELECT version, checksum FROM agent_catalog_migration_checksums"
+            ).fetchall()
+        )
+        assert checksums == _AGENT_CATALOG_MIGRATION_CHECKSUMS
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
 def _discovered() -> tuple[McpDiscoveredTool, ...]:
@@ -1871,7 +1932,7 @@ def test_schema_29_keeps_call_claim_host_and_package_evidence_content_free(tmp_p
     database = AgentCatalogSqliteDatabase(
         tmp_path / AGENT_CATALOG_DATABASE_FILENAME
     )
-    assert database.initialize() == AGENT_CATALOG_SCHEMA_VERSION == 30
+    assert database.initialize() == AGENT_CATALOG_SCHEMA_VERSION
     with database.connect() as connection:
         claim_columns = {
             str(row[1])
@@ -1916,7 +1977,7 @@ def test_schema_29_keeps_call_claim_host_and_package_evidence_content_free(tmp_p
                 "AND name LIKE 'mcp_managed_tool_call_%'"
             ).fetchall()
         }
-    assert migrations == set(range(1, 31))
+    assert migrations == set(range(1, AGENT_CATALOG_SCHEMA_VERSION + 1))
     assert scope_triggers == {
         "mcp_managed_tool_call_claims_scope_insert",
         "mcp_managed_tool_call_claims_immutable",
@@ -1986,18 +2047,10 @@ def test_schema_29_keeps_call_claim_host_and_package_evidence_content_free(tmp_p
 
 def test_schema_27_migrates_once_to_immutable_one_use_call_claims(tmp_path) -> None:
     path = tmp_path / AGENT_CATALOG_DATABASE_FILENAME
-    current = AgentCatalogSqliteDatabase(path)
-    assert current.initialize() == AGENT_CATALOG_SCHEMA_VERSION
-    with sqlite3.connect(path) as connection:
-        connection.execute("DROP TABLE mcp_managed_tool_call_claims")
-        connection.execute("DROP TABLE agent_catalog_migration_checksums")
-        connection.execute(
-            "DELETE FROM agent_catalog_schema_migrations WHERE version>=28"
-        )
-        connection.execute("PRAGMA user_version=27")
+    _create_historical_agent_catalog(path, 27)
 
     migrated = AgentCatalogSqliteDatabase(path)
-    assert migrated.initialize() == AGENT_CATALOG_SCHEMA_VERSION
+    _assert_current_catalog_integrity(migrated)
     with migrated.connect() as connection:
         migration_count = int(
             connection.execute(
@@ -2035,21 +2088,10 @@ def test_schema_26_migrates_once_through_package_inspection_and_call_claims(
     tmp_path,
 ) -> None:
     path = tmp_path / AGENT_CATALOG_DATABASE_FILENAME
-    current = AgentCatalogSqliteDatabase(path)
-    assert current.initialize() == AGENT_CATALOG_SCHEMA_VERSION
-    with sqlite3.connect(path) as connection:
-        connection.execute("DROP TABLE mcp_managed_tool_call_claims")
-        connection.execute(
-            "DROP TABLE mcp_managed_local_configuration_inspections"
-        )
-        connection.execute("DROP TABLE agent_catalog_migration_checksums")
-        connection.execute(
-            "DELETE FROM agent_catalog_schema_migrations WHERE version>=27"
-        )
-        connection.execute("PRAGMA user_version=26")
+    _create_historical_agent_catalog(path, 26)
 
     migrated = AgentCatalogSqliteDatabase(path)
-    assert migrated.initialize() == AGENT_CATALOG_SCHEMA_VERSION
+    _assert_current_catalog_integrity(migrated)
     with migrated.connect() as connection:
         migrations = {
             int(row[0])
@@ -2086,7 +2128,7 @@ def test_schema_26_migrates_once_through_package_inspection_and_call_claims(
                 "AND name='mcp_managed_tool_call_claims'"
             ).fetchone()[0]
         )
-    assert migrations == {27, 28, 29, 30}
+    assert migrations == set(range(27, AGENT_CATALOG_SCHEMA_VERSION + 1))
     assert inspection_migration_count == 1
     assert current_index_count == 1
     assert claim_table_count == 1
@@ -2109,22 +2151,10 @@ def test_schema_26_migrates_once_through_package_inspection_and_call_claims(
 
 def test_schema_24_migrates_once_through_call_and_host_lifecycle_receipts(tmp_path) -> None:
     path = tmp_path / AGENT_CATALOG_DATABASE_FILENAME
-    current = AgentCatalogSqliteDatabase(path)
-    assert current.initialize() == AGENT_CATALOG_SCHEMA_VERSION
-    with sqlite3.connect(path) as connection:
-        connection.execute("DROP TABLE mcp_managed_tool_call_claims")
-        connection.execute("DROP TABLE mcp_managed_local_configuration_inspections")
-        connection.execute("DROP TABLE mcp_managed_host_cleanup_blocks")
-        connection.execute("DROP TABLE mcp_managed_host_action_receipts")
-        connection.execute("DROP TABLE mcp_managed_tool_call_receipts")
-        connection.execute("DROP TABLE agent_catalog_migration_checksums")
-        connection.execute(
-            "DELETE FROM agent_catalog_schema_migrations WHERE version>=25"
-        )
-        connection.execute("PRAGMA user_version=24")
+    _create_historical_agent_catalog(path, 24)
 
     migrated = AgentCatalogSqliteDatabase(path)
-    assert migrated.initialize() == AGENT_CATALOG_SCHEMA_VERSION
+    _assert_current_catalog_integrity(migrated)
     with migrated.connect() as connection:
         migrations = {
             int(row[0])
@@ -2138,7 +2168,7 @@ def test_schema_24_migrates_once_through_call_and_host_lifecycle_receipts(tmp_pa
                 "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'mcp_managed_%receipts'"
             ).fetchall()
         }
-    assert migrations == {25, 26, 27, 28, 29, 30}
+    assert migrations == set(range(25, AGENT_CATALOG_SCHEMA_VERSION + 1))
     assert {
         "mcp_managed_tool_call_receipts",
         "mcp_managed_host_action_receipts",
@@ -2147,21 +2177,10 @@ def test_schema_24_migrates_once_through_call_and_host_lifecycle_receipts(tmp_pa
 
 def test_schema_25_migrates_once_to_host_lifecycle_evidence(tmp_path) -> None:
     path = tmp_path / AGENT_CATALOG_DATABASE_FILENAME
-    current = AgentCatalogSqliteDatabase(path)
-    assert current.initialize() == AGENT_CATALOG_SCHEMA_VERSION
-    with sqlite3.connect(path) as connection:
-        connection.execute("DROP TABLE mcp_managed_tool_call_claims")
-        connection.execute("DROP TABLE mcp_managed_local_configuration_inspections")
-        connection.execute("DROP TABLE mcp_managed_host_cleanup_blocks")
-        connection.execute("DROP TABLE mcp_managed_host_action_receipts")
-        connection.execute("DROP TABLE agent_catalog_migration_checksums")
-        connection.execute(
-            "DELETE FROM agent_catalog_schema_migrations WHERE version>=26"
-        )
-        connection.execute("PRAGMA user_version=25")
+    _create_historical_agent_catalog(path, 25)
 
     migrated = AgentCatalogSqliteDatabase(path)
-    assert migrated.initialize() == AGENT_CATALOG_SCHEMA_VERSION
+    _assert_current_catalog_integrity(migrated)
     with migrated.connect() as connection:
         migration_count = int(
             connection.execute(

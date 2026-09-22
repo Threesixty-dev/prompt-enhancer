@@ -4,7 +4,7 @@ import type {
   RequirementPlanEvidencePreview,
   RequirementPlanProposal,
 } from "./contracts";
-import { createHttpTransport } from "./httpTransport";
+import { createHttpTransport, TransportError } from "./httpTransport";
 import {
   REQUIREMENT_PLAN_FILE_CONSTRAINT_CODES,
   REQUIREMENT_PLAN_FILE_JSON_SCHEMA,
@@ -232,6 +232,30 @@ function review() {
 }
 
 describe("requirement-plan HTTP transport", () => {
+  it("preserves the content-free cold-context recovery reason", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(auth))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        detail: {
+          code: "requirement_plan_review_context_missing",
+          message: "exact requirement-plan review context is missing or expired",
+        },
+      }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getRequirementPlanEvidenceContract!(SESSION_ID))
+      .rejects.toMatchObject({
+        status: 404,
+        reasonCode: "requirement_plan_review_context_missing",
+      } satisfies Partial<TransportError>);
+  });
+
   it("uses the exact private media/header boundary and validates every response", async () => {
     const bytes = new TextEncoder().encode("{}").buffer;
     const candidatePreview = preview();

@@ -28,6 +28,11 @@ const METHODS = new Set(["GET", "POST", "PATCH", "DELETE"]);
 const ACCESS = new Set(["token_authenticated", "native_user_presence_only"]);
 const RESPONSES = new Set(["json", "binary", "sse", "no_content"]);
 const OPERATION = /^[a-z][a-z0-9_]{0,63}$/u;
+const NON_CONTROLLER_AGENT_PATHS = new Set([
+  "/v1/agent/web-fetch-capability",
+  "/v1/agent/catalog/sessions/message-search",
+  "/v1/agent/sessions/{session_id}/parameters",
+]);
 const REQUIRED_OPERATIONS = new Set([
   "discover", "list_projects", "create_project", "delete_project",
   "list_projects_page", "list_project_sessions_page", "list_catalog_sessions_page",
@@ -123,6 +128,7 @@ function validPathTemplate(value: unknown): value is string {
   }
   const [path, query, ...rest] = value.split("?");
   if (rest.length > 0) return false;
+  if (NON_CONTROLLER_AGENT_PATHS.has(path)) return false;
   if (!(path.startsWith("/v1/agent/") || path.startsWith("/v1/local-models/"))) {
     return false;
   }
@@ -158,9 +164,9 @@ function validEndpoint(value: unknown): value is Record<string, unknown> {
 export function parseAgentOrchestrationManifest(value: unknown): AgentOrchestrationManifest {
   if (
     !record(value) || !exact(value, ROOT_KEYS)
-    || value.contract_version !== "local-agent-orchestration.v22"
+    || value.contract_version !== "local-agent-orchestration.v23"
     || value.transport !== "loopback_http"
-    || value.route_coverage !== "all_agent_routes_plus_controller_runtime_routes"
+    || value.route_coverage !== "selected_agent_routes_plus_controller_runtime_routes"
     || value.openapi_path !== "/openapi.json"
     || !validAuthentication(value.authentication)
     || !validBoundaries(value.boundaries)

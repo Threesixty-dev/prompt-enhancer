@@ -402,10 +402,10 @@ def _manifest_response() -> AgentControllerHttpResponse:
     return _json_response(agent_orchestration_manifest().model_dump(mode="json"))
 
 
-def test_discovery_accepts_only_the_complete_v22_native_boundary() -> None:
+def test_discovery_accepts_only_the_complete_v23_native_boundary() -> None:
     valid = _ScriptedTransport(lambda *_args: _manifest_response())
     manifest = AgentControllerClient(valid).discover()
-    assert manifest.contract_version == "local-agent-orchestration.v22"
+    assert manifest.contract_version == "local-agent-orchestration.v23"
     assert len(manifest.endpoints) == 77
 
     downgraded = manifest.model_dump(mode="json")
@@ -415,6 +415,42 @@ def test_discovery_accepts_only_the_complete_v22_native_boundary() -> None:
         AgentControllerClient(invalid).discover()
     assert captured.value.code == "controller_contract_invalid"
 
+    stale_version = manifest.model_dump(mode="json")
+    stale_version["contract_version"] = "local-agent-orchestration.v22"
+    invalid_version = _ScriptedTransport(
+        lambda *_args: _json_response(stale_version)
+    )
+    with pytest.raises(AgentControllerError) as captured:
+        AgentControllerClient(invalid_version).discover()
+    assert captured.value.code == "controller_contract_invalid"
+
+    overstated_coverage = manifest.model_dump(mode="json")
+    overstated_coverage["route_coverage"] = (
+        "all_agent_routes_plus_controller_runtime_routes"
+    )
+    invalid_coverage = _ScriptedTransport(
+        lambda *_args: _json_response(overstated_coverage)
+    )
+    with pytest.raises(AgentControllerError) as captured:
+        AgentControllerClient(invalid_coverage).discover()
+    assert captured.value.code == "controller_contract_invalid"
+
+    private_route = manifest.model_dump(mode="json")
+    endpoint = next(
+        item for item in private_route["endpoints"]
+        if item["operation"] == "create_project"
+    )
+    endpoint["path_template"] = "/v1/agent/catalog/sessions/message-search"
+    invalid_private_route = _ScriptedTransport(
+        lambda *_args: _json_response(private_route)
+    )
+    with pytest.raises(AgentControllerError) as captured:
+        AgentControllerClient(invalid_private_route).discover()
+    assert captured.value.code == "controller_contract_invalid"
+    assert [call[:2] for call in invalid_private_route.calls] == [
+        ("GET", "/v1/agent/orchestration")
+    ]
+
     relabelled = manifest.model_dump(mode="json")
     for endpoint in relabelled["endpoints"]:
         if endpoint["operation"] == "apply_file_create":
@@ -423,6 +459,23 @@ def test_discovery_accepts_only_the_complete_v22_native_boundary() -> None:
     with pytest.raises(AgentControllerError) as captured:
         AgentControllerClient(invalid_native).discover()
     assert captured.value.code == "controller_contract_invalid"
+
+
+def test_controller_manifest_and_generic_invoke_refuse_private_message_search() -> None:
+    transport = _ScriptedTransport(lambda *_args: _manifest_response())
+    client = AgentControllerClient(transport)
+
+    manifest = client.discover()
+    assert all(
+        endpoint.path_template != "/v1/agent/catalog/sessions/message-search"
+        for endpoint in manifest.endpoints
+    )
+    with pytest.raises(AgentControllerError) as captured:
+        client.invoke(AgentControllerInvokeRequest(operation="message_search"))
+    assert captured.value.code == "controller_operation_unknown"
+    assert [call[:2] for call in transport.calls] == [
+        ("GET", "/v1/agent/orchestration")
+    ]
 
 
 def test_specialized_controller_stages_inline_attachment_once_and_revalidates_response() -> None:

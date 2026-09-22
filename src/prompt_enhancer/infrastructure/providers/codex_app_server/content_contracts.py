@@ -2,12 +2,14 @@
 
 The documented ``thread/read`` ``ThreadItem`` union contains many highly
 sensitive item families. This module projects a bounded newest suffix containing
-only text from ``userMessage``, ``agentMessage``, and ``plan``. Reasoning,
-commands and output, diffs, paths, tool arguments and results, images, searches,
+only text from ``userMessage``, ``agentMessage``, and ``plan``.  A separately
+bounded, process-local action descriptor surface admits selected command
+metadata for an exact local review; it never becomes persisted or model input.
+Reasoning, output, diffs, paths, tool arguments and results, images, searches,
 reviews, omitted older structures, and unknown future item types do not enter a
-boundary DTO. Older-prefix truncation is distinguished from an unclassified
-omission so a separately bounded recent analysis window can prove its own
-completeness without claiming complete provider history.
+persistence-safe DTO. Older-prefix truncation is distinguished from an
+unclassified omission so a separately bounded recent analysis window can prove
+its own completeness without claiming complete provider history.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 import json
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
@@ -32,8 +35,9 @@ from ....domain import ToolCategory
 from .errors import CodexCompatibilityError, CodexThreadStructureLimitError
 
 
-TEXT_CONTENT_ADAPTER_VERSION = "0.7.0"
-TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v8"
+TEXT_CONTENT_ADAPTER_VERSION = "0.8.0"
+TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v9"
+_COMMAND_COMPLETION_STATUS = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 
 
 class CodexTextItemKind(StrEnum):
@@ -62,6 +66,19 @@ class RawCodexTextFragment(_PrivateWireModel):
         repr=False,
         min_length=1,
         max_length=MAX_REDACTED_MESSAGE_CHARACTERS,
+    )
+
+
+class RawCodexCommandExecution(_PrivateWireModel):
+    """Private documented completion fields for one ``commandExecution`` item."""
+
+    command: SecretStr = Field(repr=False, min_length=1, max_length=16_384)
+    status: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
+    exit_code: int | None = Field(
+        default=None,
+        strict=True,
+        ge=-2_147_483_648,
+        le=2_147_483_647,
     )
 
 
@@ -99,6 +116,15 @@ class RawCodexActionDescriptor(_PrivateWireModel):
     candidate_duration_ms: int | None = Field(default=None, ge=0)
     candidate_family: ActionFamily | None = None
     candidate_state: ActionState | None = None
+    command_execution_sequence: int | None = Field(
+        default=None,
+        ge=0,
+        le=4_000_000_000,
+    )
+    command_execution: RawCodexCommandExecution | None = Field(
+        default=None,
+        repr=False,
+    )
 
     @model_validator(mode="after")
     def exact_candidate_metadata(self) -> "RawCodexActionDescriptor":
@@ -129,6 +155,15 @@ class RawCodexActionDescriptor(_PrivateWireModel):
             or self.candidate_occurred_at.utcoffset() != timedelta(0)
         ):
             raise ValueError("candidate metadata timestamp must be UTC")
+        if self.command_execution is not None and (
+            self.event_kind != "tool_end"
+            or self.tool_name.get_secret_value() != "commandExecution"
+        ):
+            raise ValueError("command execution metadata has an invalid owner")
+        if self.command_execution_sequence is not None and (
+            self.tool_name.get_secret_value() != "commandExecution"
+        ):
+            raise ValueError("command execution sequence has an invalid owner")
         return self
 
 
@@ -339,6 +374,34 @@ def _action_descriptor(
             "status": item.get("status"),
             "success": item.get("success"),
         }
+        status = item.get("status")
+        exit_code = item.get("exitCode")
+        # The review descriptor remains available for older documented command
+        # shapes.  Completion authority is opt-in: absent or malformed status
+        # metadata simply cannot become an observed-check candidate.
+        command_execution = (
+            RawCodexCommandExecution(
+                command=SecretStr(command),
+                status=status,
+                exit_code=(
+                    exit_code
+                    if isinstance(exit_code, int) and not isinstance(exit_code, bool)
+                    else None
+                ),
+            )
+            if isinstance(status, str)
+            and _COMMAND_COMPLETION_STATUS.fullmatch(status) is not None
+            and len(command) <= 16_384
+            and (
+                exit_code is None
+                or (
+                    isinstance(exit_code, int)
+                    and not isinstance(exit_code, bool)
+                    and -2_147_483_648 <= exit_code <= 2_147_483_647
+                )
+            )
+            else None
+        )
     elif item_type == "fileChange":
         changes = item.get("changes")
         if not isinstance(changes, list):
@@ -350,6 +413,7 @@ def _action_descriptor(
             "status": item.get("status"),
             "success": item.get("success"),
         }
+        command_execution = None
     elif item_type == "mcpToolCall":
         tool = item.get("tool") or item.get("name")
         if not isinstance(tool, str) or not tool.strip():
@@ -365,6 +429,7 @@ def _action_descriptor(
             "status": item.get("status"),
             "success": item.get("success"),
         }
+        command_execution = None
     elif item_type == "webSearch":
         query = item.get("query") or item.get("searchQuery")
         if not isinstance(query, str) or not query.strip():
@@ -377,6 +442,7 @@ def _action_descriptor(
             "status": item.get("status"),
             "success": item.get("success"),
         }
+        command_execution = None
     elif item_type == "imageView":
         target = item.get("path") or item.get("imagePath")
         if not isinstance(target, str) or not target.strip():
@@ -387,6 +453,7 @@ def _action_descriptor(
             "status": item.get("status"),
             "success": item.get("success"),
         }
+        command_execution = None
     else:  # pragma: no cover - caller is a closed allowlist
         raise CodexCompatibilityError("provider action descriptor type is unsupported")
     if len(tool_name) > MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS or "\x00" in tool_name:
@@ -405,6 +472,7 @@ def _action_descriptor(
         result_or_effect_preview=effect,
         invocation_truncated=invocation_truncated,
         result_or_effect_truncated=effect_truncated,
+        command_execution=command_execution,
     )
 
 
@@ -631,20 +699,34 @@ def parse_text_thread_read(
             action_descriptor_extraction_complete = False
             break
 
+    ordered_action_descriptors = tuple(reversed(newest_action_descriptors))
+    command_sequence = 0
+    sequenced_action_descriptors: list[RawCodexActionDescriptor] = []
+    for descriptor in ordered_action_descriptors:
+        if descriptor.tool_name.get_secret_value() == "commandExecution":
+            sequenced_action_descriptors.append(
+                descriptor.model_copy(
+                    update={"command_execution_sequence": command_sequence}
+                )
+            )
+            command_sequence += 1
+        else:
+            sequenced_action_descriptors.append(descriptor)
+
     return RawCodexTextThread(
         thread_id=SecretStr(thread_id),
         fragments=tuple(reversed(newest_fragments)),
         extraction_complete=not older_history_truncated and not unclassified_omission,
         older_history_truncated=older_history_truncated,
         unclassified_omission=unclassified_omission,
-        action_descriptors=tuple(reversed(newest_action_descriptors)),
+        action_descriptors=tuple(sequenced_action_descriptors),
         action_descriptor_extraction_complete=(
             action_descriptor_extraction_complete
             and not older_history_truncated
             and not unclassified_omission
             and not any(
                 item.invocation_truncated or item.result_or_effect_truncated
-                for item in newest_action_descriptors
+                for item in sequenced_action_descriptors
             )
         ),
     )

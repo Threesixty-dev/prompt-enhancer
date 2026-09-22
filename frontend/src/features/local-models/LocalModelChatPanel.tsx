@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   LocalModelChatDelta,
   LocalModelChatMessage,
@@ -6,6 +6,7 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { Dialog } from "../../shared/ui/Dialog";
 
 const MAX_TURNS_KEPT = 12;
 const MAX_PROMPT_CHARS = 20_000;
@@ -38,10 +39,16 @@ function incompleteNotice(reason: string | null): string | null {
  */
 export function LocalModelChatPanel({
   models,
+  runtimeReadiness = "verified",
   transport,
+  onOpenAgentChat,
+  onTemporaryChatDirtyChange,
 }: {
   models: readonly LocalModelStatus[];
+  runtimeReadiness?: "verified" | "unverified";
   transport: Pick<PromptEnhancerTransport, "streamLocalModelChat">;
+  onOpenAgentChat?: (modelAlias: string | null) => void;
+  onTemporaryChatDirtyChange?: (dirty: boolean) => void;
 }) {
   const running = models.filter((item) => item.runtime.state === "running");
   const [alias, setAlias] = useState<string>("");
@@ -51,15 +58,60 @@ export function LocalModelChatPanel({
   const [draft, setDraft] = useState<Turn | null>(null);
   const [error, setError] = useState("");
   const [retryTurn, setRetryTurn] = useState<RetryTurn | null>(null);
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false);
+  const [newConversationOpen, setNewConversationOpen] = useState(false);
+  const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const agentDialogOpeningRef = useRef(false);
+  const newConversationTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const resettingRef = useRef(false);
   const activeRef = useRef<ActiveReply | null>(null);
+  const lastDirtyRef = useRef<boolean | null>(null);
+  const lastDirtyCallbackRef = useRef<typeof onTemporaryChatDirtyChange>(undefined);
+  const mountedRef = useRef(false);
+  const dirty = prompt.length > 0 || turns.length > 0 || draft !== null || activeRef.current !== null;
+  const dirtyCallbackRef = useRef(onTemporaryChatDirtyChange);
+  dirtyCallbackRef.current = onTemporaryChatDirtyChange;
+
+  useLayoutEffect(() => {
+    if (!onTemporaryChatDirtyChange) return;
+    if (lastDirtyRef.current !== dirty || lastDirtyCallbackRef.current !== onTemporaryChatDirtyChange) {
+      lastDirtyRef.current = dirty;
+      lastDirtyCallbackRef.current = onTemporaryChatDirtyChange;
+      onTemporaryChatDirtyChange(dirty);
+    }
+  }, [dirty, onTemporaryChatDirtyChange]);
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // Strict Mode immediately re-runs layout effects. Deferring lets its
+      // replacement setup win, while a real unmount still reports false.
+      queueMicrotask(() => {
+        if (!mountedRef.current) {
+          dirtyCallbackRef.current?.(false);
+          lastDirtyRef.current = false;
+        }
+      });
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!dirty) return undefined;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [dirty]);
   const sendingRef = useRef(false);
   const idRef = useRef(0);
   const logRef = useRef<HTMLDivElement | null>(null);
 
   const selected = alias ? models.find((item) => item.record.alias === alias) ?? null : null;
   const chosen = selected && selected.runtime.state === "running" ? selected : null;
-  const stoppedSelection = Boolean(alias) && !chosen;
+  const runtimeUnverified = runtimeReadiness === "unverified";
+  const stoppedSelection = Boolean(alias) && !chosen && !runtimeUnverified;
+  const unverifiedSelection = Boolean(alias) && !chosen && runtimeUnverified;
   const firstRunning = running[0]?.record.alias ?? "";
+  const selectedAlias = alias || null;
 
   /** Drops ownership of the reply in flight, so its late callbacks find no owner. */
   function disown() {
@@ -110,9 +162,27 @@ export function LocalModelChatPanel({
     setRetryTurn(null);
   }
 
+  function requestReset() {
+    if (prompt.length > 0 || turns.length > 0 || draft !== null || activeRef.current !== null) {
+      resettingRef.current = false;
+      setNewConversationOpen(true);
+    }
+    else reset();
+  }
+
+  function closeAgentDialog() {
+    agentDialogOpeningRef.current = false;
+    setAgentDialogOpen(false);
+  }
+
   async function send(retry?: RetryTurn) {
     const text = retry?.user.content ?? prompt.trim();
-    if (sendingRef.current || activeRef.current || !chosen || !text) return;
+    if (sendingRef.current || activeRef.current || !text) return;
+    if (runtimeUnverified) {
+      setError("Runtime status is unverified, so new messages and retries stay off until Refresh confirms the selected model. A reply already streaming can still be stopped.");
+      return;
+    }
+    if (!chosen) return;
     sendingRef.current = true;
     const id = ++idRef.current;
     const mine = () => activeRef.current?.id === id;
@@ -186,11 +256,13 @@ export function LocalModelChatPanel({
 
   // Only the untouched, no-model case is compact: a conversation stays on screen
   // even after every model stops.
-  if (running.length === 0 && turns.length === 0 && !draft && !error && !prompt) {
+  if (running.length === 0 && turns.length === 0 && !draft && !error && !prompt && !runtimeUnverified && !onOpenAgentChat) {
     return (
       <section aria-labelledby="local-chat-title" className="local-models__section">
         <h2 id="local-chat-title">Chat</h2>
         <p className="local-models__note">Activate a model above to chat with it here or from any OpenAI-compatible tool.</p>
+        <p className="local-models__note">This chat is temporary and is not saved. Leaving Models, reloading, or closing the page discards the conversation.</p>
+        {!onOpenAgentChat && <p className="local-models__hint">For saved chats, use Agent.</p>}
       </section>
     );
   }
@@ -209,19 +281,68 @@ export function LocalModelChatPanel({
               </option>
             ))}
             {stoppedSelection && <option value={alias}>{selected?.record.display_name ?? alias} · stopped</option>}
+            {unverifiedSelection && <option value={alias}>{selected?.record.display_name ?? alias} · status unverified</option>}
           </select>
         </label>
         <label className="local-chat__toggle">
           <input checked={thinking} onChange={(e) => setThinking(e.currentTarget.checked)} type="checkbox" />
           <span>Allow thinking (slower, better for hard questions)</span>
         </label>
-        <button className="button button--ghost" disabled={turns.length === 0 && !draft && !error && !prompt} onClick={reset} type="button">
+        <button className="button button--ghost" disabled={turns.length === 0 && !draft && !error && !prompt} onClick={requestReset} ref={newConversationTriggerRef} type="button">
           New conversation
         </button>
       </div>
+      <Dialog
+        onClose={() => setNewConversationOpen(false)}
+        open={newConversationOpen}
+        title="Start a new conversation?"
+        footer={<><button className="button button--ghost" onClick={() => setNewConversationOpen(false)} type="button">Cancel</button><button className="button button--primary" onClick={() => { if (resettingRef.current) return; resettingRef.current = true; setNewConversationOpen(false); reset(); }} type="button">Start new conversation</button></>}
+      >
+        <p>This clears the temporary conversation, draft, and any active reply.</p>
+      </Dialog>
+      <p className="local-models__note">This chat is temporary and is not saved. Leaving Models, reloading, or closing the page discards the conversation.</p>
+      {onOpenAgentChat ? (
+        <>
+          <button className="button button--ghost" onClick={() => {
+            if (agentDialogOpeningRef.current) return;
+            agentDialogOpeningRef.current = true;
+            setAgentDialogOpen(true);
+          }} ref={agentTriggerRef} type="button">Open saved Agent chat</button>
+          <Dialog
+            description="A saved Agent chat starts separately from this temporary conversation."
+            footer={(
+              <>
+                <button className="button button--ghost" onClick={closeAgentDialog} type="button">Cancel</button>
+                <button
+                  className="button button--primary"
+                  onClick={() => {
+                    if (!agentDialogOpeningRef.current) return;
+                    agentDialogOpeningRef.current = false;
+                    setAgentDialogOpen(false);
+                    onOpenAgentChat(selectedAlias);
+                  }}
+                  type="button"
+                >Continue to Agent</button>
+              </>
+            )}
+            onClose={closeAgentDialog}
+            open={agentDialogOpen}
+            title="Open a saved Agent chat?"
+          >
+            <p>This opens a NEW Agent setup. No messages, draft, reasoning, or history are copied.</p>
+            <p>Leaving Models discards this temporary content and stops any active reply. Workspace and history retention are chosen next.</p>
+          </Dialog>
+        </>
+      ) : <p className="local-models__hint">For saved chats, use Agent.</p>}
+      {running.length === 0 && !runtimeUnverified && <p className="local-models__note">Activate a model above to chat with it here or from any OpenAI-compatible tool.</p>}
       {stoppedSelection && (
         <p className="local-models__error" role="alert">
           {selected?.record.display_name ?? alias} is not running, so sending is off. Activate it again to carry on here, or choose another model above.
+        </p>
+      )}
+      {runtimeUnverified && (
+        <p className="local-models__error" id="local-chat-runtime-unverified" role="alert">
+          Runtime status is unverified. New messages and retries are disabled until the local model page refreshes it; an existing reply can still be stopped.
         </p>
       )}
       <div className="local-chat__log" ref={logRef} role="log" aria-live="off">
@@ -241,7 +362,7 @@ export function LocalModelChatPanel({
         ))}
       </div>
       {error && <p className="local-models__error" role="alert">{error}</p>}
-      {retryTurn && <button className="button button--ghost" disabled={!chosen || draft !== null} onClick={() => void send(retryTurn)} type="button">Retry last message</button>}
+      {retryTurn && <button aria-describedby={runtimeUnverified ? "local-chat-runtime-unverified" : undefined} className="button button--ghost" disabled={!chosen || runtimeUnverified || draft !== null} onClick={() => void send(retryTurn)} type="button">Retry last message</button>}
       <form
         className="local-chat__compose"
         onSubmit={(event) => {
@@ -267,7 +388,7 @@ export function LocalModelChatPanel({
           {draft ? (
             <button className="button button--ghost" onClick={stop} type="button">Stop</button>
           ) : (
-            <button className="button button--primary" disabled={!prompt.trim() || !chosen} type="submit">Send</button>
+            <button aria-describedby={runtimeUnverified ? "local-chat-runtime-unverified" : undefined} className="button button--primary" disabled={!prompt.trim() || !chosen || runtimeUnverified} type="submit">Send</button>
           )}
         </div>
       </form>

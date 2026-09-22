@@ -87,7 +87,7 @@ export function AgentWorkspaceDiscoveryPanel({
   transport: DiscoveryTransport;
   refreshKey: string | number;
   fileActionsDisabled: boolean;
-  onOpenFile?: (path: string) => void;
+  onOpenFile?: (path: string, lineNumber?: number) => void;
   onRootChanged?: () => void;
 }) {
   const [state, setState] = useState<LoadState>(transport.getAgentWorkspaceDiscovery ? "loading" : "unavailable");
@@ -365,7 +365,7 @@ export function AgentWorkspaceDiscoveryPanel({
                   aria-label={`Open search result ${match.path} line ${match.line_number}`}
                   className="button button--ghost"
                   disabled={!canOpen(file)}
-                  onClick={() => onOpenFile?.(match.path)}
+                  onClick={() => onOpenFile?.(match.path, match.line_number)}
                   type="button"
                 >Open</button>
               </li>;

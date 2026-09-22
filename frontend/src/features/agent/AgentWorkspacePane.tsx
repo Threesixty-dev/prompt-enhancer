@@ -20,6 +20,8 @@ import { Icon } from "../../shared/ui/Icon";
 import { AgentWorkspaceDiscoveryPanel } from "./AgentWorkspaceDiscoveryPanel";
 import { AgentArtifactCaptureDialog } from "./AgentArtifactCaptureDialog";
 import { AgentDiffViewer } from "./AgentDiffViewer";
+import { AgentWorkspaceEditor } from "./AgentWorkspaceEditor";
+import type { AgentWorkspaceEditorLineRequest } from "./AgentWorkspaceEditor";
 
 type WorkspaceTransport = Pick<
   PromptEnhancerTransport,
@@ -275,6 +277,7 @@ export function AgentWorkspacePane({
   refreshKey = 0,
   onApplied,
   onArtifactCaptured,
+  onCaptureUncertain,
   onDirtyChange,
   userPresenceAvailable = true,
   blockedReason,
@@ -288,6 +291,7 @@ export function AgentWorkspacePane({
   refreshKey?: string | number;
   onApplied?: (path: string) => void;
   onArtifactCaptured?: () => void;
+  onCaptureUncertain?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   userPresenceAvailable?: boolean;
   blockedReason?: string;
@@ -299,6 +303,7 @@ export function AgentWorkspacePane({
   const [tree, setTree] = useState<AgentWorkspaceTree | null>(null);
   const [opened, setOpened] = useState<AgentWorkspaceFile | null>(null);
   const [draft, setDraft] = useState("");
+  const [editorLineRequest, setEditorLineRequest] = useState<AgentWorkspaceEditorLineRequest | null>(null);
   const [preview, setPreview] = useState<AgentWorkspaceEditPreview | null>(null);
   const [previewDraft, setPreviewDraft] = useState("");
   const [transactionDrafts, setTransactionDrafts] = useState<TransactionDraft[]>([]);
@@ -350,6 +355,7 @@ export function AgentWorkspacePane({
   const operationVersion = useRef(0);
   const operationRequest = useRef<AbortController | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorLineRequestToken = useRef(0);
   const revealedEntryRef = useRef<HTMLLIElement | null>(null);
   const focusAfterLoad = useRef<number | null>(null);
   const openRequestedFile = useRef<(path: string) => void>(() => {});
@@ -523,6 +529,7 @@ export function AgentWorkspacePane({
     setTree(null);
     setOpened(null);
     setDraft("");
+    setEditorLineRequest(null);
     setPreview(null);
     setPreviewDraft("");
     setTransactionDrafts([]);
@@ -720,23 +727,47 @@ export function AgentWorkspacePane({
     if (confirmed) action?.();
   }
 
-  function openFile(path: string, keepNotice = false): void {
-    if (rootChanged) return;
-    requestDiscard(draftDiscardMessage(), "Discard and open file", () => {
-      void openFileAfterDiscard(path, keepNotice);
+  function requestEditorLine(line: number): void {
+    if (!opened) return;
+    setEditorLineRequest({
+      token: ++editorLineRequestToken.current,
+      line,
+      owner: {
+        sessionId,
+        path: opened.path,
+        revision: opened.revision,
+        transport,
+      },
     });
   }
 
-  async function openFileAfterDiscard(path: string, keepNotice = false) {
+  function openFile(path: string, keepNotice = false, lineNumber?: number): void {
+    if (rootChanged) return;
+    if (opened?.path === path && lineNumber !== undefined) {
+      requestEditorLine(lineNumber);
+      return;
+    }
+    setEditorLineRequest(null);
+    requestDiscard(draftDiscardMessage(), "Discard and open file", () => {
+      void openFileAfterDiscard(path, keepNotice, lineNumber);
+    });
+  }
+
+  async function openFileAfterDiscard(path: string, keepNotice = false, lineNumber?: number) {
     if (lifecycleMode) resetLifecycleDraft();
     const requestedSession = sessionId;
+    const requestedTransport = transport;
     const { controller, version } = beginOperation();
     setLoading(true);
     setMessage("");
     if (!keepNotice) setNotice("");
     try {
       const file = await transport.getAgentWorkspaceFile(sessionId, path, controller.signal);
-      if (activeSession.current !== requestedSession || operationVersion.current !== version) return;
+      if (
+        activeSession.current !== requestedSession
+        || activeTransport.current !== requestedTransport
+        || operationVersion.current !== version
+      ) return;
       focusAfterLoad.current = version;
       setOpened(file);
       const staged = transactionDrafts.find((item): item is TransactionEditDraft => (
@@ -746,6 +777,18 @@ export function AgentWorkspacePane({
         item.operation === "create" && workspacePathKey(item.path) === workspacePathKey(file.path)
       ));
       setDraft(staged?.content ?? file.content);
+      if (lineNumber !== undefined) {
+        setEditorLineRequest({
+          token: ++editorLineRequestToken.current,
+          line: lineNumber,
+          owner: {
+            sessionId: requestedSession,
+            path: file.path,
+            revision: file.revision,
+            transport: requestedTransport,
+          },
+        });
+      }
       setPreview(null);
       setPreviewDraft("");
       setNeedsFileReload(false);
@@ -759,10 +802,18 @@ export function AgentWorkspacePane({
         setNotice("Loaded the draft already staged in the multi-file transaction.");
       }
     } catch (caught) {
-      if (activeSession.current !== requestedSession || operationVersion.current !== version) return;
+      if (
+        activeSession.current !== requestedSession
+        || activeTransport.current !== requestedTransport
+        || operationVersion.current !== version
+      ) return;
       setMessage(inspectError(caught));
     } finally {
-      if (activeSession.current === requestedSession && operationVersion.current === version) {
+      if (
+        activeSession.current === requestedSession
+        && activeTransport.current === requestedTransport
+        && operationVersion.current === version
+      ) {
         setLoading(false);
       }
     }
@@ -1444,7 +1495,12 @@ export function AgentWorkspacePane({
       setFolder(applied.target_path);
       setTreeRetry((value) => value + 1);
       resetLifecycleDraft();
-      setNotice(`Moved and verified folder ${applied.source_path} to ${applied.target_path} without overwrite. Its contents moved with the directory but were not enumerated or reviewed.`);
+      const projectionNotice = applied.artifact_projection === "complete"
+        ? `Artifact tracking updated for ${applied.artifact_versions_advanced} moved file${applied.artifact_versions_advanced === 1 ? "" : "s"}.`
+        : applied.artifact_projection === "recovery_required"
+          ? "Artifact tracking is unresolved and requires recovery before the moved artifact lineage can be trusted."
+          : "No tracked artifacts needed updating for this move."
+      setNotice(`Moved and verified folder ${applied.source_path} to ${applied.target_path} without overwrite. ${projectionNotice} Its contents moved with the directory but were not enumerated or reviewed.`);
       onApplied?.(applied.target_path);
     } catch (caught) {
       if (activeSession.current !== requestedSession || operationVersion.current !== version) return;
@@ -1831,7 +1887,7 @@ export function AgentWorkspacePane({
           </p>
           <AgentWorkspaceDiscoveryPanel
             fileActionsDisabled={loading || rootChanged}
-            onOpenFile={(path) => { void openFile(path); }}
+            onOpenFile={(path, lineNumber) => { openFile(path, false, lineNumber); }}
             onRootChanged={markRootChanged}
             refreshKey={refreshKey}
             sessionId={sessionId}
@@ -2139,18 +2195,26 @@ export function AgentWorkspacePane({
           <small>{summary}</small>
           {currentDraftMatchesStage && <span className="agent-workspace__staged-badge">Staged in multi-file transaction</span>}
         </div>
-        <textarea
-          ref={editorRef}
-          aria-label="Workspace file editor"
+        <AgentWorkspaceEditor
           disabled={!opened || loading}
-          readOnly={needsFileReload || Boolean(editBlockedReason)}
-          onChange={(event) => {
-            setDraft(event.currentTarget.value);
+          identity={opened
+            ? {
+              sessionId,
+              path: opened.path,
+              revision: opened.revision,
+              transport,
+            }
+            : null}
+          lineRequest={editorLineRequest}
+          onChange={(value) => {
+            setDraft(value);
             setNotice("");
           }}
-          placeholder="Choose a file from the tree"
-          rows={16}
-          spellCheck={false}
+          onLineRequestHandled={(token) => {
+            setEditorLineRequest((current) => current?.token === token ? null : current);
+          }}
+          readOnly={needsFileReload || Boolean(editBlockedReason)}
+          textareaRef={editorRef}
           value={draft}
         />
         <div className="agent-workspace__actions">
@@ -2324,6 +2388,10 @@ export function AgentWorkspacePane({
           onCaptured={(artifact) => {
             setNotice(`${artifact.title} is now available as a verified chat artifact.`);
             onArtifactCaptured?.();
+          }}
+          onCaptureUncertain={() => {
+            setNotice("Capture outcome is unknown. The saved-artifacts list is refreshing; inspect it before trying again.");
+            onCaptureUncertain?.();
           }}
           onClose={() => setArtifactCapturePath(null)}
           open

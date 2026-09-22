@@ -5,6 +5,8 @@ import type {
   ModelRequirementActionEvidenceBinding,
   PromptEnhancerTransport,
   RequirementActionEvidenceContract,
+  RequirementActionGuidedAuthoringCommand,
+  RequirementActionGuidedAuthoringReview,
   RequirementActionProposal,
   RequirementActionProposalReview,
 } from "../../shared/api/contracts";
@@ -223,6 +225,51 @@ function review(run = RUN, window = WINDOW): RequirementActionProposalReview {
   };
 }
 
+function guidedReview(run = RUN, window = WINDOW): RequirementActionGuidedAuthoringReview {
+  const exact = review(run, window);
+  return {
+    contract_version: "requirement-action-guided-authoring-v1",
+    session_id: SESSION,
+    source_run_id: run,
+    source_window_fingerprint: window,
+    requirement_plan_confirmation_id: PLAN_CONFIRMATION,
+    requirement_plan_evidence_fingerprint: PLAN_FINGERPRINT,
+    candidate_manifest_fingerprint: MANIFEST,
+    expected_predecessor_confirmation_id: null,
+    authoring_receipt_id: RECEIPT,
+    descriptor_set_fingerprint: DESCRIPTOR_SET,
+    requirements: exact.requirements.map((requirement) => ({ ...requirement, linked_action_ids: [] })),
+    candidates: exact.candidates,
+    candidate_memberships: exact.candidate_memberships.map((membership) => ({ ...membership, linked_requirement_ids: [] })),
+    review_context_expires_at: exact.review_context_expires_at,
+    authoring_receipt_expires_at: exact.review_receipt_expires_at,
+    all_requirements_and_candidates_included: true,
+    raw_text_persisted: false,
+    local_only: true,
+  };
+}
+
+function guidedOutcome(command: RequirementActionGuidedAuthoringCommand): {
+  proposal: RequirementActionProposal;
+  applied: true;
+} {
+  return {
+    proposal: proposal({
+      links: command.links.map((link) => ({
+        requirement_id: requirements[link.requirement_index].requirement_id,
+        action_ids: link.action_candidate_indexes.map((index) => candidates[index].action_id).sort(),
+      })),
+      producer_receipt: {
+        kind: "local_review_ui",
+        claim_fingerprint: "1".repeat(64),
+        authority: "untrusted_local_authoring_commitment",
+        raw_claim_persisted: false,
+      },
+    }),
+    applied: true,
+  };
+}
+
 function rejected(value: RequirementActionProposal): RequirementActionProposal {
   return {
     ...value,
@@ -279,6 +326,73 @@ function transport(initial: RequirementActionProposal[] = [proposal()]): PromptE
 }
 
 describe("RequirementActionEvidencePanel", () => {
+  it("gates guided authoring on native presence and returns its inert proposal to native review history", async () => {
+    const local = transport([]);
+    local.reviewRequirementActionGuidedAuthoring = vi.fn().mockResolvedValue(guidedReview());
+    local.submitRequirementActionGuidedAuthoring = vi.fn().mockImplementation(async (
+      _session: string,
+      _contract: RequirementActionEvidenceContract,
+      command: RequirementActionGuidedAuthoringCommand,
+    ) => guidedOutcome(command));
+    render(
+      <RequirementActionEvidencePanel
+        compact={false}
+        publicEvidenceSource="awaiting_review"
+        sessionId={SESSION}
+        sourceProjectionVersion="metric-contract-v2-projection-7"
+        sourceRunId={RUN}
+        transport={local}
+      />,
+    );
+    const start = await screen.findByRole("button", { name: "Start guided action authoring" });
+    expect(start).toBeEnabled();
+    fireEvent.click(start);
+    fireEvent.click(screen.getByRole("button", { name: "Open guided action review" }));
+    await screen.findByText("Create the synthetic artifact.");
+    expect(screen.queryByLabelText("Choose canonical requirement-action evidence file")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "No matching action" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next requirement" }));
+    fireEvent.click(screen.getByRole("radio", { name: "No matching action" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create unconfirmed proposal" }));
+    await waitFor(() => expect(local.submitRequirementActionGuidedAuthoring).toHaveBeenCalledOnce());
+    expect(local.submitRequirementActionGuidedAuthoring).toHaveBeenCalledWith(
+      SESSION,
+      expect.any(Object),
+      expect.objectContaining({
+        links: [
+          { requirement_index: 0, action_candidate_indexes: [] },
+          { requirement_index: 1, action_candidate_indexes: [] },
+        ],
+      }),
+      expect.any(String),
+      expect.any(AbortSignal),
+    );
+    await screen.findByText("Awaiting native decision");
+  });
+
+  it("keeps guided authoring disabled when native presence is unavailable", async () => {
+    const local = transport([]);
+    local.reviewRequirementActionGuidedAuthoring = vi.fn().mockResolvedValue(guidedReview());
+    local.submitRequirementActionGuidedAuthoring = vi.fn();
+    local.getUserPresenceCapability = vi.fn().mockResolvedValue({
+      contract_version: "native-user-presence-capability-v1",
+      confirmation_available: false,
+      mode: "unavailable",
+    });
+    render(
+      <RequirementActionEvidencePanel
+        compact={false}
+        publicEvidenceSource="awaiting_review"
+        sessionId={SESSION}
+        sourceProjectionVersion="metric-contract-v2-projection-7"
+        sourceRunId={RUN}
+        transport={local}
+      />,
+    );
+    expect(await screen.findByRole("button", { name: "Start guided action authoring" })).toBeDisabled();
+    expect(screen.getByText(/Files may be previewed and imported as inert proposals/i)).toBeVisible();
+  });
+
   it("blocks an already-rendered A import during a same-binding transport B layout commit", async () => {
     const transportA = transport([]);
     transportA.previewRequirementActionEvidence = vi.fn().mockResolvedValue(preview());
@@ -371,6 +485,83 @@ describe("RequirementActionEvidencePanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch public binding" }));
 
+    expect(local.decideRequirementActionProposal).not.toHaveBeenCalled();
+  });
+
+  it("keeps an acknowledgement made in the commit that first displays the exact review", async () => {
+    const local = transport([proposal()]);
+    const view = render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceSource="awaiting_review" sessionId={SESSION}
+      sourceProjectionVersion="metric-contract-v2-projection-7" sourceRunId={RUN} transport={local}
+    />);
+    const inspect = await screen.findByRole("button", { name: "Inspect every item" });
+    // A DOM observer acknowledges at the person's earliest possible moment: the receipt is fully
+    // displayed, but no deferred React pass has run yet. The acknowledgement belongs to the exact
+    // displayed reviewed metadata, so nothing may reset it underneath the person afterwards.
+    let acknowledged = false;
+    const observer = new MutationObserver(() => {
+      const box = view.container.querySelector<HTMLInputElement>("input[type=\"checkbox\"]");
+      if (box === null || acknowledged) return;
+      acknowledged = true;
+      box.click();
+    });
+    observer.observe(view.container, { childList: true, subtree: true });
+
+    try {
+      fireEvent.click(inspect);
+      await screen.findByText("Create the synthetic artifact.");
+      await act(async () => {});
+
+      expect(acknowledged).toBe(true);
+      expect(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i)).toBeChecked();
+      const confirm = screen.getByRole("button", { name: "Confirm exact reviewed graph" });
+      expect(confirm).toBeEnabled();
+      fireEvent.click(confirm);
+      fireEvent.click(screen.getByRole("button", { name: "Apply exact confirmation" }));
+
+      await waitFor(() => expect(local.decideRequirementActionProposal).toHaveBeenCalledWith(
+        SESSION,
+        PROPOSAL,
+        expect.objectContaining({
+          decision: "confirm",
+          review_receipt_id: RECEIPT,
+          reviewed_descriptor_set_fingerprint: DESCRIPTOR_SET,
+          complete_review_acknowledged: true,
+          all_requirements_and_candidates_acknowledged: true,
+        }),
+        expect.any(String),
+        expect.anything(),
+      ));
+    } finally {
+      observer.disconnect();
+    }
+  });
+
+  it("discards an acknowledgement in the same render that replaces the reviewed metadata", async () => {
+    const local = transport([proposal()]);
+    const first = review();
+    const replacement = review();
+    replacement.candidate_memberships[0].candidate_metadata_fingerprint = "b".repeat(64);
+    local.reviewRequirementActionProposal = vi.fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(replacement);
+    render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceSource="awaiting_review" sessionId={SESSION}
+      sourceProjectionVersion="metric-contract-v2-projection-7" sourceRunId={RUN} transport={local}
+    />);
+    const inspect = await screen.findByRole("button", { name: "Inspect every item" });
+    await act(async () => { fireEvent.click(inspect); });
+    fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
+    expect(screen.getByRole("button", { name: "Confirm exact reviewed graph" })).toBeEnabled();
+
+    // The second receipt carries different reviewed candidate metadata, so the prior
+    // acknowledgement and any pending decision must be void the moment it is displayed.
+    await act(async () => { fireEvent.click(inspect); });
+
+    expect(local.reviewRequirementActionProposal).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i)).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Confirm exact reviewed graph" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Apply exact confirmation" })).not.toBeInTheDocument();
     expect(local.decideRequirementActionProposal).not.toHaveBeenCalled();
   });
 
@@ -721,7 +912,11 @@ describe("RequirementActionEvidencePanel", () => {
       sourceRunId={RUN} transport={local}
     />);
     expect(await screen.findByText(/Unknown is never rendered as zero/i)).toBeVisible();
-    expect(screen.getByText(/does not imply Codex support or shipped metric operability/i)).toBeVisible();
+    expect(screen.getByText(/complete compatible Claude transcript/i)).toBeVisible();
+    expect(screen.getByText(/confirmed requirement plan/i)).toBeVisible();
+    expect(screen.getByText(/reviewed requirement-action links with native confirmation/i)).toBeVisible();
+    expect(screen.getByText(/hook-only and incomplete histories are not admitted/i)).toBeVisible();
+    expect(screen.getByText(/traceability is not proof of task success/i)).toBeVisible();
     expect(screen.getByRole("button", { name: "Inspect every item" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled();
     expect(screen.getByText(/review and decisions are disabled/i)).toBeVisible();
@@ -774,8 +969,7 @@ describe("RequirementActionEvidencePanel", () => {
       sourceRunId={RUN} transport={first}
     />);
     const inspect = await screen.findByRole("button", { name: "Inspect every item" });
-    // Finish the asynchronous receipt and its acknowledgement-reset effect
-    // before simulating the person's review acknowledgement.
+    // Finish the asynchronous receipt before simulating the person's review acknowledgement.
     await act(async () => { fireEvent.click(inspect); });
     expect(await screen.findByText(/Create the synthetic artifact\./)).toBeVisible();
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));

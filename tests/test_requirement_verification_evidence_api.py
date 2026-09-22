@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -35,6 +36,8 @@ from prompt_enhancer.application.analysis.requirement_verification_persistence i
     RequirementVerificationNotFoundError,
     RequirementVerificationPersistenceError,
     RequirementVerificationResultAppendCommand,
+    ObservedCheckResultIssueCommand,
+    ObservedCheckAuthorityProvenance,
     RequirementVerificationStaleWindowError,
 )
 from prompt_enhancer.config import AppSettings
@@ -44,6 +47,10 @@ from prompt_enhancer.interfaces.http.browser_session import (
 )
 from prompt_enhancer.interfaces.http.requirement_verification_evidence_routes import (
     RequirementVerificationMessageErrorDto,
+)
+from prompt_enhancer.application.analysis.requirement_verification_review import (
+    ObservedCheckCandidate, ObservedCheckCandidateManifest,
+    ObservedCheckCriterionReview,
 )
 from prompt_enhancer.interfaces.http.user_presence import (
     USER_PRESENCE_HEADER,
@@ -111,6 +118,35 @@ def _acceptance() -> ExplicitRequirementAcceptanceAuthority:
     )
 
 
+def _observed_provenance(*, session_id: str = _id(1)) -> ObservedCheckAuthorityProvenance:
+    """A content-free sidecar record returned by the local read surface."""
+    return ObservedCheckAuthorityProvenance(
+        authority_record_id=_id(10),
+        session_id=session_id,
+        opportunity_set_fingerprint=_id(9),
+        opportunity_id=_id(6),
+        requirement_id=_id(7),
+        source_run_id=_id(21),
+        source_window_fingerprint=_id(2),
+        requirement_plan_confirmation_id=_id(3),
+        requirement_plan_proposal_id=_id(4),
+        candidate_manifest_fingerprint=_id(22),
+        source_reference_id=_id(23),
+        coverage_review_reference_id=_id(24),
+        observed_sequence=21,
+        observed_outcome="passed",
+        exit_code=0,
+        source_completion_schema_version="observed-check-completion-v1",
+        outcome_interpreter_version="pytest-exit-status-v1",
+        classifier_version="local-command-rules-v1",
+        normalizer_version="strict-shell-free-v2",
+        rule_id="test.pytest",
+        coverage_review_version="native-full-criterion-coverage-v1",
+        full_criterion_coverage_acknowledged=True,
+        provenance_fingerprint=_id(25),
+    )
+
+
 def _snapshot(kind: str = "empty") -> RequirementVerificationEvidenceSnapshot:
     opportunities = _opportunity_set()
     results = (_result(),) if kind == "result" else ()
@@ -156,6 +192,7 @@ class _Service:
         self.applied = True
         self.errors: dict[str, Exception] = {}
         self.calls: list[tuple[object, ...]] = []
+        self.review_service = None
 
     def _raise(self, method: str) -> None:
         error = self.errors.get(method)
@@ -208,6 +245,66 @@ class _Service:
         self._raise("acceptance")
         self.calls.append(("acceptance", session_id, command, idempotency_key))
         return _snapshot("acceptance"), self.applied
+
+    def append_observed_check_result(
+        self,
+        *,
+        session_id: str,
+        command: ObservedCheckResultIssueCommand,
+        idempotency_key: str,
+    ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]:
+        self._raise("observed")
+        self.calls.append(("observed", session_id, command, idempotency_key))
+        return _snapshot("result"), self.applied
+
+    def observed_check_provenance(
+        self, session_id: str, authority_record_id: str
+    ) -> ObservedCheckAuthorityProvenance:
+        self._raise("provenance")
+        self.calls.append(("provenance", session_id, authority_record_id))
+        if session_id != _id(1) or authority_record_id != _id(10):
+            raise RequirementVerificationNotFoundError("synthetic absent sidecar")
+        return _observed_provenance(session_id=session_id)
+
+
+class _ObservedReviewService:
+    def __init__(self) -> None:
+        candidate = ObservedCheckCandidate(
+            candidate_id=_id(20), observed_sequence=21,
+            observed_outcome="passed", exit_code=0,
+            classifier_version="local-command-rules-v1",
+            normalizer_version="strict-shell-free-v2", rule_id="test.pytest",
+        )
+        self.manifest = ObservedCheckCandidateManifest(
+            session_id=_id(1), opportunity_set_fingerprint=_id(9),
+            opportunity_id=_id(6), requirement_id=_id(7),
+            expected_source_run_id=_id(21), source_window_fingerprint=_id(2),
+            requirement_plan_confirmation_id=_id(3), requirement_plan_proposal_id=_id(4),
+            through_revision=0, candidate_manifest_fingerprint=_id(22),
+            candidates=(candidate,),
+        )
+        self.review = ObservedCheckCriterionReview(
+            session_id=self.manifest.session_id,
+            opportunity_set_fingerprint=self.manifest.opportunity_set_fingerprint,
+            opportunity_id=self.manifest.opportunity_id,
+            requirement_id=self.manifest.requirement_id,
+            expected_source_run_id=self.manifest.expected_source_run_id,
+            source_window_fingerprint=self.manifest.source_window_fingerprint,
+            requirement_plan_confirmation_id=self.manifest.requirement_plan_confirmation_id,
+            requirement_plan_proposal_id=self.manifest.requirement_plan_proposal_id,
+            through_revision=0,
+            candidate_manifest_fingerprint=self.manifest.candidate_manifest_fingerprint,
+            candidate=candidate, requirement_text="Synthetic requirement.",
+            check_tool_name="commandExecution", check_invocation_preview="pytest -q",
+            check_effect_preview="completed", review_receipt_id=_id(23),
+            review_fingerprint=_id(24), review_expires_at=datetime(2040, 1, 1, tzinfo=UTC),
+        )
+
+    def observed_candidates(self, **_values):  # type: ignore[no-untyped-def]
+        return self.manifest
+
+    def open_observed_check(self, **_values):  # type: ignore[no-untyped-def]
+        return self.review
 
 
 def _app(tmp_path, service: _Service, *, presence=None):  # type: ignore[no-untyped-def]
@@ -450,6 +547,89 @@ def test_acceptance_requires_body_bound_one_shot_native_presence_and_literal(
     assert len([call for call in service.calls if call[0] == "acceptance"]) == 1
 
 
+def test_observed_check_preflight_is_local_and_issue_is_body_bound_native(
+    tmp_path,
+) -> None:
+    service = _Service()
+    observed = _ObservedReviewService()
+    service.review_service = observed
+    manager = UserPresenceApprovalManager()
+
+    def verify(request, body: bytes) -> None:  # type: ignore[no-untyped-def]
+        if not manager.consume(
+            token=request.headers.get(USER_PRESENCE_HEADER), method=request.method,
+            path=request.url.path, body=body,
+        ):
+            raise HTTPException(403, detail="native user-presence confirmation required")
+
+    app = _app(tmp_path, service, presence=verify)
+    base = (
+        f"/v1/sessions/{_id(1)}/requirement-verification-evidence/"
+        f"opportunity-sets/{_id(9)}/opportunities/{_id(6)}/observed-checks"
+    )
+    preflight = {
+        "expected_source_run_id": _id(21), "through_revision": 0,
+        "expected_predecessor_authority_id": None,
+    }
+    issue_path = f"{base}/{_id(20)}/issue"
+    issue = {
+        **preflight,
+        "source_window_fingerprint": _id(2),
+        "candidate_manifest_fingerprint": _id(22),
+        "review_receipt_id": _id(23), "review_fingerprint": _id(24),
+        "full_criterion_coverage_acknowledged": True,
+        "confirmation": "issue_exact_local_requirement_observed_check_result",
+    }
+    issue_body = json.dumps(issue, separators=(",", ":")).encode("utf-8")
+    issue_presence = manager.issue(
+        method="POST", path=issue_path,
+        body_sha256=hashlib.sha256(issue_body).hexdigest(),
+    )
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        manifest = client.post(
+            f"{base}/preflight", headers={API_TOKEN_HEADER: TOKEN}, json=preflight,
+        )
+        denied = client.post(
+            issue_path,
+            headers={"Idempotency-Key": "synthetic-observed-no-browser-0001"},
+            content=issue_body,
+        )
+        browser = client.get("/auth/session").json()
+        accepted = client.post(
+            issue_path,
+            headers={
+                "Content-Type": "application/json",
+                "Idempotency-Key": "synthetic-observed-native-0001",
+                CSRF_HEADER: browser["csrf_token"],
+                USER_PRESENCE_HEADER: issue_presence,
+                "Origin": "http://127.0.0.1",
+            },
+            content=issue_body,
+        )
+        reused = client.post(
+            issue_path,
+            headers={
+                "Content-Type": "application/json",
+                "Idempotency-Key": "synthetic-observed-native-0002",
+                CSRF_HEADER: browser["csrf_token"],
+                USER_PRESENCE_HEADER: issue_presence,
+                "Origin": "http://127.0.0.1",
+            },
+            content=issue_body,
+        )
+    for response in (manifest, denied, accepted, reused):
+        _private(response)
+    assert manifest.status_code == 200
+    assert manifest.json()["candidates"][0]["observed_sequence"] == 21
+    assert denied.status_code == 401
+    assert accepted.status_code == 201
+    assert reused.status_code == 403
+    call = [item for item in service.calls if item[0] == "observed"]
+    assert len(call) == 1
+    assert call[0][2].candidate_id == _id(20)
+    assert call[0][2].full_criterion_coverage_acknowledged is True
+
+
 def test_acceptance_fails_closed_when_native_presence_adapter_is_unavailable(
     tmp_path,
 ) -> None:
@@ -547,6 +727,42 @@ def test_cross_origin_acceptance_returns_its_published_sanitized_error(
     assert set(denied.json()) == set(published["required"])
     assert denied.json()["detail"] in published["properties"]["detail"]["enum"]
     assert not service.calls
+
+
+def test_observed_check_provenance_read_is_private_and_session_scoped(tmp_path) -> None:
+    service = _Service()
+    app = _app(tmp_path, service)
+    base = (
+        f"/v1/sessions/{_id(1)}/requirement-verification-evidence/"
+        f"objective-results/{_id(10)}/observed-check-provenance"
+    )
+    foreign = (
+        f"/v1/sessions/{_id(26)}/requirement-verification-evidence/"
+        f"objective-results/{_id(10)}/observed-check-provenance"
+    )
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        success = client.get(base, headers={API_TOKEN_HEADER: TOKEN})
+        missing_auth = client.get(base)
+        foreign_session = client.get(foreign, headers={API_TOKEN_HEADER: TOKEN})
+        unknown = client.get(
+            base.replace(_id(10), _id(27)), headers={API_TOKEN_HEADER: TOKEN}
+        )
+
+    for response in (success, missing_auth, foreign_session, unknown):
+        _private(response)
+    assert success.status_code == 200
+    assert success.json()["authority_record_id"] == _id(10)
+    assert success.json()["content_persisted"] is False
+    # The classifier identifier is content-free; raw invocation/output are not.
+    assert "pytest -q" not in success.text
+    assert "output" not in success.text.casefold()
+    assert missing_auth.status_code == 401
+    assert foreign_session.status_code == 404
+    assert unknown.status_code == 404
+    assert [call[0] for call in service.calls] == [
+        "provenance", "provenance", "provenance"
+    ]
 
 
 def test_strict_commands_bounds_and_closed_failures_do_not_echo_content(
@@ -669,12 +885,19 @@ def test_strict_commands_bounds_and_closed_failures_do_not_echo_content(
 def test_openapi_surface_is_bounded_content_free_and_native_separated(tmp_path) -> None:
     schema = _app(tmp_path, _Service()).openapi()
     base = "/v1/sessions/{session_id}/requirement-verification-evidence"
-    assert tuple(path for path in schema["paths"] if base in path) == (
+    assert {
+        path for path in schema["paths"] if base in path
+    } == {
         f"{base}/opportunity-sets/current",
         f"{base}/opportunity-sets/{{opportunity_set_fingerprint}}",
         f"{base}/objective-results",
+        f"{base}/opportunity-sets/{{opportunity_set_fingerprint}}/opportunities/{{opportunity_id}}/review",
+        f"{base}/opportunity-sets/{{opportunity_set_fingerprint}}/opportunities/{{opportunity_id}}/observed-checks/preflight",
+        f"{base}/opportunity-sets/{{opportunity_set_fingerprint}}/opportunities/{{opportunity_id}}/observed-checks/{{candidate_id}}/review",
+        f"{base}/opportunity-sets/{{opportunity_set_fingerprint}}/opportunities/{{opportunity_id}}/observed-checks/{{candidate_id}}/issue",
+        f"{base}/objective-results/{{authority_record_id}}/observed-check-provenance",
         f"{base}/acceptances",
-    )
+    }
     result_request = schema["paths"][f"{base}/objective-results"]["post"][
         "requestBody"
     ]["content"]["application/json"]["schema"]
@@ -688,6 +911,15 @@ def test_openapi_surface_is_bounded_content_free_and_native_separated(tmp_path) 
     assert acceptance_request == {
         "$ref": "#/components/schemas/RequirementAcceptanceAppendCommand"
     }
+    observed_preflight = schema["paths"][
+        f"{base}/opportunity-sets/{{opportunity_set_fingerprint}}/opportunities/{{opportunity_id}}/observed-checks/preflight"
+    ]["post"]
+    observed_review = schema["paths"][
+        f"{base}/opportunity-sets/{{opportunity_set_fingerprint}}/opportunities/{{opportunity_id}}/observed-checks/{{candidate_id}}/review"
+    ]["post"]
+    observed_issue = schema["paths"][
+        f"{base}/opportunity-sets/{{opportunity_set_fingerprint}}/opportunities/{{opportunity_id}}/observed-checks/{{candidate_id}}/issue"
+    ]["post"]
     parameters = {item["name"]: item for item in acceptance["parameters"]}
     native_proofs = {
         BROWSER_SESSION_COOKIE,
@@ -707,6 +939,16 @@ def test_openapi_surface_is_bounded_content_free_and_native_separated(tmp_path) 
     assert API_TOKEN_HEADER not in parameters
     assert "Authorization" not in parameters
     assert acceptance["security"] == []
+    # Preflight is local-token only; the two routes that expose native-only
+    # content or issue authority require the owned browser/native proof set.
+    assert USER_PRESENCE_HEADER not in {
+        item["name"] for item in observed_preflight.get("parameters", ())
+    }
+    for native in (observed_review, observed_issue):
+        native_parameters = {item["name"]: item for item in native["parameters"]}
+        assert native["security"] == []
+        assert native_proofs <= set(native_parameters)
+        assert all(native_parameters[name]["required"] is True for name in native_proofs)
     assert set(acceptance["responses"]) == {
         "200",
         "201",

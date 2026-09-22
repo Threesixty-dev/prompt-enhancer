@@ -3037,9 +3037,17 @@ class SessionModelEnsembleService:
         )
         try:
             if reviewed is None:
+                # An unconfirmed R6 plan cannot establish the action metric's
+                # denominator. Until that plan is current and complete, keep
+                # action evidence transiently unavailable rather than issuing
+                # an awaiting-review snapshot that R7/R8 cannot project.
                 service_available = (
                     resolved.evidence_source
                     is not RequirementActionEvidenceSource.UNAVAILABLE
+                    and requirement_plan_binding.evidence_source
+                    is RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+                    and requirement_plan_evidence is not None
+                    and requirement_plan_evidence.complete_user_clause_classification
                 )
                 binding_invalid = (
                     resolved.evidence_source

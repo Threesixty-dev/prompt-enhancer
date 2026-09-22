@@ -14,9 +14,11 @@ import {
   resolveRuntimeDataMode,
 } from "./shared/platform/runtimeMode";
 import { startUiRevisionGuard } from "./shared/platform/uiRevisionGuard";
+import { UiRevisionNotice } from "./shared/ui/UiRevisionNotice";
 import "./styles.css";
 import "./app/theme.css";
 import "./app/palette.generated.css";
+import "./app/interfaceRefresh.css";
 import { bootstrapTheme } from "./shared/platform/theme";
 
 bootstrapTheme();
@@ -63,7 +65,14 @@ async function mountApp() {
   root.render(
     <StrictMode>
       {Root === null
-        ? <App platform={createBrowserPlatform()} runtime={runtime} socialHub={socialHub} teamControlPlane={teamControlPlane} />
+        ? <App
+          interfaceRefreshNotice={<UiRevisionNotice guard={uiRevisionGuard} />}
+          onReloadBlockedChange={uiRevisionGuard.setReloadBlocked}
+          platform={createBrowserPlatform()}
+          runtime={runtime}
+          socialHub={socialHub}
+          teamControlPlane={teamControlPlane}
+        />
         : <Root
           teamControlPlane={teamControlPlanePortForOverlay(mode, teamControlPlane)}
           transport={runtime.transport}

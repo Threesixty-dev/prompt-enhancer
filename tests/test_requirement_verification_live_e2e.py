@@ -200,7 +200,9 @@ def _live_stack(
             )
         ),
         requirement_verification_evidence_service=(
-            application.create_requirement_verification_evidence_service()
+            application.create_requirement_verification_evidence_service(
+                review_contexts
+            )
         ),
         user_presence_confirmation=_verify_presence(presence),
         user_presence_confirmation_mode="native_bridge_bound_token",
@@ -518,7 +520,7 @@ def test_persisted_requirement_verification_becomes_live_r8_and_survives_restart
         )
         assert operability.status_code == 200
         catalog = operability.json()
-        assert catalog["catalog_version"] == "metric-operability-v4"
+        assert catalog["catalog_version"] == "metric-operability-v6"
         assert catalog["projection_version"] == "metric-contract-v2-projection-8"
         assert catalog["readiness_catalog_version"] == (
             "metric-evidence-readiness-v2-7"
@@ -528,7 +530,7 @@ def test_persisted_requirement_verification_becomes_live_r8_and_survives_restart
             catalog["task_profile_configuration_gap_count"],
             catalog["provider_adapter_gap_count"],
             catalog["model_authoritative_metric_count"],
-        ) == (16, 0, 4, 0)
+        ) == (18, 0, 2, 0)
 
     historical = application.database.model_ensemble_repository().get(
         awaiting_run["run_id"]

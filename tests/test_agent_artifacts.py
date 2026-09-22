@@ -2137,8 +2137,8 @@ def test_catalog_v7_artifact_lineage_migrates_to_document_preview_without_rewrit
         connection.executescript(
             """
             BEGIN IMMEDIATE;
-            DROP TABLE mcp_managed_tool_call_receipts;
-            DROP TABLE mcp_managed_project_tools;
+                DROP TABLE mcp_managed_tool_call_receipts;
+                DROP TABLE mcp_managed_project_tools;
             DROP TABLE mcp_managed_tool_snapshot_state;
             DROP TABLE mcp_managed_tools;
             DROP TABLE mcp_managed_tool_snapshots;

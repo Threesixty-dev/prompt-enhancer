@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 import hmac
-from typing import Callable, Literal, Protocol
+from typing import Callable, Literal, Protocol, TYPE_CHECKING
 
 from pydantic import Field, field_validator, model_validator
 
@@ -27,11 +27,16 @@ from .requirement_verification_evidence import (
     RequirementAcceptanceOutcome,
     RequirementVerificationEvidenceSet,
     RequirementVerificationIdFactory,
+    RequirementVerificationMethod,
+    RequirementVerificationOutcome,
     issue_explicit_requirement_acceptance,
+    issue_requirement_verification_result,
     issue_requirement_verification_opportunities,
     validate_requirement_verification_opportunities,
     validate_requirement_verification_result,
 )
+if TYPE_CHECKING:
+    from .requirement_verification_review import RequirementVerificationReviewService
 
 
 REQUIREMENT_VERIFICATION_PERSISTENCE_SCHEMA_VERSION = (
@@ -40,6 +45,11 @@ REQUIREMENT_VERIFICATION_PERSISTENCE_SCHEMA_VERSION = (
 REQUIREMENT_ACCEPTANCE_APPEND_CONFIRMATION = (
     "record_explicit_native_requirement_acceptance"
 )
+OBSERVED_CHECK_RESULT_ISSUE_CONFIRMATION = (
+    "issue_exact_local_requirement_observed_check_result"
+)
+OBSERVED_CHECK_COVERAGE_REVIEW_VERSION = "native-full-criterion-coverage-v1"
+OBSERVED_CHECK_PROVENANCE_SCHEMA_VERSION = "observed-check-authority-provenance-v1"
 MAX_REQUIREMENT_VERIFICATION_HISTORY_PER_OPPORTUNITY = 32
 MAX_REQUIREMENT_VERIFICATION_REVISIONS = (
     MAX_REQUIREMENT_PLAN_UNITS
@@ -108,6 +118,13 @@ class RequirementAcceptanceAppendCommand(StrictModel):
     expected_predecessor_authority_id: str | None = None
     outcome: RequirementAcceptanceOutcome
     confirmation: Literal[REQUIREMENT_ACCEPTANCE_APPEND_CONFIRMATION]
+    # Required by the production composition. Nullable wire fields preserve
+    # isolated content-free command/replay compatibility; composed acceptance
+    # still fails closed unless the ephemeral review service consumes them.
+    review_receipt_id: str | None = None
+    review_fingerprint: str | None = None
+    expected_source_run_id: str | None = None
+    source_window_fingerprint: str | None = None
 
     _ids = field_validator("opportunity_set_fingerprint", "opportunity_id")(
         _pseudonym
@@ -115,6 +132,93 @@ class RequirementAcceptanceAppendCommand(StrictModel):
     _predecessor = field_validator("expected_predecessor_authority_id")(
         _optional_pseudonym
     )
+    _review_ids = field_validator(
+        "review_receipt_id", "review_fingerprint", "expected_source_run_id",
+        "source_window_fingerprint",
+    )(_optional_pseudonym)
+
+
+class ObservedCheckResultIssueCommand(StrictModel):
+    """Native issue command with no client-controlled outcome authority."""
+
+    opportunity_set_fingerprint: str
+    opportunity_id: str
+    candidate_id: str
+    expected_source_run_id: str
+    source_window_fingerprint: str
+    through_revision: int = Field(ge=0, le=MAX_REQUIREMENT_VERIFICATION_REVISIONS)
+    expected_predecessor_authority_id: str | None = None
+    candidate_manifest_fingerprint: str
+    review_receipt_id: str
+    review_fingerprint: str
+    full_criterion_coverage_acknowledged: Literal[True]
+    confirmation: Literal[OBSERVED_CHECK_RESULT_ISSUE_CONFIRMATION]
+
+    _ids = field_validator(
+        "opportunity_set_fingerprint", "opportunity_id", "candidate_id",
+        "expected_source_run_id", "source_window_fingerprint",
+        "candidate_manifest_fingerprint", "review_receipt_id", "review_fingerprint",
+    )(_pseudonym)
+    _predecessor = field_validator("expected_predecessor_authority_id")(
+        _optional_pseudonym
+    )
+
+
+class ObservedCheckAuthorityProvenance(StrictModel):
+    """Restart-readable, content-free distinction for a CP34 observed result."""
+
+    authority_record_id: str
+    session_id: str
+    opportunity_set_fingerprint: str
+    opportunity_id: str
+    requirement_id: str
+    source_run_id: str
+    source_window_fingerprint: str
+    requirement_plan_confirmation_id: str
+    requirement_plan_proposal_id: str
+    candidate_manifest_fingerprint: str
+    source_reference_id: str
+    coverage_review_reference_id: str
+    observed_sequence: int = Field(ge=0, le=4_000_000_000)
+    check_kind: Literal["test"] = "test"
+    provider_execution_status: Literal["completed"] = "completed"
+    observed_outcome: Literal["passed", "check_failed"]
+    exit_code: Literal[0, 1]
+    source_completion_schema_version: Literal["observed-check-completion-v1"]
+    outcome_interpreter_version: Literal["pytest-exit-status-v1"]
+    classifier_version: Literal["local-command-rules-v1"]
+    normalizer_version: Literal["strict-shell-free-v2"]
+    rule_id: Literal["test.pytest", "test.py_test"]
+    coverage_review_version: Literal[OBSERVED_CHECK_COVERAGE_REVIEW_VERSION]
+    full_criterion_coverage_acknowledged: Literal[True]
+    provenance_fingerprint: str
+    schema_version: Literal[OBSERVED_CHECK_PROVENANCE_SCHEMA_VERSION] = (
+        OBSERVED_CHECK_PROVENANCE_SCHEMA_VERSION
+    )
+    local_only: Literal[True] = True
+    content_persisted: Literal[False] = False
+
+    _ids = field_validator(
+        "authority_record_id", "session_id", "opportunity_set_fingerprint",
+        "opportunity_id", "requirement_id", "source_run_id",
+        "source_window_fingerprint", "requirement_plan_confirmation_id",
+        "requirement_plan_proposal_id", "candidate_manifest_fingerprint",
+        "source_reference_id", "coverage_review_reference_id",
+        "provenance_fingerprint",
+    )(_pseudonym)
+
+    @field_validator("observed_sequence", "exit_code", mode="before")
+    @classmethod
+    def exact_integer_fields(cls, value: object) -> object:
+        if type(value) is not int:
+            raise ValueError("observed-check numeric provenance must be an integer")
+        return value
+
+    @model_validator(mode="after")
+    def exact_outcome_partition(self) -> "ObservedCheckAuthorityProvenance":
+        if (self.observed_outcome == "passed") != (self.exit_code == 0):
+            raise ValueError("observed-check outcome disagrees with its exit code")
+        return self
 
 
 class RequirementVerificationAuthorityDraft(StrictModel):
@@ -255,6 +359,16 @@ class RequirementVerificationRepository(Protocol):
         self, draft: RequirementVerificationAuthorityDraft
     ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]: ...
 
+    def append_observed_authority(
+        self,
+        draft: RequirementVerificationAuthorityDraft,
+        provenance: ObservedCheckAuthorityProvenance,
+    ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]: ...
+
+    def get_observed_check_provenance(
+        self, session_id: str, authority_record_id: str
+    ) -> ObservedCheckAuthorityProvenance | None: ...
+
     def snapshot(
         self,
         session_id: str,
@@ -354,12 +468,18 @@ class RequirementVerificationEvidenceService:
         plan_authority: CurrentRequirementPlanAuthority,
         identifiers: RequirementVerificationIdFactory,
         *,
+        review_service: "RequirementVerificationReviewService | None" = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._repository = repository
         self._plan_authority = plan_authority
         self._identifiers = identifiers
+        self._review_service = review_service
         self._clock = clock
+
+    @property
+    def review_service(self) -> "RequirementVerificationReviewService | None":
+        return self._review_service
 
     def issue_current_opportunities(
         self, session_id: str
@@ -421,6 +541,31 @@ class RequirementVerificationEvidenceService:
             )
         return result
 
+    def observed_check_provenance(
+        self, session_id: str, authority_record_id: str
+    ) -> ObservedCheckAuthorityProvenance:
+        self._validate_session_id(session_id)
+        try:
+            _pseudonym(authority_record_id)
+            result = self._repository.get_observed_check_provenance(
+                session_id, authority_record_id
+            )
+        except RequirementVerificationEvidenceError:
+            raise
+        except (TypeError, ValueError):
+            raise RequirementVerificationInputError(
+                "observed-check provenance identity is invalid"
+            ) from None
+        except Exception:
+            raise RequirementVerificationPersistenceError(
+                "observed-check provenance could not be read"
+            ) from None
+        if result is None:
+            raise RequirementVerificationNotFoundError(
+                "observed-check provenance was not found"
+            )
+        return result
+
     def append_objective_result(
         self,
         *,
@@ -473,6 +618,163 @@ class RequirementVerificationEvidenceService:
             return replay, False
         self._require_current_set(set_record)
         return self._append(draft)
+
+    def append_observed_check_result(
+        self,
+        *,
+        session_id: str,
+        command: ObservedCheckResultIssueCommand,
+        idempotency_key: str,
+    ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]:
+        """Issue only a server-derived result after native criterion coverage review."""
+        self._validate_session_id(session_id)
+        checked = self._parse_observed_issue_command(command)
+        checked_key = self._validate_idempotency_key(idempotency_key)
+        if self._review_service is None:
+            raise RequirementVerificationConflictError(
+                "fresh exact local requirement review is required"
+            )
+        try:
+            review, already_consumed = self._review_service.preview_observed_check(
+                session_id=session_id, command=checked
+            )
+        except Exception as error:
+            raise RequirementVerificationConflictError(
+                "fresh exact local requirement review is required"
+            ) from error
+        set_record = self._opportunity_set(session_id, checked.opportunity_set_fingerprint)
+        outcome = (
+            RequirementVerificationOutcome.PASSED
+            if review.candidate.observed_outcome == "passed"
+            else RequirementVerificationOutcome.FAILED
+        )
+        coverage_reference_id = self._identifiers.fingerprint(
+            "requirement-verification-observed-check-coverage-review-v1",
+            (
+                OBSERVED_CHECK_COVERAGE_REVIEW_VERSION,
+                session_id,
+                checked.opportunity_set_fingerprint,
+                checked.opportunity_id,
+                checked.candidate_id,
+                str(review.candidate.observed_sequence),
+                review.expected_source_run_id,
+                review.source_window_fingerprint,
+                review.requirement_plan_confirmation_id,
+                review.requirement_plan_proposal_id,
+                review.candidate_manifest_fingerprint,
+                review.review_receipt_id,
+                review.review_fingerprint,
+                "full-criterion-coverage-acknowledged",
+                str(review.through_revision),
+                review.expected_predecessor_authority_id or "none",
+            ),
+        )
+        try:
+            result = issue_requirement_verification_result(
+                set_record.opportunities,
+                opportunity_id=checked.opportunity_id,
+                observed_sequence=review.candidate.observed_sequence,
+                method=RequirementVerificationMethod.TEST,
+                outcome=outcome,
+                receipt_reference_ids=tuple(sorted((
+                    checked.candidate_id, coverage_reference_id,
+                ))),
+                identifiers=self._identifiers,
+            )
+        except (TypeError, ValueError):
+            raise RequirementVerificationInputError(
+                "observed check lacks app-issued authority"
+            ) from None
+        idempotency_digest = self._idempotency_digest(session_id, checked_key)
+        # The append-only store seals all objective results under its existing
+        # canonical result command identity.  The observed-review semantics are
+        # already part of ``result_fingerprint`` through the server-derived
+        # candidate and coverage-review receipt references.
+        command_fingerprint = self._identifiers.fingerprint(
+            "requirement-verification-result-append-command-v1",
+            (
+                session_id,
+                result.result_fingerprint,
+                checked.expected_predecessor_authority_id or "none",
+            ),
+        )
+        draft = RequirementVerificationAuthorityDraft(
+            authority_record_id=result.result_id,
+            session_id=session_id,
+            opportunity_set_fingerprint=result.opportunity_set_fingerprint,
+            opportunity_id=result.opportunity_id,
+            requirement_id=result.requirement_id,
+            expected_predecessor_authority_id=checked.expected_predecessor_authority_id,
+            kind=RequirementVerificationAuthorityRecordKind.OBJECTIVE_RESULT,
+            idempotency_key_digest=idempotency_digest,
+            command_fingerprint=command_fingerprint,
+            recorded_at=self._now(),
+            result=result,
+        )
+        provenance = ObservedCheckAuthorityProvenance(
+            authority_record_id=result.result_id,
+            session_id=session_id,
+            opportunity_set_fingerprint=result.opportunity_set_fingerprint,
+            opportunity_id=result.opportunity_id,
+            requirement_id=result.requirement_id,
+            source_run_id=review.expected_source_run_id,
+            source_window_fingerprint=review.source_window_fingerprint,
+            requirement_plan_confirmation_id=review.requirement_plan_confirmation_id,
+            requirement_plan_proposal_id=review.requirement_plan_proposal_id,
+            candidate_manifest_fingerprint=review.candidate_manifest_fingerprint,
+            source_reference_id=review.candidate.candidate_id,
+            coverage_review_reference_id=coverage_reference_id,
+            observed_sequence=review.candidate.observed_sequence,
+            observed_outcome=review.candidate.observed_outcome,
+            exit_code=review.candidate.exit_code,
+            source_completion_schema_version=(
+                review.candidate.source_completion_schema_version
+            ),
+            outcome_interpreter_version=review.candidate.outcome_interpreter_version,
+            classifier_version=review.candidate.classifier_version,
+            normalizer_version=review.candidate.normalizer_version,
+            rule_id=review.candidate.rule_id,
+            coverage_review_version=OBSERVED_CHECK_COVERAGE_REVIEW_VERSION,
+            full_criterion_coverage_acknowledged=True,
+            provenance_fingerprint=self._identifiers.fingerprint(
+                "observed-check-authority-provenance-v1",
+                (
+                    result.result_id,
+                    result.result_fingerprint,
+                    review.expected_source_run_id,
+                    review.source_window_fingerprint,
+                    review.requirement_plan_confirmation_id,
+                    review.requirement_plan_proposal_id,
+                    review.candidate_manifest_fingerprint,
+                    review.candidate.candidate_id,
+                    coverage_reference_id,
+                    str(review.candidate.observed_sequence),
+                    review.candidate.observed_outcome,
+                    str(review.candidate.exit_code),
+                    review.candidate.source_completion_schema_version,
+                    review.candidate.outcome_interpreter_version,
+                    review.candidate.classifier_version,
+                    review.candidate.normalizer_version,
+                    review.candidate.rule_id,
+                    OBSERVED_CHECK_COVERAGE_REVIEW_VERSION,
+                ),
+            ),
+        )
+        replay = self._exact_observed_replay(draft, provenance)
+        if replay is not None:
+            return replay, False
+        if already_consumed:
+            raise RequirementVerificationConflictError("review receipt was already used")
+        try:
+            self._review_service.consume_observed_check(
+                session_id=session_id, command=checked
+            )
+        except Exception as error:
+            raise RequirementVerificationConflictError(
+                "fresh exact local requirement review is required"
+            ) from error
+        self._require_current_set(set_record)
+        return self._append_observed(draft, provenance)
 
     def append_acceptance(
         self,
@@ -538,6 +840,15 @@ class RequirementVerificationEvidenceService:
         replay = self._exact_replay(draft)
         if replay is not None:
             return replay, False
+        if self._review_service is not None:
+            try:
+                self._review_service.consume(
+                    session_id=session_id, command=checked_command
+                )
+            except Exception as error:
+                raise RequirementVerificationConflictError(
+                    "fresh exact local requirement review is required"
+                ) from error
         self._require_current_set(set_record)
         return self._append(draft)
 
@@ -636,9 +947,47 @@ class RequirementVerificationEvidenceService:
             return self._repository.append_authority(draft)
         except RequirementVerificationEvidenceError:
             raise
-        except Exception:
+        except Exception as error:
             raise RequirementVerificationPersistenceError(
                 "requirement-verification authority could not be persisted"
+            ) from error
+
+    def _exact_observed_replay(
+        self,
+        draft: RequirementVerificationAuthorityDraft,
+        provenance: ObservedCheckAuthorityProvenance,
+    ) -> RequirementVerificationEvidenceSnapshot | None:
+        replay = self._exact_replay(draft)
+        if replay is None:
+            return None
+        try:
+            persisted = self._repository.get_observed_check_provenance(
+                draft.session_id, draft.authority_record_id
+            )
+        except RequirementVerificationEvidenceError:
+            raise
+        except Exception:
+            raise RequirementVerificationPersistenceError(
+                "observed-check provenance could not be read"
+            ) from None
+        if persisted != provenance:
+            raise RequirementVerificationConflictError(
+                "requirement-verification idempotency key was reused"
+            )
+        return replay
+
+    def _append_observed(
+        self,
+        draft: RequirementVerificationAuthorityDraft,
+        provenance: ObservedCheckAuthorityProvenance,
+    ) -> tuple[RequirementVerificationEvidenceSnapshot, bool]:
+        try:
+            return self._repository.append_observed_authority(draft, provenance)
+        except RequirementVerificationEvidenceError:
+            raise
+        except Exception:
+            raise RequirementVerificationPersistenceError(
+                "observed-check authority could not be persisted"
             ) from None
 
     def _idempotency_digest(self, session_id: str, key: str) -> str:
@@ -687,6 +1036,19 @@ class RequirementVerificationEvidenceService:
             ) from None
 
     @staticmethod
+    def _parse_observed_issue_command(
+        command: ObservedCheckResultIssueCommand,
+    ) -> ObservedCheckResultIssueCommand:
+        try:
+            return ObservedCheckResultIssueCommand.model_validate(
+                command.model_dump(mode="python")
+            )
+        except (AttributeError, TypeError, ValueError):
+            raise RequirementVerificationInputError(
+                "observed check issue command is invalid"
+            ) from None
+
+    @staticmethod
     def _parse_acceptance_command(
         command: RequirementAcceptanceAppendCommand,
     ) -> RequirementAcceptanceAppendCommand:
@@ -728,5 +1090,10 @@ __all__ = (
     "RequirementVerificationPersistenceError",
     "RequirementVerificationRepository",
     "RequirementVerificationResultAppendCommand",
+    "ObservedCheckResultIssueCommand",
+    "ObservedCheckAuthorityProvenance",
+    "OBSERVED_CHECK_COVERAGE_REVIEW_VERSION",
+    "OBSERVED_CHECK_PROVENANCE_SCHEMA_VERSION",
+    "OBSERVED_CHECK_RESULT_ISSUE_CONFIRMATION",
     "RequirementVerificationStaleWindowError",
 )

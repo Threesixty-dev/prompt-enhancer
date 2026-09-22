@@ -29,6 +29,17 @@ from ....application.analysis.text_contracts import (
     TextRole,
     TextTaskProfile,
 )
+from ....application.verification import (
+    OBSERVED_CHECK_COMPLETION_SCHEMA_VERSION,
+    EphemeralObservedCheckCompletion,
+    EphemeralVerificationCandidate,
+    VerificationExecutionState,
+    interpret_observed_check_completion,
+)
+from ....infrastructure.verification import (
+    CANDIDATE_SCHEMA_VERSION,
+    DeterministicCommandVerificationClassifier,
+)
 from ....application.analysis.requirement_action_evidence import (
     requirement_action_candidate_metadata_fingerprint,
 )
@@ -39,6 +50,10 @@ from ....application.analysis.text_source import (
     TextSourceFailureReason,
     TextSourceReadError,
     TextSourceAccessGrant,
+)
+from ....application.runtime_cancellation import (
+    RuntimeCleanupUnconfirmed,
+    RuntimeCooperativeStop,
 )
 from ....application.ingestion import SourceIdentifierProtector
 from ....domain import (
@@ -70,6 +85,7 @@ from .errors import (
     CodexSelectionLimitError,
     CodexScopeError,
     CodexThreadStructureLimitError,
+    CodexTransportCleanupUnconfirmed,
     CodexTransportTimeout,
 )
 from .limits import CodexReadLimits
@@ -271,6 +287,12 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             raise TextSourceReadError(
                 TextSourceFailureReason.PROVIDER_UNAVAILABLE
             ) from None
+        except RuntimeCooperativeStop:
+            # The job worker resolves the scoped stop against its durable
+            # publication deadline or shutdown state.  Sanitizing it here
+            # would turn an authoritative cutoff into a retryable provider
+            # failure.
+            raise
         except TextSourceReadError:
             raise
         except Exception:
@@ -283,10 +305,19 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             if client is not None:
                 try:
                     client.close()
+                except CodexTransportCleanupUnconfirmed:
+                    # A deadline cannot be reported as settled while its
+                    # transport-owned helper may still be alive.  The worker
+                    # quarantines new admission rather than retrying.
+                    raise RuntimeCleanupUnconfirmed(
+                        "codex_provider_cleanup_unconfirmed"
+                    ) from None
                 except Exception:
-                    # Provider cleanup failures can contain process details.  They
-                    # cannot replace the sanitized result or source error.
-                    pass
+                    # Cleanup detail may be private, but uncertainty cannot be
+                    # hidden: a worker must not admit another provider read.
+                    raise RuntimeCleanupUnconfirmed(
+                        "codex_provider_cleanup_unconfirmed"
+                    ) from None
 
     def _require_matching_grant(
         self,
@@ -449,6 +480,10 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             thread,
             selection.session_id,
         )
+        observed_check_completions = self._observed_check_completions(
+            thread,
+            selection.session_id,
+        )
         fingerprint_payload = _encode_identity(
             selection.session_id,
             self._content_schema_version,
@@ -495,6 +530,44 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
                 str(thread.action_descriptor_extraction_complete).casefold(),
                 "descriptor-count",
                 str(len(action_descriptors)),
+            ),
+            _encode_identity(
+                "observed-check-completion",
+                OBSERVED_CHECK_COMPLETION_SCHEMA_VERSION,
+                "candidate-count",
+                str(len(observed_check_completions)),
+            ),
+            *(
+                _encode_identity(
+                    completion.source_reference_id,
+                    str(completion.observed_sequence),
+                    completion.check_kind.value,
+                    completion.outcome.value,
+                    completion.provider_execution_status,
+                    str(completion.exit_code),
+                    completion.source_completion_schema_version,
+                    completion.outcome_interpreter_version,
+                    completion.classifier_version,
+                    completion.normalizer_version,
+                    completion.rule_id,
+                )
+                for completion in observed_check_completions
+            ),
+            *(
+                _encode_identity(
+                    self._pseudonymizer.pseudonymize(
+                        f"{self.provider.value}:event:{selection.session_id}",
+                        raw.source_event_id.get_secret_value(),
+                    ),
+                    raw.command_execution.status,
+                    (
+                        "none"
+                        if raw.command_execution.exit_code is None
+                        else str(raw.command_execution.exit_code)
+                    ),
+                )
+                for raw in thread.action_descriptors
+                if raw.command_execution is not None
             ),
             *(
                 _encode_identity(
@@ -553,6 +626,10 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
                 thread.action_descriptor_extraction_complete
             ),
             action_descriptors=action_descriptors,
+            observed_check_completion_schema_version=(
+                OBSERVED_CHECK_COMPLETION_SCHEMA_VERSION
+            ),
+            observed_check_completions=observed_check_completions,
             task_profile=task_profile,
         )
 
@@ -620,6 +697,52 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
                 )
             )
         return tuple(descriptors)
+
+    def _observed_check_completions(
+        self,
+        thread: RawCodexTextThread,
+        safe_session_id: str,
+    ) -> tuple[EphemeralObservedCheckCompletion, ...]:
+        """Derive only documented terminal pytest outcomes from private ingress."""
+
+        # The selected check is reviewable only as part of one complete bounded
+        # action surface.  A saturated or unclassified descriptor read cannot
+        # establish that no competing command receipt was omitted.
+        if not thread.action_descriptor_extraction_complete:
+            return ()
+        classifier = DeterministicCommandVerificationClassifier()
+        completions: list[EphemeralObservedCheckCompletion] = []
+        for raw in thread.action_descriptors:
+            execution = raw.command_execution
+            if execution is None:
+                continue
+            if raw.command_execution_sequence is None:
+                continue
+            source_reference_id = self._pseudonymizer.pseudonymize(
+                f"{self.provider.value}:event:{safe_session_id}",
+                raw.source_event_id.get_secret_value(),
+            )
+            candidate = EphemeralVerificationCandidate(
+                provider=self.provider,
+                source_item_id=SecretStr(source_reference_id),
+                observed_sequence=raw.command_execution_sequence,
+                command=execution.command,
+                candidate_schema_version=CANDIDATE_SCHEMA_VERSION,
+                execution_state=(
+                    VerificationExecutionState.COMPLETED
+                    if execution.status == "completed"
+                    else VerificationExecutionState.UNKNOWN
+                ),
+                exit_code=execution.exit_code,
+            )
+            completion = interpret_observed_check_completion(
+                candidate=candidate,
+                provider_execution_status=execution.status,
+                classifier=classifier,
+            )
+            if completion is not None:
+                completions.append(completion)
+        return tuple(completions)
 
     @staticmethod
     def _scope_incomplete_reasons(

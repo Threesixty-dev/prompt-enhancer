@@ -36,7 +36,7 @@ from prompt_enhancer.application.analysis.session_model_ensemble import (
 from prompt_enhancer.infrastructure.identifiers import LocalArtifactIdFactory
 from prompt_enhancer.infrastructure.sqlite import metric_lifecycle_evidence as evidence_store
 from prompt_enhancer.privacy import Pseudonymizer
-from prompt_enhancer.database import Database, DatabaseInvariantError
+from prompt_enhancer.database import SCHEMA_VERSION, Database, DatabaseInvariantError
 
 from test_model_ensemble_persistence import (
     NOW,
@@ -566,7 +566,7 @@ def test_decision_insert_rejects_changed_window_race_but_allows_same_window(
         "same-window-decision",
     )
     assert decided.status is MetricLifecycleProposalStatus.CONFIRMED
-    assert database2.summary()["schema_version"] == 61
+    assert database2.summary()["schema_version"] == SCHEMA_VERSION == 67
 
 
 def test_run_and_session_privacy_cascades_purge_the_whole_receipt_graph(

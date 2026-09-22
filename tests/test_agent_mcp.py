@@ -1392,7 +1392,7 @@ def test_discover_open_resume_fork_export_close_propose_turn_stop_and_wait_are_t
 
     discovered = surface.call("agent_discover", {"refresh": True})
     assert discovered["contract_version"] == AGENT_MCP_CONTRACT_VERSION
-    assert discovered["result"]["contract_version"] == "local-agent-orchestration.v22"
+    assert discovered["result"]["contract_version"] == "local-agent-orchestration.v23"
 
     invoked = surface.call(
         "agent_invoke",
@@ -3086,6 +3086,26 @@ def test_generic_invoke_requires_mutation_and_refuses_all_delete_calls() -> None
         assert error.code == "invalid_arguments"
     else:
         raise AssertionError("obsolete caller-provided delete authority was accepted")
+
+
+def test_generic_invoke_refuses_private_message_search() -> None:
+    client = _FakeController()
+    surface = AgentMcpSurface(client)
+
+    with pytest.raises(AgentMcpSurfaceError) as captured:
+        surface.call(
+            "agent_invoke",
+            {
+                "egress": _egress(),
+                "mutation_authorized": True,
+                "request": {
+                    "operation": "message_search",
+                    "body": {"query": "synthetic private text"},
+                },
+            },
+        )
+    assert captured.value.code == "controller_operation_unknown"
+    assert client.invocations == []
 
 
 def test_runtime_requires_server_and_per_call_opt_in() -> None:

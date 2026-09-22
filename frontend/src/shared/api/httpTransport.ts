@@ -48,6 +48,14 @@ import type {
   MetricLifecycleDecisionRequest,
   MetricLifecycleProposal,
   RequirementPlanProposal,
+  RequirementPlanGuidedAuthoringCommand,
+  RequirementPlanGuidedAuthoringReviewCommand,
+  ClaimGroundingBeginRequest,
+  ClaimGroundingConsumeRequest,
+  ClaimGroundingCensus,
+  ClaimGroundingCensusList,
+  ClaimGroundingCensusPage,
+  ClaimGroundingLinkCandidateManifest,
   RequirementActionProposal,
   MetricReadiness,
   MetricReadinessAction,
@@ -133,6 +141,7 @@ import type {
   CreateAgentProject,
   UpdateAgentProject,
   UpdateAgentCatalogSession,
+  UpdateAgentSessionParameters,
   AgentHistoryExport,
   ResumeAgentSession,
   RevalidateAgentAuthority,
@@ -156,11 +165,23 @@ import type {
   AgentAttachmentContent,
   AgentAttachmentList,
   AgentAttachmentUpload,
+  AgentMessageSearchRequest,
+  AgentMessageSearchResult,
   WorkspaceFolderPick,
   WorkspaceFolderPickerCapability,
+  AgentWebFetchCapability,
   ApplicationUpdateAction,
   ApplicationUpdateMutationRequest,
   ApplicationUpdateStatus,
+  RequirementVerificationEvidenceMutation,
+  RequirementVerificationEvidenceSnapshot,
+  RequirementVerificationOpportunityReview,
+  ObservedCheckAuthorityProvenance,
+  ObservedCheckCandidateManifest,
+  ObservedCheckCriterionReview,
+  ObservedCheckCandidateRequest,
+  ObservedCheckReviewCommand,
+  ObservedCheckResultIssueCommand,
 } from "./contracts";
 import {
   AgentOrchestrationPayloadError,
@@ -253,6 +274,10 @@ import {
   parseAgentWorkspaceSearchResult,
 } from "./agentWorkspaceSearchContract";
 import {
+  AgentMessageSearchPayloadError,
+  parseAgentMessageSearchResult,
+} from "./agentMessageSearchContract";
+import {
   AgentWorkspaceLifecyclePayloadError,
   parseAgentWorkspaceCreatePreview,
   parseAgentWorkspaceCreateResult,
@@ -342,9 +367,30 @@ import {
   parseRequirementPlanEvidencePreview,
   parseRequirementPlanImport,
   parseRequirementPlanProposalOutcome,
+  parseRequirementPlanProposal,
   parseRequirementPlanProposalPage,
   parseRequirementPlanProposalReview,
 } from "./requirementPlanEvidenceContract";
+import {
+  RequirementPlanGuidedAuthoringPayloadError,
+  parseRequirementPlanGuidedAuthoringProposal,
+  parseRequirementPlanGuidedAuthoringReview,
+} from "./requirementPlanGuidedAuthoringContract";
+import {
+  ClaimGroundingReviewPayloadError,
+  parseClaimGroundingBegin,
+  parseClaimGroundingProposal,
+} from "./claimGroundingReviewContract";
+import { ClaimGroundingLinkReviewPayloadError, parseClaimGroundingLinkReview } from "./claimGroundingLinkReviewContract";
+import {
+  ClaimGroundingLinkCandidatesPayloadError,
+  parseClaimGroundingLinkCandidateManifest,
+} from "./claimGroundingLinkCandidatesContract";
+import {
+  ClaimGroundingCensusPayloadError,
+  parseClaimGroundingCensus,
+  parseClaimGroundingCensusList,
+} from "./claimGroundingCensusContract";
 import {
   REQUIREMENT_ACTION_MEDIA_TYPE,
   RequirementActionEvidencePayloadError,
@@ -356,6 +402,22 @@ import {
   parseRequirementActionProposalReview,
   requirementActionUtcMicrosecondKey,
 } from "./requirementActionEvidenceContract";
+import {
+  RequirementVerificationEvidencePayloadError,
+  parseRequirementVerificationEvidenceMutation,
+  parseRequirementVerificationEvidenceSnapshot,
+} from "./requirementVerificationEvidenceContract";
+import {
+  RequirementVerificationReviewPayloadError,
+  parseRequirementVerificationOpportunityReview,
+} from "./requirementVerificationReviewContract";
+import {
+  ObservedCheckPayloadError,
+  parseObservedCheckCandidateManifest,
+  parseObservedCheckCriterionReview,
+  parseObservedCheckAuthorityProvenance,
+} from "./observedCheckContract";
+import { parseRequirementActionGuidedAuthoringProposal, parseRequirementActionGuidedAuthoringReview, RequirementActionGuidedAuthoringPayloadError } from "./requirementActionGuidedAuthoringContract";
 import {
   DeclaredTaskProfilePayloadError,
   parseDeclaredTaskProfileCurrent,
@@ -419,6 +481,26 @@ function agentSessionResponse(value: unknown, expectedSessionId?: string): Agent
     if (error instanceof AgentEventPayloadError) throw new TransportError("Local agent session response was invalid", 200);
     throw error;
   }
+}
+
+function updatedAgentParametersResponse(
+  value: unknown,
+  sessionId: string,
+  request: UpdateAgentSessionParameters,
+): AgentSessionView {
+  const session = agentSessionResponse(value, sessionId);
+  const actual = session.settings.parameters;
+  const expected = request.parameters;
+  if (
+    session.settings.project_id !== request.expected_project_id
+    || actual.temperature !== expected.temperature
+    || actual.top_p !== expected.top_p
+    || actual.max_tokens !== expected.max_tokens
+    || actual.enable_thinking !== expected.enable_thinking
+  ) {
+    throw new TransportError("Local agent parameter response was invalid", 200);
+  }
+  return session;
 }
 
 function agentSessionContextResponse(
@@ -524,6 +606,17 @@ function agentCatalogSessionPageResponse(
   } catch (error) {
     if (error instanceof AgentCatalogPayloadError) {
       throw new TransportError("Agent catalog session page response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentMessageSearchResponse(value: unknown, request: AgentMessageSearchRequest): AgentMessageSearchResult {
+  try {
+    return parseAgentMessageSearchResult(value, request);
+  } catch (error) {
+    if (error instanceof AgentMessageSearchPayloadError) {
+      throw new TransportError("Agent message search response was invalid", 200);
     }
     throw error;
   }
@@ -859,6 +952,7 @@ export type SafeTransportReasonCode =
   | "provider_compatibility_blocked"
   | "analysis_persistence_failed"
   | "metric_execution_failed"
+  | "requirement_plan_review_context_missing"
   | "redaction_preview_not_found"
   | "redaction_preview_expired"
   | "redaction_preview_consumed"
@@ -1009,6 +1103,7 @@ export type SafeTransportReasonCode =
   | "agent_catalog_session_not_found"
   | "agent_catalog_session_conflict"
   | "agent_catalog_session_revision_conflict"
+  | "agent_session_parameters_conflict"
   | "agent_catalog_session_live"
   | "too_many_agent_catalog_sessions"
   | "agent_catalog_session_archived"
@@ -1050,6 +1145,7 @@ export type SafeTransportReasonCode =
   | "agent_artifact_page_snapshot_required"
   | "agent_artifact_page_snapshot_conflict"
   | "agent_artifact_page_out_of_range"
+  | "native_confirmation_declined_before_dispatch"
   | "agent_attachment_unavailable"
   | "agent_attachment_capabilities_unavailable"
   | "agent_attachment_not_found"
@@ -1125,6 +1221,14 @@ export type SafeTransportReasonCode =
   | "mcp_managed_host_start_cancelled"
   | "mcp_managed_host_start_timeout"
   | "mcp_managed_host_stop_timeout"
+  | "claim_grounding_census_conflict"
+  | "claim_grounding_census_recovery_required"
+  | "claim_grounding_census_not_found"
+  | "claim_grounding_census_unavailable"
+  | "claim_grounding_census_invalid"
+  | "claim_grounding_link_review_unavailable"
+  | "claim_grounding_link_review_conflict"
+  | "claim_grounding_link_review_invalid"
   | "codex_not_installed";
 
 const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
@@ -1147,6 +1251,7 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "provider_compatibility_blocked",
   "analysis_persistence_failed",
   "metric_execution_failed",
+  "requirement_plan_review_context_missing",
   "redaction_preview_not_found",
   "redaction_preview_expired",
   "redaction_preview_consumed",
@@ -1338,6 +1443,7 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "agent_artifact_page_snapshot_required",
   "agent_artifact_page_snapshot_conflict",
   "agent_artifact_page_out_of_range",
+  "native_confirmation_declined_before_dispatch",
   "agent_attachment_unavailable",
   "agent_attachment_capabilities_unavailable",
   "agent_attachment_not_found",
@@ -1413,6 +1519,14 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "mcp_managed_host_start_cancelled",
   "mcp_managed_host_start_timeout",
   "mcp_managed_host_stop_timeout",
+  "claim_grounding_census_conflict",
+  "claim_grounding_census_recovery_required",
+  "claim_grounding_census_not_found",
+  "claim_grounding_census_unavailable",
+  "claim_grounding_census_invalid",
+  "claim_grounding_link_review_unavailable",
+  "claim_grounding_link_review_conflict",
+  "claim_grounding_link_review_invalid",
   "codex_not_installed",
 ]);
 
@@ -3216,6 +3330,10 @@ export function parseRuntimeHealth(value: unknown): RuntimeHealth {
 const WORKSPACE_FOLDER_PICKER_CAPABILITY_KEYS = new Set([
   "contract_version", "available", "mode",
 ]);
+const AGENT_WEB_FETCH_CAPABILITY_KEYS = new Set([
+  "contract_version", "available", "policy_version", "reason_code",
+  "requires_per_fetch_approval", "network_scope",
+]);
 const WORKSPACE_FOLDER_PICK_KEYS = new Set([
   "contract_version", "status", "path",
 ]);
@@ -3247,6 +3365,25 @@ export function parseWorkspaceFolderPickerCapability(
     throw new TransportError("Workspace folder picker capability response was invalid", 200);
   }
   return value as unknown as WorkspaceFolderPickerCapability;
+}
+
+export function parseAgentWebFetchCapability(
+  value: unknown,
+): AgentWebFetchCapability {
+  if (
+    !isRecord(value)
+    || !hasExactKeys(value, AGENT_WEB_FETCH_CAPABILITY_KEYS)
+    || value.contract_version !== "agent-web-fetch-capability.v1"
+    || typeof value.available !== "boolean"
+    || value.policy_version !== "governed-web-fetch.v1"
+    || !["available", "governed_fetcher_unavailable"].includes(String(value.reason_code))
+    || value.requires_per_fetch_approval !== true
+    || value.network_scope !== "public_https"
+    || value.available !== (value.reason_code === "available")
+  ) {
+    throw new TransportError("Agent web fetch capability response was invalid", 200);
+  }
+  return value as unknown as AgentWebFetchCapability;
 }
 
 export function parseWorkspaceFolderPick(value: unknown): WorkspaceFolderPick {
@@ -3365,6 +3502,9 @@ export function createHttpTransport(options: {
           ? "Native user-presence confirmation was declined"
           : "Native user-presence confirmation is unavailable",
         record.reason === "user_declined" ? 403 : 503,
+        record.reason === "user_declined"
+          ? "native_confirmation_declined_before_dispatch"
+          : null,
       );
     }
     if (
@@ -3814,6 +3954,16 @@ export function createHttpTransport(options: {
         true,
       );
       return parseWorkspaceFolderPickerCapability(value);
+    },
+    async getAgentWebFetchCapability(signal) {
+      const value = await request<unknown>(
+        "/v1/agent/web-fetch-capability",
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return parseAgentWebFetchCapability(value);
     },
     async chooseWorkspaceFolder(signal) {
       const value = await request<unknown>(
@@ -5282,6 +5432,26 @@ export function createHttpTransport(options: {
       );
       return agentCatalogSessionListResponse(value, projectId);
     },
+    async searchAgentSavedMessages(search: AgentMessageSearchRequest, signal) {
+      const query = typeof search.query === "string" ? search.query.replace(/\s+/gu, " ").trim() : "";
+      if (query.length < 1 || Array.from(query).length > 120 || typeof search.includeArchived !== "undefined" && typeof search.includeArchived !== "boolean"
+        || (search.projectId !== undefined && !/^[0-9a-f]{32}$/u.test(search.projectId))
+        || (search.limit !== undefined && (!Number.isInteger(search.limit) || search.limit < 1 || search.limit > 50))
+        || (search.offset !== undefined && (!Number.isInteger(search.offset) || search.offset < 0 || search.offset > 2000))
+        || (search.snapshot !== undefined && !/^[0-9a-f]{64}$/u.test(search.snapshot))) {
+        throw new TransportError("Agent message search request was invalid", 422);
+      }
+      const prepared: AgentMessageSearchRequest = { ...search, query, includeArchived: search.includeArchived ?? false, limit: search.limit ?? 20, offset: search.offset ?? 0 };
+      if (prepared.offset !== undefined && prepared.offset > 0 && prepared.snapshot === undefined) throw new TransportError("Agent message search continuation requires a snapshot", 422);
+      const value = await request<unknown>(
+        "/v1/agent/catalog/sessions/message-search",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: prepared.query, project_id: prepared.projectId ?? null, include_archived: prepared.includeArchived, limit: prepared.limit, offset: prepared.offset, ...(prepared.snapshot === undefined ? {} : { snapshot: prepared.snapshot }) }) },
+        signal,
+        true,
+        true,
+      );
+      return agentMessageSearchResponse(value, prepared);
+    },
     async pageAgentCatalogSessions(
       query: AgentCatalogSessionPageQuery = {},
       signal,
@@ -5672,6 +5842,22 @@ export function createHttpTransport(options: {
           true,
         ),
         sessionId,
+      );
+    },
+    async updateAgentSessionParameters(sessionId, parameters, signal) {
+      return updatedAgentParametersResponse(
+        await request<unknown>(
+          `/v1/agent/sessions/${encodeURIComponent(sessionId)}/parameters`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(parameters),
+          },
+          signal,
+          true,
+        ),
+        sessionId,
+        parameters,
       );
     },
     async revalidateAgentAuthority(sessionId, authority: RevalidateAgentAuthority, signal) {
@@ -7477,6 +7663,101 @@ export function createHttpTransport(options: {
         throw error;
       }
     },
+    async reviewRequirementPlanGuidedAuthoring(sessionId, contract, authoringRequest: RequirementPlanGuidedAuthoringReviewCommand, signal) {
+      const path = `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-plan-evidence/guided-authoring/review`;
+      const value = await request<unknown>(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(authoringRequest) }, signal, true, true, true);
+      try { return parseRequirementPlanGuidedAuthoringReview(value, { sessionId, contract }); }
+      catch (error) { if (error instanceof RequirementPlanGuidedAuthoringPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async submitRequirementPlanGuidedAuthoring(sessionId, authoringRequest: RequirementPlanGuidedAuthoringCommand, idempotencyKey, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-plan-evidence/guided-authoring/proposals`,
+        { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(authoringRequest) }, signal, true, true,
+      );
+      try { return parseRequirementPlanGuidedAuthoringProposal(value, { sessionId, command: authoringRequest }); }
+      catch (error) { if (error instanceof RequirementPlanGuidedAuthoringPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async beginClaimGroundingReview(sessionId, reviewRequest: ClaimGroundingBeginRequest, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/claim-grounding-review/begin`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reviewRequest) },
+        signal, true, true, true,
+      );
+      try { return parseClaimGroundingBegin(value, { sessionId, request: reviewRequest }); }
+      catch (error) { if (error instanceof ClaimGroundingReviewPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async beginClaimGroundingLinkReview(sessionId, reviewRequest, expected, signal) {
+      const value = await request<unknown>(`/v1/sessions/${encodeURIComponent(sessionId)}/claim-grounding-review/links/begin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reviewRequest) }, signal, true, true, true);
+      try { return parseClaimGroundingLinkReview(value, { sessionId, request: reviewRequest, ...expected }); }
+      catch (error) { if (error instanceof ClaimGroundingLinkReviewPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async getClaimGroundingLinkCandidates(sessionId, censusId, expected, signal): Promise<ClaimGroundingLinkCandidateManifest> {
+      if (![sessionId, censusId, expected.sourceRunId, expected.sourceWindowFingerprint, expected.censusFingerprint, expected.manifestFingerprint].every((value) => typeof value === "string" && /^[a-f0-9]{64}$/u.test(value))) {
+        throw new TransportError("Claim-grounding link candidates request was invalid", 422);
+      }
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/claim-grounding-review/links/candidates/${encodeURIComponent(censusId)}`,
+        { method: "GET" }, signal, true, true,
+      );
+      try {
+        return parseClaimGroundingLinkCandidateManifest(value, {
+          sessionId, censusId, ...expected,
+        });
+      } catch (error) {
+        if (error instanceof ClaimGroundingLinkCandidatesPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async consumeClaimGroundingReview(sessionId, consumeRequest: ClaimGroundingConsumeRequest, sourceRunId, sourceWindowFingerprint, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/claim-grounding-review/consume`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(consumeRequest) },
+        signal, true, true, true,
+      );
+      try {
+        return parseClaimGroundingProposal(value, { sessionId, request: consumeRequest, sourceRunId, sourceWindowFingerprint });
+      } catch (error) { if (error instanceof ClaimGroundingReviewPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async persistClaimGroundingCensus(sessionId, persistRequest: ClaimGroundingConsumeRequest, idempotencyKey, sourceRunId, sourceWindowFingerprint, signal): Promise<ClaimGroundingCensus> {
+      if (!/^[a-f0-9]{64}$/u.test(sessionId) || !/^[a-f0-9]{64}$/u.test(sourceRunId) || !/^[a-f0-9]{64}$/u.test(sourceWindowFingerprint) || !/^[A-Za-z0-9_-]{16,128}$/u.test(idempotencyKey)) throw new TransportError("Claim-grounding census request was invalid", 422);
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/claim-grounding-review/persist`,
+        { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(persistRequest) },
+        signal, true, true, true,
+      );
+      try { return parseClaimGroundingCensus(value, { sessionId, sourceRunId, sourceWindowFingerprint, manifestFingerprint: persistRequest.manifest_fingerprint, candidateCount: persistRequest.classifications.length }); }
+      catch (error) { if (error instanceof ClaimGroundingCensusPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async getClaimGroundingCensus(sessionId, censusId, signal): Promise<ClaimGroundingCensus> {
+      if (!/^[a-f0-9]{64}$/u.test(sessionId) || !/^[a-f0-9]{64}$/u.test(censusId)) throw new TransportError("Claim-grounding census request was invalid", 422);
+      const value = await request<unknown>(`/v1/sessions/${encodeURIComponent(sessionId)}/claim-grounding-review/saved-census/${encodeURIComponent(censusId)}`, { method: "GET" }, signal, true, true);
+      try { return parseClaimGroundingCensus(value, { sessionId, censusId }); }
+      catch (error) { if (error instanceof ClaimGroundingCensusPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async recoverClaimGroundingCensus(sessionId, idempotencyKey, signal): Promise<ClaimGroundingCensus> {
+      if (!/^[a-f0-9]{64}$/u.test(sessionId) || !/^[A-Za-z0-9_-]{16,128}$/u.test(idempotencyKey)) throw new TransportError("Claim-grounding census recovery request was invalid", 422);
+      const value = await request<unknown>(`/v1/sessions/${encodeURIComponent(sessionId)}/claim-grounding-review/recovery-status`, { method: "GET", headers: { "Idempotency-Key": idempotencyKey } }, signal, true, true);
+      try { return parseClaimGroundingCensus(value, { sessionId }); }
+      catch (error) { if (error instanceof ClaimGroundingCensusPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async listClaimGroundingCensuses(sessionId, page: ClaimGroundingCensusPage | undefined, signal): Promise<ClaimGroundingCensusList> {
+      if (!/^[a-f0-9]{64}$/u.test(sessionId)) throw new TransportError("Claim-grounding census request was invalid", 422);
+      const limit = page?.limit ?? 50; const offset = page?.offset ?? 0;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) throw new TransportError("Claim-grounding census page request was invalid", 422);
+      const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+      const snapshot = page?.snapshot;
+      if (snapshot !== undefined) {
+        if (!/^[a-f0-9]{64}$/u.test(snapshot.snapshot_id) || !Number.isSafeInteger(snapshot.total) || snapshot.total < 0 || (snapshot.high_water_created_at !== null && !Number.isFinite(Date.parse(snapshot.high_water_created_at))) || (snapshot.high_water_census_id !== null && !/^[a-f0-9]{64}$/u.test(snapshot.high_water_census_id)) || (snapshot.total === 0 ? snapshot.high_water_created_at !== null || snapshot.high_water_census_id !== null : snapshot.high_water_created_at === null || snapshot.high_water_census_id === null)) throw new TransportError("Claim-grounding census snapshot request was invalid", 422);
+        query.set("snapshot_id", snapshot.snapshot_id); query.set("snapshot_total", String(snapshot.total));
+        if (snapshot.high_water_created_at !== null) query.set("high_water_created_at", snapshot.high_water_created_at);
+        if (snapshot.high_water_census_id !== null) query.set("high_water_census_id", snapshot.high_water_census_id);
+      }
+      const value = await request<unknown>(`/v1/sessions/${encodeURIComponent(sessionId)}/claim-grounding-review/saved-censuses?${query.toString()}`, { method: "GET" }, signal, true, true);
+      try { return parseClaimGroundingCensusList(value, sessionId, limit, offset, snapshot); }
+      catch (error) { if (error instanceof ClaimGroundingCensusPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
     async decideRequirementPlanProposal(
       sessionId,
       proposalId,
@@ -7687,6 +7968,24 @@ export function createHttpTransport(options: {
         throw error;
       }
     },
+    async reviewRequirementActionGuidedAuthoring(sessionId, contract, command, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-action-evidence/guided-authoring/review`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command) },
+        signal, true, true, true,
+      );
+      try { return parseRequirementActionGuidedAuthoringReview(value, { sessionId, contract }); }
+      catch (error) { if (error instanceof RequirementActionGuidedAuthoringPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async submitRequirementActionGuidedAuthoring(sessionId, contract, command, idempotencyKey, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-action-evidence/guided-authoring/proposals`,
+        { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(command) },
+        signal, true, true,
+      );
+      try { return parseRequirementActionGuidedAuthoringProposal(value, { sessionId, contract, command }); }
+      catch (error) { if (error instanceof RequirementActionGuidedAuthoringPayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
     async decideRequirementActionProposal(
       sessionId,
       proposalId,
@@ -7723,6 +8022,162 @@ export function createHttpTransport(options: {
         }
         throw error;
       }
+    },
+    async issueCurrentRequirementVerificationOpportunities(sessionId, signal): Promise<RequirementVerificationEvidenceMutation> {
+      if (!/^[a-f0-9]{64}$/.test(sessionId)) {
+        throw new TransportError("Requirement-verification opportunity request was invalid", 422);
+      }
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-verification-evidence/opportunity-sets/current`,
+        { method: "POST" }, signal, true, true,
+      );
+      try { return parseRequirementVerificationEvidenceMutation(value, sessionId); }
+      catch (error) {
+        if (error instanceof RequirementVerificationEvidencePayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async getRequirementVerificationEvidenceSnapshot(sessionId, opportunitySetFingerprint, throughRevision, signal): Promise<RequirementVerificationEvidenceSnapshot> {
+      if (!/^[a-f0-9]{64}$/.test(sessionId)
+        || !/^[a-f0-9]{64}$/.test(opportunitySetFingerprint)
+        || (throughRevision !== undefined && (!Number.isSafeInteger(throughRevision) || throughRevision < 0 || throughRevision > 32_000))) {
+        throw new TransportError("Requirement-verification snapshot request was invalid", 422);
+      }
+      const query = throughRevision === undefined ? "" : `?through_revision=${encodeURIComponent(String(throughRevision))}`;
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-verification-evidence/opportunity-sets/${encodeURIComponent(opportunitySetFingerprint)}${query}`,
+        { method: "GET" }, signal, true, true,
+      );
+      try {
+        const snapshot = parseRequirementVerificationEvidenceSnapshot(value, sessionId);
+        if (snapshot.evidence.opportunities.opportunity_set_fingerprint !== opportunitySetFingerprint
+          || (throughRevision !== undefined && snapshot.revision !== throughRevision)) {
+          throw new RequirementVerificationEvidencePayloadError();
+        }
+        return snapshot;
+      }
+      catch (error) {
+        if (error instanceof RequirementVerificationEvidencePayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async getRequirementVerificationObservedCheckProvenance(sessionId, authorityRecordId, signal): Promise<ObservedCheckAuthorityProvenance> {
+      if (!/^[a-f0-9]{64}$/.test(sessionId) || !/^[a-f0-9]{64}$/.test(authorityRecordId)) {
+        throw new TransportError("Observed-check provenance request was invalid", 422);
+      }
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-verification-evidence/objective-results/${encodeURIComponent(authorityRecordId)}/observed-check-provenance`,
+        { method: "GET" }, signal, true, true,
+      );
+      try {
+        return parseObservedCheckAuthorityProvenance(value, sessionId, authorityRecordId);
+      } catch (error) {
+        if (error instanceof ObservedCheckPayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async reviewRequirementVerificationOpportunity(sessionId, opportunitySetFingerprint, opportunityId, review, signal): Promise<RequirementVerificationOpportunityReview> {
+      if (!/^[a-f0-9]{64}$/.test(sessionId) || !/^[a-f0-9]{64}$/.test(opportunitySetFingerprint) || !/^[a-f0-9]{64}$/.test(opportunityId)
+        || !/^[a-f0-9]{64}$/.test(review.expected_source_run_id) || (review.expected_predecessor_authority_id !== null && !/^[a-f0-9]{64}$/.test(review.expected_predecessor_authority_id))
+        || !Number.isSafeInteger(review.through_revision) || review.through_revision < 0 || review.through_revision > 32_000
+        || review.confirmation !== "open_exact_local_requirement_verification_review") throw new TransportError("Requirement-verification review request was invalid", 422);
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-verification-evidence/opportunity-sets/${encodeURIComponent(opportunitySetFingerprint)}/opportunities/${encodeURIComponent(opportunityId)}/review`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(review) }, signal, true, true, true,
+      );
+      try {
+        const parsed = parseRequirementVerificationOpportunityReview(value, sessionId);
+        if (parsed.opportunity_set_fingerprint !== opportunitySetFingerprint || parsed.opportunity_id !== opportunityId || parsed.expected_source_run_id !== review.expected_source_run_id || parsed.through_revision !== review.through_revision || parsed.expected_predecessor_authority_id !== review.expected_predecessor_authority_id) throw new RequirementVerificationReviewPayloadError();
+        return parsed;
+      } catch (error) {
+        if (error instanceof RequirementVerificationReviewPayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async appendRequirementVerificationAcceptance(sessionId, command, idempotencyKey, signal): Promise<RequirementVerificationEvidenceMutation> {
+      if (!/^[a-f0-9]{64}$/.test(sessionId) || !/^[a-f0-9]{64}$/.test(command.opportunity_set_fingerprint) || !/^[a-f0-9]{64}$/.test(command.opportunity_id) || !/^[a-f0-9]{64}$/.test(command.review_receipt_id) || !/^[a-f0-9]{64}$/.test(command.review_fingerprint) || !/^[a-f0-9]{64}$/.test(command.expected_source_run_id) || !/^[a-f0-9]{64}$/.test(command.source_window_fingerprint) || (command.expected_predecessor_authority_id !== null && !/^[a-f0-9]{64}$/.test(command.expected_predecessor_authority_id)) || !["accepted", "rejected", "unknown"].includes(command.outcome) || command.confirmation !== "record_explicit_native_requirement_acceptance" || !/^[A-Za-z0-9._-]{16,256}$/.test(idempotencyKey)) throw new TransportError("Requirement-verification acceptance request was invalid", 422);
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-verification-evidence/acceptances`,
+        { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(command) }, signal, true, true, true,
+      );
+      try { return parseRequirementVerificationEvidenceMutation(value, sessionId); }
+      catch (error) { if (error instanceof RequirementVerificationEvidencePayloadError) throw new TransportError(error.message, 200); throw error; }
+    },
+    async preflightRequirementVerificationObservedCheck(sessionId, opportunitySetFingerprint, opportunityId, preflight, signal): Promise<ObservedCheckCandidateManifest> {
+      if (!/^[a-f0-9]{64}$/.test(sessionId)
+        || !/^[a-f0-9]{64}$/.test(opportunitySetFingerprint)
+        || !/^[a-f0-9]{64}$/.test(opportunityId)
+        || !/^[a-f0-9]{64}$/.test(preflight.expected_source_run_id)
+        || (preflight.expected_predecessor_authority_id !== null && !/^[a-f0-9]{64}$/.test(preflight.expected_predecessor_authority_id))
+        || !Number.isSafeInteger(preflight.through_revision) || preflight.through_revision < 0 || preflight.through_revision > 32_000) {
+        throw new TransportError("Observed verification preflight request was invalid", 422);
+      }
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-verification-evidence/opportunity-sets/${encodeURIComponent(opportunitySetFingerprint)}/opportunities/${encodeURIComponent(opportunityId)}/observed-checks/preflight`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(preflight) }, signal, true, true,
+      );
+      try {
+        const parsed = parseObservedCheckCandidateManifest(value, sessionId);
+        if (parsed.opportunity_set_fingerprint !== opportunitySetFingerprint || parsed.opportunity_id !== opportunityId
+          || parsed.expected_source_run_id !== preflight.expected_source_run_id || parsed.through_revision !== preflight.through_revision
+          || parsed.expected_predecessor_authority_id !== preflight.expected_predecessor_authority_id) throw new ObservedCheckPayloadError();
+        return parsed;
+      } catch (error) {
+        if (error instanceof ObservedCheckPayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async reviewRequirementVerificationObservedCheck(sessionId, opportunitySetFingerprint, opportunityId, candidateId, review, signal): Promise<ObservedCheckCriterionReview> {
+      if (!/^[a-f0-9]{64}$/.test(sessionId) || !/^[a-f0-9]{64}$/.test(opportunitySetFingerprint) || !/^[a-f0-9]{64}$/.test(opportunityId)
+        || !/^[a-f0-9]{64}$/.test(candidateId) || !/^[a-f0-9]{64}$/.test(review.expected_source_run_id)
+        || !/^[a-f0-9]{64}$/.test(review.candidate_manifest_fingerprint)
+        || (review.expected_predecessor_authority_id !== null && !/^[a-f0-9]{64}$/.test(review.expected_predecessor_authority_id))
+        || !Number.isSafeInteger(review.through_revision) || review.through_revision < 0 || review.through_revision > 32_000
+        || review.confirmation !== "open_exact_local_requirement_observed_check_review") throw new TransportError("Observed verification review request was invalid", 422);
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-verification-evidence/opportunity-sets/${encodeURIComponent(opportunitySetFingerprint)}/opportunities/${encodeURIComponent(opportunityId)}/observed-checks/${encodeURIComponent(candidateId)}/review`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(review) }, signal, true, true, true,
+      );
+      try {
+        const parsed = parseObservedCheckCriterionReview(value, sessionId);
+        if (parsed.opportunity_set_fingerprint !== opportunitySetFingerprint || parsed.opportunity_id !== opportunityId
+          || parsed.candidate.candidate_id !== candidateId || parsed.expected_source_run_id !== review.expected_source_run_id
+          || parsed.through_revision !== review.through_revision || parsed.candidate_manifest_fingerprint !== review.candidate_manifest_fingerprint
+          || parsed.expected_predecessor_authority_id !== review.expected_predecessor_authority_id) throw new ObservedCheckPayloadError();
+        return parsed;
+      } catch (error) {
+        if (error instanceof ObservedCheckPayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async issueRequirementVerificationObservedCheck(sessionId, opportunitySetFingerprint, opportunityId, candidateId, command, idempotencyKey, signal): Promise<RequirementVerificationEvidenceMutation> {
+      if (!/^[a-f0-9]{64}$/.test(sessionId) || !/^[a-f0-9]{64}$/.test(opportunitySetFingerprint) || !/^[a-f0-9]{64}$/.test(opportunityId)
+        || !/^[a-f0-9]{64}$/.test(candidateId) || !/^[a-f0-9]{64}$/.test(command.expected_source_run_id)
+        || !/^[a-f0-9]{64}$/.test(command.source_window_fingerprint) || !/^[a-f0-9]{64}$/.test(command.candidate_manifest_fingerprint)
+        || !/^[a-f0-9]{64}$/.test(command.review_receipt_id) || !/^[a-f0-9]{64}$/.test(command.review_fingerprint)
+        || (command.expected_predecessor_authority_id !== null && !/^[a-f0-9]{64}$/.test(command.expected_predecessor_authority_id))
+        || !Number.isSafeInteger(command.through_revision) || command.through_revision < 0 || command.through_revision > 32_000
+        || command.full_criterion_coverage_acknowledged !== true || command.confirmation !== "issue_exact_local_requirement_observed_check_result"
+        || !/^[A-Za-z0-9._-]{16,256}$/.test(idempotencyKey)) throw new TransportError("Observed verification issue request was invalid", 422);
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-verification-evidence/opportunity-sets/${encodeURIComponent(opportunitySetFingerprint)}/opportunities/${encodeURIComponent(opportunityId)}/observed-checks/${encodeURIComponent(candidateId)}/issue`,
+        { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(command) }, signal, true, true, true,
+      );
+      try {
+        const mutation = parseRequirementVerificationEvidenceMutation(value, sessionId);
+        const set = mutation.snapshot.evidence.opportunities;
+        const result = mutation.snapshot.evidence.verification_results.find((item) => item.opportunity_id === opportunityId);
+        const head = mutation.snapshot.authority_heads.find((item) => item.opportunity_id === opportunityId);
+        if (set.opportunity_set_fingerprint !== opportunitySetFingerprint
+          || set.source_window_fingerprint !== command.source_window_fingerprint
+          || result === undefined
+          || head === undefined
+          || head.kind !== "objective_result"
+          || head.authority_record_id !== result.result_id
+          || head.revision !== mutation.snapshot.revision) throw new RequirementVerificationEvidencePayloadError();
+        return mutation;
+      }
+      catch (error) { if (error instanceof RequirementVerificationEvidencePayloadError) throw new TransportError(error.message, 200); throw error; }
     },
     async getActiveModelEnsembleWatch(signal) {
       const value = await request<unknown>(

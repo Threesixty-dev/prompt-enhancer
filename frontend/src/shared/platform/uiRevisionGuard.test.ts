@@ -15,6 +15,14 @@ function response(payload: unknown, ok = true) {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 async function settleAsyncCheck() {
   await Promise.resolve();
   await Promise.resolve();
@@ -85,13 +93,13 @@ describe("startUiRevisionGuard", () => {
     guard.dispose();
   });
 
-  it("reloads exactly once after a confirmed mismatch", async () => {
+  it("offers a confirmed mismatch without automatically reloading", async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValue(response({ revision: CURRENT_REVISION }));
     const reload = vi.fn();
 
-    startUiRevisionGuard({
+    const guard = startUiRevisionGuard({
       enabled: true,
       moduleUrl: LOADED_MODULE_URL,
       fetchImpl,
@@ -99,12 +107,81 @@ describe("startUiRevisionGuard", () => {
     });
     await settleAsyncCheck();
 
+    const firstSnapshot = guard.getSnapshot();
+    expect(firstSnapshot).toEqual({ status: "available", reloadBlocked: false });
+    expect(Object.isFrozen(firstSnapshot)).toBe(true);
     window.dispatchEvent(new Event("focus"));
     document.dispatchEvent(new Event("visibilitychange"));
     await vi.advanceTimersByTimeAsync(15_000);
 
-    expect(reload).toHaveBeenCalledOnce();
+    expect(reload).not.toHaveBeenCalled();
     expect(fetchImpl).toHaveBeenCalledOnce();
+    guard.dispose();
+  });
+
+  it("keeps a released blocked refresh available until the user explicitly requests it", async () => {
+    const reload = vi.fn();
+    const guard = startUiRevisionGuard({
+      enabled: true,
+      moduleUrl: LOADED_MODULE_URL,
+      fetchImpl: vi.fn().mockResolvedValue(response({ revision: CURRENT_REVISION })),
+      reload,
+    });
+    guard.setReloadBlocked(true);
+    await settleAsyncCheck();
+    expect(guard.getSnapshot()).toEqual({ status: "available", reloadBlocked: true });
+    expect(guard.requestReload()).toBe(false);
+    guard.setReloadBlocked(false);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(reload).not.toHaveBeenCalled();
+    expect(guard.requestReload()).toBe(true);
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("reloads once on an explicit request and records a thrown reload as failed", async () => {
+    const reload = vi.fn(() => { throw new Error("synthetic reload failure"); });
+    const guard = startUiRevisionGuard({
+      enabled: true,
+      moduleUrl: LOADED_MODULE_URL,
+      fetchImpl: vi.fn().mockResolvedValue(response({ revision: CURRENT_REVISION })),
+      reload,
+    });
+    await settleAsyncCheck();
+    expect(guard.requestReload()).toBe(true);
+    expect(reload).toHaveBeenCalledOnce();
+    expect(guard.getSnapshot()).toEqual({ status: "reload_failed", reloadBlocked: false });
+    expect(guard.requestReload()).toBe(false);
+  });
+
+  it("honors a block set immediately before the explicit refresh", async () => {
+    const reload = vi.fn();
+    const guard = startUiRevisionGuard({
+      enabled: true,
+      moduleUrl: LOADED_MODULE_URL,
+      fetchImpl: vi.fn().mockResolvedValue(response({ revision: CURRENT_REVISION })),
+      reload,
+    });
+    await settleAsyncCheck();
+    guard.setReloadBlocked(true);
+    expect(guard.requestReload()).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("does not reload when a synchronous subscriber blocks the published request", async () => {
+    const reload = vi.fn();
+    const guard = startUiRevisionGuard({
+      enabled: true,
+      moduleUrl: LOADED_MODULE_URL,
+      fetchImpl: vi.fn().mockResolvedValue(response({ revision: CURRENT_REVISION })),
+      reload,
+    });
+    await settleAsyncCheck();
+    guard.subscribe(() => {
+      if (guard.getSnapshot().status === "reload_requested") guard.setReloadBlocked(true);
+    });
+    expect(guard.requestReload()).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+    expect(guard.getSnapshot()).toEqual({ status: "available", reloadBlocked: true });
   });
 
   it.each([
@@ -156,6 +233,7 @@ describe("startUiRevisionGuard", () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(reload).not.toHaveBeenCalled();
+    expect(guard.getSnapshot()).toEqual({ status: "idle", reloadBlocked: false });
     guard.dispose();
   });
 
@@ -210,6 +288,41 @@ describe("startUiRevisionGuard", () => {
     await vi.advanceTimersByTimeAsync(15_000);
 
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("does not publish a late mismatch or restore actions after disposal", async () => {
+    const lateResponse = deferred<ReturnType<typeof response>>();
+    const listener = vi.fn();
+    const guard = startUiRevisionGuard({
+      enabled: true,
+      moduleUrl: LOADED_MODULE_URL,
+      fetchImpl: vi.fn().mockReturnValue(lateResponse.promise),
+      reload: vi.fn(),
+    });
+    const unsubscribe = guard.subscribe(listener);
+    guard.dispose();
+    lateResponse.resolve(response({ revision: CURRENT_REVISION }));
+    await settleAsyncCheck();
+    expect(guard.getSnapshot()).toEqual({ status: "idle", reloadBlocked: false });
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it("notifies active listeners once per state change and cleans them up", async () => {
+    const guard = startUiRevisionGuard({
+      enabled: true,
+      moduleUrl: LOADED_MODULE_URL,
+      fetchImpl: vi.fn().mockResolvedValue(response({ revision: LOADED_REVISION })),
+      reload: vi.fn(),
+    });
+    const listener = vi.fn();
+    const unsubscribe = guard.subscribe(listener);
+    guard.setReloadBlocked(true);
+    expect(listener).toHaveBeenCalledOnce();
+    unsubscribe();
+    guard.setReloadBlocked(false);
+    expect(listener).toHaveBeenCalledOnce();
+    guard.dispose();
   });
 
   it("is inert in synthetic/development mode", async () => {

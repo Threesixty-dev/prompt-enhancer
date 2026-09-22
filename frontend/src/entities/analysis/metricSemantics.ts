@@ -14,12 +14,20 @@ export interface MetricSemantics {
   partial: boolean;
 }
 
-function hasIncompleteCoverage(
+function hasValidCoverage(
   observed: number,
   eligible: number,
   coverage: number,
 ): boolean {
-  return eligible <= 0 || observed < eligible || coverage < 1;
+  return Number.isSafeInteger(observed) &&
+    Number.isSafeInteger(eligible) &&
+    observed >= 0 &&
+    eligible > 0 &&
+    observed <= eligible &&
+    Number.isFinite(coverage) &&
+    coverage >= 0 &&
+    coverage <= 1 &&
+    Math.abs(coverage - observed / eligible) <= 1e-9;
 }
 
 export function describeMetricSemantics(input: {
@@ -32,9 +40,27 @@ export function describeMetricSemantics(input: {
   coverage: number;
 }): MetricSemantics {
   if (input.state === "known") {
-    const partial =
-      input.confidence === null ||
-      hasIncompleteCoverage(input.observed, input.eligible, input.coverage);
+    const coverageValid = hasValidCoverage(input.observed, input.eligible, input.coverage);
+    if (!coverageValid) {
+      return {
+        label: "Coverage unknown",
+        detail:
+          "Observed value retained, but evidence coverage could not be verified from the stored counts.",
+        tone: "warning",
+        partial: true,
+      };
+    }
+    const coverageIncomplete = input.observed < input.eligible || input.coverage < 1;
+    if (input.confidence == null && !coverageIncomplete) {
+      return {
+        label: "Confidence unknown",
+        detail:
+          "Observed value. Coverage is complete for this metric's eligible evidence in the current snapshot. Confidence was not reported; no confidence level is inferred.",
+        tone: "warning",
+        partial: true,
+      };
+    }
+    const partial = coverageIncomplete;
     const isRate = input.unit === "ratio";
     if (partial && input.numericValue === 0) {
       if (isRate) {
@@ -86,6 +112,15 @@ export function describeMetricSemantics(input: {
         label: "Unknown",
         detail:
           "No eligible evidence was available in this current snapshot, so no value was inferred.",
+        tone: "unknown",
+        partial: true,
+      };
+    }
+    if (!hasValidCoverage(input.observed, input.eligible, input.coverage)) {
+      return {
+        label: "Unknown",
+        detail:
+          "Evidence coverage is unknown because the stored observation counts are inconsistent or unavailable; no value was inferred.",
         tone: "unknown",
         partial: true,
       };

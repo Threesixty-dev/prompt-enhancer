@@ -9,6 +9,8 @@ import type {
   RequirementActionProposalPage,
   RequirementActionProposalPageSnapshot,
   RequirementActionProposalReview,
+  RequirementActionReviewCandidate,
+  RequirementActionReviewRequirement,
   RequirementActionRequirement,
 } from "./contracts";
 
@@ -292,9 +294,9 @@ function producerReceipt(value: unknown): Row {
   const item = record(value);
   exact(item, ["kind", "claim_fingerprint", "authority", "raw_claim_persisted"]);
   if (
-    item.kind !== "local_coding_agent"
+    !["local_coding_agent", "local_review_ui"].includes(String(item.kind))
     || !safeId(item.claim_fingerprint)
-    || item.authority !== "untrusted_provenance_claim_commitment"
+    || !((item.kind === "local_coding_agent" && item.authority === "untrusted_provenance_claim_commitment") || (item.kind === "local_review_ui" && item.authority === "untrusted_local_authoring_commitment"))
     || item.raw_claim_persisted !== false
   ) fail();
   return item;
@@ -713,6 +715,80 @@ export function parseRequirementActionImport(
   return { ...item, proposal } as RequirementActionImport;
 }
 
+/** Strict shared parser for the complete, ephemeral native-review surface. */
+export function parseRequirementActionReviewSurface(
+  rawRequirements: unknown,
+  rawCandidates: unknown,
+  rawMemberships: unknown,
+  expected: {
+    requirements: readonly RequirementActionRequirement[];
+    candidates: readonly RequirementActionCandidate[];
+    linkedActionIds: readonly (readonly string[])[];
+    candidateMetadataFingerprintVersion: string;
+  },
+): {
+  requirements: RequirementActionReviewRequirement[];
+  candidates: RequirementActionCandidate[];
+  candidateMemberships: RequirementActionReviewCandidate[];
+} {
+  if (!Array.isArray(rawRequirements) || !Array.isArray(rawCandidates) || !Array.isArray(rawMemberships)) fail();
+  const candidates = candidateList(rawCandidates);
+  if (
+    canonicalJson(candidates) !== canonicalJson(expected.candidates)
+    || rawRequirements.length !== expected.requirements.length
+    || rawMemberships.length !== candidates.length
+    || expected.linkedActionIds.length !== expected.requirements.length
+  ) fail();
+  const requirements = rawRequirements.map((raw, index) => {
+    const value = record(raw);
+    exact(value, ["requirement_id", "coordinate", "text", "linked_action_ids"]);
+    const point = coordinate(value.coordinate);
+    const requirement = expected.requirements[index];
+    if (
+      value.requirement_id !== requirement.requirement_id
+      || coordinateKey(point) !== coordinateKey(requirement.coordinate)
+      || !visibleReviewText(value.text, 32_000)
+      || !Array.isArray(value.linked_action_ids)
+      || canonicalJson(value.linked_action_ids) !== canonicalJson(expected.linkedActionIds[index])
+    ) fail();
+    return { ...value, coordinate: point } as RequirementActionReviewRequirement;
+  });
+  const expectedMemberships = new Map(candidates.map((candidate) => [candidate.action_id, [] as string[]]));
+  expected.requirements.forEach((requirement, index) => expected.linkedActionIds[index].forEach((id) => {
+    if (!expectedMemberships.has(id)) fail();
+    expectedMemberships.get(id)!.push(requirement.requirement_id);
+  }));
+  expectedMemberships.forEach((ids) => ids.sort());
+  const candidateMemberships = rawMemberships.map((raw, index) => {
+    const value = record(raw);
+    exact(value, [
+      "candidate", "candidate_metadata_fingerprint_version", "candidate_metadata_fingerprint",
+      "descriptor_algorithm_version", "tool_name", "invocation_preview",
+      "result_or_effect_preview", "invocation_truncated", "result_or_effect_truncated",
+      "redactor_version", "linked_requirement_ids",
+    ]);
+    const parsedCandidate = candidate(value.candidate, index);
+    if (
+      canonicalJson(parsedCandidate) !== canonicalJson(candidates[index])
+      || value.candidate_metadata_fingerprint_version !== CANDIDATE_METADATA_FINGERPRINT_VERSION
+      || value.candidate_metadata_fingerprint_version !== expected.candidateMetadataFingerprintVersion
+      || !safeId(value.candidate_metadata_fingerprint)
+      || value.descriptor_algorithm_version !== ACTION_DESCRIPTOR_ALGORITHM_VERSION
+      || !visibleReviewText(value.tool_name, 120)
+      || !visibleReviewText(value.invocation_preview, 4_096)
+      || !(value.result_or_effect_preview === null || visibleReviewText(value.result_or_effect_preview, 4_096))
+      || (parsedCandidate.event_kind !== "tool_start" && value.result_or_effect_preview === null)
+      || value.invocation_truncated !== false
+      || value.result_or_effect_truncated !== false
+      || !safeCode(value.redactor_version)
+      || !Array.isArray(value.linked_requirement_ids)
+      || canonicalJson(value.linked_requirement_ids) !== canonicalJson(expectedMemberships.get(parsedCandidate.action_id))
+    ) fail();
+    return { ...value, candidate: parsedCandidate } as RequirementActionReviewCandidate;
+  });
+  return { requirements, candidates, candidateMemberships };
+}
+
 export function parseRequirementActionProposalReview(
   value: unknown,
   expected: {
@@ -758,64 +834,23 @@ export function parseRequirementActionProposalReview(
     || !Array.isArray(item.candidates)
     || !Array.isArray(item.candidate_memberships)
   ) fail();
-  const candidates = candidateList(item.candidates);
-  if (canonicalJson(candidates) !== canonicalJson(proposal.candidates)
-    || canonicalJson(candidates) !== canonicalJson(contract.candidate_manifest.actions)) fail();
-  if (item.requirements.length !== proposal.requirements.length) fail();
-  const reviewRequirements = item.requirements.map((raw, index) => {
-    const value = record(raw);
-    exact(value, ["requirement_id", "coordinate", "text", "linked_action_ids"]);
-    const point = coordinate(value.coordinate);
-    const proposalRequirement = proposal.requirements[index];
-    const contractRequirement = contract.requirements[index];
-    const proposalLink = proposal.links[index];
-    if (
-      value.requirement_id !== proposalRequirement.requirement_id
-      || value.requirement_id !== contractRequirement.requirement_id
-      || coordinateKey(point) !== coordinateKey(proposalRequirement.coordinate)
-      || coordinateKey(point) !== coordinateKey(contractRequirement.coordinate)
-      || !visibleReviewText(value.text, 32_000)
-      || !Array.isArray(value.linked_action_ids)
-      || JSON.stringify(value.linked_action_ids) !== JSON.stringify(proposalLink.action_ids)
-    ) fail();
-    return { ...value, coordinate: point };
-  });
-  if (item.candidate_memberships.length !== candidates.length) fail();
-  const expectedMemberships = new Map(candidates.map((candidate) => [candidate.action_id, [] as string[]]));
-  proposal.links.forEach((link) => link.action_ids.forEach((id) => expectedMemberships.get(id)!.push(link.requirement_id)));
-  const memberships = item.candidate_memberships.map((raw, index) => {
-    const value = record(raw);
-    exact(value, [
-      "candidate", "candidate_metadata_fingerprint_version", "candidate_metadata_fingerprint",
-      "descriptor_algorithm_version", "tool_name", "invocation_preview",
-      "result_or_effect_preview", "invocation_truncated", "result_or_effect_truncated",
-      "redactor_version", "linked_requirement_ids",
-    ]);
-    const parsedCandidate = candidate(value.candidate, index);
-    if (
-      canonicalJson(parsedCandidate) !== canonicalJson(candidates[index])
-      || value.candidate_metadata_fingerprint_version !== CANDIDATE_METADATA_FINGERPRINT_VERSION
-      || value.candidate_metadata_fingerprint_version !== contract.candidate_metadata_fingerprint_version
-      || !safeId(value.candidate_metadata_fingerprint)
-      || value.descriptor_algorithm_version !== ACTION_DESCRIPTOR_ALGORITHM_VERSION
-      || !visibleReviewText(value.tool_name, 120)
-      || !visibleReviewText(value.invocation_preview, 4_096)
-      || !(value.result_or_effect_preview === null
-        || visibleReviewText(value.result_or_effect_preview, 4_096))
-      || (parsedCandidate.event_kind !== "tool_start" && value.result_or_effect_preview === null)
-      || value.invocation_truncated !== false
-      || value.result_or_effect_truncated !== false
-      || !safeCode(value.redactor_version)
-      || !Array.isArray(value.linked_requirement_ids)
-      || JSON.stringify(value.linked_requirement_ids) !== JSON.stringify(expectedMemberships.get(parsedCandidate.action_id))
-    ) fail();
-    return { ...value, candidate: parsedCandidate };
-  });
+  const surface = parseRequirementActionReviewSurface(
+    item.requirements,
+    item.candidates,
+    item.candidate_memberships,
+    {
+      requirements: proposal.requirements,
+      candidates: proposal.candidates,
+      linkedActionIds: proposal.links.map((link) => link.action_ids),
+      candidateMetadataFingerprintVersion: contract.candidate_metadata_fingerprint_version,
+    },
+  );
+  if (canonicalJson(surface.candidates) !== canonicalJson(contract.candidate_manifest.actions)) fail();
   return {
     ...item,
-    requirements: reviewRequirements,
-    candidates,
-    candidate_memberships: memberships,
+    requirements: surface.requirements,
+    candidates: surface.candidates,
+    candidate_memberships: surface.candidateMemberships,
   } as unknown as RequirementActionProposalReview;
 }
 

@@ -17,15 +17,20 @@ import re
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
-from urllib.request import OpenerDirector, ProxyHandler, Request, build_opener
+from urllib.request import (
+    HTTPRedirectHandler,
+    OpenerDirector,
+    ProxyHandler,
+    Request,
+    build_opener,
+)
 
 
 TOKEN_ENV = "PROMPT_ENHANCER_AGENT_MCP_TOKEN"
 ENDPOINT_ENV = "PROMPT_ENHANCER_AGENT_MCP_URL"
-DEFAULT_ENDPOINT = "http://127.0.0.1:8765/mcp/agent"
 PROTOCOL_VERSION = "2025-06-18"
 EXPECTED_SERVER = "prompt-enhancer-agent"
-EXPECTED_DISCOVERY_CONTRACT = "local-agent-orchestration.v22"
+EXPECTED_DISCOVERY_CONTRACT = "local-agent-orchestration.v23"
 EXPECTED_TOOLS = frozenset(
     {
         "agent_artifacts",
@@ -52,18 +57,28 @@ EXPECTED_TOOLS = frozenset(
 _TOKEN_PATTERN = re.compile(
     r"^pemcp2\.[0-9a-f]{32}\.[1-9][0-9]{0,8}\.[A-Za-z0-9_-]{43}$"
 )
+MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
 
 class ProbeFailure(RuntimeError):
     """Fixed-code failure that never carries response or credential content."""
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+def _opener() -> OpenerDirector:
+    return build_opener(ProxyHandler({}), _NoRedirect())
+
+
 def _endpoint() -> str:
-    value = os.environ.get(ENDPOINT_ENV, DEFAULT_ENDPOINT)
-    parsed = urlsplit(value)
     try:
+        value = os.environ[ENDPOINT_ENV]
+        parsed = urlsplit(value)
         port = parsed.port
-    except ValueError:
+    except (KeyError, TypeError, ValueError):
         raise ProbeFailure("endpoint_invalid") from None
     if (
         parsed.scheme != "http"
@@ -118,7 +133,10 @@ def _post(
         if response.status != 200:
             raise ProbeFailure("mcp_status_invalid")
         try:
-            payload = json.loads(response.read())
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_RESPONSE_BYTES:
+                raise ProbeFailure("mcp_response_too_large")
+            payload = json.loads(raw)
         except (UnicodeDecodeError, ValueError):
             raise ProbeFailure("mcp_response_invalid") from None
     if not isinstance(payload, Mapping):
@@ -234,8 +252,8 @@ def active_probe() -> dict[str, object]:
         endpoint = _endpoint()
         token = _token()
         report["loopback_endpoint_valid"] = True
-        first_client = build_opener(ProxyHandler({}))
-        second_client = build_opener(ProxyHandler({}))
+        first_client = _opener()
+        second_client = _opener()
         first = _initialize(
             first_client,
             endpoint=endpoint,
@@ -309,7 +327,7 @@ def revoked_probe() -> dict[str, object]:
         report["loopback_endpoint_valid"] = True
         try:
             _post(
-                build_opener(ProxyHandler({})),
+                _opener(),
                 endpoint=endpoint,
                 token=token,
                 message={"jsonrpc": "2.0", "id": 1, "method": "ping"},

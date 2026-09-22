@@ -51,6 +51,9 @@ type Props = {
 };
 
 type LoadState = "loading" | "ready" | "unavailable" | "error";
+// A status re-read is itself fallible. Callers that report a failed mutation
+// must never claim a successful re-read they did not get.
+type RefreshOutcome = "applied" | "failed" | "superseded" | "unavailable";
 type SetupClient = AgentMcpClientKind;
 type ConfiguredSetupClient = Exclude<SetupClient, "other">;
 type CopyKind =
@@ -73,6 +76,55 @@ type EndpointSelfTestState =
 
 const AGENT_MCP_ENDPOINT_PATH = "/mcp/agent";
 
+const CONNECTION_TRANSPORT_MEMBERS = [
+  "listAgentMcpConnections",
+  "getAgentMcpClientSetup",
+  "createAgentMcpConnection",
+  "rotateAgentMcpConnection",
+  "revokeAgentMcpConnection",
+  "releaseAgentControllerOwnership",
+  "listAgentProjects",
+] as const satisfies readonly (keyof ConnectionTransport)[];
+
+// A new transport member must join the identity comparison, or a replaced
+// transport could keep publishing through the member left out of it.
+type AssertNever<T extends never> = T;
+type CoversEveryTransportMember = AssertNever<
+  Exclude<keyof ConnectionTransport, (typeof CONNECTION_TRANSPORT_MEMBERS)[number]>
+>;
+
+// One transport is one backend identity. Comparing members rather than the
+// object keeps a re-created wrapper with the same functions in the same
+// generation, which the read callbacks below already depend on.
+function sameConnectionTransport(
+  previous: ConnectionTransport,
+  next: ConnectionTransport,
+): boolean {
+  return CONNECTION_TRANSPORT_MEMBERS.every((member) => previous[member] === next[member]);
+}
+
+function refreshStatusCopy(outcome: RefreshOutcome): string {
+  if (outcome === "applied") {
+    return "The status and revisions below were re-read just now.";
+  }
+  if (outcome === "unavailable") {
+    return "This server does not expose connection status, so nothing below could be re-read.";
+  }
+  if (outcome === "superseded") {
+    return "Another status read was already in flight, so the status below is unconfirmed; re-read it with Refresh connection status.";
+  }
+  return "The status below could not be re-read, so it is stale and may not reflect this failure; re-read it with Refresh connection status.";
+}
+
+// A release request that fails without a receipt proves nothing about the
+// backend: the mutation may have been applied and only its response lost. Only
+// an applied re-read can say whether the ownership record is still listed.
+function releaseRecordCopy(outcome: RefreshOutcome): string {
+  if (outcome === "applied") {
+    return `${refreshStatusCopy(outcome)} Whether this control is still held is what the ownership list below now shows.`;
+  }
+  return `${refreshStatusCopy(outcome)} Until it is re-read, whether this record is still listed is unknown here.`;
+}
 
 export function agentMcpClientVerificationCommand(client: ConfiguredSetupClient): string {
   return client === "codex"
@@ -110,7 +162,7 @@ export const AGENT_ORCHESTRATION_STARTER = [
   "Direct HTTP gives one project-scoped connection durable control of a live chat. Use agent_control to inspect ownership; only that owner may wait or stop. After reconnecting, continue with the same connection and cursor without resending the message. Transfer control only through a revision-bound two-party handoff; native approval never transfers.",
   "If you already authored exact UTF-8 file content, use agent_propose for a create or revision-bound edit; never claim it changed until I approve the diff and agent_wait returns a verified receipt.",
   "For two to eight files that must land together, use agent_propose_transaction: mark new files as create and edits with exact source revisions. It receives one native review and rollback-capable publication.",
-  "For folder creation, no-overwrite folder/file moves, or recoverable file removal, use agent_propose_lifecycle with the exact source revision when required. It never applies directly or permanently deletes. In a Save locally chat, a verified file move advances a matching artifact card under the same identity; directory moves do not.",
+  "For folder creation, no-overwrite folder/file moves, or recoverable file removal, use agent_propose_lifecycle with the exact source revision when required. It never applies directly or permanently deletes. In a Save locally chat, a verified file move advances a matching artifact card under the same identity; a verified directory move reports whether its artifact tracking was updated or requires recovery, and never claims the folder contents were reviewed.",
   "Use agent_workspace and agent_artifacts to inspect exact results. In a Save locally chat, an approved verified create/edit becomes durable artifact lineage, and a verified file move advances a matching artifact card under the same identity; proposal content and approval data do not. Treat verified diffs and artifacts as evidence; never treat model prose as proof of a file change.",
   "Use agent_close only when I ask to close the live runtime; preserve the durable chat and retained history.",
 ].join(" ");
@@ -243,6 +295,131 @@ function controllerMayAttemptNativeRelease(
     && !["claimed", "running", "stopping"].includes(ownership.state);
 }
 
+// A disabled native control must name its own exact blocking reason. Panel-wide
+// region copy is not announced with the button, and a missing owner-presence
+// proof, an ineligible record, an absent transport member and a busy panel are
+// different blocks with different recoveries. Each helper evaluates its gates in
+// the same order as the matching `disabled` expression, so the announced reason
+// is the one that actually blocks the button.
+function otherActionBusyReason(busy: string, ownKey: string, ownCopy: string): string {
+  return busy === ownKey
+    ? ownCopy
+    : "Another native connection action is still running here. Wait for it to finish.";
+}
+
+function rotateDisabledReason(
+  connection: AgentMcpConnection,
+  userPresenceAvailable: boolean,
+  transportAvailable: boolean,
+  busy: string | null,
+): string | null {
+  if (!userPresenceAvailable) {
+    return "Owner presence is unproven, so this app cannot rotate a credential. Focus the owned native app window and try again.";
+  }
+  if (connection.state !== "active") {
+    const stateCopy = {
+      expired: "expired",
+      revoked: "revoked",
+      scope_missing: "missing its project scope",
+    }[connection.state];
+    return `This connection is ${stateCopy}, and only an active credential can be rotated. Prepare a replacement connection instead.`;
+  }
+  if (!transportAvailable) {
+    return "This server does not expose credential rotation.";
+  }
+  if (busy !== null) {
+    return otherActionBusyReason(
+      busy,
+      `rotate:${connection.connection_id}`,
+      "This rotation is still running, and its outcome is not known yet.",
+    );
+  }
+  return null;
+}
+
+function revokeDisabledReason(
+  connection: AgentMcpConnection,
+  userPresenceAvailable: boolean,
+  transportAvailable: boolean,
+  busy: string | null,
+): string | null {
+  if (!userPresenceAvailable) {
+    return "Owner presence is unproven, so this app cannot revoke a credential. Focus the owned native app window and try again.";
+  }
+  if (connection.state === "revoked") {
+    return "This credential is already revoked permanently, so there is nothing left to revoke.";
+  }
+  if (!transportAvailable) {
+    return "This server does not expose credential revocation.";
+  }
+  if (busy !== null) {
+    return otherActionBusyReason(
+      busy,
+      `revoke:${connection.connection_id}`,
+      "This revocation is still running, and its outcome is not known yet.",
+    );
+  }
+  return null;
+}
+
+function releaseDisabledReason(
+  ownership: AgentControllerOwnership,
+  userPresenceAvailable: boolean,
+  transportAvailable: boolean,
+  busy: string | null,
+): string | null {
+  if (!userPresenceAvailable) {
+    return "Owner presence is unproven, so this app cannot ask the backend to release external control. Focus the owned native app window and try again.";
+  }
+  if (!transportAvailable) {
+    return "This server does not expose native controller release.";
+  }
+  if (ownership.approval_pending) {
+    return "A native approval is still pending for this chat. Resolve it in the native Agent chat before the backend can prove settlement.";
+  }
+  if (!controllerMayAttemptNativeRelease(ownership)) {
+    return `This live chat is ${controllerStateLabel(ownership.state).toLowerCase()}. The backend releases this record only after the live chat is absent or objectively settled.`;
+  }
+  if (busy !== null) {
+    return otherActionBusyReason(
+      busy,
+      `release-control:${ownership.session_id}`,
+      "This release request is still running, and its outcome is not known yet.",
+    );
+  }
+  return null;
+}
+
+function createDisabledReason(
+  userPresenceAvailable: boolean,
+  transportAvailable: boolean,
+  scopeReason: string | null,
+  busy: string | null,
+  action: "create" | "replacement" = "create",
+): string | null {
+  if (!userPresenceAvailable) {
+    return action === "create"
+      ? "Owner presence is unproven, so this app cannot create a connection. Focus the owned native app window and try again."
+      : "Owner presence is unproven, so this app cannot prepare a replacement. Focus the owned native app window and try again.";
+  }
+  if (!transportAvailable) {
+    return "This server does not expose direct connection creation.";
+  }
+  if (scopeReason !== null) {
+    return scopeReason;
+  }
+  if (busy !== null) {
+    return otherActionBusyReason(
+      busy,
+      action === "create" ? "create" : "replacement",
+      action === "create"
+        ? "This connection creation is still running, and its outcome is not known yet."
+        : "This replacement preparation is still running, and its outcome is not known yet.",
+    );
+  }
+  return null;
+}
+
 const EXTERNAL_ACCEPTANCE_STEPS: readonly {
   key: ExternalControllerAcceptanceStep;
   label: string;
@@ -367,6 +544,7 @@ export function AgentMcpConnectionsPanel({
   const [allowLifecycle, setAllowLifecycle] = useState(false);
   const [projects, setProjects] = useState<AgentProject[]>([]);
   const [projectLoadState, setProjectLoadState] = useState<LoadState>("loading");
+  const [projectRetryCount, setProjectRetryCount] = useState(0);
   const [scopeProjectId, setScopeProjectId] = useState(selectedProjectId ?? "");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -377,33 +555,66 @@ export function AgentMcpConnectionsPanel({
   const labelInput = useRef<HTMLInputElement | null>(null);
   const request = useRef<AbortController | null>(null);
   const selfTestRequest = useRef<AbortController | null>(null);
+  const startedRead = useRef(0);
+  const appliedRead = useRef(0);
+  const mounted = useRef(true);
+  // The panel owns exactly one transport generation at a time. A replaced
+  // transport is a different backend identity, so a read, mutation, credential
+  // or acceptance observation started under the previous one is discarded
+  // instead of published here, even before the new generation's first read
+  // returns. The counter is derived during render because a completion can land
+  // as a microtask before any effect of the replacing render runs.
+  const transportIdentity = useRef(transport);
+  const transportEpoch = useRef(0);
+  if (!sameConnectionTransport(transportIdentity.current, transport)) {
+    transportIdentity.current = transport;
+    transportEpoch.current += 1;
+  }
+  const epoch = transportEpoch.current;
+  // Closures capture the epoch they were created with; `transportEpoch` always
+  // holds the newest one, so a late completion can prove it still owns the UI.
+  const stillOwned = useCallback(
+    () => mounted.current && transportEpoch.current === epoch,
+    [epoch],
+  );
 
   const refresh = useCallback(async (
     signal?: AbortSignal,
     background = false,
-  ) => {
+  ): Promise<RefreshOutcome> => {
+    if (!stillOwned()) return "superseded";
     if (transport.listAgentMcpConnections === undefined) {
       setCatalog(null);
       setLoadState("unavailable");
-      return;
+      return "unavailable";
     }
     if (!background) setLoadState("loading");
+    // Background polling, manual refreshes and post-mutation reads overlap. A
+    // superseded response must never repaint an older revision or feed the
+    // ordered acceptance receipt an already-observed activity sequence.
+    startedRead.current += 1;
+    const read = startedRead.current;
     try {
       const result = await transport.listAgentMcpConnections(signal);
-      if (signal?.aborted) return;
+      if (signal?.aborted || !stillOwned() || read < appliedRead.current) return "superseded";
+      appliedRead.current = read;
       setCatalog(result);
       onAcceptanceObservation?.(result);
       setLoadState("ready");
+      return "applied";
     } catch {
-      if (signal?.aborted) return;
+      if (signal?.aborted || !stillOwned() || read < appliedRead.current) return "superseded";
+      appliedRead.current = read;
       if (!background) {
         setCatalog(null);
         setLoadState("error");
       }
+      return "failed";
     }
-  }, [onAcceptanceObservation, transport.listAgentMcpConnections]);
+  }, [onAcceptanceObservation, stillOwned, transport.listAgentMcpConnections]);
 
   const loadClientSetup = useCallback(async (signal?: AbortSignal) => {
+    if (!stillOwned()) return;
     if (transport.getAgentMcpClientSetup === undefined) {
       setClientSetup(null);
       setSetupPreviewState("unavailable");
@@ -412,17 +623,18 @@ export function AgentMcpConnectionsPanel({
     setSetupPreviewState("loading");
     try {
       const result = await transport.getAgentMcpClientSetup(signal);
-      if (signal?.aborted) return;
+      if (signal?.aborted || !stillOwned()) return;
       setClientSetup(result);
       setSetupPreviewState("ready");
     } catch {
-      if (signal?.aborted) return;
+      if (signal?.aborted || !stillOwned()) return;
       setClientSetup(null);
       setSetupPreviewState("error");
     }
-  }, [transport.getAgentMcpClientSetup]);
+  }, [stillOwned, transport.getAgentMcpClientSetup]);
 
   const loadProjects = useCallback(async (signal?: AbortSignal) => {
+    if (!stillOwned()) return;
     if (transport.listAgentProjects === undefined) {
       setProjects([]);
       setScopeProjectId(selectedProjectId ?? "");
@@ -435,7 +647,7 @@ export function AgentMcpConnectionsPanel({
         includeArchived: false,
         limit: 200,
       }, signal);
-      if (signal?.aborted) return;
+      if (signal?.aborted || !stillOwned()) return;
       const activeProjects = result.projects.filter((project) => project.archived_at === null);
       setProjects(activeProjects);
       setScopeProjectId((current) => {
@@ -447,12 +659,34 @@ export function AgentMcpConnectionsPanel({
       });
       setProjectLoadState("ready");
     } catch {
-      if (signal?.aborted) return;
+      if (signal?.aborted || !stillOwned()) return;
       setProjects([]);
       setScopeProjectId("");
       setProjectLoadState("error");
     }
-  }, [selectedProjectId, transport.listAgentProjects]);
+  }, [selectedProjectId, stillOwned, transport.listAgentProjects]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    // A newly mounted panel already holds these values. A replaced transport
+    // must not keep the previous backend's catalog, one-time credential, local
+    // self-test result or pending native action on screen while the new
+    // generation's first read is still in flight.
+    selfTestRequest.current?.abort();
+    setCatalog(null);
+    setLoadState("loading");
+    setPrivateSetup(null);
+    setEndpointSelfTest({ state: "idle" });
+    setCopied(null);
+    setBusy(null);
+    setMessage(null);
+  }, [epoch]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -471,7 +705,7 @@ export function AgentMcpConnectionsPanel({
     const controller = new AbortController();
     void loadProjects(controller.signal);
     return () => controller.abort();
-  }, [loadProjects]);
+  }, [loadProjects, projectRetryCount]);
 
   useEffect(() => () => selfTestRequest.current?.abort(), []);
 
@@ -493,15 +727,19 @@ export function AgentMcpConnectionsPanel({
   const afterMutation = useCallback(async (
     credential: AgentMcpConnectionCredential | null,
     success: string,
+    replacePrivateSetup = true,
   ) => {
-    selfTestRequest.current?.abort();
-    setPrivateSetup(credential);
-    if (credential !== null) setSetupClient(credential.connection.client_kind);
-    setCopied(null);
-    setEndpointSelfTest({ state: "idle" });
+    if (!stillOwned()) return;
+    if (replacePrivateSetup) {
+      selfTestRequest.current?.abort();
+      setPrivateSetup(credential);
+      if (credential !== null) setSetupClient(credential.connection.client_kind);
+      setCopied(null);
+      setEndpointSelfTest({ state: "idle" });
+    }
     setMessage(success);
     await refresh();
-  }, [refresh]);
+  }, [refresh, stillOwned]);
 
   const create = useCallback(async () => {
     if (transport.createAgentMcpConnection === undefined || !userPresenceAvailable) return;
@@ -525,14 +763,18 @@ export function AgentMcpConnectionsPanel({
         allow_model_lifecycle: allowLifecycle,
         expires_in_days: expiresInDays,
       });
+      // A credential minted by a replaced or unmounted transport belongs to
+      // that backend only; it is never shown against a newer generation.
+      if (!stillOwned()) return;
       await afterMutation(
         credential,
         "Connection created. Copy one private setup now; the app will not show this credential again.",
       );
     } catch {
+      if (!stillOwned()) return;
       setMessage("The connection could not be created. No provider configuration was changed.");
     } finally {
-      setBusy(null);
+      if (stillOwned()) setBusy(null);
     }
   }, [
     afterMutation,
@@ -541,6 +783,7 @@ export function AgentMcpConnectionsPanel({
     expiresInDays,
     label,
     scopeProjectId,
+    stillOwned,
     transport.createAgentMcpConnection,
     userPresenceAvailable,
   ]);
@@ -558,18 +801,28 @@ export function AgentMcpConnectionsPanel({
           expires_in_days: expiresInDays,
         },
       );
+      if (!stillOwned()) return;
       await afterMutation(
         credential,
         "Credential rotated. The previous credential stopped working immediately.",
       );
     } catch {
-      setMessage("The credential could not be rotated. Refresh the connection list and try again.");
+      if (!stillOwned()) return;
+      // The recovery re-read can fail too. Report the outcome it actually had
+      // instead of claiming a fresh status the panel may not be showing.
+      const outcome = await refresh(undefined, true);
+      if (!stillOwned()) return;
+      setMessage(
+        `The rotate request failed, so no replacement credential is available here. Rotation itself is unproven. ${refreshStatusCopy(outcome)} If the client's existing token has already stopped working, rotate again and copy the new one.`,
+      );
     } finally {
-      setBusy(null);
+      if (stillOwned()) setBusy(null);
     }
   }, [
     afterMutation,
     expiresInDays,
+    refresh,
+    stillOwned,
     transport.rotateAgentMcpConnection,
     userPresenceAvailable,
   ]);
@@ -583,13 +836,36 @@ export function AgentMcpConnectionsPanel({
         connection.connection_id,
         { expected_revision: connection.revision },
       );
-      await afterMutation(null, "Connection revoked. Its credential no longer works.");
+      if (!stillOwned()) return;
+      // Revoking one connection never destroys another connection's one-time
+      // setup card; that credential is unrecoverable once it leaves page memory.
+      const keepOtherSetup = privateSetup !== null
+        && privateSetup.connection.connection_id !== connection.connection_id;
+      await afterMutation(
+        null,
+        keepOtherSetup
+          ? "Connection revoked. Its credential no longer works. The one-time setup shown above belongs to a different connection and is unchanged."
+          : "Connection revoked. Its credential no longer works.",
+        !keepOtherSetup,
+      );
     } catch {
-      setMessage("The connection could not be revoked. Refresh the connection list and try again.");
+      if (!stillOwned()) return;
+      const outcome = await refresh(undefined, true);
+      if (!stillOwned()) return;
+      setMessage(
+        `The revoke request failed, so this credential is not proven revoked. ${refreshStatusCopy(outcome)} Revoke again if it still shows an active connection.`,
+      );
     } finally {
-      setBusy(null);
+      if (stillOwned()) setBusy(null);
     }
-  }, [afterMutation, transport.revokeAgentMcpConnection, userPresenceAvailable]);
+  }, [
+    afterMutation,
+    privateSetup,
+    refresh,
+    stillOwned,
+    transport.revokeAgentMcpConnection,
+    userPresenceAvailable,
+  ]);
 
   const releaseControllerOwnership = useCallback(async (
     ownership: AgentControllerOwnership,
@@ -605,19 +881,35 @@ export function AgentMcpConnectionsPanel({
         session_id: ownership.session_id,
         expected_revision: ownership.revision,
       });
+      // A receipt returned to a replaced or unmounted transport is never
+      // published as this generation's acceptance evidence.
+      if (!stillOwned()) return;
       onAcceptanceEvidence?.({ kind: "native_release", receipt });
       await refresh();
+      if (!stillOwned()) return;
       setMessage(
         `Released settled external control for ${ownership.session_title}. No chat, history, or native authority was deleted.`,
       );
     } catch {
+      if (!stillOwned()) return;
+      const outcome = await refresh(undefined, true);
+      if (!stillOwned()) return;
+      // The request failed without a receipt, which is not proof that the
+      // backend kept the record: a successful release whose response was lost
+      // looks identical here. Claim only the uncertainty that was observed.
       setMessage(
-        "External control was not released. The record remains visible; finish or stop the live chat, resolve any native approval, and confirm cleanup before retrying.",
+        `The release request failed without a receipt, so its outcome is unknown: the backend may have released this external control or may still hold it. ${releaseRecordCopy(outcome)} Finish or stop the live chat, resolve any native approval, and confirm cleanup before retrying.`,
       );
     } finally {
-      setBusy(null);
+      if (stillOwned()) setBusy(null);
     }
-  }, [onAcceptanceEvidence, refresh, transport.releaseAgentControllerOwnership, userPresenceAvailable]);
+  }, [
+    onAcceptanceEvidence,
+    refresh,
+    stillOwned,
+    transport.releaseAgentControllerOwnership,
+    userPresenceAvailable,
+  ]);
 
   const copyValue = useCallback(async (
     kind: Exclude<CopyKind, null>,
@@ -694,15 +986,15 @@ export function AgentMcpConnectionsPanel({
         endpointUrl: privateSetup.endpoint_url,
         signal: controller.signal,
       });
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || !stillOwned()) return;
       setEndpointSelfTest({ state: "passed", result });
       await refresh();
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || !stillOwned()) return;
       setMessage(
         "Local endpoint self-test passed. This proves the scoped MCP protocol and Agent tool surface, not that an external Codex or Claude client connected.",
       );
     } catch (error) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || !stillOwned()) return;
       const code = error instanceof AgentMcpEndpointSelfTestError
         ? error.code
         : "request_failed";
@@ -711,9 +1003,9 @@ export function AgentMcpConnectionsPanel({
         `Local endpoint self-test failed closed. No model, process, terminal, project, chat, or workspace action was started. ${agentMcpEndpointSelfTestRecovery(code)}`,
       );
     } finally {
-      if (!controller.signal.aborted) setBusy(null);
+      if (!controller.signal.aborted && stillOwned()) setBusy(null);
     }
-  }, [busy, privateSetup, refresh]);
+  }, [busy, privateSetup, refresh, stillOwned]);
 
   const scopeReady = /^[0-9a-f]{32}$/u.test(scopeProjectId)
     && (projectLoadState === "ready" || (
@@ -722,6 +1014,19 @@ export function AgentMcpConnectionsPanel({
   const controlsAvailable = userPresenceAvailable
     && transport.createAgentMcpConnection !== undefined
     && scopeReady;
+  const scopeReason = projectLoadState === "loading"
+      ? "Active Agent projects are still loading. Wait for the project list before creating a connection or preparing a replacement."
+    : projectLoadState === "error"
+      ? "Active Agent projects could not be loaded. Use Retry projects to load them before creating a connection or preparing a replacement."
+      : projects.length === 0
+        ? "No active Agent project is available. Create an Agent project before creating a connection or preparing a replacement."
+        : "Choose one active Agent project before creating a connection or preparing a replacement.";
+  const createReason = createDisabledReason(
+    userPresenceAvailable,
+    transport.createAgentMcpConnection !== undefined,
+    scopeReady ? null : scopeReason,
+    busy,
+  );
   const beginExternalProof = useCallback((connection: AgentMcpConnection) => {
     if (catalog === null) return;
     const issue = externalControllerAcceptanceBaselineIssue(
@@ -911,7 +1216,7 @@ export function AgentMcpConnectionsPanel({
           <li>Create one scoped connection and copy its one-time token plus the matching client config.</li>
           <li>Put the token in <code>PROMPT_ENHANCER_AGENT_MCP_TOKEN</code> only in the Codex, Claude Code, or other MCP client process.</li>
           <li>Connect to the exact endpoint shown in the private setup and begin with <code>agent_discover</code> → <code>agent_open</code> → <code>agent_context</code>. Delegate with <code>agent_turn</code>, offer exact create/edit work with <code>agent_propose</code> or <code>agent_propose_transaction</code>, and offer folder/move/recoverable-trash work with <code>agent_propose_lifecycle</code>.</li>
-          <li>If native review is required, decide it here and let the controller continue with <code>agent_wait</code>. In a Save locally chat, each verified create/edit receipt becomes a durable output card, and a later verified file move advances a matching card under the same identity. Directory moves do not yet advance artifact cards. Proposal content and approval data are not retained. Inspect results through <code>agent_workspace</code> and <code>agent_artifacts</code>; use its <code>preview_capture</code> action to review any other generated file&apos;s path, type, size, and digest before adding it in the native Agent UI.</li>
+          <li>If native review is required, decide it here and let the controller continue with <code>agent_wait</code>. In a Save locally chat, each verified create/edit receipt becomes a durable output card, and a later verified file move advances a matching card under the same identity. A verified directory move reports whether artifact tracking was updated or requires recovery; its contents are never claimed as reviewed. Proposal content and approval data are not retained. Inspect results through <code>agent_workspace</code> and <code>agent_artifacts</code>; use its <code>preview_capture</code> action to review any other generated file&apos;s path, type, size, and digest before adding it in the native Agent UI.</li>
           <li>Use <code>agent_close</code> only for the live runtime; the project, chat, and retained history remain browsable.</li>
         </ol>
         <p>
@@ -956,7 +1261,7 @@ export function AgentMcpConnectionsPanel({
           Resume and fork restore no approval authority. Export is exact-revision and path-free;
           artifacts return lineage or capture-candidate metadata rather than bytes, and only the native Agent UI can complete a capture. Workspace inspection is read-only;
           external create/edit, move, folder, and recoverable-trash proposals remain blocked behind the native review card,
-          while Save locally chats retain only verified create/edit receipts to project durable output cards and verified file moves can advance a matching card under the same identity. Directory moves do not yet advance artifact cards;
+          while Save locally chats retain only verified create/edit receipts to project durable output cards and verified file moves can advance a matching card under the same identity. Verified directory moves report artifact tracking state and never claim their contents were reviewed;
           and inline PNG, JPEG, or PCM WAV staging never accepts a local path or URL. Review staged
           media in the composer before sending it.
         </p>
@@ -1007,7 +1312,14 @@ export function AgentMcpConnectionsPanel({
               This credential can see only this project and its chats and workspace. Native approvals are never inherited.
             </p>
             {projectLoadState === "loading" && <p role="status">Loading active projects…</p>}
-            {projectLoadState === "error" && <p role="alert">Active projects could not be loaded. Connection creation is blocked.</p>}
+            {projectLoadState === "error" && (
+              <p role="alert">
+                Active projects could not be loaded. Connection creation is blocked.{" "}
+                <button className="button button--ghost" onClick={() => setProjectRetryCount((count) => count + 1)} type="button">
+                  Retry projects
+                </button>
+              </p>
+            )}
             {projectLoadState === "ready" && projects.length === 0 && <p role="status">Create an Agent project before connecting a controller.</p>}
             <label>
               Connection name
@@ -1049,13 +1361,18 @@ export function AgentMcpConnectionsPanel({
               Permit explicit model load, switch, and stop requests
             </label>
             <button
+              aria-describedby={createReason === null ? undefined : "agent-mcp-create-disabled"}
               className="button button--primary"
-              disabled={!controlsAvailable || busy !== null}
+              disabled={createReason !== null}
               onClick={() => void create()}
+              title={createReason ?? undefined}
               type="button"
             >
               {busy === "create" ? "Creating…" : "Create direct connection"}
             </button>
+            {createReason !== null && (
+              <small className="sr-only" id="agent-mcp-create-disabled">{createReason}</small>
+            )}
             {!userPresenceAvailable && (
               <p role="status">Open the owned native app window to create, rotate, or revoke connections.</p>
             )}
@@ -1360,191 +1677,229 @@ export function AgentMcpConnectionsPanel({
           )}
           <div aria-label="Direct Agent connections" className="agent-mcp-connections__list" role="list">
             {catalog?.connections.length === 0 && <p>No direct connections yet.</p>}
-            {catalog?.connections.map((connection) => (
-              <article data-state={connection.state} key={connection.connection_id} role="listitem">
-                <header>
-                  <span>
-                    <strong>{connection.label}</strong>
-                    <small>{clientLabel(connection.client_kind)}</small>
-                  </span>
-                  <span>{connection.state}</span>
-                </header>
-                <p>
-                  Expires {dateLabel(connection.expires_at)} · Model control {connection.allow_model_lifecycle ? "permitted" : "off"}
-                </p>
-                <p className="agent-mcp-connections__scope">
-                  Project scope {connection.scope.project_name ?? "missing"} · Catalog, chats, and workspace {connection.scope.state === "bound" ? "project-only" : "blocked"} · Native approvals never inherited
-                </p>
-                <p className="agent-mcp-connections__activity">
-                  {connection.last_used_at === null
-                    ? "Never connected · no authenticated MCP request observed"
-                    : `Last MCP request ${dateTimeLabel(connection.last_used_at)}`}
-                </p>
-                <p
-                  className="agent-mcp-connections__tool-activity"
-                  data-outcome={connection.last_tool_outcome ?? "unobserved"}
-                >
-                  {connection.last_tool_at === null
-                    ? "No MCP tool call receipt recorded yet"
-                    : <>
-                        Last tool <code>{connection.last_tool_name}</code> · {connection.last_tool_outcome}
-                        {connection.last_tool_source === "native_self_test"
-                          ? " · local self-test"
-                          : " · external MCP client"}
-                        {` · ${dateTimeLabel(connection.last_tool_at)}`}
-                      </>}
-                </p>
-                <p
-                  className="agent-mcp-connections__auth-rejection"
-                  data-observed={connection.last_auth_rejected_at === null ? "false" : "true"}
-                >
-                  {connection.last_auth_rejected_at === null
-                    ? "No exact inactive-credential rejection recorded"
-                    : `Exact inactive credential rejected · ${dateTimeLabel(connection.last_auth_rejected_at)}`}
-                </p>
-                <p
-                  className="agent-mcp-connections__recovery"
-                  data-state={connection.state === "active" ? connection.last_tool_outcome ?? "waiting" : connection.state}
-                >
-                  {agentMcpConnectionGuidance(connection)}
-                </p>
-                {(catalog?.controller_ownerships.ownerships ?? [])
-                  .filter((ownership) => (
-                    ownership.owner_connection_id === connection.connection_id
-                  ))
-                  .map((ownership) => (
-                    <section
-                      aria-label={`External control for ${ownership.session_title}`}
-                      className="agent-mcp-connections__ownership"
-                      data-state={ownership.state}
-                      key={ownership.session_id}
-                    >
-                      <header>
-                        <span>
-                          <small>Durable external controller</small>
-                          <strong>{ownership.session_title}</strong>
-                        </span>
-                        <span>{controllerStateLabel(ownership.state)}</span>
-                      </header>
-                      <dl>
-                        <div>
-                          <dt>Project</dt>
-                          <dd>{ownership.project_name}</dd>
-                        </div>
-                        <div>
-                          <dt>Operation</dt>
-                          <dd>{controllerOperationLabel(ownership.operation)}</dd>
-                        </div>
-                        <div>
-                          <dt>Observed cursor</dt>
-                          <dd>{ownership.cursor} / {ownership.last_seq}</dd>
-                        </div>
-                        <div>
-                          <dt>Updated</dt>
-                          <dd>{dateTimeLabel(ownership.updated_at)}</dd>
-                        </div>
-                      </dl>
-                      <p>{controllerStateGuidance(ownership)}</p>
-                      {ownership.handoff !== null && (
-                        <p className="agent-mcp-connections__handoff">
-                          Handoff offered to <strong>{ownership.handoff.target_label}</strong> · expires {dateTimeLabel(ownership.handoff.expires_at)}. The target must accept the exact revision through <code>agent_control</code>; native approval never transfers.
-                        </p>
-                      )}
-                      <footer>
-                        <small>
-                          Revision {ownership.revision} · owner since {dateTimeLabel(ownership.owner_since)}
-                        </small>
-                        <button
-                          className="button button--ghost"
-                          disabled={
-                            !userPresenceAvailable
-                            || transport.releaseAgentControllerOwnership === undefined
-                            || !controllerMayAttemptNativeRelease(ownership)
-                            || busy !== null
-                          }
-                          onClick={() => void releaseControllerOwnership(ownership)}
-                          title="The backend releases this record only after the live chat is absent or objectively settled."
-                          type="button"
+            {catalog?.connections.map((connection) => {
+              const rotateReasonId = `agent-mcp-rotate-disabled-${connection.connection_id}`;
+              const revokeReasonId = `agent-mcp-revoke-disabled-${connection.connection_id}`;
+              const replacementReasonId = `agent-mcp-replacement-disabled-${connection.connection_id}`;
+              const rotateReason = rotateDisabledReason(
+                connection,
+                userPresenceAvailable,
+                transport.rotateAgentMcpConnection !== undefined,
+                busy,
+              );
+              const revokeReason = revokeDisabledReason(
+                connection,
+                userPresenceAvailable,
+                transport.revokeAgentMcpConnection !== undefined,
+                busy,
+              );
+              const replacementReason = createDisabledReason(
+                userPresenceAvailable,
+                transport.createAgentMcpConnection !== undefined,
+                scopeReady ? null : scopeReason,
+                busy,
+                "replacement",
+              );
+              return (
+                <article data-state={connection.state} key={connection.connection_id} role="listitem">
+                  <header>
+                    <span>
+                      <strong>{connection.label}</strong>
+                      <small>{clientLabel(connection.client_kind)}</small>
+                    </span>
+                    <span>{connection.state}</span>
+                  </header>
+                  <p>
+                    Expires {dateLabel(connection.expires_at)} · Model control {connection.allow_model_lifecycle ? "permitted" : "off"}
+                  </p>
+                  <p className="agent-mcp-connections__scope">
+                    Project scope {connection.scope.project_name ?? "missing"} · Catalog, chats, and workspace {connection.scope.state === "bound" ? "project-only" : "blocked"} · Native approvals never inherited
+                  </p>
+                  <p className="agent-mcp-connections__activity">
+                    {connection.last_used_at === null
+                      ? "Never connected · no authenticated MCP request observed"
+                      : `Last MCP request ${dateTimeLabel(connection.last_used_at)}`}
+                  </p>
+                  <p
+                    className="agent-mcp-connections__tool-activity"
+                    data-outcome={connection.last_tool_outcome ?? "unobserved"}
+                  >
+                    {connection.last_tool_at === null
+                      ? "No MCP tool call receipt recorded yet"
+                      : <>
+                          Last tool <code>{connection.last_tool_name}</code> · {connection.last_tool_outcome}
+                          {connection.last_tool_source === "native_self_test"
+                            ? " · local self-test"
+                            : " · external MCP client"}
+                          {` · ${dateTimeLabel(connection.last_tool_at)}`}
+                        </>}
+                  </p>
+                  <p
+                    className="agent-mcp-connections__auth-rejection"
+                    data-observed={connection.last_auth_rejected_at === null ? "false" : "true"}
+                  >
+                    {connection.last_auth_rejected_at === null
+                      ? "No exact inactive-credential rejection recorded"
+                      : `Exact inactive credential rejected · ${dateTimeLabel(connection.last_auth_rejected_at)}`}
+                  </p>
+                  <p
+                    className="agent-mcp-connections__recovery"
+                    data-state={connection.state === "active" ? connection.last_tool_outcome ?? "waiting" : connection.state}
+                  >
+                    {agentMcpConnectionGuidance(connection)}
+                  </p>
+                  {(catalog?.controller_ownerships.ownerships ?? [])
+                    .filter((ownership) => (
+                      ownership.owner_connection_id === connection.connection_id
+                    ))
+                    .map((ownership) => {
+                      const releaseReasonId = `agent-mcp-release-disabled-${ownership.session_id}`;
+                      const releaseReason = releaseDisabledReason(
+                        ownership,
+                        userPresenceAvailable,
+                        transport.releaseAgentControllerOwnership !== undefined,
+                        busy,
+                      );
+                      return (
+                        <section
+                          aria-label={`External control for ${ownership.session_title}`}
+                          className="agent-mcp-connections__ownership"
+                          data-state={ownership.state}
+                          key={ownership.session_id}
                         >
-                          {busy === `release-control:${ownership.session_id}`
-                            ? "Checking settlement…"
-                            : "Release settled control"}
-                        </button>
-                      </footer>
-                    </section>
-                  ))}
-                {(catalog?.controller_ownerships.ownerships ?? [])
-                  .filter((ownership) => (
-                    ownership.handoff?.target_connection_id === connection.connection_id
-                  ))
-                  .map((ownership) => {
-                    const handoff = ownership.handoff;
-                    if (handoff === null) return null;
-                    return (
-                      <section
-                        aria-label={`Incoming control handoff for ${ownership.session_title}`}
-                        className="agent-mcp-connections__incoming-handoff"
-                        key={`handoff:${ownership.session_id}`}
+                          <header>
+                            <span>
+                              <small>Durable external controller</small>
+                              <strong>{ownership.session_title}</strong>
+                            </span>
+                            <span>{controllerStateLabel(ownership.state)}</span>
+                          </header>
+                          <dl>
+                            <div>
+                              <dt>Project</dt>
+                              <dd>{ownership.project_name}</dd>
+                            </div>
+                            <div>
+                              <dt>Operation</dt>
+                              <dd>{controllerOperationLabel(ownership.operation)}</dd>
+                            </div>
+                            <div>
+                              <dt>Observed cursor</dt>
+                              <dd>{ownership.cursor} / {ownership.last_seq}</dd>
+                            </div>
+                            <div>
+                              <dt>Updated</dt>
+                              <dd>{dateTimeLabel(ownership.updated_at)}</dd>
+                            </div>
+                          </dl>
+                          <p>{controllerStateGuidance(ownership)}</p>
+                          {ownership.handoff !== null && (
+                            <p className="agent-mcp-connections__handoff">
+                              Handoff offered to <strong>{ownership.handoff.target_label}</strong> · expires {dateTimeLabel(ownership.handoff.expires_at)}. The target must accept the exact revision through <code>agent_control</code>; native approval never transfers.
+                            </p>
+                          )}
+                          <footer>
+                            <small>
+                              Revision {ownership.revision} · owner since {dateTimeLabel(ownership.owner_since)}
+                            </small>
+                            <button
+                              aria-describedby={releaseReason === null ? undefined : releaseReasonId}
+                              className="button button--ghost"
+                              disabled={releaseReason !== null}
+                              onClick={() => void releaseControllerOwnership(ownership)}
+                              title={releaseReason
+                                ?? "The backend releases this record only after the live chat is absent or objectively settled."}
+                              type="button"
+                            >
+                              {busy === `release-control:${ownership.session_id}`
+                                ? "Checking settlement…"
+                                : "Release settled control"}
+                            </button>
+                            {releaseReason !== null && (
+                              <small className="sr-only" id={releaseReasonId}>{releaseReason}</small>
+                            )}
+                          </footer>
+                        </section>
+                      );
+                    })}
+                  {(catalog?.controller_ownerships.ownerships ?? [])
+                    .filter((ownership) => (
+                      ownership.handoff?.target_connection_id === connection.connection_id
+                    ))
+                    .map((ownership) => {
+                      const handoff = ownership.handoff;
+                      if (handoff === null) return null;
+                      return (
+                        <section
+                          aria-label={`Incoming control handoff for ${ownership.session_title}`}
+                          className="agent-mcp-connections__incoming-handoff"
+                          key={`handoff:${ownership.session_id}`}
+                        >
+                          <strong>Incoming handoff · {ownership.session_title}</strong>
+                          <p>
+                            {ownership.owner_label} offered revision {ownership.revision} until {dateTimeLabel(handoff.expires_at)}. Accept it from this exact external client with <code>agent_control</code>. No pending native approval or protected authority transfers.
+                          </p>
+                        </section>
+                      );
+                    })}
+                  <div>
+                    {connection.state === "active" && (
+                      <button
+                        className="button button--ghost"
+                        disabled={busy !== null}
+                        onClick={() => beginExternalProof(connection)}
+                        type="button"
                       >
-                        <strong>Incoming handoff · {ownership.session_title}</strong>
-                        <p>
-                          {ownership.owner_label} offered revision {ownership.revision} until {dateTimeLabel(handoff.expires_at)}. Accept it from this exact external client with <code>agent_control</code>. No pending native approval or protected authority transfers.
-                        </p>
-                      </section>
-                    );
-                  })}
-                <div>
-                  {connection.state === "active" && (
+                        {acceptanceRun?.primaryConnectionId === connection.connection_id
+                          ? "Restart lifecycle proof"
+                          : "Begin external lifecycle proof"}
+                      </button>
+                    )}
                     <button
+                      aria-describedby={rotateReason === null ? undefined : rotateReasonId}
                       className="button button--ghost"
-                      disabled={busy !== null}
-                      onClick={() => beginExternalProof(connection)}
+                      disabled={rotateReason !== null}
+                      onClick={() => void rotate(connection)}
+                      title={rotateReason ?? undefined}
                       type="button"
                     >
-                      {acceptanceRun?.primaryConnectionId === connection.connection_id
-                        ? "Restart lifecycle proof"
-                        : "Begin external lifecycle proof"}
+                      {busy === `rotate:${connection.connection_id}` ? "Rotating…" : "Rotate"}
                     </button>
-                  )}
-                  <button
-                    className="button button--ghost"
-                    disabled={
-                      !userPresenceAvailable
-                      || connection.state !== "active"
-                      || transport.rotateAgentMcpConnection === undefined
-                      || busy !== null
-                    }
-                    onClick={() => void rotate(connection)}
-                    type="button"
-                  >
-                    {busy === `rotate:${connection.connection_id}` ? "Rotating…" : "Rotate"}
-                  </button>
-                  <button
-                    className="button button--ghost"
-                    disabled={
-                      !userPresenceAvailable
-                      || connection.state === "revoked"
-                      || transport.revokeAgentMcpConnection === undefined
-                      || busy !== null
-                    }
-                    onClick={() => void revoke(connection)}
-                    type="button"
-                  >
-                    {busy === `revoke:${connection.connection_id}` ? "Revoking…" : "Revoke"}
-                  </button>
-                  {connection.state !== "active" && (
+                    {rotateReason !== null && (
+                      <small className="sr-only" id={rotateReasonId}>{rotateReason}</small>
+                    )}
                     <button
+                      aria-describedby={revokeReason === null ? undefined : revokeReasonId}
                       className="button button--ghost"
-                      disabled={!controlsAvailable || busy !== null}
-                      onClick={() => prepareReplacement(connection)}
+                      disabled={revokeReason !== null}
+                      onClick={() => void revoke(connection)}
+                      title={revokeReason ?? undefined}
                       type="button"
                     >
-                      Prepare replacement
+                      {busy === `revoke:${connection.connection_id}` ? "Revoking…" : "Revoke"}
                     </button>
-                  )}
-                </div>
-              </article>
-            ))}
+                    {revokeReason !== null && (
+                      <small className="sr-only" id={revokeReasonId}>{revokeReason}</small>
+                    )}
+                    {connection.state !== "active" && (
+                      <button
+                        aria-describedby={replacementReason === null ? undefined : replacementReasonId}
+                        className="button button--ghost"
+                        disabled={replacementReason !== null}
+                        onClick={() => prepareReplacement(connection)}
+                        title={replacementReason ?? undefined}
+                        type="button"
+                      >
+                        Prepare replacement
+                      </button>
+                    )}
+                    {connection.state !== "active" && replacementReason !== null && (
+                      <small className="sr-only" id={replacementReasonId}>{replacementReason}</small>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </>
       )}

@@ -256,6 +256,33 @@ describe("MetricEvidenceFilePanel", () => {
     );
   });
 
+  it("commits preview focus inside the same pass that first renders the region", async () => {
+    const local = transport();
+    const view = render(
+      <MetricEvidenceFilePanel compact={false} sessionId={sessionId} sourceRunId={runId} transport={local} />,
+    );
+    const picker = await screen.findByLabelText("Choose canonical evidence file");
+    // A DOM observer runs before any deferred React pass, so it records whether focus was already
+    // committed when the region became observable rather than one asynchronous turn later.
+    const focusWhenRegionAppeared: string[] = [];
+    const observer = new MutationObserver(() => {
+      const region = view.container.querySelector("[role=\"region\"]");
+      if (region === null || focusWhenRegionAppeared.length > 0) return;
+      focusWhenRegionAppeared.push(region === document.activeElement ? "preview region" : "elsewhere");
+    });
+    observer.observe(view.container, { childList: true, subtree: true });
+
+    try {
+      fireEvent.change(picker, { target: { files: [canonicalFile()] } });
+      const previewRegion = await screen.findByRole("region", { name: "Strict local preview" });
+
+      expect(focusWhenRegionAppeared).toEqual(["preview region"]);
+      expect(previewRegion).toHaveFocus();
+    } finally {
+      observer.disconnect();
+    }
+  });
+
   it("cancels a decision with Escape and does not publish a refresh after rejection", async () => {
     const local = transport([proposal]);
     const changed = vi.fn();

@@ -64,7 +64,9 @@ function toolListResponse(names: readonly string[]): Response {
   });
 }
 
-function discoveryResponse(): Response {
+function discoveryResponse(
+  contractVersion = "local-agent-orchestration.v23",
+): Response {
   return jsonResponse({
     jsonrpc: "2.0",
     id: "self-test-discover",
@@ -73,7 +75,7 @@ function discoveryResponse(): Response {
       structuredContent: {
         contract_version: "prompt-enhancer-agent-mcp.v24",
         tool: "agent_discover",
-        result: { contract_version: "local-agent-orchestration.v22" },
+        result: { contract_version: contractVersion },
       },
     },
   });
@@ -101,7 +103,7 @@ describe("Agent MCP endpoint self-test", () => {
     expect(result).toEqual({
       contractVersion: "agent-mcp-endpoint-self-test.v1",
       coreToolCount: 19,
-      discoveryContractVersion: "local-agent-orchestration.v22",
+      discoveryContractVersion: "local-agent-orchestration.v23",
       modelLifecycleAdvertised: false,
       protocolVersion: "2025-06-18",
       serverName: "prompt-enhancer-agent",
@@ -295,5 +297,22 @@ describe("Agent MCP endpoint self-test", () => {
     })).rejects.toMatchObject({
       code: "discovery_invalid",
     });
+  });
+
+  it("fails closed on stale orchestration discovery", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(initializeResponse())
+      .mockResolvedValueOnce(notificationResponse())
+      .mockResolvedValueOnce(toolListResponse(AGENT_MCP_CORE_TOOL_NAMES))
+      .mockResolvedValueOnce(discoveryResponse("local-agent-orchestration.v22"));
+
+    await expect(runAgentMcpEndpointSelfTest({
+      allowModelLifecycle: false,
+      bearerToken: TOKEN,
+      endpointUrl: ENDPOINT,
+      expectedOrigin: ORIGIN,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })).rejects.toMatchObject({ code: "discovery_invalid" });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 });

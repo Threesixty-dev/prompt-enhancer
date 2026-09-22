@@ -19,6 +19,7 @@ import {
 } from "../../shared/api/requirementActionEvidenceContract";
 import "./MetricEvidenceFilePanel.css";
 import "./RequirementActionEvidencePanel.css";
+import { RequirementActionGuidedAuthoring } from "./RequirementActionGuidedAuthoring";
 
 type RequirementActionTransport = Pick<PromptEnhancerTransport,
   | "getRequirementActionEvidenceContract"
@@ -27,7 +28,11 @@ type RequirementActionTransport = Pick<PromptEnhancerTransport,
   | "listRequirementActionProposals"
   | "reviewRequirementActionProposal"
   | "decideRequirementActionProposal">
-  & Partial<Pick<PromptEnhancerTransport, "getUserPresenceCapability">>;
+  & Partial<Pick<PromptEnhancerTransport,
+    | "getUserPresenceCapability"
+    | "reviewRequirementActionGuidedAuthoring"
+    | "submitRequirementActionGuidedAuthoring"
+  >>;
 
 type AuthorityOwner = {
   binding: string;
@@ -375,6 +380,7 @@ export function RequirementActionEvidencePanel({
   const [copyStatus, setCopyStatus] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
+  const [guidedMode, setGuidedMode] = useState(false);
   const sourceProjectionLabel = sourceProjectionVersion.replace(
     "metric-contract-v2-projection-",
     "r",
@@ -403,12 +409,24 @@ export function RequirementActionEvidencePanel({
         `${membership.candidate.action_id}:${membership.candidate_metadata_fingerprint_version}:${membership.candidate_metadata_fingerprint}`
       )).join("|")
   ), [review]);
+  // The reviewed-metadata reset is applied in the same render as the change, never in a later
+  // passive effect. A deferred reset would both commit one frame in which a stale acknowledgement
+  // and pending decision are still live, and silently discard an acknowledgement the person makes
+  // in that window against the already-displayed receipt.
+  const [acknowledgedMetadataBinding, setAcknowledgedMetadataBinding] = useState(reviewedMetadataBinding);
+  if (acknowledgedMetadataBinding !== reviewedMetadataBinding) {
+    setAcknowledgedMetadataBinding(reviewedMetadataBinding);
+    setAllItemsAcknowledged(false);
+    setPendingDecision(null);
+  }
   const capabilities = transport.getRequirementActionEvidenceContract !== undefined
     && transport.previewRequirementActionEvidence !== undefined
     && transport.importRequirementActionEvidence !== undefined
     && transport.listRequirementActionProposals !== undefined
     && transport.reviewRequirementActionProposal !== undefined
     && transport.decideRequirementActionProposal !== undefined;
+  const guidedCapabilities = transport.reviewRequirementActionGuidedAuthoring !== undefined
+    && transport.submitRequirementActionGuidedAuthoring !== undefined;
 
   useEffect(() => {
     operationRef.current?.abort();
@@ -426,6 +444,7 @@ export function RequirementActionEvidencePanel({
     setError("");
     setCopyStatus("");
     setLoadFailed(false);
+    setGuidedMode(false);
     if (!capabilities) return;
     if (!publicBindingInputCurrent(publicEvidenceBinding, publicEvidenceSource, sourceRunId)) {
       setError("The public requirement-action source marker and binding do not describe this exact selected run.");
@@ -513,11 +532,6 @@ export function RequirementActionEvidencePanel({
     return () => window.clearTimeout(timer);
   }, [loadedOwner, preview]);
 
-  useEffect(() => {
-    setAllItemsAcknowledged(false);
-    setPendingDecision(null);
-  }, [reviewedMetadataBinding]);
-
   const contextCurrent = sameOwner(loadedOwner, currentOwner);
   const currentContract = contextCurrent ? contract : null;
   const currentProposals = contextCurrent ? proposals : [];
@@ -541,6 +555,7 @@ export function RequirementActionEvidencePanel({
     preview: currentPreview,
     payload: currentPayload,
     review: currentReview,
+    guidedMode: contextCurrent && guidedMode,
     pendingDecision: currentPendingDecision,
     allItemsAcknowledged: contextCurrent && allItemsAcknowledged,
     confirmationAvailable: currentConfirmationAvailable,
@@ -552,6 +567,7 @@ export function RequirementActionEvidencePanel({
     preview: currentPreview,
     payload: currentPayload,
     review: currentReview,
+    guidedMode: contextCurrent && guidedMode,
     pendingDecision: currentPendingDecision,
     allItemsAcknowledged: contextCurrent && allItemsAcknowledged,
     confirmationAvailable: currentConfirmationAvailable,
@@ -606,6 +622,26 @@ export function RequirementActionEvidencePanel({
     setReview(null);
     setAllItemsAcknowledged(false);
     setPendingDecision(null);
+  }
+
+  function startGuidedAuthoring(
+    owner: AuthorityOwner,
+    selectedContract: RequirementActionEvidenceContract,
+  ): void {
+    if (
+      !sameOwner(owner, ownerRef.current)
+      || !exactLiveSurface(owner, selectedContract)
+      || authorityStateRef.current.contract !== selectedContract
+      || !authorityStateRef.current.confirmationAvailable
+      || !guidedCapabilities
+      || currentBusy
+    ) return;
+    operationRef.current?.abort();
+    setPreview(null);
+    setPayload(null);
+    clearReview();
+    setError("");
+    setGuidedMode(true);
   }
 
   function exactLiveSurface(
@@ -933,7 +969,7 @@ export function RequirementActionEvidencePanel({
           <h3>Reviewed requirement-to-action evidence</h3>
           <span>Canonical file → strict preview → inert proposal → complete local review → native decision</span>
         </div>
-        <small>This review appears only when the selected provider and sealed window expose complete safe-event plus ephemeral redacted-descriptor authority. It does not imply Codex support or shipped metric operability. Import can propose memberships; it cannot author state, proof, prose, paths, or a metric value.</small>
+        <small>This review is session-specific: it requires a complete compatible Claude transcript, a confirmed requirement plan, and reviewed requirement-action links with native confirmation. Hook-only and incomplete histories are not admitted. Traceability is not proof of task success. Import can propose memberships; it cannot author state, proof, prose, paths, or a metric value.</small>
       </header>
       <p className="requirement-action-evidence__public-state">{publicEvidenceStateLabel(publicEvidenceSource)}</p>
       {!capabilities ? (
@@ -953,6 +989,60 @@ export function RequirementActionEvidencePanel({
           {bindingInvalid && (
             <p className="metric-evidence-file__notice">The prior sealed {sourceProjectionLabel} requirement-action binding is invalid, not merely awaiting review. An exact current replacement proposal may be reviewed and confirmed as the recovery path; non-current proposals remain stale and rejection-only.</p>
           )}
+          {guidedCapabilities && !guidedMode && (
+            <section className="requirement-action-evidence__guided" aria-label="Guided local action authoring">
+              <h4>Guided local authoring</h4>
+              <p>Classify each requirement and map safe action candidates here; no external JSON or model is used. The resulting proposal remains inert until the separate native review and decision.</p>
+              <button
+                disabled={currentBusy || !currentConfirmationAvailable}
+                onClick={() => startGuidedAuthoring(currentOwner, currentContract)}
+                type="button"
+              >Start guided action authoring</button>
+            </section>
+          )}
+          {guidedMode && currentContract !== null && guidedCapabilities && (
+            <RequirementActionGuidedAuthoring
+              key={selectedBinding}
+              sessionId={sessionId}
+              contract={currentContract}
+              transport={transport}
+              enabled={currentConfirmationAvailable && !currentBusy}
+              onCreated={(proposal) => {
+                const state = authorityStateRef.current;
+                if (
+                  !sameOwner(currentOwner, ownerRef.current)
+                  || !sameOwner(currentOwner, state.owner)
+                  || state.contract !== currentContract
+                  || !state.guidedMode
+                  || !proposalCurrent(proposal, currentContract)
+                  || proposal.status !== "proposed"
+                  || proposal.decision_id !== null
+                  || proposal.decision !== null
+                  || proposal.decided_at !== null
+                  || proposal.confirmation_authority !== null
+                  || proposal.local_only !== true
+                  || proposal.content_persisted !== false
+                  || proposal.producer_receipt.kind !== "local_review_ui"
+                  || proposal.producer_receipt.authority !== "untrusted_local_authoring_commitment"
+                ) return;
+                setProposals((items) => [
+                  proposal,
+                  ...items.filter((item) => item.proposal_id !== proposal.proposal_id),
+                ]);
+                setGuidedMode(false);
+                setError("");
+              }}
+              onClosed={() => {
+                if (
+                  !sameOwner(currentOwner, ownerRef.current)
+                  || !exactLiveSurface(currentOwner, currentContract)
+                  || !authorityStateRef.current.guidedMode
+                ) return;
+                setGuidedMode(false);
+              }}
+            />
+          )}
+          {!guidedMode && <>
           {publicEvidenceBinding !== undefined && (
             <details className="requirement-action-evidence__receipts">
               <summary>Exact public evidence binding receipts</summary>
@@ -1191,6 +1281,7 @@ export function RequirementActionEvidencePanel({
             <p role="status">Owned native user presence is unavailable. Files may be previewed and imported as inert proposals, but review and decisions are disabled.</p>
           )}
           {currentError !== "" && <p className="metric-evidence-file__error" role="alert">{currentError}</p>}
+          </>}
         </>
       )}
     </section>

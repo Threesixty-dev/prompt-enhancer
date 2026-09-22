@@ -108,6 +108,19 @@ def test_requirement_acceptance_is_one_exact_native_safe_action() -> None:
     assert manager.action_label("POST", f"{path}/extra") is None
 
 
+def test_requirement_verification_review_is_one_exact_native_safe_action() -> None:
+    manager = UserPresenceApprovalManager()
+    path = (
+        f"/v1/sessions/{SESSION}/requirement-verification-evidence/"
+        f"opportunity-sets/{'3' * 64}/opportunities/{'4' * 64}/review"
+    )
+    assert manager.action_label("POST", path) == (
+        "Open the exact current local clause for one verification opportunity"
+    )
+    assert manager.action_label("GET", path) is None
+    assert manager.action_label("POST", f"{path}/extra") is None
+
+
 @pytest.mark.parametrize(
     "path",
     (

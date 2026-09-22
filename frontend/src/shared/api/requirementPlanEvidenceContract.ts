@@ -395,9 +395,12 @@ function producerReceipt(value: unknown) {
   const item = record(value);
   exact(item, ["kind", "claim_fingerprint", "authority", "raw_claim_persisted"]);
   if (
-    item.kind !== "local_coding_agent"
+    !["local_coding_agent", "local_review_ui"].includes(String(item.kind))
     || !safeId(item.claim_fingerprint)
-    || item.authority !== "untrusted_provenance_claim_commitment"
+    || !(
+      (item.kind === "local_coding_agent" && item.authority === "untrusted_provenance_claim_commitment")
+      || (item.kind === "local_review_ui" && item.authority === "untrusted_local_authoring_commitment")
+    )
     || item.raw_claim_persisted !== false
   ) throw new RequirementPlanEvidencePayloadError();
   return item;

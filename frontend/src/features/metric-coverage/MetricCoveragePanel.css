@@ -27,6 +27,19 @@
   color: var(--ink-muted);
 }
 
+.metric-coverage-panel__request-status {
+  color: var(--ink-muted);
+  margin: 16px 0 0;
+}
+
+.metric-coverage-panel__request-status p {
+  margin: 4px 0;
+}
+
+.metric-coverage-panel__actions {
+  margin-top: 14px;
+}
+
 .metric-coverage-panel__totals {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

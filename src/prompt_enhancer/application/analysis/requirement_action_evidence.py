@@ -76,6 +76,12 @@ REQUIREMENT_ACTION_IMPORT_CONFIRMATION = (
 REQUIREMENT_ACTION_REVIEW_CONFIRMATION = (
     "open_exact_local_requirement_action_review"
 )
+REQUIREMENT_ACTION_GUIDED_AUTHORING_CONFIRMATION = (
+    "open_exact_local_requirement_action_guided_authoring"
+)
+REQUIREMENT_ACTION_GUIDED_AUTHORING_CONTRACT_VERSION = (
+    "requirement-action-guided-authoring-v1"
+)
 REQUIREMENT_ACTION_DECISION_CONFIRMATION = (
     "decide_exact_reviewed_requirement_action_proposal"
 )
@@ -921,6 +927,86 @@ class RequirementActionProposalReview(StrictModel):
         return self
 
 
+class RequirementActionGuidedAuthoringCommand(StrictModel):
+    """Content-free local UI graph, bound to one ephemeral source review."""
+
+    expected_source_run_id: str
+    source_window_fingerprint: str
+    requirement_plan_confirmation_id: str
+    requirement_plan_evidence_fingerprint: str
+    candidate_manifest_fingerprint: str
+    expected_predecessor_confirmation_id: str | None = None
+    authoring_receipt_id: str
+    links: tuple[RequirementActionLinkEntry, ...] = Field(
+        max_length=MAX_REQUIREMENT_ACTION_REQUIREMENTS
+    )
+    complete_requirement_link_classification_acknowledged: Literal[True]
+
+    _ids = field_validator(
+        "expected_source_run_id", "source_window_fingerprint",
+        "requirement_plan_confirmation_id", "requirement_plan_evidence_fingerprint",
+        "candidate_manifest_fingerprint", "authoring_receipt_id",
+    )(_pseudonym)
+
+    @field_validator("expected_predecessor_confirmation_id")
+    @classmethod
+    def optional_predecessor(cls, value: str | None) -> str | None:
+        return None if value is None else _pseudonym(value)
+
+
+class RequirementActionGuidedAuthoringReview(StrictModel):
+    contract_version: Literal[REQUIREMENT_ACTION_GUIDED_AUTHORING_CONTRACT_VERSION] = (
+        REQUIREMENT_ACTION_GUIDED_AUTHORING_CONTRACT_VERSION
+    )
+    session_id: str
+    source_run_id: str
+    source_window_fingerprint: str
+    requirement_plan_confirmation_id: str
+    requirement_plan_evidence_fingerprint: str
+    candidate_manifest_fingerprint: str
+    expected_predecessor_confirmation_id: str | None = None
+    authoring_receipt_id: str
+    descriptor_set_fingerprint: str
+    requirements: tuple[RequirementActionReviewRequirement, ...] = Field(
+        max_length=MAX_REQUIREMENT_ACTION_REQUIREMENTS
+    )
+    candidates: tuple[RequirementActionCandidate, ...] = Field(
+        max_length=MAX_REQUIREMENT_ACTION_CANDIDATES
+    )
+    candidate_memberships: tuple[RequirementActionReviewCandidate, ...] = Field(
+        max_length=MAX_REQUIREMENT_ACTION_CANDIDATES
+    )
+    review_context_expires_at: datetime
+    authoring_receipt_expires_at: datetime
+    all_requirements_and_candidates_included: Literal[True] = True
+    raw_text_persisted: Literal[False] = False
+    local_only: Literal[True] = True
+
+    _ids = field_validator(
+        "session_id", "source_run_id", "source_window_fingerprint",
+        "requirement_plan_confirmation_id", "requirement_plan_evidence_fingerprint",
+        "candidate_manifest_fingerprint", "authoring_receipt_id",
+        "descriptor_set_fingerprint",
+    )(_pseudonym)
+
+    @field_validator("expected_predecessor_confirmation_id")
+    @classmethod
+    def optional_predecessor(cls, value: str | None) -> str | None:
+        return None if value is None else _pseudonym(value)
+
+    _times = field_validator("review_context_expires_at", "authoring_receipt_expires_at")(_utc)
+
+    @model_validator(mode="after")
+    def exact_surface(self) -> "RequirementActionGuidedAuthoringReview":
+        if tuple(item.candidate for item in self.candidate_memberships) != self.candidates:
+            raise ValueError("guided authoring memberships must cover candidates")
+        if any(item.linked_action_ids for item in self.requirements) or any(
+            item.linked_requirement_ids for item in self.candidate_memberships
+        ):
+            raise ValueError("guided authoring must not claim unsaved links")
+        return self
+
+
 class RequirementActionProposalPageSnapshot(StrictModel):
     snapshot_id: str
     total: int = Field(ge=0, le=1_000_000)
@@ -1505,6 +1591,21 @@ class _RequirementActionReviewReceiptEntry:
     expires_monotonic: float
 
 
+@dataclass(frozen=True, slots=True)
+class _RequirementActionGuidedAuthoringReceiptEntry:
+    session_id: str
+    source_run_id: str
+    source_window_fingerprint: str
+    requirement_plan_confirmation_id: str
+    requirement_plan_evidence_fingerprint: str
+    candidate_manifest_fingerprint: str
+    expected_predecessor_confirmation_id: str | None
+    descriptor_set_fingerprint: str
+    candidate_set_fingerprint: str
+    expires_at: datetime
+    expires_monotonic: float
+
+
 class InMemoryRequirementActionReviewContextStore:
     """TTL-only source text and exact one-shot native review receipts."""
 
@@ -1542,6 +1643,10 @@ class InMemoryRequirementActionReviewContextStore:
             str, _RequirementActionReviewReceiptEntry
         ] = OrderedDict()
         self._receipt_tombstones: OrderedDict[str, str] = OrderedDict()
+        self._authoring_receipts: OrderedDict[
+            str, _RequirementActionGuidedAuthoringReceiptEntry
+        ] = OrderedDict()
+        self._authoring_receipt_tombstones: OrderedDict[str, str] = OrderedDict()
         self._lock = Lock()
 
     def publish(
@@ -1757,6 +1862,161 @@ class InMemoryRequirementActionReviewContextStore:
             review_context_expires_at=entry.expires_at,
             review_receipt_expires_at=receipt_expires_at,
         )
+
+    def open_guided_authoring(
+        self,
+        *,
+        session_id: str,
+        source_run_id: str,
+        source_window_fingerprint: str,
+        requirement_plan_confirmation_id: str,
+        requirement_plan_evidence_fingerprint: str,
+        candidate_manifest_fingerprint: str,
+        expected_predecessor_confirmation_id: str | None,
+    ) -> RequirementActionGuidedAuthoringReview:
+        """Issue a one-shot receipt for a complete, local-only authoring surface."""
+        with self._lock:
+            now = _utc(self._clock())
+            monotonic_now = self._monotonic_clock()
+            self._expire_locked(now, monotonic_now)
+            entry = self._entries.get(source_run_id)
+            if entry is None:
+                raise RequirementActionNotFoundError(
+                    "fresh ephemeral requirement-action review context is required"
+                )
+            requirements, memberships = self._authoring_surface(entry)
+            plan = entry.requirement_plan_evidence
+            if (
+                entry.context.session_id != session_id
+                or entry.context.analysis_window_fingerprint != source_window_fingerprint
+                or plan.confirmation_id != requirement_plan_confirmation_id
+                or entry.requirement_plan_evidence_fingerprint
+                != requirement_plan_evidence_fingerprint
+                or entry.candidate_manifest.manifest_fingerprint
+                != candidate_manifest_fingerprint
+            ):
+                raise RequirementActionConflictError(
+                    "guided requirement-action authoring source changed"
+                )
+            descriptor_set_fingerprint = self._descriptor_set_fingerprint(memberships)
+            candidate_set_fingerprint = self._candidate_set_fingerprint(
+                requirements, memberships
+            )
+            receipt_expires_at = min(
+                entry.expires_at, now + REQUIREMENT_ACTION_REVIEW_RECEIPT_TTL
+            )
+            receipt_id = self._token_factory()
+            _pseudonym(receipt_id)
+            if (
+                receipt_id in self._receipts
+                or receipt_id in self._receipt_tombstones
+                or receipt_id in self._authoring_receipts
+                or receipt_id in self._authoring_receipt_tombstones
+            ):
+                raise RequirementActionConflictError(
+                    "guided requirement-action authoring receipt identity collided"
+                )
+            self._authoring_receipts[receipt_id] = (
+                _RequirementActionGuidedAuthoringReceiptEntry(
+                    session_id=session_id,
+                    source_run_id=source_run_id,
+                    source_window_fingerprint=source_window_fingerprint,
+                    requirement_plan_confirmation_id=requirement_plan_confirmation_id,
+                    requirement_plan_evidence_fingerprint=(
+                        requirement_plan_evidence_fingerprint
+                    ),
+                    candidate_manifest_fingerprint=candidate_manifest_fingerprint,
+                    expected_predecessor_confirmation_id=(
+                        expected_predecessor_confirmation_id
+                    ),
+                    descriptor_set_fingerprint=descriptor_set_fingerprint,
+                    candidate_set_fingerprint=candidate_set_fingerprint,
+                    expires_at=receipt_expires_at,
+                    expires_monotonic=(
+                        monotonic_now
+                        + min(
+                            REQUIREMENT_ACTION_REVIEW_RECEIPT_TTL.total_seconds(),
+                            max(0.0, (entry.expires_at - now).total_seconds()),
+                        )
+                    ),
+                )
+            )
+            while len(self._authoring_receipts) > self._max_active_receipts:
+                expired_id, _entry = self._authoring_receipts.popitem(last=False)
+                self._tombstone_authoring_receipt_locked(expired_id, "expired")
+            return RequirementActionGuidedAuthoringReview(
+                session_id=session_id,
+                source_run_id=source_run_id,
+                source_window_fingerprint=source_window_fingerprint,
+                requirement_plan_confirmation_id=requirement_plan_confirmation_id,
+                requirement_plan_evidence_fingerprint=(
+                    requirement_plan_evidence_fingerprint
+                ),
+                candidate_manifest_fingerprint=candidate_manifest_fingerprint,
+                expected_predecessor_confirmation_id=(
+                    expected_predecessor_confirmation_id
+                ),
+                authoring_receipt_id=receipt_id,
+                descriptor_set_fingerprint=descriptor_set_fingerprint,
+                requirements=requirements,
+                candidates=entry.candidate_manifest.actions,
+                candidate_memberships=memberships,
+                review_context_expires_at=entry.expires_at,
+                authoring_receipt_expires_at=receipt_expires_at,
+            )
+
+    def consume_guided_authoring_receipt(
+        self,
+        *,
+        session_id: str,
+        command: RequirementActionGuidedAuthoringCommand,
+    ) -> None:
+        now = _utc(self._clock())
+        monotonic_now = self._monotonic_clock()
+        with self._lock:
+            self._expire_locked(now, monotonic_now)
+            receipt = self._authoring_receipts.pop(command.authoring_receipt_id, None)
+            self._tombstone_authoring_receipt_locked(
+                command.authoring_receipt_id, "consumed"
+            )
+            entry = self._entries.get(command.expected_source_run_id)
+            if receipt is None or entry is None:
+                raise RequirementActionConflictError(
+                    "guided requirement-action authoring receipt is unavailable"
+                )
+            requirements, memberships = self._authoring_surface(entry)
+            exact = (
+                receipt.expires_at > now
+                and receipt.expires_monotonic > monotonic_now
+                and receipt.session_id == session_id
+                and receipt.source_run_id == command.expected_source_run_id
+                and receipt.source_window_fingerprint == command.source_window_fingerprint
+                and receipt.requirement_plan_confirmation_id
+                == command.requirement_plan_confirmation_id
+                and receipt.requirement_plan_evidence_fingerprint
+                == command.requirement_plan_evidence_fingerprint
+                and receipt.candidate_manifest_fingerprint
+                == command.candidate_manifest_fingerprint
+                and receipt.expected_predecessor_confirmation_id
+                == command.expected_predecessor_confirmation_id
+                and entry.context.session_id == session_id
+                and entry.context.analysis_window_fingerprint
+                == command.source_window_fingerprint
+                and entry.requirement_plan_evidence.confirmation_id
+                == command.requirement_plan_confirmation_id
+                and entry.requirement_plan_evidence_fingerprint
+                == command.requirement_plan_evidence_fingerprint
+                and entry.candidate_manifest.manifest_fingerprint
+                == command.candidate_manifest_fingerprint
+                and receipt.descriptor_set_fingerprint
+                == self._descriptor_set_fingerprint(memberships)
+                and receipt.candidate_set_fingerprint
+                == self._candidate_set_fingerprint(requirements, memberships)
+            )
+        if not exact:
+            raise RequirementActionConflictError(
+                "guided requirement-action authoring receipt binding changed"
+            )
 
     def consume_review_receipt(
         self,
@@ -2018,6 +2278,64 @@ class InMemoryRequirementActionReviewContextStore:
         )
         return tuple(requirements), memberships
 
+    @classmethod
+    def _authoring_surface(
+        cls,
+        entry: _RequirementActionReviewContextEntry,
+    ) -> tuple[
+        tuple[RequirementActionReviewRequirement, ...],
+        tuple[RequirementActionReviewCandidate, ...],
+    ]:
+        """Render the same protected source with no proposed memberships."""
+        cls._validate_manifest(entry.candidate_manifest)
+        if cls._validate_action_descriptors(
+            entry.context, entry.candidate_manifest
+        ) != entry.action_descriptors:
+            raise RequirementActionConflictError(
+                "guided requirement-action descriptors changed"
+            )
+        messages = {item.sequence: item for item in entry.context.messages}
+        requirements: list[RequirementActionReviewRequirement] = []
+        for item in entry.requirement_plan_evidence.requirements:
+            message = messages.get(item.coordinate.message_sequence)
+            if (
+                message is None
+                or message.role is not TextRole.USER
+                or message.kind
+                not in {TextMessageKind.REQUEST, TextMessageKind.FEEDBACK}
+            ):
+                raise RequirementActionConflictError(
+                    "guided requirement coordinate is unavailable"
+                )
+            try:
+                text = reviewable_message_clauses(message.text.get_secret_value())[item.coordinate.clause_index]
+            except (IndexError, ValueError):
+                raise RequirementActionConflictError(
+                    "guided requirement coordinate changed"
+                ) from None
+            requirements.append(
+                RequirementActionReviewRequirement(
+                    requirement_id=item.requirement_id,
+                    coordinate=item.coordinate,
+                    text=_visible_review_display(text, max_length=MAX_REDACTED_MESSAGE_CHARACTERS),
+                )
+            )
+        memberships = tuple(
+            RequirementActionReviewCandidate(
+                candidate=candidate,
+                candidate_metadata_fingerprint_version=ACTION_CANDIDATE_METADATA_FINGERPRINT_VERSION,
+                candidate_metadata_fingerprint=descriptor.candidate_metadata_fingerprint,
+                tool_name=_visible_review_display(descriptor.tool_name.get_secret_value(), max_length=MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS),
+                invocation_preview=_visible_review_display(descriptor.invocation_preview.get_secret_value(), max_length=MAX_ACTION_REVIEW_PREVIEW_CHARACTERS),
+                result_or_effect_preview=(None if descriptor.result_or_effect_preview is None else _visible_review_display(descriptor.result_or_effect_preview.get_secret_value(), max_length=MAX_ACTION_REVIEW_PREVIEW_CHARACTERS)),
+                redactor_version=descriptor.redactor_version,
+            )
+            for candidate, descriptor in zip(
+                entry.candidate_manifest.actions, entry.action_descriptors, strict=True
+            )
+        )
+        return tuple(requirements), memberships
+
     def _candidate_set_fingerprint(
         self,
         requirements: tuple[RequirementActionReviewRequirement, ...],
@@ -2104,12 +2422,25 @@ class InMemoryRequirementActionReviewContextStore:
         for key in expired_receipts:
             del self._receipts[key]
             self._tombstone_receipt_locked(key, "expired")
+        expired_authoring = tuple(
+            key for key, entry in self._authoring_receipts.items()
+            if now >= entry.expires_at or monotonic_now >= entry.expires_monotonic
+        )
+        for key in expired_authoring:
+            del self._authoring_receipts[key]
+            self._tombstone_authoring_receipt_locked(key, "expired")
 
     def _tombstone_receipt_locked(self, receipt_id: str, state: str) -> None:
         self._receipt_tombstones[receipt_id] = state
         self._receipt_tombstones.move_to_end(receipt_id)
         while len(self._receipt_tombstones) > 64:
             self._receipt_tombstones.popitem(last=False)
+
+    def _tombstone_authoring_receipt_locked(self, receipt_id: str, state: str) -> None:
+        self._authoring_receipt_tombstones[receipt_id] = state
+        self._authoring_receipt_tombstones.move_to_end(receipt_id)
+        while len(self._authoring_receipt_tombstones) > 64:
+            self._authoring_receipt_tombstones.popitem(last=False)
 
 
 class RequirementActionSealedRunRepository(Protocol):
@@ -2277,6 +2608,175 @@ class RequirementActionEvidenceService:
             expires_at=parsed.expires_at,
             producer=parsed.producer,
         )
+
+    def open_guided_authoring(
+        self,
+        *,
+        session_id: str,
+        expected_source_run_id: str,
+        source_window_fingerprint: str,
+        requirement_plan_confirmation_id: str,
+        requirement_plan_evidence_fingerprint: str,
+        candidate_manifest_fingerprint: str,
+        expected_predecessor_confirmation_id: str | None,
+    ) -> RequirementActionGuidedAuthoringReview:
+        if self._review_contexts is None:
+            raise RequirementActionPersistenceError(
+                "ephemeral requirement-action review is unavailable"
+            )
+        source = self._current_source(session_id)
+        requirement_fingerprint = requirement_plan_snapshot_fingerprint(
+            source.requirement_plan_evidence, self._identifiers
+        )
+        current = self._snapshot(session_id, source.source_window_fingerprint)
+        if (
+            expected_source_run_id != source.expected_source_run_id
+            or source_window_fingerprint != source.source_window_fingerprint
+            or requirement_plan_confirmation_id
+            != source.requirement_plan_evidence.confirmation_id
+            or requirement_plan_evidence_fingerprint != requirement_fingerprint
+            or candidate_manifest_fingerprint
+            != source.candidate_manifest.manifest_fingerprint
+            or expected_predecessor_confirmation_id != current.confirmation_id
+        ):
+            raise RequirementActionStaleWindowError(
+                "guided requirement-action authoring source changed"
+            )
+        return self._review_contexts.open_guided_authoring(
+            session_id=session_id,
+            source_run_id=expected_source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+            requirement_plan_confirmation_id=requirement_plan_confirmation_id,
+            requirement_plan_evidence_fingerprint=(
+                requirement_plan_evidence_fingerprint
+            ),
+            candidate_manifest_fingerprint=candidate_manifest_fingerprint,
+            expected_predecessor_confirmation_id=(
+                expected_predecessor_confirmation_id
+            ),
+        )
+
+    def create_guided_authoring_proposal(
+        self,
+        *,
+        session_id: str,
+        command: RequirementActionGuidedAuthoringCommand,
+        idempotency_key: str,
+    ) -> tuple[RequirementActionProposalView, bool]:
+        """Persist only an inert local-UI graph after its exact source receipt."""
+        if self._review_contexts is None:
+            raise RequirementActionPersistenceError(
+                "ephemeral requirement-action review is unavailable"
+            )
+        source = self._current_source(session_id)
+        self._bind_guided_command(command, source)
+        current = self._snapshot(session_id, source.source_window_fingerprint)
+        if command.expected_predecessor_confirmation_id != current.confirmation_id:
+            raise RequirementActionConflictError(
+                "requirement-action predecessor changed"
+            )
+        self._validate_idempotency(session_id, idempotency_key)
+        idempotency_digest = self._identifiers.fingerprint(
+            "requirement-action-guided-authoring-idempotency-v1",
+            (session_id, idempotency_key),
+        )
+        proposal_id = self._identifiers.fingerprint(
+            "requirement-action-proposal-v1", (session_id, idempotency_digest)
+        )
+        command_fingerprint = self._identifiers.fingerprint(
+            "requirement-action-guided-authoring-command-v1",
+            (
+                session_id, command.expected_source_run_id,
+                command.source_window_fingerprint,
+                command.requirement_plan_confirmation_id,
+                command.requirement_plan_evidence_fingerprint,
+                command.candidate_manifest_fingerprint,
+                command.expected_predecessor_confirmation_id or "none",
+                self._guided_command_digest(command),
+            ),
+        )
+        existing = self._repository.get_proposal(proposal_id)
+        if existing is not None:
+            record = existing.proposal
+            if (
+                record.session_id == session_id
+                and record.idempotency_key_digest == idempotency_digest
+                and record.command_fingerprint == command_fingerprint
+            ):
+                return existing, False
+            raise RequirementActionConflictError(
+                "requirement-action idempotency key belongs to another proposal"
+            )
+        self._review_contexts.consume_guided_authoring_receipt(
+            session_id=session_id, command=command
+        )
+        if (
+            self._snapshot(session_id, source.source_window_fingerprint).confirmation_id
+            != command.expected_predecessor_confirmation_id
+        ):
+            raise RequirementActionConflictError(
+                "requirement-action predecessor changed"
+            )
+        requirements = self._source_requirements(source)
+        candidates = source.candidate_manifest.actions
+        links = tuple(
+            ConfirmedRequirementActionLink(
+                requirement_id=requirements[item.requirement_index].requirement_id,
+                action_ids=tuple(
+                    sorted(
+                        candidates[index].action_id
+                        for index in item.action_candidate_indexes
+                    )
+                ),
+            )
+            for item in command.links
+        )
+        record = RequirementActionProposalRecord(
+            proposal_id=proposal_id,
+            session_id=session_id,
+            source_run_id=source.expected_source_run_id,
+            source_window_fingerprint=source.source_window_fingerprint,
+            requirement_plan_confirmation_id=command.requirement_plan_confirmation_id,
+            requirement_plan_evidence_fingerprint=(
+                command.requirement_plan_evidence_fingerprint
+            ),
+            candidate_manifest_fingerprint=source.candidate_manifest.manifest_fingerprint,
+            candidate_provenance=source.candidate_manifest.provenance,
+            candidate_extraction_complete=source.candidate_manifest.extraction_complete,
+            candidate_enumeration_complete=source.candidate_manifest.enumeration_complete,
+            expected_predecessor_confirmation_id=(
+                command.expected_predecessor_confirmation_id
+            ),
+            payload_sha256=self._guided_command_digest(command),
+            idempotency_key_digest=idempotency_digest,
+            command_fingerprint=command_fingerprint,
+            producer_receipt=RequirementPlanProducerReceipt(
+                kind="local_review_ui",
+                claim_fingerprint=self._identifiers.fingerprint(
+                    "requirement-action-guided-authoring-claim-v1",
+                    (
+                        session_id, command.expected_source_run_id,
+                        command.source_window_fingerprint,
+                        command.requirement_plan_confirmation_id,
+                        command.requirement_plan_evidence_fingerprint,
+                        command.candidate_manifest_fingerprint,
+                    ),
+                ),
+                authority="untrusted_local_authoring_commitment",
+            ),
+            requirements=requirements,
+            candidates=candidates,
+            links=links,
+            created_at=_utc(self._clock()),
+        )
+        try:
+            return self._repository.issue_proposal(record)
+        except RequirementActionConflictError:
+            raise
+        except Exception:
+            raise RequirementActionPersistenceError(
+                "guided requirement-action proposal could not be stored"
+            ) from None
 
     def import_file(
         self,
@@ -2735,6 +3235,55 @@ class RequirementActionEvidenceService:
                 "requirement-action link references an absent candidate"
             )
 
+    def _bind_guided_command(
+        self,
+        command: RequirementActionGuidedAuthoringCommand,
+        source: RequirementActionSourceContract,
+    ) -> None:
+        requirement_fingerprint = requirement_plan_snapshot_fingerprint(
+            source.requirement_plan_evidence, self._identifiers
+        )
+        manifest = source.candidate_manifest
+        if (
+            command.expected_source_run_id != source.expected_source_run_id
+            or command.source_window_fingerprint != source.source_window_fingerprint
+            or command.requirement_plan_confirmation_id
+            != source.requirement_plan_evidence.confirmation_id
+            or command.requirement_plan_evidence_fingerprint != requirement_fingerprint
+            or command.candidate_manifest_fingerprint != manifest.manifest_fingerprint
+        ):
+            raise RequirementActionStaleWindowError(
+                "guided requirement-action command is bound to another source"
+            )
+        requirements = self._source_requirements(source)
+        if (
+            len(command.links) != len(requirements)
+            or tuple(item.requirement_index for item in command.links)
+            != tuple(range(len(requirements)))
+        ):
+            raise RequirementActionInputError(
+                "every active requirement must be classified exactly once"
+            )
+        if any(
+            action_index >= len(manifest.actions)
+            for link in command.links
+            for action_index in link.action_candidate_indexes
+        ):
+            raise RequirementActionInputError(
+                "requirement-action link references an absent candidate"
+            )
+
+    @staticmethod
+    def _guided_command_digest(command: RequirementActionGuidedAuthoringCommand) -> str:
+        """Digest only content-free graph coordinates; never retain display text."""
+        payload = json.dumps(
+            command.model_dump(mode="json", exclude={"authoring_receipt_id"}),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("ascii")
+        return hashlib.sha256(payload).hexdigest()
+
     def _get_owned_proposal(
         self, session_id: str, proposal_id: str
     ) -> RequirementActionProposalView:
@@ -2872,6 +3421,8 @@ __all__ = [
     "REQUIREMENT_ACTION_EVIDENCE_POLICY_VERSION",
     "REQUIREMENT_ACTION_EVIDENCE_SCHEMA_VERSION",
     "REQUIREMENT_ACTION_IMPORT_CONFIRMATION",
+    "REQUIREMENT_ACTION_GUIDED_AUTHORING_CONFIRMATION",
+    "REQUIREMENT_ACTION_GUIDED_AUTHORING_CONTRACT_VERSION",
     "REQUIREMENT_ACTION_METRIC_KEY",
     "REQUIREMENT_ACTION_REVIEW_CONFIRMATION",
     "REQUIREMENT_ACTION_REVIEW_RUBRIC_VERSION",
@@ -2890,6 +3441,8 @@ __all__ = [
     "RequirementActionEvidencePreview",
     "RequirementActionEvidenceService",
     "RequirementActionEvidenceSnapshot",
+    "RequirementActionGuidedAuthoringCommand",
+    "RequirementActionGuidedAuthoringReview",
     "RequirementActionIdFactory",
     "RequirementActionInputError",
     "RequirementActionLinkEntry",

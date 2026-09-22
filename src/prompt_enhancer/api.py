@@ -51,6 +51,8 @@ from .application.analysis.requirement_action_evidence import (
 from .application.analysis.requirement_verification_persistence import (
     RequirementVerificationEvidenceService,
 )
+from .application.analysis.claim_grounding_review import ClaimGroundingReviewService
+from .application.analysis.claim_grounding_census import DurableClaimGroundingCensusService
 from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
@@ -77,6 +79,8 @@ from .config import (
 from .domain import PSEUDONYM_PATTERN, Provider, StrictModel
 from .application.control_plane import ControlPlaneService, PrincipalResolver
 from .application.paid_product.contracts import ProductReadiness
+from .application.paid_product.checkout import CheckoutService
+from .interfaces.http.paid_checkout_routes import PaidPrincipalResolver
 from .application.social.contracts import SocialReadiness
 from .application.social.ports import SocialPrincipalResolver
 from .application.social.service import SocialService
@@ -109,6 +113,8 @@ from .interfaces.http import (
     create_task_query_router,
     create_task_lifecycle_router,
     create_paid_product_readiness_router,
+    create_stripe_testmode_webhook_router,
+    create_paid_checkout_router,
     create_social_mutation_router,
     create_social_readiness_router,
 )
@@ -123,6 +129,14 @@ from .interfaces.http.requirement_action_evidence_routes import (
 )
 from .interfaces.http.requirement_verification_evidence_routes import (
     create_requirement_verification_evidence_router,
+)
+from .interfaces.http.claim_grounding_review_routes import (
+    create_claim_grounding_review_router,
+)
+from .application.analysis.claim_grounding_link_review import ClaimGroundingLinkReviewService
+from .interfaces.http.claim_grounding_link_review_routes import create_claim_grounding_link_review_router
+from .interfaces.http.claim_grounding_census_routes import (
+    create_claim_grounding_census_router,
 )
 from .interfaces.http.browser_session import (
     BROWSER_SESSION_COOKIE,
@@ -479,6 +493,9 @@ def create_app(
     requirement_verification_evidence_service: (
         RequirementVerificationEvidenceService | None
     ) = None,
+    claim_grounding_review_service: ClaimGroundingReviewService | None = None,
+    claim_grounding_link_review_service: ClaimGroundingLinkReviewService | None = None,
+    claim_grounding_census_service: DurableClaimGroundingCensusService | None = None,
     task_analysis_service: TaskAnalysisCommandService | None = None,
     session_text_analysis_service: SessionTextAnalysisService | None = None,
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
@@ -525,6 +542,10 @@ def create_app(
     control_plane_service: ControlPlaneService | None = None,
     control_plane_principal_resolver: PrincipalResolver | None = None,
     paid_product_readiness: ProductReadiness | None = None,
+    stripe_testmode_webhook_service=None,
+    stripe_testmode_clock=None,
+    paid_checkout_service: CheckoutService | None = None,
+    paid_principal_resolver: PaidPrincipalResolver | None = None,
     social_readiness: SocialReadiness | None = None,
     social_service: SocialService | None = None,
     social_principal_resolver: SocialPrincipalResolver | None = None,
@@ -614,6 +635,16 @@ def create_app(
                     service.shutdown()
                 except Exception:
                     cleanup_failures.append(component)
+            if claim_grounding_review_service is not None:
+                try:
+                    claim_grounding_review_service.close()
+                except Exception:
+                    cleanup_failures.append(RuntimeComponent.CLAIM_GROUNDING_REVIEW_SERVICE)
+            if claim_grounding_link_review_service is not None:
+                try:
+                    claim_grounding_link_review_service.close()
+                except Exception:
+                    cleanup_failures.append(RuntimeComponent.CLAIM_GROUNDING_LINK_REVIEW_SERVICE)
             try:
                 resolved_application_update_service.shutdown()
             except Exception:
@@ -727,6 +758,7 @@ def create_app(
                 "/requirement-plan-evidence",
                 "/requirement-action-evidence",
                 "/requirement-verification-evidence",
+                "/claim-grounding-review",
                 "/declared-task-profile",
                 "/agent/",
                 "/local-ui/workspace-folder-picker",
@@ -1218,9 +1250,19 @@ def create_app(
                 control_plane_principal_resolver,
             )
         )
-    # Readiness is intentionally the only paid-product browser surface. Both
-    # an exact operator opt-in and an explicitly composed receipt are required;
-    # identity, billing, approval, and hosted-analysis commands stay unmounted.
+    if (resolved_settings.paid_product_development_api and paid_checkout_service is not None
+            and paid_principal_resolver is not None):
+        app.include_router(create_paid_checkout_router(require_local_token, paid_checkout_service, paid_principal_resolver))
+    if stripe_testmode_webhook_service is not None:
+        app.include_router(
+            create_stripe_testmode_webhook_router(
+                stripe_testmode_webhook_service, clock=stripe_testmode_clock
+            )
+        )
+    # Readiness is the only self-composed paid-product browser surface.  An
+    # injected development checkout route remains separately opt-in and needs
+    # a server-side principal resolver; production identity/billing never
+    # self-compose from a browser token alone.
     if (
         paid_product_readiness is not None
         and resolved_settings.paid_product_development_api
@@ -1442,6 +1484,25 @@ def create_app(
                 require_local_token,
                 require_requirement_acceptance_confirmation,
                 requirement_verification_evidence_service,
+                getattr(requirement_verification_evidence_service, "review_service", None),
+            )
+        )
+    if claim_grounding_review_service is not None:
+        app.include_router(
+            create_claim_grounding_review_router(
+                require_local_token,
+                require_browser_user_confirmation,
+                claim_grounding_review_service,
+            )
+        )
+    if claim_grounding_link_review_service is not None:
+        app.include_router(create_claim_grounding_link_review_router(require_local_token, require_browser_user_confirmation, claim_grounding_link_review_service))
+    if claim_grounding_census_service is not None:
+        app.include_router(
+            create_claim_grounding_census_router(
+                require_local_token,
+                require_browser_user_confirmation,
+                claim_grounding_census_service,
             )
         )
     if declared_task_profile_service is not None:

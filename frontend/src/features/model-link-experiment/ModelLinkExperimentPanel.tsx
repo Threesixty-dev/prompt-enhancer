@@ -105,9 +105,7 @@ function capabilityBlocker(
     return "This local installation cannot run selected-session text experiments.";
   }
   if (compatibilityLoading) return "Checking installed-schema compatibility.";
-  return promptTextCompatibilityBlocker(compatibility) === null
-    ? null
-    : "The experiment is paused until installed-schema compatibility is ready.";
+  return promptTextCompatibilityBlocker(compatibility);
 }
 
 function recommendationLabel(value: "qwen" | "bge" | "both"): string {

@@ -58,6 +58,7 @@
 .prompt-plot__area { fill: var(--pa-47-143-91-220); stroke: var(--p-2f8f5b); stroke-width: 2; }
 .prompt-plot__dot { fill: var(--p-2f8f5b); }
 .prompt-plot__dot--unknown { fill: none; stroke: var(--p-9aa3ae); stroke-width: 1.5; }
+.prompt-plot__segment { fill: none; stroke: var(--p-2f8f5b); stroke-width: 2; }
 .prompt-plot__label, .prompt-plot__tick { font-size: 10px; fill: var(--ink-600, var(--p-4a5361)); }
 .prompt-plot__series polyline { stroke-width: 2; }
 .prompt-plot__series--0 polyline, .prompt-plot__series--0 circle, .prompt-plot__series--0 i { stroke: var(--p-2f8f5b); fill: var(--p-2f8f5b); background: var(--p-2f8f5b); }

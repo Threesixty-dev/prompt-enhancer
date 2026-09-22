@@ -352,6 +352,7 @@ function McpCatalogSkeleton() {
 function McpReviewOption({
   busy,
   canPrepare,
+  prepareDisabledReason,
   managed,
   onOpenManaged,
   onPrepare,
@@ -360,6 +361,7 @@ function McpReviewOption({
 }: {
   busy: boolean;
   canPrepare: boolean;
+  prepareDisabledReason: string | null;
   managed: McpManagedServer | null;
   onOpenManaged: (server: McpManagedServer) => void;
   onPrepare: (option: McpRegistryInstallOption) => void;
@@ -367,6 +369,14 @@ function McpReviewOption({
   reviewPlanRevision: string;
 }) {
   const managedPlanCurrent = managed?.plan_revision === reviewPlanRevision;
+  const disabledReason = busy
+    ? "This setup plan is being saved; wait for that request to finish."
+    : option.compatibility.status === "unsupported"
+      ? "This setup option is marked unsupported by the reviewed compatibility evidence. Choose a supported option."
+      : !canPrepare
+        ? prepareDisabledReason
+        : null;
+  const reasonId = `mcp-setup-plan-reason-${option.option_id}`;
   return (
     <article
       className="agent-mcp-store__review-option"
@@ -433,6 +443,7 @@ function McpReviewOption({
           </button>
         ) : (
           <button
+            aria-describedby={disabledReason !== null ? reasonId : undefined}
             className="button button--ghost"
             disabled={!canPrepare || busy}
             onClick={() => onPrepare(option)}
@@ -448,6 +459,7 @@ function McpReviewOption({
               : "Registry evidence changed since this plan was prepared. Open the previous plan to review it; this newer review is not silently applied."
             : "Saving creates durable reviewed metadata only. Installation or activation happens later inside the exact managed plan and remains native-confirmed."}
         </small>
+        {disabledReason !== null && <small id={reasonId} role="status">{disabledReason}</small>}
       </footer>
     </article>
   );
@@ -461,6 +473,7 @@ function reviewFailureMessage(failure: StoreFailure): string {
 function McpServerReviewView({
   busyOption,
   canPrepare,
+  prepareDisabledReason,
   failure,
   managedServers,
   onBack,
@@ -473,6 +486,7 @@ function McpServerReviewView({
 }: {
   busyOption: string | null;
   canPrepare: boolean;
+  prepareDisabledReason: string | null;
   failure: StoreFailure | null;
   managedServers: McpManagedServer[];
   onBack: () => void;
@@ -565,6 +579,7 @@ function McpServerReviewView({
               <McpReviewOption
                 busy={busyOption === option.option_id}
                 canPrepare={canPrepare && review.server.status === "active" && option.compatibility.status !== "unsupported"}
+                prepareDisabledReason={prepareDisabledReason ?? (review.server.status !== "active" ? "This Registry record is not active, so no setup plan can be saved from it." : null)}
                 key={option.option_id}
                 managed={managedServers.find((item) => item.catalog_id === review.server.catalog_id && item.option_id === option.option_id) ?? null}
                 onOpenManaged={onOpenManaged}
@@ -579,7 +594,9 @@ function McpServerReviewView({
           <aside className="agent-mcp-store__next-gate">
             <strong>Protected lifecycle continues in a managed plan</strong>
             <p>
-              Save one exact supported option first. The managed plan then exposes configuration inspection,
+              {prepareDisabledReason
+                ? `${prepareDisabledReason} When that gate is available, save one exact supported option first. The managed plan then exposes configuration inspection,`
+                : "Save one exact supported option first. The managed plan then exposes configuration inspection,"}
               compatibility checks, install or remote activation, update, rollback, removal and interrupted-operation
               recovery only when their current revision-bound preview is available. Every protected change still
               requires native confirmation; saving a plan alone starts nothing.
@@ -641,6 +658,16 @@ export function AgentMcpStorePanel({
   const reviewRequest = useRef<AbortController | null>(null);
   const managedRequest = useRef<AbortController | null>(null);
   const planRequestIds = useRef(new Map<string, string>());
+
+  const prepareDisabledReason = !userPresenceAvailable
+    ? "Native owner confirmation is unavailable in this browser window. Continue setup in the owned native Agent window (prompt-enhancer agent-desktop); this browser remains read-only and no setup plan was saved."
+    : transport.createMcpManagedServer === undefined
+      ? "This app transport does not expose setup-plan creation. Use the local Agent desktop app for this protected action."
+      : managedState === "loading"
+        ? "Managed-server state is still loading. Wait for it to finish before saving a setup plan."
+        : managedState === "unavailable"
+          ? "Managed-server state is unavailable. Refresh Managed servers before saving a setup plan."
+          : null;
 
   const load = useCallback((search: string, cursor?: string) => {
     const listCatalog = transport.listMcpRegistryCatalog;
@@ -987,6 +1014,7 @@ export function AgentMcpStorePanel({
                 failure={reviewFailure}
                 busyOption={busyOption}
                 canPrepare={managedState === "ready" && transport.createMcpManagedServer !== undefined && userPresenceAvailable}
+                prepareDisabledReason={prepareDisabledReason}
                 managedServers={managed?.servers ?? []}
                 onBack={closeReview}
                 onOpenManaged={(server) => {

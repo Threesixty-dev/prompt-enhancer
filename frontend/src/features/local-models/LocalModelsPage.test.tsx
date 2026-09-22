@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { DownloadStatus, LocalModelCompatibilityCatalog, LocalModelRecord, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptEnhancerTransport, RemoteRepoFiles } from "../../shared/api/contracts";
+import type { DownloadStatus, LocalModelChatResult, LocalModelCompatibilityCatalog, LocalModelRecord, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptEnhancerTransport, RemoteRepoFiles } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { LocalModelsPage, provenanceLine, safeOverview } from "./LocalModelsPage";
 
@@ -190,6 +190,118 @@ function namedOverview(name: string, models: LocalModelStatus[] = [model()]): Lo
 }
 
 describe("LocalModelsPage", () => {
+  it("forwards the selected model alias to the Agent handoff callback", async () => {
+    const onOpenAgentChat = vi.fn();
+    const transport = transportWithOverview(vi.fn(async () => overview([model("running")])));
+    render(<LocalModelsPage onOpenAgentChat={onOpenAgentChat} transport={transport} />);
+    await screen.findByRole("button", { name: "Open saved Agent chat" });
+    fireEvent.click(screen.getByRole("button", { name: "Open saved Agent chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Agent" }));
+    expect(onOpenAgentChat).toHaveBeenCalledTimes(1);
+    expect(onOpenAgentChat).toHaveBeenCalledWith("qwen-27b-q4");
+    expect(transport.streamLocalModelChat).not.toHaveBeenCalled();
+  });
+
+  it("retains a streaming chat but blocks legacy launch after a later catalog failure", async () => {
+    vi.useFakeTimers();
+    try {
+      const reply = deferred<LocalModelChatResult>();
+      const getLocalModels = vi.fn()
+        .mockResolvedValueOnce(overview([model("running")]))
+        .mockRejectedValueOnce(new Error("synthetic catalog outage"));
+      const transport = {
+        ...transportWithOverview(getLocalModels),
+        streamLocalModelChat: vi.fn(() => reply.promise),
+      };
+      const view = render(<LocalModelsPage transport={transport} />);
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Keep this draft" } });
+      fireEvent.submit(screen.getByLabelText("Message").closest("form")!);
+      expect(transport.streamLocalModelChat).toHaveBeenCalledOnce();
+      expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); await Promise.resolve(); });
+      expect(screen.getByText(/installed-model catalog could not be refreshed/i)).toBeVisible();
+      expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Restart" })).toBeDisabled();
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Keep this next draft" } });
+      expect(screen.getByLabelText("Message")).toHaveValue("Keep this next draft");
+      fireEvent.submit(screen.getByLabelText("Message").closest("form")!);
+      expect(transport.streamLocalModelChat).toHaveBeenCalledOnce();
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+      await act(async () => reply.resolve({ content: "", reasoning: "", elapsed_ms: 1, finish_reason: null }));
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not recover unverified runtime status from a lower revision", async () => {
+    vi.useFakeTimers();
+    try {
+      const getLocalRuntime = vi.fn()
+        .mockResolvedValueOnce(runtimeStatus("qwen-27b-q4", { revision: 7 }))
+        .mockRejectedValueOnce(new Error("synthetic runtime outage"))
+        .mockResolvedValueOnce(runtimeStatus("qwen-27b-q4", { revision: 6 }));
+      const transport = {
+        ...transportWithOverview(vi.fn(async () => overview([model("running")]))),
+        getLocalRuntime,
+        switchLocalRuntime: vi.fn(),
+        stopLocalRuntime: vi.fn(),
+      };
+      const view = render(<LocalModelsPage transport={transport} />);
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); await Promise.resolve(); });
+      expect(screen.getByText(/Shared runtime status is unavailable/i)).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Refresh runtime status" }));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(screen.getByText(/Shared runtime status is unavailable/i)).toBeVisible();
+      expect(screen.getByRole("button", { name: "Restart shared runtime" })).toBeDisabled();
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["resolve", "reject"] as const)("keeps Send blocked through a %s runtime command until its fresh readback completes", async (completion) => {
+    vi.useFakeTimers();
+    try {
+      const command = deferred<LocalRuntimeCoordinatorStatus>();
+      const freshRead = deferred<LocalRuntimeCoordinatorStatus>();
+      const getLocalRuntime = vi.fn()
+        .mockResolvedValueOnce(runtimeStatus("qwen-27b-q4", { revision: 7 }))
+        .mockResolvedValueOnce(runtimeStatus("qwen-27b-q4", { revision: 7 }))
+        .mockImplementationOnce(() => freshRead.promise);
+      const transport = {
+        ...transportWithOverview(vi.fn(async () => overview([model("running")]))),
+        getLocalRuntime,
+        switchLocalRuntime: vi.fn(() => command.promise),
+        stopLocalRuntime: vi.fn(),
+      };
+      const view = render(<LocalModelsPage transport={transport} />);
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Do not send yet" } });
+      expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "Restart shared runtime" }));
+      expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); await Promise.resolve(); });
+      expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+      await act(async () => {
+        if (completion === "resolve") command.resolve(runtimeStatus("qwen-27b-q4", { revision: 8 }));
+        else command.reject(new Error("synthetic command failure"));
+        await command.promise.catch(() => undefined);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+      await act(async () => { freshRead.resolve(runtimeStatus("qwen-27b-q4", { revision: 8 })); await freshRead.promise; });
+      expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(["resolve", "reject"] as const)("ignores a superseded repository lookup that later %ss", async (completion) => {
     const first = deferred<RemoteRepoFiles>();
     const second = deferred<RemoteRepoFiles>();
@@ -520,10 +632,11 @@ describe("LocalModelsPage", () => {
         commandReload.reject(new TransportError("current reload failed", 500));
         await commandReload.promise.catch(() => undefined);
       });
-      expect(screen.getByRole("alert")).toHaveTextContent("The model list could not be verified.");
+      expect(screen.getByText(/installed-model catalog could not be refreshed/i)).toBeVisible();
+      expect(screen.getByText("Initial GPU")).toBeVisible();
 
       await act(async () => { poll.resolve(namedOverview("Stale poll GPU")); await poll.promise; });
-      expect(screen.getByRole("alert")).toHaveTextContent("The model list could not be verified.");
+      expect(screen.getByText(/installed-model catalog could not be refreshed/i)).toBeVisible();
       expect(screen.queryByText("Stale poll GPU")).toBeNull();
     } finally {
       view.unmount();
@@ -923,6 +1036,83 @@ describe("LocalModelsPage", () => {
     expect(screen.getByText(/Activate a model above to chat/)).toBeTruthy();
   });
 
+  it("keeps the catalog and import controls visible when the initial runtime read fails", async () => {
+    const transport = {
+      getLocalModels: vi.fn(async () => overview([model("stopped")])),
+      getLocalRuntime: vi.fn(async () => { throw new TransportError("synthetic runtime unavailable", 503, "runtime_unavailable"); }),
+      switchLocalRuntime: vi.fn(), stopLocalRuntime: vi.fn(),
+      activateLocalModel: vi.fn(), deactivateLocalModel: vi.fn(), removeLocalModel: vi.fn(),
+      getLocalModelRemoteFiles: vi.fn(), startLocalModelDownload: vi.fn(), addLocalModel: vi.fn(), streamLocalModelChat: vi.fn(),
+    };
+    render(<LocalModelsPage transport={transport} />);
+
+    await screen.findByRole("heading", { name: "Installed models" });
+    expect(screen.getByLabelText("Hugging Face repository")).toBeVisible();
+    expect(screen.getByText("Qwen 27B Q4")).toBeVisible();
+    expect(screen.getByText(/Shared runtime status is unavailable/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start shared runtime" })).toBeDisabled();
+    expect(transport.getLocalRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a compatibility read hold up an independently settled runtime", async () => {
+    const compatibility = deferred<LocalModelCompatibilityCatalog>();
+    const transport = {
+      ...transportWithOverview(vi.fn(async () => overview([model("running")]))),
+      getLocalModelCompatibility: vi.fn(() => compatibility.promise),
+      getLocalRuntime: vi.fn(async () => runtimeStatus("qwen-27b-q4")),
+      switchLocalRuntime: vi.fn(), stopLocalRuntime: vi.fn(),
+    };
+    const view = render(<LocalModelsPage transport={transport} />);
+    try {
+      await screen.findByRole("heading", { name: "Installed models" });
+      expect(transport.getLocalRuntime).toHaveBeenCalledTimes(1);
+      expect(await screen.findByLabelText("Chat model")).toBeVisible();
+      expect(screen.getByText(/Shared runtime ready/i)).toBeVisible();
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "draft while compatibility is pending" } });
+      expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+      expect(transport.streamLocalModelChat).not.toHaveBeenCalled();
+      expect(screen.getByText("Qwen 27B Q4")).toBeVisible();
+    } finally {
+      view.unmount();
+      compatibility.reject(new TransportError("synthetic compatibility read aborted", 499));
+    }
+  });
+
+  it("times out a hanging runtime read while retaining import controls and supports explicit Refresh recovery", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const runtime = deferred<LocalRuntimeCoordinatorStatus>();
+    let runtimeReads = 0;
+    const transport = {
+      ...transportWithOverview(vi.fn(async () => overview([model("stopped")]))),
+      getLocalRuntime: vi.fn(() => {
+        runtimeReads += 1;
+        return runtimeReads === 1 ? runtime.promise : Promise.resolve(runtimeStatus(null));
+      }),
+      switchLocalRuntime: vi.fn(), stopLocalRuntime: vi.fn(),
+    };
+    const view = render(<LocalModelsPage transport={transport} />);
+    try {
+      await screen.findByRole("heading", { name: "Installed models" });
+      expect(screen.getByLabelText("Hugging Face repository")).toBeVisible();
+      await waitFor(() => expect(transport.getLocalRuntime).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        vi.advanceTimersByTime(10_001);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(await screen.findByText(/Shared runtime status is unavailable/i)).toBeVisible();
+      expect(screen.getByRole("button", { name: "Refresh runtime status" })).toBeEnabled();
+      expect(transport.getLocalRuntime).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("button", { name: "Refresh runtime status" }));
+      await waitFor(() => expect(transport.getLocalRuntime).toHaveBeenCalledTimes(2));
+      expect(screen.getByText(/Shared runtime stopped/i)).toBeVisible();
+    } finally {
+      view.unmount();
+      runtime.resolve(runtimeStatus(null));
+      vi.useRealTimers();
+    }
+  });
+
   it("streams a chat reply from the running model with thinking off by default", async () => {
     const streamLocalModelChat = vi.fn(
       async (
@@ -953,5 +1143,48 @@ describe("LocalModelsPage", () => {
     expect(request.messages).toEqual([{ role: "user", content: "Write a commit message" }]);
     expect(screen.getByText(/1\.2 s/)).toBeTruthy();
     expect(screen.getAllByText(/\/v1\/local-models\/qwen-27b-q4\/v1/).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps the completed chat and next draft when a later runtime read fails", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let runtimeReads = 0;
+    const streamLocalModelChat = vi.fn(async (
+      _alias: string,
+      _request: { messages: { role: string; content: string }[] },
+      onDelta: (delta: { content?: string; reasoning?: string }) => void,
+    ) => {
+      onDelta({ content: "stable synthetic reply" });
+      return { content: "stable synthetic reply", reasoning: "", finish_reason: "stop", elapsed_ms: 1200 };
+    });
+    const transport = {
+      getLocalModels: vi.fn(async () => overview([model("running")])),
+      getLocalRuntime: vi.fn(async () => {
+        runtimeReads += 1;
+        if (runtimeReads > 1) throw new TransportError("synthetic runtime read failure", 503, "runtime_unavailable");
+        return runtimeStatus("qwen-27b-q4");
+      }),
+      switchLocalRuntime: vi.fn(), stopLocalRuntime: vi.fn(),
+      activateLocalModel: vi.fn(), deactivateLocalModel: vi.fn(), removeLocalModel: vi.fn(),
+      getLocalModelRemoteFiles: vi.fn(), startLocalModelDownload: vi.fn(), addLocalModel: vi.fn(),
+      streamLocalModelChat,
+    };
+    const view = render(<LocalModelsPage transport={transport} />);
+    try {
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      await screen.findByLabelText("Chat model");
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "first synthetic request" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await screen.findByText("stable synthetic reply");
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "next synthetic draft" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      await waitFor(() => expect(transport.getLocalRuntime).toHaveBeenCalledTimes(2));
+      expect(screen.getByLabelText("Message")).toHaveValue("next synthetic draft");
+      expect(screen.getByText("stable synthetic reply")).toBeVisible();
+      expect(screen.getByRole("heading", { name: "Installed models" })).toBeVisible();
+      expect(streamLocalModelChat).toHaveBeenCalledTimes(1);
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
   });
 });

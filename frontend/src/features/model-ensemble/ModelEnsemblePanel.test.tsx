@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -2832,6 +2832,56 @@ describe("ModelEnsemblePanel", () => {
       level: 3,
       name: `Metric workspace · Snapshot ${runFixture().run_id.slice(0, 8)}…${runFixture().run_id.slice(-4)}`,
     })).not.toBeInTheDocument();
+  });
+
+  it("lets a replacement panel start before the old start settles without losing its pending state", async () => {
+    const oldRun = runFixture();
+    const newRun = structuredClone(oldRun);
+    newRun.run_id = "e".repeat(64);
+    let resolveOld: ((value: { run: ModelEnsembleRun; applied: boolean }) => void) | undefined;
+    const oldStart = vi.fn(() => new Promise<{ run: ModelEnsembleRun; applied: boolean }>((resolve) => {
+      resolveOld = resolve;
+    }));
+    const oldTransport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(async () => structuredClone(oldRun)),
+      getActiveModelEnsembleWatch: undefined,
+      getSessionModelEnsembleCanonicalHead: undefined,
+      startModelEnsemble: oldStart,
+    };
+    const view = renderPanel(oldTransport);
+    fireEvent.click(await screen.findByRole("button", { name: "Analyze metric ranges" }));
+    expect(oldStart).toHaveBeenCalledTimes(1);
+
+    let resolveNew: ((value: { run: ModelEnsembleRun; applied: boolean }) => void) | undefined;
+    const newStart = vi.fn(() => new Promise<{ run: ModelEnsembleRun; applied: boolean }>((resolve) => {
+      resolveNew = resolve;
+    }));
+    const newTransport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(async () => structuredClone(newRun)),
+      getActiveModelEnsembleWatch: undefined,
+      getSessionModelEnsembleCanonicalHead: undefined,
+      startModelEnsemble: newStart,
+    };
+    view.rerender(
+      <ModelEnsemblePanel
+        analysisCapability={CAPABILITY}
+        category="prompt-quality"
+        providerCompatibility={EXACT}
+        projectId={PROJECT_ID}
+        sessionId={SESSION_ID}
+        transport={newTransport}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Analyze metric ranges" }));
+    expect(newStart).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveOld?.({ run: oldRun, applied: true }));
+    expect(screen.getByRole("button", { name: "Stop browser wait" })).toBeVisible();
+
+    await act(async () => resolveNew?.({ run: newRun, applied: true }));
+    expect(await screen.findByRole("heading", { name: `Metric workspace · Snapshot ${newRun.run_id.slice(0, 8)}…${newRun.run_id.slice(-4)}` })).toBeVisible();
   });
 
   it("does not let a slower legacy latest read clear command-owned definitions refusal", async () => {

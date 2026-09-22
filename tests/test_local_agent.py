@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from prompt_enhancer.api import API_TOKEN_HEADER, CSRF_HEADER
 from prompt_enhancer.application.local_agent import (
@@ -31,6 +32,7 @@ from prompt_enhancer.application.local_agent import (
     _tool_call_parts,
     tool_schemas,
 )
+from prompt_enhancer.application.governed_web_fetch import PreparedWebFetch
 from prompt_enhancer.application.local_agent_editor import (
     WORKSPACE_APPLY_CONFIRMATION,
     WorkspaceApplyCommand,
@@ -2079,6 +2081,57 @@ def test_approved_web_fetch_is_reported_as_an_untracked_external_effect(
     assert result.execution_receipt is not None
     assert result.execution_receipt.approval_state == "approved"
     assert result.execution_receipt.evidence_state == "untracked_external_effect"
+    service.shutdown()
+
+
+def test_governed_fetch_target_is_prepared_but_never_resolved_after_denial(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    fetch_calls: list[str] = []
+
+    class GovernedFetcher:
+        def prepare(self, url: str) -> PreparedWebFetch:
+            assert url == "https://public.example.test/full?exact=query"
+            return PreparedWebFetch(url=SecretStr(url))
+
+        def fetch(self, request, *, cancellation):  # type: ignore[no-untyped-def]
+            fetch_calls.append(request.url.get_secret_value())
+            raise AssertionError("network resolution must not follow a denial")
+
+    chat, _calls = _stub_model(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "governed-denial",
+                        "type": "function",
+                        "function": {
+                            "name": "fetch_url",
+                            "arguments": json.dumps(
+                                {"url": "https://public.example.test/full?exact=query"}
+                            ),
+                        },
+                    }
+                ]
+            },
+            {"content": "approval was not granted"},
+        ]
+    )
+    service = LocalAgentService(
+        chat=chat,
+        active_model=lambda: "stub-model",
+        fetcher=GovernedFetcher(),
+        approval_wait_seconds=5,
+    )
+    view = service.create(AgentSettings(workspace=str(root), allow_web=True))
+    service.send(view.session_id, SendMessage(text="inspect synthetic page"))
+    assert _wait(lambda: service.events(view.session_id).pending_approval_id is not None)
+    approval_id = service.events(view.session_id).pending_approval_id
+    assert approval_id is not None
+    service.approve(view.session_id, approval_id, ApprovalDecision(approved=False))
+    assert _wait(lambda: not service.get(view.session_id).running)
+    assert fetch_calls == []
     service.shutdown()
 
 

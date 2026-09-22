@@ -6,6 +6,7 @@ project. It is defense in depth, not a replacement for reviewing staged changes.
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 import hashlib
 import os
@@ -179,7 +180,8 @@ def _safe_example_secret(value: str) -> bool:
     return any(marker in normalized for marker in _SAFE_SECRET_MARKERS)
 
 
-def _line_findings(relative_path: str, number: int, line: str) -> list[Finding]:
+def _line_findings(relative_path: str, number: int, line: str,
+                   exempt_generic_spans: frozenset[tuple[int, int]] = frozenset()) -> list[Finding]:
     findings: list[Finding] = []
 
     for match in _EMAIL.finditer(line):
@@ -191,9 +193,9 @@ def _line_findings(relative_path: str, number: int, line: str) -> list[Finding]:
             if match.group("name").casefold() not in _RESERVED_USERNAMES:
                 findings.append(Finding(relative_path, number, "possible private home path"))
 
-    generic = _GENERIC_SECRET.search(line)
-    if generic and not _safe_example_secret(generic.group("value")):
-        findings.append(Finding(relative_path, number, "possible assigned secret"))
+    for generic in _GENERIC_SECRET.finditer(line):
+        if generic.span() not in exempt_generic_spans and not _safe_example_secret(generic.group("value")):
+            findings.append(Finding(relative_path, number, "possible assigned secret"))
 
     if _PRIVATE_KEY.search(line):
         findings.append(Finding(relative_path, number, "private key material"))
@@ -202,6 +204,46 @@ def _line_findings(relative_path: str, number: int, line: str) -> list[Finding]:
         findings.append(Finding(relative_path, number, "possible access token"))
 
     return findings
+
+
+def _approved_secret_annotation(annotation: ast.expr) -> bool:
+    if isinstance(annotation, ast.Name):
+        return annotation.id in {"SecretStr", "SecretBytes"}
+    return (isinstance(annotation, ast.Attribute) and isinstance(annotation.value, ast.Name)
+            and annotation.value.id == "pydantic" and annotation.attr in {"SecretStr", "SecretBytes"})
+
+
+def _annotation_exemptions(text: str) -> dict[int, frozenset[tuple[int, int]]]:
+    """Return only exact generic-regex spans for inert secret annotations."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return {}
+    lines = text.splitlines()
+    result: dict[int, set[tuple[int, int]]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AnnAssign):
+            continue
+        if node.value is not None or not isinstance(node.target, ast.Name):
+            continue
+        if not _approved_secret_annotation(node.annotation):
+            continue
+        if (node.lineno != node.annotation.end_lineno or node.col_offset is None
+                or node.annotation.end_col_offset is None):
+            continue
+        line = lines[node.lineno - 1]
+        try:
+            # AST columns are UTF-8 byte offsets; regex spans use Python
+            # character offsets.  On any invalid conversion, fail closed by
+            # declining the exemption.
+            start = len(line.encode("utf-8")[:node.col_offset].decode("utf-8"))
+            end = len(line.encode("utf-8")[:node.annotation.end_col_offset].decode("utf-8"))
+        except UnicodeDecodeError:
+            continue
+        for match in _GENERIC_SECRET.finditer(line):
+            if match.span() == (start, end):
+                result.setdefault(node.lineno, set()).add(match.span())
+    return {line: frozenset(spans) for line, spans in result.items()}
 
 
 def _lexical_relative(path: Path, root: Path) -> Path:
@@ -392,8 +434,10 @@ def scan_repository(root: Path, paths: Iterable[Path] | None = None) -> list[Fin
             )
             continue
 
-        for number, line in enumerate(text.splitlines(), start=1):
-            findings.extend(_line_findings(relative_path, number, line))
+        lines = text.splitlines()
+        exemptions = _annotation_exemptions(text) if path.suffix.casefold() == ".py" else {}
+        for number, line in enumerate(lines, start=1):
+            findings.extend(_line_findings(relative_path, number, line, exemptions.get(number, frozenset())))
     return findings
 
 

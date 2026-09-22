@@ -12,6 +12,7 @@ from .bootstrap import LocalApplication, bootstrap_local_application
 from .config import AppSettings
 from .domain import DataTier, Provider
 from .ingestion import IngestionSelection
+from .infrastructure.windows_runtime_bootstrap import bootstrap_current_embedded_windows_runtime
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -644,8 +645,10 @@ def _run_agent_desktop(settings: AppSettings) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    runtime_bootstrap = None
     try:
+        runtime_bootstrap = bootstrap_current_embedded_windows_runtime()
+        args = _parser().parse_args(argv)
         settings = AppSettings.from_env()
         if args.command == "codex-consent-grant":
             return _run_codex_consent(settings, args, revoke=False)
@@ -705,6 +708,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, RuntimeError, ValueError):
         print("prompt-enhancer: local operation failed safely.", file=sys.stderr)
         return 1
+    finally:
+        if runtime_bootstrap is not None:
+            handling_exception = sys.exc_info()[0] is not None
+            try:
+                runtime_bootstrap.close()
+            except Exception:
+                print("prompt-enhancer: local operation failed safely.", file=sys.stderr)
+                if not handling_exception:
+                    return 1
 
 
 if __name__ == "__main__":

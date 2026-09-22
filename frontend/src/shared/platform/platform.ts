@@ -27,10 +27,21 @@ export type AppRoute =
   | { name: "task"; taskId: string; revision: number }
   | { name: "not_found" };
 
+/** A content-free browser-history destination held until its owner decides. */
+export type PlatformNavigationAttempt = {
+  route: AppRoute;
+  source: "history";
+  /** False only for foreign history whose location cannot be safely restored. */
+  canRestore: boolean;
+  resume(): void;
+};
+
 export interface PlatformAdapter {
   currentRoute(): AppRoute;
   navigate(route: AppRoute): void;
   subscribe(listener: (route: AppRoute) => void): () => void;
+  /** Optional because native and legacy fixture adapters may not own history. */
+  subscribeNavigationAttempt?(listener: (attempt: PlatformNavigationAttempt) => boolean): () => void;
 }
 
 const PSEUDONYM = /^[a-f0-9]{64}$/;

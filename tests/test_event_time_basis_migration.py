@@ -166,9 +166,9 @@ def test_populated_v59_upgrades_to_v60_without_rewriting_old_event_provenance(
         versions = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 61
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 61
-        assert tuple(row[0] for row in versions) == tuple(range(1, 62))
+        assert SCHEMA_VERSION == 65
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 65
+        assert tuple(row[0] for row in versions) == tuple(range(1, 66))
         assert versions[58][1] == MIGRATION_59_FROZEN_SHA256
         assert versions[59][1] == hashlib.sha256(
             migrations.MIGRATION_60.encode()

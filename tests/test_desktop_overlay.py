@@ -120,6 +120,11 @@ def prepare_common(
     monkeypatch.setattr(desktop_overlay, "sys_platform_is_windows", lambda: True)
     monkeypatch.setattr(
         desktop_overlay,
+        "detect_webview2_runtime",
+        lambda: SimpleNamespace(state=desktop_overlay.PrerequisiteState.PRESENT),
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
         "load_or_create_api_token",
         lambda _path: TOKEN,
     )
@@ -199,6 +204,11 @@ def test_localhost_attachment_probes_and_renders_only_an_exact_numeric_origin(
     webview = FakeWebview()
     probed: list[str] = []
     monkeypatch.setattr(desktop_overlay, "sys_platform_is_windows", lambda: True)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "detect_webview2_runtime",
+        lambda: SimpleNamespace(state=desktop_overlay.PrerequisiteState.PRESENT),
+    )
     monkeypatch.setattr(
         desktop_overlay,
         "load_or_create_api_token",

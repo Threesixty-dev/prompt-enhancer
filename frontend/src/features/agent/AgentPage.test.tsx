@@ -1,6 +1,6 @@
-import { act, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentArtifact, AgentArtifactPage, AgentArtifactPageQuery, AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentHistoryExport, AgentMcpConnection, AgentMcpConnectionList, AgentMessageAttachment, AgentProject, AgentSessionView, AgentSettings, AgentWorkspaceTree, ForkAgentSession, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckRequest, PromptCheckResult, UpdateAgentCatalogSession } from "../../shared/api/contracts";
+import type { AgentArtifact, AgentArtifactCapturePreview, AgentArtifactPage, AgentArtifactPageQuery, AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentHistoryExport, AgentMcpConnection, AgentMcpConnectionList, AgentMessageAttachment, AgentProject, AgentSessionView, AgentSettings, AgentWebFetchCapability, AgentWorkspaceTree, ForkAgentSession, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckRequest, PromptCheckResult, UpdateAgentCatalogSession } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { exampleAgentOrchestrationManifest } from "../../shared/api/agentOrchestrationFixtures.test-support";
 import { syntheticMcpManagedProjectRuntime } from "../../shared/api/mcpManagedRuntime.test-support";
@@ -47,6 +47,12 @@ function installNativeFolderPicker(choose: () => Promise<unknown>): void {
 }
 
 afterEach(() => {
+  // src/test/setup.ts unmounts every root, but Vitest reverses afterEach order,
+  // so its hook runs after this one has already restored the globals below. The
+  // artifact viewer revokes its object URL from an effect cleanup, so unmount
+  // here first, while the stubs this suite installed are still in place. The
+  // repeated cleanup() in the shared hook is then a no-op.
+  cleanup();
   if (originalPywebview) Object.defineProperty(globalThis, "pywebview", originalPywebview);
   else Reflect.deleteProperty(globalThis, "pywebview");
   if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoView);
@@ -337,6 +343,21 @@ function sessionTransport(...sessions: AgentSessionView[]) {
   };
 }
 
+// A durable catalog that is reachable but completely empty. This is the exact
+// startup shape that asks the page to open its onboarding drawer.
+function emptyDurableCatalogTransport(...sessions: AgentSessionView[]) {
+  return {
+    ...sessionTransport(...sessions),
+    listAgentProjects: vi.fn(async () => ({ contract_version: "agent-catalog.v2" as const, projects: [] })),
+    createAgentProject: vi.fn(),
+    updateAgentProject: vi.fn(),
+    deleteAgentProject: vi.fn(),
+    listAgentCatalogSessions: vi.fn(async () => ({ contract_version: "agent-catalog.v2" as const, sessions: [] })),
+    updateAgentCatalogSession: vi.fn(),
+    deleteAgentCatalogSession: vi.fn(async () => undefined),
+  };
+}
+
 function catalogProjectFixture(
   projectId: string,
   name: string,
@@ -526,7 +547,7 @@ function retainedCatalogTransport<T extends object>(
 
 function turnRevisionHarness(
   retainedEvents: AgentEvent[],
-  options: { sendFailure?: unknown } = {},
+  options: { sendFailure?: unknown; childHistoryFailure?: unknown; childHistoryGate?: Promise<void> } = {},
 ) {
   const projectId = "7".repeat(32);
   const childSessionId = "9".repeat(32);
@@ -630,29 +651,38 @@ function turnRevisionHarness(
       closing: false,
       stopping: false,
       session_id: sessionId,
-      events: sessionId === SESSION ? retainedEvents.filter((item) => item.seq > after) : [],
+      events: sessionId === SESSION
+        ? retainedEvents.filter((item) => item.seq > after)
+        : retainedEvents.filter((item) => item.seq <= (childRecord?.last_event_seq ?? 0) && item.seq > after),
       running: sessionId === childSessionId && Boolean(childView?.running),
       pending_approval_id: null,
       last_seq: sessionId === SESSION ? head : childView?.last_seq ?? 0,
-      first_seq: sessionId === SESSION && head > 0 ? 1 : 0,
+      first_seq: (sessionId === SESSION ? head : childRecord?.last_event_seq ?? 0) > 0 ? 1 : 0,
     })),
-    getAgentPersistedEvents: vi.fn(async (_projectId: string, sessionId: string, after: number) => ({
+    getAgentPersistedEvents: vi.fn(async (_projectId: string, sessionId: string, after: number) => {
+      if (sessionId === childSessionId && options.childHistoryFailure !== undefined) throw options.childHistoryFailure;
+      if (sessionId === childSessionId && options.childHistoryGate !== undefined) await options.childHistoryGate;
+      return {
       contract_version: "local-agent.v9" as const,
       cleanup_unconfirmed: false,
       closing: false,
       stopping: false,
       session_id: sessionId,
-      events: sessionId === SESSION ? retainedEvents.filter((item) => item.seq > after) : [],
+      events: sessionId === SESSION
+        ? retainedEvents.filter((item) => item.seq > after)
+        : retainedEvents.filter((item) => item.seq <= (childRecord?.last_event_seq ?? 0) && item.seq > after),
       running: false,
       pending_approval_id: null,
       last_seq: sessionId === SESSION ? head : childRecord?.last_event_seq ?? 0,
-      first_seq: sessionId === SESSION && head > 0 ? 1 : 0,
-    })),
+      first_seq: (sessionId === SESSION ? head : childRecord?.last_event_seq ?? 0) > 0 ? 1 : 0,
+      };
+    }),
     forkAgentSession,
     resumeAgentSession,
     sendAgentMessage,
   });
   return {
+    childRecord: () => childRecord,
     childSessionId,
     forkAgentSession,
     project,
@@ -694,6 +724,8 @@ function editableWorkspaceTransport(...sessions: AgentSessionView[]) {
 
 async function openDirtyWorkspaceDraft(): Promise<HTMLElement> {
   fireEvent.click(await screen.findByRole("button", { name: "Files & review" }));
+  const workspaceRoot = await screen.findByLabelText("Workspace root");
+  await waitFor(() => expect(workspaceRoot).toHaveAttribute("aria-busy", "false"));
   fireEvent.click(await screen.findByRole("button", { name: "synthetic-note.txt" }));
   const editor = await screen.findByLabelText("Workspace file editor");
   await waitFor(() => expect(editor).toHaveValue("Synthetic original text.\n"));
@@ -923,7 +955,7 @@ describe("AgentPage coordinated runtime integration", () => {
     }, expect.any(AbortSignal)));
     expect(transport.switchLocalRuntime).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.getByLabelText("Message to the agent")).toHaveValue("Keep this synthetic unsent prompt"));
-    expect(await within(runtimePanel).findByRole("status")).toHaveTextContent("This chat is bound to it.");
+    expect(await within(runtimePanel).findByText(/This chat is bound to it\./u)).toBeVisible();
   });
 });
 
@@ -1082,10 +1114,28 @@ describe("AgentPage", () => {
     }
   });
 
-  it("connects a current document artifact to reveal-in-files and exact net-diff review", async () => {
+  function syntheticDocumentArtifactFixture() {
     const projectId = "1".repeat(32);
     const artifactId = "7".repeat(32);
     const versionId = "8".repeat(32);
+    const session = view({ settings: { ...view().settings, project_id: projectId, retention_policy: "local_history" } });
+    const version = {
+      contract_version: "agent-artifact.v3" as const, version_id: versionId, artifact_id: artifactId,
+      version_number: 1, created_at: "2040-01-01T10:00:00Z", path: "docs/synthetic-review.docx",
+      media_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" as const,
+      preview_kind: "document" as const, provenance: "reviewed_write" as const, sha256: "9".repeat(64),
+      byte_size: 512, source_turn_id: "6".repeat(32), source_event_seq: 4,
+    };
+    const artifact = { contract_version: "agent-artifact.v3" as const, artifact_id: artifactId, project_id: projectId, session_id: SESSION, title: "synthetic-review.docx", kind: "document" as const, path: version.path, created_at: version.created_at, updated_at: version.created_at, revision: 1, version_count: 1, availability: "available" as const, lifecycle_state: "active" as const, archived_at: null, removed_at: null, latest_version: version };
+    const changed = {
+      path: version.path, net_effect: "created" as const, verification: "verified" as const, reason: null,
+      reviewed_writes: 1, agent_writes: 1, manual_writes: 0, current_byte_size: 512, diff_available: true,
+    };
+    return { projectId, artifactId, versionId, session, version, artifact, changed };
+  }
+
+  it("refreshes the current artifact list after an uncertain workspace capture without claiming success", async () => {
+    const projectId = "1".repeat(32);
     const session = view({
       settings: {
         ...view().settings,
@@ -1093,50 +1143,66 @@ describe("AgentPage", () => {
         retention_policy: "local_history",
       },
     });
-    const version = {
+    const listAgentArtifacts = vi.fn(async () => ({
       contract_version: "agent-artifact.v3" as const,
-      version_id: versionId,
-      artifact_id: artifactId,
-      version_number: 1,
-      created_at: "2040-01-01T10:00:00Z",
-      path: "docs/synthetic-review.docx",
-      media_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" as const,
-      preview_kind: "document" as const,
-      provenance: "reviewed_write" as const,
-      sha256: "9".repeat(64),
-      byte_size: 512,
-      source_turn_id: "6".repeat(32),
-      source_event_seq: 4,
-    };
-    const artifact = {
-      contract_version: "agent-artifact.v3" as const,
-      artifact_id: artifactId,
       project_id: projectId,
       session_id: SESSION,
-      title: "synthetic-review.docx",
-      kind: "document" as const,
-      path: version.path,
-      created_at: version.created_at,
-      updated_at: version.created_at,
-      revision: 1,
-      version_count: 1,
-      availability: "available" as const,
-      lifecycle_state: "active" as const,
-      archived_at: null,
-      removed_at: null,
-      latest_version: version,
+      view: "active" as const,
+      counts: { active: 0, archived: 0, removed: 0, total: 0 },
+      artifacts: [],
+    }));
+    const transport = {
+      ...sessionTransport(session),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(true)),
+      listAgentArtifacts,
+      getAgentWorkspaceTree: vi.fn(async (sessionId: string, path: string) => ({
+        contract_version: "local-agent-workspace.v1" as const,
+        session_id: sessionId,
+        path,
+        entries: path === "." ? [{
+          path: "large.log",
+          name: "large.log",
+          kind: "file" as const,
+          byte_size: 300_000,
+          editable_candidate: false,
+        }] : [],
+        complete: true,
+      })),
+      previewAgentArtifactCapture: vi.fn(async () => ({
+        contract_version: "agent-artifact-capture-preview.v1" as const,
+        project_id: projectId,
+        session_id: SESSION,
+        path: "large.log",
+        title: "large.log",
+        kind: "text" as const,
+        media_type: "text/plain; charset=utf-8" as const,
+        preview_kind: "text" as const,
+        sha256: "8".repeat(64),
+        byte_size: 300_000,
+        requires_native_confirmation: true,
+        file_content_included: false,
+      } satisfies AgentArtifactCapturePreview)),
+      captureAgentArtifact: vi.fn(async () => {
+        throw new Error("synthetic response lost after capture request");
+      }),
     };
-    const changed = {
-      path: version.path,
-      net_effect: "created" as const,
-      verification: "verified" as const,
-      reason: null,
-      reviewed_writes: 1,
-      agent_writes: 1,
-      manual_writes: 0,
-      current_byte_size: 512,
-      diff_available: true,
-    };
+
+    await act(async () => { render(<AgentPage transport={transport} sessionId={SESSION} />); });
+    await waitFor(() => expect(listAgentArtifacts).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Files & review" }));
+    await act(async () => { await vi.dynamicImportSettled(); });
+    fireEvent.click(await screen.findByRole("button", { name: /large\.log — add as generated output/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Review output" }));
+    await screen.findByRole("button", { name: "Add verified output" });
+    fireEvent.click(screen.getByRole("button", { name: "Add verified output" }));
+
+    expect(await screen.findByText(/Capture outcome is unknown/i)).toBeVisible();
+    await waitFor(() => expect(listAgentArtifacts).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/is now available as a verified chat artifact/i)).toBeNull();
+  }, 15_000);
+
+  it("connects a current document artifact to reveal-in-files", async () => {
+    const { projectId, artifactId, versionId, session, version, artifact, changed } = syntheticDocumentArtifactFixture();
     const transport = {
       ...sessionTransport(session),
       listAgentArtifacts: vi.fn(async () => ({
@@ -1230,10 +1296,17 @@ describe("AgentPage", () => {
       { timeout: 4_000 },
     )).toHaveTextContent("Synthetic reviewed document");
     fireEvent.click(screen.getByRole("button", { name: "Reveal in files" }));
+    await act(async () => { await vi.dynamicImportSettled(); });
     const revealed = await screen.findByRole("button", { name: /^synthetic-review\.docx —/u });
     expect(revealed.closest("li")).toHaveAttribute("data-revealed", "true");
     expect(transport.getAgentWorkspaceFile).not.toHaveBeenCalled();
+  }, 15_000);
 
+  it("connects a current document artifact to exact net-diff review and return-to-artifact", async () => {
+    const { projectId, artifactId, versionId, session, version, artifact, changed } = syntheticDocumentArtifactFixture();
+    const transport = { ...sessionTransport(session), listAgentArtifacts: vi.fn(async () => ({ contract_version: "agent-artifact.v3" as const, project_id: projectId, session_id: SESSION, view: "active" as const, counts: { active: 1, archived: 0, removed: 0, total: 1 }, artifacts: [artifact] })), getAgentArtifact: vi.fn(async () => ({ ...artifact, versions: [version] })), updateAgentArtifact: vi.fn(async () => artifact), removeAgentArtifact: vi.fn(async () => artifact), getAgentArtifactDocumentPreview: vi.fn(async () => ({ contract_version: "agent-document-preview.v1" as const, project_id: projectId, session_id: SESSION, artifact_id: artifactId, version_id: versionId, source_sha256: version.sha256, source_byte_size: version.byte_size, format: "docx" as const, sections: [{ index: 1, kind: "document" as const, title: "Document", paragraphs: ["Synthetic reviewed document"], rows: [], truncated: false }], omitted_features: [], truncated: false })), getAgentArtifactContent: vi.fn(), getAgentChangeSet: vi.fn(async () => ({ contract_version: "agent-change-set.v1" as const, session_id: SESSION, scope: "reviewed_paths_only" as const, coverage: "complete" as const, settled: true, reviewed_writes: 1, verified_writes: 1, unverified_writes: 0, agent_writes: 1, manual_writes: 0, reviewed_noops: 0, command_attempts: 0, omitted_write_receipts: 0, tracking_failed: false, files: [changed] })), getAgentChangeDiff: vi.fn(async () => ({ contract_version: "agent-change-set.v1" as const, session_id: SESSION, summary: changed, diff_state: "available" as const, diff: "--- /dev/null\n+++ b/docs/synthetic-review.docx\n+binary document created", added_lines: 1, removed_lines: 0 })) };
+    await act(async () => { render(<AgentPage transport={transport} />); });
+    await screen.findByRole("button", { name: "Preview synthetic-review.docx" });
     fireEvent.click(screen.getByRole("button", { name: "Preview synthetic-review.docx" }));
     await screen.findByRole(
       "region",
@@ -1612,6 +1685,29 @@ describe("AgentPage", () => {
     expect(transport.sendAgentMessage).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["closing", { closing: true }],
+    ["local history failure", { history_write_failed: true }],
+  ] as const)("keeps the composer disabled for %s even when no model is selected", async (_state, guard) => {
+    const current = view({
+      ...guard,
+      model_alias: null,
+      settings: { ...view().settings, model_alias: null },
+    });
+    const transport = {
+      ...sessionTransport(current),
+      getLocalModels: vi.fn(async () => modelsOverview()),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const composer = await screen.findByLabelText("Message to the agent");
+    expect(composer).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
+  });
+
   it("does not start a stopped model for a closing session", async () => {
     const transport = {
       ...sessionTransport(view({ closing: true })),
@@ -1837,13 +1933,18 @@ describe("AgentPage", () => {
       resumeAgentSession: vi.fn(async () => { open = [recovered]; return recovered; }),
     };
     render(<AgentPage transport={transport} />);
+    await waitFor(() => expect(transport.listAgentCatalogSessions).toHaveBeenCalled());
+    const catalogReadsBeforeClose = transport.listAgentCatalogSessions.mock.calls.length;
     fireEvent.click(await screen.findByLabelText("Chat actions for Resume fixture"));
     const actions = screen.getByRole("dialog", { name: "Chat actions for Resume fixture" });
     fireEvent.click(within(actions).getByRole("button", { name: "Close live chat" }));
     await acceptCloseChat();
     await waitFor(() => expect(transport.deleteAgentSession).toHaveBeenCalledWith(SESSION));
+    await waitFor(() => expect(screen.queryByLabelText("Agent activity status")).toBeNull());
+    await waitFor(() => expect(transport.listAgentCatalogSessions.mock.calls.length)
+      .toBeGreaterThan(catalogReadsBeforeClose));
 
-    fireEvent.click(await screen.findByRole("button", { name: /^Resume fixture · 0 turns · saved locally/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Resume fixture · 0 turns · saved locally/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Resume chat" }));
     await waitFor(() => expect(transport.resumeAgentSession).toHaveBeenCalledOnce());
     expect(await screen.findByLabelText("Agent activity status")).not.toHaveTextContent("Session closing");
@@ -2006,7 +2107,7 @@ describe("AgentPage", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "Approval needed" })).toBeNull());
   });
 
-  it("keeps independent in-memory drafts when switching between live chats", async () => {
+  it("keeps independent in-memory drafts when switching between ready live chats", async () => {
     const first = view({ settings: { ...view().settings, title: "Session A" } });
     const second = view({ session_id: "d".repeat(32), settings: { ...view().settings, title: "Session B" } });
     const transport = sessionTransport(first, second);
@@ -2028,6 +2129,27 @@ describe("AgentPage", () => {
     expect(screen.queryByRole("button", { name: /Session A.*draft in this window/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /^Session B ·/ }));
     expect(screen.getByLabelText("Message to the agent")).toHaveValue("Synthetic draft for B");
+  });
+
+  it("keeps independent pre-model drafts when switching between live chats", async () => {
+    const first = view({ model_alias: null, settings: { ...view().settings, title: "Session A", model_alias: null } });
+    const second = view({ session_id: "d".repeat(32), model_alias: null, settings: { ...view().settings, title: "Session B", model_alias: null } });
+    const transport = { ...sessionTransport(first, second), getLocalModels: vi.fn(async () => modelsOverview()) };
+    render(<AgentPage transport={transport} />);
+
+    const composer = await screen.findByLabelText("Message to the agent");
+    fireEvent.change(composer, { target: { value: "Synthetic pre-model draft for A" } });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Session B ·/ }));
+    fireEvent.change(screen.getByLabelText("Message to the agent"), { target: { value: "Synthetic pre-model draft for B" } });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Session A ·/ }));
+    expect(screen.getByLabelText("Message to the agent")).toHaveValue("Synthetic pre-model draft for A");
+    fireEvent.click(screen.getByRole("button", { name: /^Session B ·/ }));
+    expect(screen.getByLabelText("Message to the agent")).toHaveValue("Synthetic pre-model draft for B");
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
   });
 
   it("keeps staged attachment identities scoped to their owning chat", async () => {
@@ -2109,6 +2231,81 @@ describe("AgentPage", () => {
 
     expect(screen.queryByText("late-session-a.png")).toBeNull();
     expect(screen.getByText("session-b.png")).toBeVisible();
+  });
+
+  it("preserves the latest typed draft when delayed empty attachment hydration settles", async () => {
+    const listing = deferred<{
+      contract_version: "agent-attachment.v2";
+      session_id: string;
+      attachments: AgentAttachment[];
+    }>();
+    const listAgentAttachments = vi.fn(() => listing.promise);
+    const transport = {
+      ...sessionTransport(view()),
+      listAgentAttachments,
+      stageAgentAttachment: vi.fn(),
+      deleteAgentAttachment: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    await waitFor(() => expect(listAgentAttachments).toHaveBeenCalledWith(SESSION, expect.any(AbortSignal)));
+    const composer = await screen.findByLabelText("Message to the agent");
+    await waitFor(() => expect(composer).toBeEnabled());
+    fireEvent.change(composer, { target: { value: "Synthetic first draft" } });
+    fireEvent.change(composer, { target: { value: "Synthetic latest draft" } });
+    listing.resolve({
+      contract_version: "agent-attachment.v2",
+      session_id: SESSION,
+      attachments: [],
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(composer).toHaveValue("Synthetic latest draft");
+  });
+
+  it("keeps the active session's draft when an old session's empty attachment listing resolves", async () => {
+    const first = view({ settings: { ...view().settings, title: "Session A" } });
+    const second = view({ session_id: "d".repeat(32), settings: { ...view().settings, title: "Session B" } });
+    const firstListing = deferred<{
+      contract_version: "agent-attachment.v2";
+      session_id: string;
+      attachments: AgentAttachment[];
+    }>();
+    const listAgentAttachments = vi.fn((requestedSessionId: string) => (
+      requestedSessionId === first.session_id
+        ? firstListing.promise
+        : Promise.resolve({
+            contract_version: "agent-attachment.v2" as const,
+            session_id: second.session_id,
+            attachments: [],
+          })
+    ));
+    const transport = {
+      ...sessionTransport(first, second),
+      listAgentAttachments,
+      stageAgentAttachment: vi.fn(),
+      deleteAgentAttachment: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    await waitFor(() => expect(listAgentAttachments).toHaveBeenCalledWith(first.session_id, expect.any(AbortSignal)));
+    const firstComposer = await screen.findByLabelText("Message to the agent");
+    await waitFor(() => expect(firstComposer).toBeEnabled());
+    fireEvent.change(firstComposer, { target: { value: "Synthetic draft for A" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Session B ·/ }));
+    const secondComposer = screen.getByLabelText("Message to the agent");
+    fireEvent.change(secondComposer, { target: { value: "Synthetic latest draft for B" } });
+    await waitFor(() => expect(listAgentAttachments).toHaveBeenCalledWith(second.session_id, expect.any(AbortSignal)));
+
+    firstListing.resolve({
+      contract_version: "agent-attachment.v2",
+      session_id: first.session_id,
+      attachments: [],
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByRole("heading", { name: "Session B" })).toBeVisible();
+    expect(screen.getByLabelText("Message to the agent")).toHaveValue("Synthetic latest draft for B");
   });
 
   it("does not switch back or erase another chat's draft when a send completes", async () => {
@@ -2425,6 +2622,66 @@ describe("AgentPage", () => {
     expect(timeline.children.length).toBeLessThanOrEqual(201);
   });
 
+  it("opens a saved-message hit in the same retained chat twice without resuming it", async () => {
+    const projectId = "8".repeat(32);
+    const project = catalogProjectFixture(projectId, "Search project", 1);
+    const saved = catalogSessionFixture(SESSION, projectId, "Searchable saved chat", {
+      history_state: "durable_local",
+      retention_policy: "local_history",
+      history_revision: 2,
+      last_event_seq: 9,
+      turn_count: 1,
+      conversation_available: true,
+    });
+    const retained = [
+      event(1, "user", { text: "Synthetic earlier request" }),
+      event(9, "assistant", { text: "Synthetic exact saved reply" }),
+    ];
+    const searchAgentSavedMessages = vi.fn(async () => ({
+      contract_version: "agent-message-search.v1" as const,
+      snapshot: "a".repeat(64), limit: 20, offset: 0, total: 1, next_offset: null, complete: true,
+      matches: [{
+        session_id: SESSION, project_id: projectId, project_name: "Search project", title: "Searchable saved chat",
+        match_event_seq: 9, history_revision: 2, role: "assistant" as const, excerpt: "Synthetic exact saved reply",
+      }],
+    }));
+    const getAgentPersistedEvents = vi.fn(async (): Promise<AgentEvents> => ({
+      contract_version: "local-agent.v9", session_id: SESSION, events: retained,
+      running: false, closing: false, stopping: false, cleanup_unconfirmed: false, pending_approval_id: null,
+      last_seq: 9, first_seq: 1,
+    }));
+    const transport = retainedCatalogTransport(project, [saved], { searchAgentSavedMessages, getAgentPersistedEvents });
+    render(<AgentPage transport={transport} />);
+
+    let completedReads = getAgentPersistedEvents.mock.calls.length;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      fireEvent.click(await screen.findByRole("button", { name: "Search saved messages" }));
+      const dialog = await screen.findByRole("dialog", { name: "Search saved messages" });
+      fireEvent.change(within(dialog).getByRole("searchbox"), { target: { value: "exact" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Search saved messages" }));
+      fireEvent.click(await within(dialog).findByRole("button", { name: /Open matching saved message/i }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search saved messages" })).toBeNull());
+      expect(await screen.findByText("Synthetic exact saved reply")).toBeVisible();
+      await waitFor(() => expect(document.activeElement?.textContent).toContain("Synthetic exact saved reply"));
+      expect(getAgentPersistedEvents.mock.calls.length).toBeGreaterThan(completedReads);
+      completedReads = getAgentPersistedEvents.mock.calls.length;
+    }
+    expect(transport.createAgentSession).not.toHaveBeenCalled();
+
+    let changedHead = true;
+    transport.getAgentCatalogSession.mockImplementation(async () => (
+      changedHead ? { ...saved, last_event_seq: 10 } : saved
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: "Search saved messages" }));
+    const staleDialog = await screen.findByRole("dialog", { name: "Search saved messages" });
+    fireEvent.change(within(staleDialog).getByRole("searchbox"), { target: { value: "exact" } });
+    fireEvent.click(within(staleDialog).getByRole("button", { name: "Search saved messages" }));
+    fireEvent.click(await within(staleDialog).findByRole("button", { name: /Open matching saved message/i }));
+    expect(await screen.findByText(/matching saved message changed or is no longer retained/i)).toBeVisible();
+    changedHead = false;
+    expect(transport.createAgentSession).not.toHaveBeenCalled();
+  });
+
   it("refuses to reconstruct retained history from pages with different immutable heads", async () => {
     const projectId = "b".repeat(32);
     const project = catalogProjectFixture(projectId, "Changed history project", 1);
@@ -2595,7 +2852,8 @@ describe("AgentPage", () => {
     expect(screen.getByLabelText("Agent action: Move directory")).toHaveTextContent("src/reviewed → archive/reviewed");
     expect(screen.getByLabelText("Agent action: Move file")).toHaveTextContent("example.ts → archive/reviewed/example.ts");
     fireEvent.click(screen.getByRole("button", { name: "the requested file" }));
-    expect(await screen.findByLabelText("Workspace file editor")).toHaveValue("export const example = true;\n");
+    const editor = await screen.findByLabelText("Workspace file editor");
+    await waitFor(() => expect(editor).toHaveValue("export const example = true;\n"));
     expect(transport.getAgentWorkspaceFile).toHaveBeenCalledWith(SESSION, "src/example.ts", expect.any(AbortSignal));
     expect(screen.getAllByText("Completed").map((item) => item.closest("summary")?.textContent)).toEqual([
       "CompletedRead file25 msNot requiredRead-only observation",
@@ -2878,7 +3136,17 @@ describe("AgentPage", () => {
     ));
     expect(activateLocalModel).not.toHaveBeenCalled();
     expect(await screen.findByText("No local model is running for this session. Start one on the Models page.")).toBeVisible();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    const composer = screen.getByLabelText("Message to the agent");
+    expect(composer).toBeEnabled();
+    fireEvent.change(composer, { target: { value: "Draft before model selection" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
+    expect(composer).toHaveValue("Draft before model selection");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(activateLocalModel).not.toHaveBeenCalled();
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Open Models" })).toHaveAttribute("href", "/models");
   });
 
@@ -2895,7 +3163,7 @@ describe("AgentPage", () => {
     render(<AgentPage transport={transport} />);
 
     expect(await screen.findByLabelText("Agent activity status")).toHaveTextContent("No model");
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     expect(transport.sendAgentMessage).not.toHaveBeenCalled();
   });
@@ -2957,7 +3225,34 @@ describe("AgentPage", () => {
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({ model_alias: null }),
     ));
+    const composer = screen.getByLabelText("Message to the agent");
+    expect(composer).toBeEnabled();
+    fireEvent.change(composer, { target: { value: "Draft while model status loads" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    expect(composer).toHaveValue("Draft while model status loads");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
     await act(async () => catalogue.resolve(modelsOverview(modelStatus("running"))));
+  });
+
+  it("focuses the editable model-neutral composer in a dedicated window", async () => {
+    const current = view({
+      model_alias: null,
+      settings: { ...view().settings, model_alias: null },
+    });
+    const transport = {
+      ...sessionTransport(current),
+      getAgentSession: vi.fn(async () => current),
+      getLocalModels: vi.fn(async () => modelsOverview()),
+    };
+
+    render(<AgentPage sessionId={SESSION} transport={transport} windowMode />);
+
+    const composer = await screen.findByLabelText("Message to the agent");
+    await waitFor(() => expect(composer).toHaveFocus());
+    expect(composer).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
 
   it("does not leak the active chat runtime selection into the next New session", async () => {
@@ -3052,8 +3347,13 @@ describe("AgentPage", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Local app disconnected");
     const composer = await screen.findByLabelText("Message to the agent");
-    expect(composer).toBeDisabled();
-    expect(composer).toHaveAttribute("placeholder", expect.stringMatching(/local app is disconnected/i));
+    expect(composer).toBeEnabled();
+    expect(composer).toHaveAttribute("placeholder", expect.stringMatching(/write a draft now.*reopen the app before sending/i));
+    fireEvent.change(composer, { target: { value: "Draft while the local app is disconnected" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    expect(composer).toHaveValue("Draft while the local app is disconnected");
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: state === "running" ? "Stop model" : "Start session model" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "New chat" })).toBeDisabled();
   });
@@ -3078,7 +3378,7 @@ describe("AgentPage", () => {
     expect(screen.getByText(/Open New chat and enter a workspace folder/)).toBeVisible();
   });
 
-  it("blocks an existing session while its model is stopped and enables the composer after activation", async () => {
+  it("keeps an existing stopped-model draft editable and enables sending after activation", async () => {
     const current = view();
     const stopped = modelStatus("stopped");
     const running = modelStatus("running");
@@ -3096,15 +3396,24 @@ describe("AgentPage", () => {
 
     expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
     const composer = screen.getByLabelText("Message to the agent");
-    expect(composer).toBeDisabled();
-    expect(composer).toHaveAttribute("placeholder", "Start the session model to write a message");
+    expect(composer).toBeEnabled();
+    expect(composer).toHaveAttribute("placeholder", "Write a draft now; start the session model before sending");
+
+    fireEvent.change(composer, { target: { value: "Inspect the synthetic project" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
+    expect(composer).toHaveValue("Inspect the synthetic project");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
+    expect(transport.activateLocalModel).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Start session model" }));
     await waitFor(() => expect(transport.activateLocalModel).toHaveBeenCalledOnce());
     expect(await screen.findByText(/running · ready for messages/)).toBeVisible();
     expect(composer).toBeEnabled();
 
-    fireEvent.change(composer, { target: { value: "Inspect the synthetic project" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(transport.sendAgentMessage).toHaveBeenCalledWith(SESSION, "Inspect the synthetic project", []));
   });
@@ -3133,7 +3442,7 @@ describe("AgentPage", () => {
     await waitFor(() => expect(transport.deactivateLocalModel).toHaveBeenCalledWith(MODEL_ALIAS));
     expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
     expect(screen.getByText(/sessions using it remain open but cannot send until it is restarted/i)).toBeVisible();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
     expect(screen.getByRole("button", { name: "Start session model" })).toBeEnabled();
     expect(transport.deleteAgentSession).not.toHaveBeenCalled();
   });
@@ -3165,8 +3474,7 @@ describe("AgentPage", () => {
       else oldRead.reject(new Error("Synthetic old refresh failure"));
     });
     expect(screen.getByLabelText("Agent activity status")).toHaveTextContent(action === "start" ? "Ready" : "Model stopped");
-    if (action === "start") expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
-    else expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
   });
 
   it("blocks sends during a model-stop request while preserving the draft", async () => {
@@ -3200,7 +3508,7 @@ describe("AgentPage", () => {
     await act(async () => { newer.resolve(modelsOverview(modelStatus("stopped"))); });
     await act(async () => { older.resolve(modelsOverview(modelStatus("running"))); });
     expect(screen.getByLabelText("Agent activity status")).toHaveTextContent("Model stopped");
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
   });
 
   it("does not continue an old model-stop preflight after the transport is replaced", async () => {
@@ -3275,7 +3583,13 @@ describe("AgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start session model" }));
     await act(async () => { oldStart.resolve(modelStatus("running")); });
     expect(screen.getByRole("button", { name: "Starting model…" })).toBeDisabled();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    const composer = screen.getByLabelText("Message to the agent");
+    expect(composer).toBeEnabled();
+    fireEvent.change(composer, { target: { value: "Keep drafting during model replacement" } });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    expect(replacement.sendAgentMessage).not.toHaveBeenCalled();
     expect(replacement.activateLocalModel).toHaveBeenCalledOnce();
     await act(async () => { newStart.resolve(modelStatus("running")); });
     expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
@@ -3306,7 +3620,13 @@ describe("AgentPage", () => {
     expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
     await act(async () => window.dispatchEvent(new Event("focus")));
     expect(screen.getByLabelText("Agent activity status")).toHaveTextContent("Model stopped");
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    const composer = screen.getByLabelText("Message to the agent");
+    expect(composer).toBeEnabled();
+    fireEvent.change(composer, { target: { value: "Keep drafting after model stops" } });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
   });
 
   it("does not stop a shared model while another session is actively using it", async () => {
@@ -3346,7 +3666,13 @@ describe("AgentPage", () => {
     render(<AgentPage transport={transport} />);
 
     expect(await screen.findByText(/starting · start it before sending/)).toBeVisible();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    const composer = screen.getByLabelText("Message to the agent");
+    expect(composer).toBeEnabled();
+    fireEvent.change(composer, { target: { value: "Draft while the model starts" } });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
     expect(screen.getAllByRole("button", { name: "Refresh model status" }).length).toBeGreaterThan(0);
 
     expect(await screen.findByText(/running · ready for messages/, {}, { timeout: 3000 })).toBeVisible();
@@ -3406,7 +3732,13 @@ describe("AgentPage", () => {
     expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
     expect(getLocalModels).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("button", { name: "Start session model" })).toBeEnabled();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    const composer = screen.getByLabelText("Message to the agent");
+    expect(composer).toBeEnabled();
+    fireEvent.change(composer, { target: { value: "Draft after a runtime failure" } });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
   });
 
   it("keeps the own-window conversation primary while preserving the session rail and runtime controls", async () => {
@@ -3638,6 +3970,7 @@ describe("AgentPage", () => {
   });
 
   it("acknowledges an own-window handoff only after a dirty workspace switch is accepted", async () => {
+    const staleSessionId = "e".repeat(32);
     const targetSessionId = "c".repeat(32);
     const windowKey = "d".repeat(32);
     const first = view();
@@ -3645,6 +3978,11 @@ describe("AgentPage", () => {
       session_id: targetSessionId,
       settings: { ...view().settings, workspace: "D:\\example\\target" },
     });
+    const staleTarget = view({
+      session_id: staleSessionId,
+      settings: { ...view().settings, workspace: "D:\\example\\stale" },
+    });
+    const staleLookup = deferred<AgentSessionView>();
     const targetLookup = deferred<AgentSessionView>();
     const originalChannel = Object.getOwnPropertyDescriptor(globalThis, "BroadcastChannel");
     const originalRoute = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -3686,7 +4024,11 @@ describe("AgentPage", () => {
     window.history.replaceState({}, "", `/agent/window?window=${windowKey}`);
     const transport = editableWorkspaceTransport(first);
     transport.getAgentSession.mockImplementation((nextSessionId: string) => (
-      nextSessionId === targetSessionId ? targetLookup.promise : Promise.resolve(first)
+      nextSessionId === staleSessionId
+        ? staleLookup.promise
+        : nextSessionId === targetSessionId
+          ? targetLookup.promise
+          : Promise.resolve(first)
     ));
     const rendered = render(<AgentPage transport={transport} windowMode />);
     const sender = new FakeChannel("prompt-enhancer-agent-window-v1");
@@ -3705,6 +4047,16 @@ describe("AgentPage", () => {
         version: AGENT_WINDOW_CHANNEL_VERSION,
         kind: "select",
         window_key: windowKey,
+        session_id: staleSessionId,
+      });
+      await waitFor(() => expect(transport.getAgentSession).toHaveBeenCalledWith(
+        staleSessionId,
+        expect.any(AbortSignal),
+      ));
+      sender.postMessage({
+        version: AGENT_WINDOW_CHANNEL_VERSION,
+        kind: "select",
+        window_key: windowKey,
         session_id: targetSessionId,
       });
 
@@ -3712,9 +4064,26 @@ describe("AgentPage", () => {
         targetSessionId,
         expect.any(AbortSignal),
       ));
+      // A same-owner catalog invalidation replaces the session-list array
+      // while the exact target lookup remains pending. It must not drop the
+      // outstanding selection request or its workspace-safety confirmation.
+      sender.postMessage({
+        version: AGENT_WINDOW_CHANNEL_VERSION,
+        kind: "catalog-changed",
+      });
+      await waitFor(() => expect(transport.listAgentSessions.mock.calls.length).toBeGreaterThanOrEqual(2));
       expect(screen.queryByRole("dialog", { name: "Discard workspace changes?" })).toBeNull();
       expect(acknowledgements).toEqual([]);
-      targetLookup.resolve(target);
+      await act(async () => {
+        staleLookup.resolve(staleTarget);
+        await Promise.resolve();
+      });
+      expect(screen.queryByRole("dialog", { name: "Discard workspace changes?" })).toBeNull();
+      expect(acknowledgements).toEqual([]);
+      await act(async () => {
+        targetLookup.resolve(target);
+        await Promise.resolve();
+      });
       const keepDialog = await screen.findByRole("dialog", { name: "Discard workspace changes?" });
       fireEvent.click(within(keepDialog).getByRole("button", { name: "Keep current state" }));
       fireEvent.click(screen.getByText("Chat details", { exact: true }));
@@ -3732,7 +4101,7 @@ describe("AgentPage", () => {
       const switchDialog = await screen.findByRole("dialog", { name: "Discard workspace changes?" });
       fireEvent.click(within(switchDialog).getByRole("button", { name: "Discard and switch chat" }));
 
-      expect(await screen.findByText("D:\\example\\target")).toBeVisible();
+      expect(await screen.findByRole("heading", { name: "target" })).toBeVisible();
       expect(screen.queryByText("D:\\example\\project")).toBeNull();
       expect(transport.applyAgentWorkspaceEdit).not.toHaveBeenCalled();
       await waitFor(() => expect(acknowledgements).toEqual([targetSessionId]));
@@ -3745,6 +4114,129 @@ describe("AgentPage", () => {
       else Reflect.deleteProperty(globalThis, "BroadcastChannel");
     }
   }, 15_000);
+
+  it("keeps the newest own-window selection when an older lookup settles after it", async () => {
+    const staleSessionId = "e".repeat(32);
+    const targetSessionId = "c".repeat(32);
+    const windowKey = "d".repeat(32);
+    const first = view();
+    const target = view({
+      session_id: targetSessionId,
+      settings: { ...view().settings, workspace: "D:\\example\\target" },
+    });
+    const staleTarget = view({
+      session_id: staleSessionId,
+      settings: { ...view().settings, workspace: "D:\\example\\stale" },
+    });
+    const staleLookup = deferred<AgentSessionView>();
+    const targetLookup = deferred<AgentSessionView>();
+    const originalChannel = Object.getOwnPropertyDescriptor(globalThis, "BroadcastChannel");
+    const originalRoute = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    class FakeChannel {
+      static channels = new Set<FakeChannel>();
+      readonly name: string;
+      private listeners = new Set<(event: MessageEvent<unknown>) => void>();
+
+      constructor(name: string) {
+        this.name = name;
+        FakeChannel.channels.add(this);
+      }
+
+      addEventListener(_type: "message", listener: (event: MessageEvent<unknown>) => void): void {
+        this.listeners.add(listener);
+      }
+
+      removeEventListener(_type: "message", listener: (event: MessageEvent<unknown>) => void): void {
+        this.listeners.delete(listener);
+      }
+
+      postMessage(message: unknown): void {
+        for (const channel of FakeChannel.channels) {
+          if (channel === this || channel.name !== this.name) continue;
+          queueMicrotask(() => {
+            for (const listener of channel.listeners) listener(new MessageEvent("message", { data: message }));
+          });
+        }
+      }
+
+      close(): void {
+        this.listeners.clear();
+        FakeChannel.channels.delete(this);
+      }
+    }
+
+    Object.defineProperty(globalThis, "BroadcastChannel", { configurable: true, value: FakeChannel });
+    window.history.replaceState({}, "", `/agent/window?window=${windowKey}`);
+    const transport = editableWorkspaceTransport(first);
+    transport.getAgentSession.mockImplementation((nextSessionId: string) => (
+      nextSessionId === staleSessionId
+        ? staleLookup.promise
+        : nextSessionId === targetSessionId
+          ? targetLookup.promise
+          : Promise.resolve(first)
+    ));
+    const rendered = render(<AgentPage transport={transport} windowMode />);
+    const sender = new FakeChannel("prompt-enhancer-agent-window-v1");
+    const acknowledgements: string[] = [];
+    const observer = new FakeChannel("prompt-enhancer-agent-window-v1");
+    observer.addEventListener("message", (message) => {
+      const value = message.data as { kind?: unknown; session_id?: unknown };
+      if (value?.kind === "selected" && typeof value.session_id === "string") {
+        acknowledgements.push(value.session_id);
+      }
+    });
+    try {
+      await screen.findByText("D:\\example\\project");
+      sender.postMessage({
+        version: AGENT_WINDOW_CHANNEL_VERSION,
+        kind: "select",
+        window_key: windowKey,
+        session_id: staleSessionId,
+      });
+      await waitFor(() => expect(transport.getAgentSession).toHaveBeenCalledWith(
+        staleSessionId,
+        expect.any(AbortSignal),
+      ));
+      sender.postMessage({
+        version: AGENT_WINDOW_CHANNEL_VERSION,
+        kind: "select",
+        window_key: windowKey,
+        session_id: targetSessionId,
+      });
+      await waitFor(() => expect(transport.getAgentSession).toHaveBeenCalledWith(
+        targetSessionId,
+        expect.any(AbortSignal),
+      ));
+
+      // The workspace can become dirty after the request begins. The current
+      // value, not the effect's former dependency snapshot, must gate commit.
+      await openDirtyWorkspaceDraft();
+      await act(async () => {
+        targetLookup.resolve(target);
+        await Promise.resolve();
+      });
+      const dialog = await screen.findByRole("dialog", { name: "Discard workspace changes?" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Discard and switch chat" }));
+      expect(await screen.findByRole("heading", { name: "target" })).toBeVisible();
+      await waitFor(() => expect(acknowledgements).toEqual([targetSessionId]));
+
+      await act(async () => {
+        staleLookup.resolve(staleTarget);
+        await Promise.resolve();
+      });
+      expect(await screen.findByRole("heading", { name: "target" })).toBeVisible();
+      expect(screen.queryByRole("dialog", { name: "Discard workspace changes?" })).toBeNull();
+      expect(acknowledgements).toEqual([targetSessionId]);
+    } finally {
+      rendered.unmount();
+      sender.close();
+      observer.close();
+      window.history.replaceState({}, "", originalRoute);
+      if (originalChannel) Object.defineProperty(globalThis, "BroadcastChannel", originalChannel);
+      else Reflect.deleteProperty(globalThis, "BroadcastChannel");
+    }
+  });
 
   it("refreshes the live chat title after a content-free catalog change from another window", async () => {
     const originalChannel = Object.getOwnPropertyDescriptor(globalThis, "BroadcastChannel");
@@ -3847,6 +4339,11 @@ describe("AgentPage", () => {
     });
     const transport = retainedCatalogTransport(project, [saved], {
       getAgentSession,
+      resumeAgentSession: vi.fn(async () => view({
+        session_id: SESSION,
+        model_alias: saved.model_alias,
+        settings: { ...view().settings, project_id: projectId, model_alias: saved.model_alias, title: saved.title, retention_policy: "local_history" },
+      })),
       getAgentPersistedEvents: vi.fn(async () => ({
         contract_version: "local-agent.v9" as const,
         session_id: SESSION,
@@ -3988,7 +4485,13 @@ describe("AgentPage", () => {
     expect(await screen.findByText("No local model is running for this session. Start one on the Models page.")).toBeVisible();
     const recovery = screen.getByRole("link", { name: "Open Models" });
     expect(recovery).toHaveAttribute("href", "/models");
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    const composer = screen.getByLabelText("Message to the agent");
+    expect(composer).toBeEnabled();
+    fireEvent.change(composer, { target: { value: "Draft before choosing a model" } });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
   });
 
   it("keeps coordinated model recovery inside Agent and reveals the exact control", async () => {
@@ -4031,7 +4534,7 @@ describe("AgentPage", () => {
     expect(screen.queryByRole("link", { name: "Open Models" })).toBeNull();
     expect(screen.getByLabelText("Message to the agent")).toHaveAttribute(
       "placeholder",
-      "Choose or start a model in Model & context to write a message",
+      "Write a draft now; choose or start a model before sending",
     );
   });
 
@@ -4053,7 +4556,13 @@ describe("AgentPage", () => {
 
     expect(await screen.findByText("Synthetic Local Model · stopped · start or switch it in Model & context")).toBeVisible();
     expect(screen.getByRole("button", { name: "Choose or start model" })).toBeEnabled();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    const composer = screen.getByLabelText("Message to the agent");
+    expect(composer).toBeEnabled();
+    fireEvent.change(composer, { target: { value: "Draft before restarting the bound model" } });
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    expect(transport.sendAgentMessage).not.toHaveBeenCalled();
   });
 
   it("sends an empty coordinated model catalogue to installation instead of a dead selector", async () => {
@@ -4105,6 +4614,67 @@ describe("AgentPage", () => {
     expect(start.closest("form")).toContainElement(error);
     expect(start).toHaveAttribute("aria-describedby", "agent-create-error");
     expect(screen.getByLabelText("Message to the agent")).toHaveAttribute("aria-describedby", "agent-session-model-status agent-composer-shortcut");
+  });
+
+  it("refuses a creation output budget at the selected model context limit", async () => {
+    const current = view();
+    const transport = {
+      ...emptyDurableCatalogTransport(),
+      listAgentSessions: vi.fn(async () => []),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+    await screen.findByRole("option", { name: /Synthetic Local Model · running/ });
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    fireEvent.change(await screen.findByLabelText("Workspace folder"), { target: { value: "D:\\example\\budget" } });
+    fireEvent.change(screen.getByLabelText("Agent model"), { target: { value: MODEL_ALIAS } });
+    fireEvent.click(screen.getByText("Model parameters"));
+    fireEvent.change(screen.getByLabelText("Max tokens"), { target: { value: "8192" } });
+    expect(screen.getByRole("alert")).toHaveTextContent(/must be below 8192/i);
+    expect(screen.getByRole("button", { name: /Open chat session|Open read-only chat/ })).toBeDisabled();
+    expect(transport.createAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("allows a below-limit selected-model creation budget", async () => {
+    const current = view();
+    const transport = {
+      ...emptyDurableCatalogTransport(),
+      listAgentSessions: vi.fn(async () => []),
+      getLocalModels: vi.fn(async () => modelsOverview(modelStatus("running"))),
+      createAgentSession: vi.fn(async (settings: AgentSettings) => view({ settings: { ...view().settings, ...settings } })),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+    await screen.findByRole("option", { name: /Synthetic Local Model · running/ });
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    fireEvent.change(await screen.findByLabelText("Workspace folder"), { target: { value: "D:\\example\\below-limit" } });
+    fireEvent.change(screen.getByLabelText("Agent model"), { target: { value: MODEL_ALIAS } });
+    fireEvent.click(screen.getByText("Model parameters"));
+    fireEvent.change(screen.getByLabelText("Max tokens"), { target: { value: "8191" } });
+    expect(screen.queryByText(/must be below 8192/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /Open chat session|Open read-only chat/ })).toBeEnabled();
+  });
+
+  it("keeps model-free creation budget capacity unknown and allowed", async () => {
+    const current = view();
+    const transport = {
+      ...emptyDurableCatalogTransport(),
+      listAgentSessions: vi.fn(async () => []),
+      getLocalModels: vi.fn(async () => modelsOverview()),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+    await screen.findByRole("button", { name: "New chat" });
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    fireEvent.change(await screen.findByLabelText("Workspace folder"), { target: { value: "D:\\example\\unknown-budget" } });
+    fireEvent.click(screen.getByText("Model parameters"));
+    fireEvent.change(screen.getByLabelText("Max tokens"), { target: { value: "8192" } });
+    expect(screen.queryByText(/must be below/i)).toBeNull();
+    expect(screen.getByText("Open read-only chat without model").closest("button")).toBeEnabled();
   });
 
   it("explains a model-readiness race instead of misreporting session capacity", async () => {
@@ -4431,6 +5001,190 @@ describe("AgentPage", () => {
     expect(getUserPresenceCapability).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps governed web fetch default-off and only includes it after native opt-in", async () => {
+    const transport = {
+      ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(true)),
+      getAgentWebFetchCapability: vi.fn(async () => ({
+        contract_version: "agent-web-fetch-capability.v1" as const,
+        available: true,
+        policy_version: "governed-web-fetch.v1" as const,
+        reason_code: "available" as const,
+        requires_per_fetch_approval: true as const,
+        network_scope: "public_https" as const,
+      })),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async (settings: AgentSettings) => view({ settings: { ...view().settings, ...settings } })),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\web-fetch" } });
+    await waitFor(() => expect(screen.getByLabelText(/May fetch approved public HTTPS URLs/i)).toBeEnabled());
+    expect(screen.getByLabelText(/May fetch approved public HTTPS URLs/i)).not.toBeChecked();
+    expect(screen.getByText(/each request leaves this machine.*no cookies, credentials, or redirects/i)).toBeVisible();
+
+    fireEvent.click(screen.getByLabelText(/May fetch approved public HTTPS URLs/i));
+    fireEvent.click(screen.getByRole("button", { name: "Open chat without model" }));
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledOnce());
+    expect(transport.createAgentSession.mock.calls[0][0]).toMatchObject({
+      allow_writes: false,
+      allow_commands: false,
+      allow_web: true,
+    });
+  });
+
+  it("keeps web fetch disabled when native confirmation is unavailable", async () => {
+    const transport = {
+      ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(false)),
+      getAgentWebFetchCapability: vi.fn(async () => ({
+        contract_version: "agent-web-fetch-capability.v1" as const,
+        available: true,
+        policy_version: "governed-web-fetch.v1" as const,
+        reason_code: "available" as const,
+        requires_per_fetch_approval: true as const,
+        network_scope: "public_https" as const,
+      })),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const web = await screen.findByLabelText(/Web fetch unavailable until native confirmation/i);
+    expect(web).toBeDisabled();
+    expect(web).not.toBeChecked();
+    expect(screen.getByText(/Web fetch is unavailable until native confirmation is available/i)).toBeVisible();
+  });
+
+  it("recovers a rejected governed web fetch check only after an explicit retry", async () => {
+    const getAgentWebFetchCapability = vi.fn()
+      .mockRejectedValueOnce(new Error("synthetic governed fetch probe failure"))
+      .mockResolvedValueOnce({
+        contract_version: "agent-web-fetch-capability.v1" as const,
+        available: true,
+        policy_version: "governed-web-fetch.v1" as const,
+        reason_code: "available" as const,
+        requires_per_fetch_approval: true as const,
+        network_scope: "public_https" as const,
+      });
+    const transport = {
+      ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(true)),
+      getAgentWebFetchCapability,
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    const unavailable = await screen.findByLabelText(/Web fetch unavailable \(capability could not be verified\)/i);
+    expect(unavailable).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry governed web fetch check" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry governed web fetch check" }));
+    await waitFor(() => expect(screen.getByLabelText(/May fetch approved public HTTPS URLs/i)).toBeEnabled());
+    expect(screen.getByLabelText(/May fetch approved public HTTPS URLs/i)).not.toBeChecked();
+    expect(getAgentWebFetchCapability).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds a hung governed web fetch check and ignores its late result after retry", async () => {
+    vi.useFakeTimers();
+    const first = deferred<AgentWebFetchCapability>();
+    const second = deferred<AgentWebFetchCapability>();
+    const signals: AbortSignal[] = [];
+    const getAgentWebFetchCapability = vi.fn((signal: AbortSignal) => {
+      signals.push(signal);
+      return signals.length === 1 ? first.promise : second.promise;
+    });
+    const transport = {
+      ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(true)),
+      getAgentWebFetchCapability,
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_999); });
+    expect(screen.getByLabelText(/Checking governed web fetch capability/i)).toBeDisabled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.getByLabelText(/Web fetch unavailable \(capability could not be verified\)/i)).toBeDisabled();
+    expect(signals[0]).toBeDefined();
+    expect(signals[0].aborted).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry governed web fetch check" }));
+    await act(async () => { await Promise.resolve(); });
+    second.resolve({
+      contract_version: "agent-web-fetch-capability.v1",
+      available: true,
+      policy_version: "governed-web-fetch.v1",
+      reason_code: "available",
+      requires_per_fetch_approval: true,
+      network_scope: "public_https",
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByLabelText(/May fetch approved public HTTPS URLs/i)).toBeEnabled();
+    expect(screen.getByLabelText(/May fetch approved public HTTPS URLs/i)).not.toBeChecked();
+
+    first.resolve({
+      contract_version: "agent-web-fetch-capability.v1",
+      available: false,
+      policy_version: "governed-web-fetch.v1",
+      reason_code: "governed_fetcher_unavailable",
+      requires_per_fetch_approval: true,
+      network_scope: "public_https",
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByLabelText(/May fetch approved public HTTPS URLs/i)).toBeEnabled();
+    expect(getAgentWebFetchCapability).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not adopt a late governed web fetch capability result from a replaced transport", async () => {
+    const firstWeb = deferred<AgentWebFetchCapability>();
+    const secondWeb = deferred<AgentWebFetchCapability>();
+    const makeTransport = (web: typeof firstWeb) => ({
+      ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(async () => userPresenceCapability(true)),
+      getAgentWebFetchCapability: vi.fn(() => web.promise),
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    });
+    const transportA = makeTransport(firstWeb);
+    const transportB = makeTransport(secondWeb);
+    const { rerender } = render(<AgentPage transport={transportA} />);
+    await act(async () => { await Promise.resolve(); });
+    rerender(<AgentPage transport={transportB} />);
+
+    firstWeb.resolve({
+      contract_version: "agent-web-fetch-capability.v1",
+      available: true,
+      policy_version: "governed-web-fetch.v1",
+      reason_code: "available",
+      requires_per_fetch_approval: true,
+      network_scope: "public_https",
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByLabelText(/Checking governed web fetch capability/i)).toBeDisabled();
+
+    secondWeb.resolve({
+      contract_version: "agent-web-fetch-capability.v1",
+      available: true,
+      policy_version: "governed-web-fetch.v1",
+      reason_code: "available",
+      requires_per_fetch_approval: true,
+      network_scope: "public_https",
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByLabelText(/May fetch approved public HTTPS URLs/i)).toBeEnabled();
+    expect(screen.getByLabelText(/May fetch approved public HTTPS URLs/i)).not.toBeChecked();
+  });
+
   it.each([
     [422, /not an existing folder/i],
     [403, /outside the allowed workspace roots/i],
@@ -4544,18 +5298,107 @@ describe("AgentPage", () => {
     };
     render(<AgentPage transport={transport} />);
 
-    await screen.findByText("Second project");
+    // The rail selects the default project from its first read, and that
+    // selection reloads both lists. A row queried during the reload is detached
+    // before it can be clicked, so wait for the reload's own read to have
+    // landed - the second project read committed, the loading placeholder gone
+    // and the default project's chat list settled - and then query and click in
+    // the same synchronous step.
+    await screen.findByText("No chat matches this view.");
+    await waitFor(() => {
+      expect(transport.listAgentProjects.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(screen.queryByText("Loading projects…")).toBeNull();
+    });
     fireEvent.click(screen.getByRole("button", { name: /^Second project/u }));
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: /^Second project/u }).closest(".agent-rail__project"),
+    ).toHaveAttribute("data-current", "true"));
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     fireEvent.change(screen.getByLabelText("Workspace folder"), {
       target: { value: "D:\\example\\second-project" },
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Open read-only chat without model" }));
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Open read-only chat without model" }),
+    ).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat without model" }));
 
     await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({ project_id: secondProjectId }),
     ));
     expect(await screen.findByLabelText("Message to the agent")).toBeVisible();
+  });
+
+  it("keeps a new chat in the picked project when the startup landing settles mid-setup", async () => {
+    const firstProjectId = "1".repeat(32);
+    const secondProjectId = "2".repeat(32);
+    const projects = [
+      catalogProjectFixture(firstProjectId, "Personal workspace", 1),
+      catalogProjectFixture(secondProjectId, "Second project", 0),
+    ];
+    const startupChat = catalogSessionFixture("e".repeat(32), firstProjectId, "Earlier chat");
+    // The live session list gates the startup landing, so holding it open
+    // reproduces a loaded machine: the landing answer arrives only after the
+    // owner has already picked another project and opened chat setup.
+    const liveSessions = deferred<AgentSessionView[]>();
+    let liveSessionReads = 0;
+    const transport = {
+      ...sessionTransport(),
+      listAgentSessions: vi.fn(() => {
+        liveSessionReads += 1;
+        return liveSessionReads === 1 ? liveSessions.promise : Promise.resolve([]);
+      }),
+      listAgentProjects: vi.fn(async () => ({ contract_version: "agent-catalog.v2" as const, projects })),
+      createAgentProject: vi.fn(async () => projects[0]),
+      updateAgentProject: vi.fn(async () => projects[0]),
+      deleteAgentProject: vi.fn(async () => undefined),
+      listAgentCatalogSessions: vi.fn(async (query?: { projectId?: string }) => ({
+        contract_version: "agent-catalog.v2" as const,
+        sessions: query?.projectId === firstProjectId ? [startupChat] : [],
+      })),
+      updateAgentCatalogSession: vi.fn(),
+      deleteAgentCatalogSession: vi.fn(async () => undefined),
+      createAgentSession: vi.fn(async (settings: AgentSettings) => view({ settings })),
+    };
+    render(<AgentPage transport={transport} />);
+
+    // Selecting the default project reloads the rail, so wait for that reload's
+    // own reads to have landed - the default project's chat list rendered and
+    // the reloaded project list committed - before querying and clicking the
+    // row in one synchronous step. A row queried during the reload is detached
+    // by the time it is clicked, and React never sees the click.
+    await screen.findByRole("button", { name: /^Earlier chat/u });
+    await waitFor(() => {
+      expect(transport.listAgentProjects.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(screen.queryByText("Loading projects…")).toBeNull();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Second project/u }));
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: /^Second project/u }).closest(".agent-rail__project"),
+    ).toHaveAttribute("data-current", "true"));
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    fireEvent.change(screen.getByLabelText("Workspace folder"), {
+      target: { value: "D:\\example\\second-project" },
+    });
+
+    // The startup answer describes the project the owner has already left. It
+    // may not select that project's chat, and it may not move the chat now
+    // being created back to it.
+    await act(async () => { liveSessions.resolve([]); });
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: /^Second project/u }).closest(".agent-rail__project"),
+    ).toHaveAttribute("data-current", "true"));
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Open read-only chat without model" }),
+    ).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Open read-only chat without model" }));
+
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: secondProjectId,
+        workspace: "D:\\example\\second-project",
+      }),
+    ));
+    expect(transport.createAgentSession).toHaveBeenCalledTimes(1);
   });
 
   it("returns focus to the New chat trigger when setup is dismissed", async () => {
@@ -4588,27 +5431,31 @@ describe("AgentPage", () => {
     expect(settingsTrigger.closest(".agent__side-scroll")).toBeNull();
     expect(settingsTrigger.parentElement).toHaveClass("agent__settings-launch");
     fireEvent.click(settingsTrigger);
+    await act(async () => { await vi.dynamicImportSettled(); });
     expect(screen.getByRole("dialog", { name: "Agent settings" })).toBeVisible();
     const readinessTab = screen.getByRole("tab", { name: "Readiness" });
     expect(readinessTab).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("heading", { name: "Agent capability readiness" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Agent capability readiness" })).toBeVisible();
     readinessTab.focus();
     fireEvent.keyDown(readinessTab, { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "Connections" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Connections" })).toHaveFocus();
     expect(screen.queryByRole("region", { name: "Guarded native Agent acceptance" })).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "MCP Store" }));
+    await act(async () => { await vi.dynamicImportSettled(); });
     const store = await screen.findByRole("region", { name: "MCP Store" });
     expect(store).toBeVisible();
     expect(screen.getByRole("dialog", { name: "Agent settings" })).toHaveAttribute("data-settings-tab", "store");
     expect(within(store).getByRole("tab", { name: "Browse servers" })).toHaveAttribute("aria-selected", "true");
     expect(within(store).getByText(/Browsing never installs, connects, starts a process, or grants a tool permission/i)).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: "Owner checks" }));
-    const ownerAcceptance = screen.getByRole("region", { name: "Guarded native Agent acceptance" });
+    await act(async () => { await vi.dynamicImportSettled(); });
+    const ownerAcceptance = await screen.findByRole("region", { name: "Guarded native Agent acceptance" });
     expect(ownerAcceptance).toBeVisible();
     expect(within(ownerAcceptance).getByRole("button", { name: "Native confirmation required" })).toBeDisabled();
     fireEvent.click(screen.getByRole("tab", { name: "Team folders" }));
-    const teamFolders = screen.getByRole("region", { name: "Team folders" });
+    await act(async () => { await vi.dynamicImportSettled(); });
+    const teamFolders = await screen.findByRole("region", { name: "Team folders" });
     expect(teamFolders).toBeVisible();
     expect(screen.queryByRole("region", { name: "Guarded native Agent acceptance" })).toBeNull();
     fireEvent.keyDown(window, { key: "Escape" });
@@ -4619,6 +5466,7 @@ describe("AgentPage", () => {
     expect(screen.queryByRole("heading", { name: "Files and reviewed changes" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Files & review" }));
+    await act(async () => { await vi.dynamicImportSettled(); });
     expect(await screen.findByRole("heading", { name: "Files and reviewed changes" })).toBeVisible();
     const resizer = screen.getByRole("separator", { name: "Resize files and review drawer" });
     expect(resizer).toHaveAttribute("aria-valuenow", "520");
@@ -4693,7 +5541,7 @@ describe("AgentPage", () => {
     fireEvent.click(settingsTrigger);
     fireEvent.click(screen.getByRole("tab", { name: "Owner checks" }));
 
-    expect(screen.getByRole("button", { name: "Check current evidence" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Check current evidence" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Begin guarded acceptance" })).toBeNull();
     expect(beginAgentNativeAcceptance).toHaveBeenCalledOnce();
   }, 10_000);
@@ -5058,6 +5906,7 @@ describe("AgentPage", () => {
       destinationProjectId,
       savedSessionId,
       { expected_catalog_revision: 5, expected_history_revision: 0 },
+      expect.any(AbortSignal),
     ));
   });
 
@@ -5233,6 +6082,11 @@ describe("AgentPage", () => {
       }),
       deleteAgentCatalogSession: vi.fn(async () => undefined),
       getAgentPersistedEvents: persistedEvents,
+      resumeAgentSession: vi.fn(async () => view({
+        session_id: sessionId,
+        model_alias: record.model_alias,
+        settings: { ...view().settings, project_id: projectId, model_alias: record.model_alias, title: record.title, retention_policy: "local_history" },
+      })),
     };
 
     render(<AgentPage transport={transport} />);
@@ -5551,6 +6405,7 @@ describe("AgentPage", () => {
       projectId,
       savedSessionId,
       { expected_catalog_revision: 2, expected_history_revision: 3 },
+      expect.any(AbortSignal),
     ));
     expect(await screen.findByRole("heading", { name: "Revalidate this workspace before changing it" })).toBeVisible();
     expect(screen.getByText("Recovered · protected actions off")).toBeVisible();
@@ -5931,6 +6786,189 @@ describe("AgentPage", () => {
     expect(await screen.findByText(/Regeneration started in a new branch before turn 1/u)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Retry live updates" })).toBeNull();
     expect(screen.getByRole("heading", { level: 1, name: "Revision source (branch)" })).toBeVisible();
+  });
+
+  it("prepares an attachment-only turn as a child draft and never auto-sends it", async () => {
+    const turnId = "a".repeat(32);
+    const retainedEvents = [
+      event(1, "user", { text: null, attachments: [imageMessageAttachment()], turn_id: turnId }),
+      event(2, "done", { turn_id: turnId, turn_summary: exampleAgentTurn({ turn_id: turnId }) }),
+    ];
+    const harness = turnRevisionHarness(retainedEvents);
+    render(<AgentPage transport={harness.transport} />);
+
+    fireEvent.click(await screen.findByLabelText("Turn 1 details"));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare regeneration with attachments" }));
+
+    expect(await screen.findByRole("region", { name: "Original attachments for this retry" })).toHaveTextContent("example-diagram.png");
+    expect(harness.sendAgentMessage).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Message to the agent")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Omit original example-diagram.png" }));
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("warns before closing a checklist-only branch and keeps it when close is cancelled", async () => {
+    const turnId = "e".repeat(32);
+    const retainedEvents = [
+      event(1, "user", { text: null, attachments: [imageMessageAttachment()], turn_id: turnId }),
+      event(2, "done", { turn_id: turnId, turn_summary: exampleAgentTurn({ turn_id: turnId }) }),
+    ];
+    const harness = turnRevisionHarness(retainedEvents);
+    harness.transport.listAgentCatalogSessions.mockImplementation(async () => ({
+      contract_version: "agent-catalog.v2" as const,
+      sessions: (() => {
+        const child = harness.childRecord();
+        return [harness.sourceRecord, ...(child === null ? [] : [child])];
+      })(),
+    }));
+    render(<AgentPage transport={harness.transport} />);
+
+    fireEvent.click(await screen.findByLabelText("Turn 1 details"));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare regeneration with attachments" }));
+    await screen.findByRole("region", { name: "Original attachments for this retry" });
+    fireEvent.click(await screen.findByLabelText("Chat actions for Revision source (branch)"));
+    const actions = screen.getByRole("dialog", { name: "Chat actions for Revision source (branch)" });
+    fireEvent.click(within(actions).getByRole("button", { name: "Close live chat" }));
+    const dialog = await screen.findByRole("dialog", { name: "Close live chat?" });
+    expect(within(dialog).getByText(/attachment-retry choices exist only in this window and will be discarded/u)).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep current state" }));
+    expect(screen.getByRole("heading", { name: "Revision source (branch)", level: 1 })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Original attachments for this retry" })).toBeVisible();
+  });
+
+  it("keeps the attachment checklist and child draft when child history hydration fails", async () => {
+    const turnId = "b".repeat(32);
+    const retainedEvents = [
+      event(1, "user", { text: "Retry this synthetic image.", attachments: [imageMessageAttachment()], turn_id: turnId }),
+      event(2, "done", { turn_id: turnId, turn_summary: exampleAgentTurn({ turn_id: turnId }) }),
+    ];
+    const harness = turnRevisionHarness(retainedEvents, { childHistoryFailure: new Error("synthetic child read failed") });
+    render(<AgentPage transport={harness.transport} />);
+
+    fireEvent.click(await screen.findByLabelText("Turn 1 details"));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare regeneration with attachments" }));
+    expect(await screen.findByRole("heading", { name: "Revision source (branch)", level: 1 })).toBeVisible();
+    expect(screen.getByLabelText("Message to the agent")).toHaveValue("Retry this synthetic image.");
+    expect(screen.getByRole("region", { name: "Original attachments for this retry" })).toBeVisible();
+    expect(harness.sendAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it("blocks form, shortcut, and click submission while a child prefix is still hydrating", async () => {
+    const turnId = "d".repeat(32);
+    const retainedEvents = [
+      event(1, "user", { text: "Retry this synthetic image.", attachments: [imageMessageAttachment()], turn_id: turnId }),
+      event(2, "done", { turn_id: turnId, turn_summary: exampleAgentTurn({ turn_id: turnId }) }),
+    ];
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const harness = turnRevisionHarness(retainedEvents, { childHistoryGate: gate });
+    render(<AgentPage transport={harness.transport} />);
+
+    fireEvent.click(await screen.findByLabelText("Turn 1 details"));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare regeneration with attachments" }));
+    await waitFor(() => expect(harness.resumeAgentSession).toHaveBeenCalledOnce());
+    await screen.findByRole("region", { name: "Original attachments for this retry" });
+    fireEvent.click(screen.getByRole("button", { name: "Omit original example-diagram.png" }));
+    const input = screen.getByLabelText("Message to the agent");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send" })).toHaveAttribute("title", "Finishing branch preparation");
+    expect(screen.getByRole("button", { name: "Attach" })).toBeDisabled();
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(harness.sendAgentMessage).not.toHaveBeenCalled();
+    release?.();
+    expect(await screen.findByRole("region", { name: "Original attachments for this retry" })).toBeVisible();
+    expect(harness.sendAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it("abandons a delayed child-history result after navigation without sending or reopening the child", async () => {
+    const turnId = "f".repeat(32);
+    const retainedEvents = [
+      event(1, "user", { text: "Retry this synthetic image.", attachments: [imageMessageAttachment()], turn_id: turnId }),
+      event(2, "done", { turn_id: turnId, turn_summary: exampleAgentTurn({ turn_id: turnId }) }),
+    ];
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const harness = turnRevisionHarness(retainedEvents, { childHistoryGate: gate });
+    const otherSessionId = "8".repeat(32);
+    const otherView = view({ session_id: otherSessionId, settings: { ...view().settings, project_id: harness.project.project_id, title: "Other live chat", model_alias: MODEL_ALIAS } });
+    const otherRecord = catalogSessionFixture(otherSessionId, harness.project.project_id, "Other live chat");
+    harness.transport.listAgentSessions.mockResolvedValue([harness.sourceView, otherView]);
+    harness.transport.listAgentCatalogSessions.mockResolvedValue({ contract_version: "agent-catalog.v2", sessions: [harness.sourceRecord, otherRecord] });
+    render(<AgentPage transport={harness.transport} />);
+
+    fireEvent.click(await screen.findByLabelText("Turn 1 details"));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare regeneration with attachments" }));
+    await waitFor(() => expect(harness.resumeAgentSession).toHaveBeenCalledOnce());
+    fireEvent.click(await screen.findByRole("button", { name: /^Other live chat/u }));
+    await act(async () => {
+      release?.();
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole("heading", { name: "Other live chat", level: 1 })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Revision source (branch)", level: 1 })).toBeNull();
+    expect(harness.sendAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it("retains the attachment checklist after a failed manual child send", async () => {
+    const turnId = "c".repeat(32);
+    const retainedEvents = [
+      event(1, "user", { text: "Retry this synthetic image.", attachments: [imageMessageAttachment()], turn_id: turnId }),
+      event(2, "done", { turn_id: turnId, turn_summary: exampleAgentTurn({ turn_id: turnId }) }),
+    ];
+    const harness = turnRevisionHarness(retainedEvents, { sendFailure: new Error("synthetic send failed") });
+    render(<AgentPage transport={harness.transport} />);
+
+    fireEvent.click(await screen.findByLabelText("Turn 1 details"));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare regeneration with attachments" }));
+    await screen.findByRole("region", { name: "Original attachments for this retry" });
+    fireEvent.click(screen.getByRole("button", { name: "Omit original example-diagram.png" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(harness.sendAgentMessage).toHaveBeenCalledWith(
+      harness.childSessionId,
+      "Retry this synthetic image.",
+      [],
+    ));
+    expect(await screen.findByText("The message could not be sent.")).toBeVisible();
+    expect(await screen.findByRole("region", { name: "Original attachments for this retry" })).toBeVisible();
+    expect(screen.getByLabelText("Message to the agent")).toHaveValue("Retry this synthetic image.");
+  });
+
+  it("does not carry an attachment retry checklist across a same-id transport replacement", async () => {
+    const turnId = "d".repeat(32);
+    const retainedEvents = [
+      event(1, "user", { text: "Retry this synthetic image.", attachments: [imageMessageAttachment()], turn_id: turnId }),
+      event(2, "done", { turn_id: turnId, turn_summary: exampleAgentTurn({ turn_id: turnId }) }),
+    ];
+    const harness = turnRevisionHarness(retainedEvents, { sendFailure: new Error("synthetic send failed") });
+    const rendered = render(<AgentPage transport={harness.transport} />);
+
+    fireEvent.click(await screen.findByLabelText("Turn 1 details"));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare regeneration with attachments" }));
+    await screen.findByRole("region", { name: "Original attachments for this retry" });
+    fireEvent.click(screen.getByRole("button", { name: "Omit original example-diagram.png" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("The message could not be sent.");
+    expect(screen.getByRole("region", { name: "Original attachments for this retry" })).toBeVisible();
+    expect(screen.getByText(/Reattach each original file or explicitly omit it/u)).toBeVisible();
+
+    const replacement = view({
+      session_id: harness.childSessionId,
+      settings: { ...view().settings, title: "Replacement same-id branch", model_alias: MODEL_ALIAS },
+      model_alias: MODEL_ALIAS,
+    });
+    const replacementTransport = sessionTransport(replacement);
+    rendered.rerender(<AgentPage transport={replacementTransport} />);
+    await screen.findByRole("heading", { name: "Replacement same-id branch", level: 1 });
+    const composer = await screen.findByLabelText("Message to the agent");
+    expect(composer).toHaveValue("");
+    expect(screen.queryByRole("region", { name: "Original attachments for this retry" })).toBeNull();
+    expect(screen.queryByText(/Reattach each original file or explicitly omit it/u)).toBeNull();
+
+    fireEvent.change(composer, { target: { value: "Synthetic replacement draft" } });
+    expect(composer).toHaveValue("Synthetic replacement draft");
   });
 
   it("retries a failed later turn from the preceding settled receipt", async () => {
@@ -6483,7 +7521,7 @@ describe("AgentPage", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Project tools" }));
     const settings = await screen.findByRole("dialog", { name: "Agent settings" });
-    const projectTools = within(settings).getByText("Project tools");
+    const projectTools = await within(settings).findByText("Project tools");
     fireEvent.click(projectTools);
     expect(await within(settings).findByText("1 ready")).toBeVisible();
     expect(getMcpManagedProjectRuntime).toHaveBeenCalledWith(projectId, expect.any(AbortSignal));
@@ -6636,6 +7674,64 @@ describe("AgentPage", () => {
     expect(within(proof).getByText("In progress")).toBeVisible();
     expect(within(settings).getByRole("button", { name: "Restart lifecycle proof" })).toBeVisible();
     expect(within(proof).getByText(/clears on app reload/)).toBeVisible();
+  });
+
+  it("never opens startup onboarding over an already open Agent settings drawer", async () => {
+    const transport = emptyDurableCatalogTransport();
+    render(<AgentPage transport={transport} />);
+
+    // The owner opens settings while the durable catalog is still loading.
+    expect(screen.queryByRole("dialog", { name: "New session" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Agent settings/ }));
+    const settings = await screen.findByRole("dialog", { name: "Agent settings" });
+
+    // The empty rail state is committed together with the startup catalog
+    // answer, so onboarding has already had its chance to open by now.
+    expect(await screen.findByText(/No project matches this view/)).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "New session" })).toBeNull();
+    expect(settings).toBeVisible();
+
+    fireEvent.click(within(settings).getByRole("button", { name: "Close agent settings" }));
+    expect(await screen.findByRole("dialog", { name: "New session" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Agent settings" })).toBeNull();
+  });
+
+  it("drops deferred onboarding when a chat arrives while Agent settings are open", async () => {
+    const rendered = render(<AgentPage transport={emptyDurableCatalogTransport()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Agent settings/ }));
+    const settings = await screen.findByRole("dialog", { name: "Agent settings" });
+    expect(await screen.findByText(/No project matches this view/)).toBeVisible();
+
+    rendered.rerender(<AgentPage transport={emptyDurableCatalogTransport(view())} />);
+    expect(await screen.findByLabelText("Message to the agent")).toBeVisible();
+
+    fireEvent.click(within(settings).getByRole("button", { name: "Close agent settings" }));
+    expect(screen.queryByRole("dialog", { name: "New session" })).toBeNull();
+    expect(screen.getByLabelText("Message to the agent")).toBeVisible();
+  });
+
+  it("releases the runtime connection poll when the Agent page unmounts", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getRuntimeHealth = vi.fn(async () => {
+      throw new TypeError("synthetic connection failure");
+    });
+    const rendered = render(
+      <AgentPage transport={{ ...sessionTransport(view()), getRuntimeHealth }} />,
+    );
+
+    try {
+      expect(await screen.findByLabelText("Message to the agent")).toBeVisible();
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_100); });
+      expect(getRuntimeHealth.mock.calls.length).toBeGreaterThan(1);
+
+      rendered.unmount();
+      const settled = getRuntimeHealth.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(9_300); });
+      expect(getRuntimeHealth).toHaveBeenCalledTimes(settled);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

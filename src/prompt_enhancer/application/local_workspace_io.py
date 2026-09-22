@@ -37,6 +37,28 @@ def _revision(metadata: os.stat_result) -> tuple[int, ...]:
     return (*_identity(metadata), metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_nlink)
 
 
+def _same_path_and_descriptor(path: os.stat_result, descriptor: os.stat_result) -> bool:
+    """Compare stable fields across APIs without conflating Windows ctime.
+
+    CPython 3.13 lstat can report birthtime as ctime while fstat reports change
+    time. Preserve same-API ctime revision checks separately around the read.
+    https://docs.python.org/3.13/library/os.html#os.stat_result
+    """
+    def snapshot(value: os.stat_result) -> tuple[int, ...]:
+        return (
+            *_identity(value), value.st_mode, value.st_nlink, value.st_size,
+            value.st_mtime_ns, getattr(value, "st_birthtime_ns", value.st_ctime_ns),
+            getattr(value, "st_file_attributes", 0),
+        )
+
+    return (
+        bool(path.st_ino and descriptor.st_ino)
+        and stat.S_ISREG(path.st_mode) and stat.S_ISREG(descriptor.st_mode)
+        and not is_link_or_reparse(path) and not is_link_or_reparse(descriptor)
+        and snapshot(path) == snapshot(descriptor)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class InspectedEntry:
     path: Path
@@ -263,7 +285,7 @@ class WorkspaceIO:
                 before = os.fstat(descriptor)
                 if is_link_or_reparse(before) or not stat.S_ISREG(before.st_mode) or (single_link and before.st_nlink != 1):
                     raise LocalAgentError("workspace_file_unavailable")
-                if _revision(before_path) != _revision(before):
+                if not _same_path_and_descriptor(before_path, before):
                     raise LocalAgentError("workspace_file_changed")
                 if before.st_size > limit and not allow_prefix:
                     raise LocalAgentError("workspace_file_too_large")
@@ -280,7 +302,10 @@ class WorkspaceIO:
                 after = os.fstat(descriptor)
                 after_path = self._stat_entry(target, parent)
                 check()
-                if (_revision(before) != _revision(after) or _revision(after_path) != _revision(after)
+                if (_revision(before) != _revision(after)
+                        or _revision(before_path) != _revision(after_path)
+                        or not _same_path_and_descriptor(after_path, after)
+                        or not _same_path_and_descriptor(before_path, after)
                         or is_link_or_reparse(after_path) or len(payload) != min(after.st_size, maximum)):
                     raise LocalAgentError("workspace_file_changed")
                 truncated = len(payload) > limit

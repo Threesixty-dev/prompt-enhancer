@@ -51,6 +51,32 @@ packaging work can use.
    reviewed public-model download path is classified as explicit opt-in. The
    bounded Codex child-CLI runner is classified as implemented but uncomposed.
    Signed-update transport remains declared and unimplemented.
+9. The offline Windows release stager accepts a versioned public JSON plan and
+   copies only its explicit relative file entries after checking each pinned
+   size and SHA-256. Its destination is a fresh no-clobber directory and its
+   only success output is the existing deterministic content-only manifest,
+   still marked `distributable: false`. For a synthetic plan containing only
+   relative paths, the assembly command is:
+
+   ```powershell
+   uv run --frozen --no-sync python scripts/stage_windows_release.py synthetic-stage-plan.json --source-root .\synthetic-input --destination .\synthetic-output
+   ```
+
+   This is assembly evidence, not a runnable package. It neither builds a
+   frontend/runtime, downloads dependencies, signs, installs, starts, nor
+   publishes anything. Its checks reduce accidental path substitution, but do
+   not claim protection against an arbitrary hostile same-user filesystem race.
+   The focused synthetic staging/path gate recorded **66 passed, 2 skipped**
+   on 2026-09-09 (receipt `cd91d8`); this is not installer or runtime evidence.
+10. The desktop dependency recipe runs `uv lock --check` and `uv export` with
+    frozen, offline, no-config, and no-download flags. It selects only the
+    explicit `desktop` extra while excluding development/default groups and the
+    project, then returns normalized exact-version hash-bound requirements for
+    later reviewed wheel preparation. It does not download, install, build
+    wheels, select Windows wheels from universal markers, or make a runnable
+    release. The recipe parser is declared in the dedicated `release` extra;
+    a future reviewed operator may invoke it with `uv run --extra release
+    --frozen --no-sync python scripts/export_windows_desktop_requirements.py`.
 
 ## Privacy and security consequences
 
@@ -76,6 +102,11 @@ mutation, automatic diagnostic upload, SBOM/license approval, and a verified
 two-build release pipeline. The dashboard remains absent until the committed
 frontend build is run; notices and the SBOM remain absent until a real staging
 process supplies them.
+
+The explicit-file stager is not locked-runtime preparation: producing a
+runnable Windows release still needs a reviewed runtime/frontend build, pinned
+runtime inventory, MSIX/AppInstaller or MSI packaging, signing, verification,
+and owner-controlled publication acceptance.
 
 The development model cache and free-disk probe still use the repository-local
 `runtime/model-eval` containment root. Selecting and hardening the installed,

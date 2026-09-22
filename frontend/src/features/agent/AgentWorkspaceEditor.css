@@ -1,0 +1,19 @@
+.agent-workspace-editor { display: grid; grid-template-rows: auto minmax(14rem, 1fr) auto; gap: 0.45rem; min-width: 0; min-height: 0; }
+.agent-workspace-editor > textarea { min-height: 16rem; }
+.agent-workspace-editor__tools { min-width: 0; border: 1px solid var(--line); border-radius: 0.55rem; background: var(--surface-soft); }
+.agent-workspace-editor__tools > summary { min-height: 2.4rem; box-sizing: border-box; padding: 0.55rem 0.65rem; cursor: pointer; color: var(--ink-650); font-size: var(--type-caption); font-weight: 750; }
+.agent-workspace-editor__tools-body { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(7rem, auto); gap: 0.45rem; align-items: end; padding: 0 0.65rem 0.65rem; }
+.agent-workspace-editor__tools label { display: grid; gap: 0.25rem; min-width: 0; color: var(--ink-650); font-size: var(--type-caption); font-weight: 700; }
+.agent-workspace-editor__tools input[type="search"], .agent-workspace-editor__tools input[type="number"] { width: 100%; min-height: 2.4rem; box-sizing: border-box; padding: 0.45rem 0.55rem; border: 1px solid var(--line-strong); border-radius: 0.45rem; background: var(--surface); color: inherit; font: inherit; }
+.agent-workspace-editor__find-actions, .agent-workspace-editor__goto { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.agent-workspace-editor__case { grid-column: 1 / -1; display: inline-flex !important; grid-template-columns: auto 1fr; align-items: center; justify-self: start; gap: 0.4rem !important; font-weight: 600 !important; }
+.agent-workspace-editor__case input { margin: 0; }
+.agent-workspace-editor__status { min-height: 1.2rem; margin: 0; color: var(--ink-650); font-size: var(--type-caption); overflow-wrap: anywhere; }
+.agent-workspace-editor__position { color: var(--ink-500); }
+@media (max-width: 620px) {
+  .agent-workspace-editor__tools-body { grid-template-columns: minmax(0, 1fr); }
+  .agent-workspace-editor__case { grid-column: auto; }
+}
+@media (forced-colors: active) {
+  .agent-workspace-editor__tools, .agent-workspace-editor__tools input[type="search"], .agent-workspace-editor__tools input[type="number"] { border-color: CanvasText; }
+}

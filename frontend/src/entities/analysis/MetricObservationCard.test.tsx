@@ -95,7 +95,7 @@ describe("MetricObservationCard", () => {
     expect(screen.getByText(/does not confirm absence/i)).toBeVisible();
   });
 
-  it("treats full denominator coverage with unknown confidence as partial", () => {
+  it("distinguishes complete coverage from unknown confidence", () => {
     const result = {
       ...GENERIC_RESULT,
       key: "task.data_quality.unknown_event_kind_rate",
@@ -108,9 +108,43 @@ describe("MetricObservationCard", () => {
     };
     render(<MetricObservationCard result={result} />);
 
-    expect(screen.getByText("Partial")).toBeVisible();
-    expect(screen.getByText(/Observed rate - partial coverage/i)).toBeVisible();
-    expect(screen.getByText(/does not confirm absence/i)).toBeVisible();
+    expect(screen.getByText("Confidence unknown")).toBeVisible();
+    expect(screen.getByText(/Coverage is complete/i)).toBeVisible();
+    expect(screen.queryByText(/partial coverage/i)).not.toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeVisible();
+  });
+
+  it("keeps a known value but labels invalid coverage inputs explicitly", () => {
+    const result = {
+      ...GENERIC_RESULT,
+      key: "task.data_quality.unknown_event_kind_rate",
+      numeric_value: 0.25,
+      observed_count: 3,
+      eligible_count: 2,
+      coverage: 0.5,
+      confidence: 1,
+      unit: "ratio",
+    };
+    render(<MetricObservationCard result={result} />);
+
+    expect(screen.getByText("25%", { selector: ".metric-card__value" })).toBeVisible();
+    expect(screen.getByText("Coverage unknown")).toBeVisible();
+    expect(screen.getByText(/could not be verified/i)).toBeVisible();
+    expect(screen.getByText("Coverage unavailable")).toBeVisible();
+  });
+
+  it("keeps an unknown state when coverage inputs are inconsistent", () => {
+    const result = {
+      ...SYNTHETIC_RESULTS.find((item) => item.value_state === "unknown")!,
+      observed_count: 3,
+      eligible_count: 2,
+      coverage: 0.5,
+    };
+    render(<MetricObservationCard result={result} />);
+
+    expect(screen.getByText("Unknown", { selector: ".metric-card__value" })).toBeVisible();
+    expect(screen.getByText(/coverage is unknown because/i)).toBeVisible();
+    expect(screen.getByText("Coverage unavailable")).toBeVisible();
   });
 
   it("keeps a small nonzero event rate visibly nonzero", () => {

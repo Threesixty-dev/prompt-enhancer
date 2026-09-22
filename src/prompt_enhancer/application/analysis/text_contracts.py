@@ -24,6 +24,10 @@ from ...domain import (
     SAFE_VERSION_PATTERN,
     StrictModel,
 )
+from ..verification import (
+    OBSERVED_CHECK_COMPLETION_SCHEMA_VERSION,
+    EphemeralObservedCheckCompletion,
+)
 from ..persistence import MetricValueState
 
 
@@ -37,6 +41,7 @@ MAX_ACTION_REVIEW_DESCRIPTORS = 4_000
 MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS = 120
 MAX_ACTION_REVIEW_PREVIEW_CHARACTERS = 4_096
 MAX_ACTION_REVIEW_TOTAL_CHARACTERS = 2 * 1024 * 1024
+MAX_OBSERVED_CHECK_COMPLETIONS = MAX_ACTION_REVIEW_DESCRIPTORS
 ACTION_REVIEW_DESCRIPTOR_ALGORITHM_VERSION = (
     "provider-local-redacted-action-descriptor-v1"
 )
@@ -417,6 +422,12 @@ class P1TextAnalysisInput(StrictModel):
         repr=False,
         max_length=MAX_ACTION_REVIEW_DESCRIPTORS,
     )
+    observed_check_completion_schema_version: str | None = None
+    observed_check_completions: tuple[EphemeralObservedCheckCompletion, ...] = Field(
+        default=(),
+        repr=False,
+        max_length=MAX_OBSERVED_CHECK_COMPLETIONS,
+    )
     task_profile: TextTaskProfile
 
     _validate_ids = field_validator(
@@ -429,6 +440,7 @@ class P1TextAnalysisInput(StrictModel):
         "content_schema_version",
         "redactor_version",
         "action_descriptor_algorithm_version",
+        "observed_check_completion_schema_version",
     )(_safe_version)
 
     @model_validator(mode="after")
@@ -475,6 +487,31 @@ class P1TextAnalysisInput(StrictModel):
             != ACTION_REVIEW_DESCRIPTOR_ALGORITHM_VERSION
         ):
             raise ValueError("action descriptor algorithm is unsupported")
+        completion_ids = tuple(
+            item.source_reference_id for item in self.observed_check_completions
+        )
+        if len(set(completion_ids)) != len(completion_ids):
+            raise ValueError("observed check completion identifiers must be unique")
+        if not set(completion_ids).issubset(set(descriptor_ids)):
+            raise ValueError("observed checks require an exact review descriptor")
+        descriptors_by_id = {
+            item.source_reference_id: item for item in self.action_descriptors
+        }
+        if any(
+            item.provider is not self.provider
+            or descriptors_by_id[item.source_reference_id].event_kind
+            is not EventKind.TOOL_END
+            for item in self.observed_check_completions
+        ):
+            raise ValueError("observed check provenance disagrees with its descriptor")
+        if self.observed_check_completion_schema_version is None:
+            if self.observed_check_completions:
+                raise ValueError("observed checks require a schema identity")
+        elif (
+            self.observed_check_completion_schema_version
+            != OBSERVED_CHECK_COMPLETION_SCHEMA_VERSION
+        ):
+            raise ValueError("observed check completion schema is unsupported")
         if self.analysis_scope is not None:
             if self.observed_message_count > self.analysis_scope.requested_max_messages:
                 raise ValueError("observed window exceeds the requested message scope")

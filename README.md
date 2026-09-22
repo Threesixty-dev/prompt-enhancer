@@ -2,7 +2,7 @@
 
 Prompt Enhancer is a local-first workspace for understanding and improving coding-agent work. It brings consented, local signals from Codex and Claude Code together with an authored local Agent workspace, prompt checks, and evidence-aware analytics. It is designed to help people inspect work—not to rank developers or turn an assistant's claim into proof that a task is done.
 
-The repository is public and privacy-sensitive. Its fixtures, examples, and gallery use fictional data only.
+The source repository is private and privacy-sensitive. Planned beta distribution uses a separate public, binary-only release repository; no new source is published there. Fixtures, examples, and the existing reviewed gallery use fictional data only.
 
 ## Contents
 
@@ -159,7 +159,24 @@ The implementation is a modular monolith with explicit ports around providers, l
 
 ## Current status and limitations
 
-This is an actively developed local vertical slice, not a general-purpose provider replacement or a fully calibrated analytics product.
+The agreed target is a free, local-first Windows 11 x64 beta for invited testers, with CPU and one verified NVIDIA/hybrid profile. It is not released yet. Accounts, payments, teams and hosted services are deferred; they do not block this beta.
+
+Basic local use is designed not to require a Prompt Enhancer account; optional provider access depends on the provider's own local sign-in/session and explicit consent. Production account and billing features are separate and not available.
+
+| Product area | Current state |
+| --- | --- |
+| Local agent, prompt check, analytics | Source and synthetic workflows are present; audit evidence is partial and does not equal owner/native acceptance. The Windows launcher now checks WebView2 before starting and gives distinct missing/unverified diagnostics; it never auto-installs the runtime. |
+| Provider ingestion and calibrated metrics | Consent-bounded paths and 20 metric contracts exist. A packaged synthetic browser journey covers consented calibration, reviewed evidence, three saved/reloaded ratings and local export; focused calibration selections also passed 85 backend and 46 UI tests. A separate current run of all 25 `test_metric*.py` modules passed 306 tests after stale terminal-schema assertions were corrected. Only 18 contracts have shipped measurement paths, and live provider imports, model-backed calibration, review-expiry acceptance, the historical mixed 24-module batch, and all-metric end-to-end display are not established. |
+| Install and updates | Fresh reproducible wheel `8c21bcb640e3fcd7155e84922735959f5547151049468d77c938b167d6dbdc01` (3,875,478 bytes), its 2,582-file Python 3.13.15 stage and 2,588-file candidate review4 were independently hash-verified. Two candidate-review4 SDK packs had different raw hashes but normalized to identical 34,014,174-byte unsigned packages; both passed SDK unpack validation. This is same-snapshot normalized repeatability, not clean-source or native SDK-byte reproducibility. Neither was signed, installed or native-launched. |
+| Accounts and premium | Local synthetic Checkout/Portal HTTP routes exist only as opt-in development surfaces (off by default, and mounted only with explicit service and principal-resolver composition). There is no production Prompt Enhancer login, live Stripe checkout, or active paid plan. |
+
+See the [feature and product-readiness matrix](docs/product-readiness-matrix-2026-09-12.md) for source paths, current synthetic test results and failures, and remaining verification. A working-tree feature or passing subset is not a released-product claim; the current audit is not a 100% pass.
+
+B00 confirmed private source custody and classified the initial 646 pending files, plus two ignored frontend build-source files. The September 17 repair makes those exact sources visible to Git, includes the helper in the TypeScript build, and replaces the backend test's quarantined-helper dependency with an explicit offline recipe. All 3,586 frontend tests, API drift, typechecking, production build and bundle checks passed. The browser baseline had 355 passes, four failures and six skips; a bounded fixture/spec repair then passed all six targeted rechecks, including the four failed cases. The backend run collected 7,606 tests but hit its 30-minute cap; last-saved progress included 25 failure reports without a final identifier index. The baseline is **not yet green**. The four-file frontend custody repair is saved locally as `b773295`; nothing was pushed, restored from quarantine or deleted. Current results, source bindings and limitations are recorded in the beta ledger.
+
+Historical candidate-review4 unsigned MSIX packages normalized to SHA-256 `bdf694073425cebe14595ebdd48d0fa4cea6397a5f969ec7176969a1ead49f73` (34,014,174 bytes), with verified payloads. This establishes scoped dirty-snapshot repeatability, not native byte-for-byte reproducibility, first-party compilation, signing, installation or update acceptance. Dependency/notice closure and the opaque PDF worker remain open.
+
+Earlier synthetic packaged chat, calibration, workspace and analytics probes retain their documented scope. The latest two-phase MCP cache/restart/outage run was **canceled, not passed**; the earlier single-launch fictional-registry probe cannot replace it. Native approvals, real CPU/NVIDIA models and unloading, compiled/signed installation, update/recovery, and clean-machine acceptance remain open. See the [authoritative beta ledger and exact blockers](docs/product-readiness-matrix-2026-09-12.md#prioritized-beta-blocker-list).
 
 - The default development experience is synthetic. Real provider access requires explicit consent and depends on the provider adapter's supported schema/version.
 - Selected-session text analysis is bounded and redacted in memory; it does not imply complete history or transcript retention. The current public preset has a 100-message / 100,000-character limit.
@@ -170,7 +187,7 @@ This is an actively developed local vertical slice, not a general-purpose provid
 - The current application updater is verify-only (`can_apply: false`). Production signing, installation, relaunch, and rollback remain pending; pushing to `main` never updates an installed copy.
 - Windows-native desktop launchers and loopback ownership have dedicated contracts; other platforms and distribution paths have narrower current support.
 
-The feature/register and completion work are tracked in [the owner feature register](docs/prompt-enhancer-owner-feature-register-2026-08-31.md) and [the finish goal](docs/prompt-enhancer-finish-goal-2026-08-29.md).
+The [beta ledger](docs/product-readiness-matrix-2026-09-12.md) is the single current status and checkpoint queue. The [owner feature register](docs/prompt-enhancer-owner-feature-register-2026-08-31.md) and [earlier finish goal](docs/prompt-enhancer-finish-goal-2026-08-29.md) are historical references, not autonomous execution instructions.
 
 ## Development and verification
 

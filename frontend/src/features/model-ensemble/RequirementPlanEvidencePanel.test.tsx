@@ -15,6 +15,7 @@ import {
   REQUIREMENT_PLAN_FILE_SCHEMA_SHA256,
   REQUIREMENT_PLAN_REVIEW_RUBRIC,
 } from "../../shared/api/requirementPlanEvidenceContract";
+import { TransportError } from "../../shared/api/httpTransport";
 import { RequirementPlanEvidencePanel } from "./RequirementPlanEvidencePanel";
 
 const SESSION_ID = "a".repeat(64);
@@ -1013,6 +1014,64 @@ describe("RequirementPlanEvidencePanel", () => {
     expect(screen.queryByText(/synthetic internal transport detail/i)).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" }))
       .toHaveAttribute("data-state", "error");
+  });
+
+  it("explains cold-context recovery without retrying the saved contract", async () => {
+    const cold = transport();
+    cold.getRequirementPlanEvidenceContract = vi.fn().mockRejectedValue(
+      new TransportError(
+        "synthetic cold context",
+        404,
+        "requirement_plan_review_context_missing",
+      ),
+    );
+    render(
+      <RequirementPlanEvidencePanel
+        compact={false}
+        sessionId={SESSION_ID}
+        sourceProjectionVersion="metric-contract-v2-projection-6"
+        sourceRunId={RUN_ID}
+        transport={cold}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /saved sealed analysis is retained.*source-review context is unavailable or expired.*start a fresh explicit analysis/i,
+    );
+    expect(screen.queryByRole("button", { name: "Retry exact source contract" }))
+      .not.toBeInTheDocument();
+    expect(cold.getRequirementPlanEvidenceContract).toHaveBeenCalledTimes(1);
+    expect(cold.previewRequirementPlanEvidence).not.toHaveBeenCalled();
+    expect(cold.importRequirementPlanEvidence).not.toHaveBeenCalled();
+    expect(cold.reviewRequirementPlanProposal).not.toHaveBeenCalled();
+    expect(cold.decideRequirementPlanProposal).not.toHaveBeenCalled();
+  });
+
+  it("shows the same cold-context recovery guidance in the compact surface", async () => {
+    const cold = transport();
+    cold.getRequirementPlanEvidenceContract = vi.fn().mockRejectedValue(
+      new TransportError(
+        "synthetic expired context",
+        404,
+        "requirement_plan_review_context_missing",
+      ),
+    );
+    render(
+      <RequirementPlanEvidencePanel
+        compact
+        sessionId={SESSION_ID}
+        sourceProjectionVersion="metric-contract-v2-projection-6"
+        sourceRunId={RUN_ID}
+        transport={cold}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /saved sealed analysis is retained.*source-review context is unavailable or expired.*start a fresh explicit analysis/i,
+    );
+    expect(screen.getByText(/no review or confirmation is available until a fresh source-review context is prepared/i)).toBeVisible();
+    expect(screen.queryByText(/server\/window composition cannot natively review/i)).not.toBeInTheDocument();
+    expect(cold.getRequirementPlanEvidenceContract).toHaveBeenCalledTimes(1);
   });
 
   it("makes a captured preview-A import inert after same-owner preview B replaces its bytes", async () => {

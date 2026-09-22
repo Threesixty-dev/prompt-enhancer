@@ -5,8 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 import os
 import re
+import sqlite3
+from types import SimpleNamespace
 
-from tests.support.convergence_loopback_runner import _repository_python
+from prompt_enhancer.database import Database
+from tests.support.convergence_loopback_runner import (
+    _repository_python,
+    _seed_indexed_catalog,
+)
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -77,3 +83,28 @@ def test_runner_finds_a_repository_virtual_environment_without_activation(
     interpreter.write_bytes(b"")
 
     assert _repository_python(tmp_path) == interpreter
+
+
+def test_indexed_catalog_seed_is_metadata_only_paged_and_idempotent(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "synthetic-catalog.sqlite3"
+    database = Database(database_path)
+    application = SimpleNamespace(database=database)
+
+    _seed_indexed_catalog(application)
+
+    first = database.list_sessions(limit=100, offset=0)
+    second = database.list_sessions(limit=100, offset=100)
+    assert len(first) == 100
+    assert len(second) == 1
+    assert first[0]["project_display_name"] == "Catalog page 001"
+    assert first[-1]["project_display_name"] == "Catalog page 100"
+    assert second[0]["project_display_name"] == "Catalog page 101"
+    assert all(row["terminal_state"] == "unknown" for row in [*first, *second])
+    assert all(row["events_complete"] is False for row in [*first, *second])
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM events").fetchone() == (0,)
+
+    _seed_indexed_catalog(application)
+    assert len(database.list_sessions(limit=101, offset=0)) == 101

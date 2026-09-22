@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   MetricOperabilityCatalog,
   MetricOperabilityEntry,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
-import { MetricOperabilityDefinitionsOutOfDateError } from "../../shared/api/metricOperabilityContract";
+import {
+  MetricOperabilityDefinitionsOutOfDateError,
+  MetricOperabilityPayloadError,
+} from "../../shared/api/metricOperabilityContract";
+import { TransportError } from "../../shared/api/httpTransport";
 import "./MetricOperabilityPanel.css";
 
 type CatalogState =
   | { kind: "loading" }
-  | { kind: "ready"; catalog: MetricOperabilityCatalog }
-  | { kind: "definitions_out_of_date" }
-  | { kind: "unavailable" };
+  | { kind: "ready"; catalog: MetricOperabilityCatalog; owner: PromptEnhancerTransport }
+  | { kind: "refreshing"; catalog: MetricOperabilityCatalog; owner: PromptEnhancerTransport }
+  | { kind: "transient_failed_load"; catalog?: MetricOperabilityCatalog; owner?: PromptEnhancerTransport }
+  | { kind: "definitions_out_of_date"; owner: PromptEnhancerTransport }
+  | { kind: "unavailable"; reason: "endpoint_absent" | "invalid_payload"; owner: PromptEnhancerTransport };
 
 type ShippedState = MetricOperabilityEntry["shipped_path_state"];
 
@@ -48,12 +54,23 @@ const NEXT_STEP_LABELS: Record<MetricOperabilityEntry["next_step_code"], string>
   add_requirement_plan_extractor: "Add a reviewed requirement-to-plan extractor",
   confirm_requirement_plan_evidence: "Confirm reviewed requirement-to-plan evidence",
   compose_requirement_action_evidence: "Compose and confirm reviewed requirement-to-action evidence",
+  issue_reviewed_observed_check: "Issue a reviewed observed check, then run fresh analysis",
 };
 
 function metricLabel(metricKey: string): string {
   const leaf = metricKey.split(".").at(-1) ?? metricKey;
   const label = leaf.replaceAll("_", " ");
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function evidenceScope(metricKey: string): string | undefined {
+  if (metricKey === "logic.requirement_action_traceability") {
+    return "Requires a complete compatible Claude transcript, a confirmed requirement plan, and reviewed requirement-action links with native confirmation. Hook-only and incomplete histories are not admitted; traceability is not proof of task success.";
+  }
+  if (metricKey === "outcome.verified_requirement_coverage") {
+    return "Conditional path: a complete compatible Codex source, native-reviewed plan, and observed check must exist before a fresh analysis can measure coverage. A provider-reported check is not a human coverage acknowledgment.";
+  }
+  return undefined;
 }
 
 function StateGroup({
@@ -87,6 +104,7 @@ function StateGroup({
                 ? "Separate experimental estimate may be available"
                 : "No model estimate is used"}
             </span>
+            {evidenceScope(entry.metric_key) && <small>{evidenceScope(entry.metric_key)}</small>}
           </li>
         ))}
       </ul>
@@ -96,48 +114,93 @@ function StateGroup({
 
 export function MetricOperabilityPanel({ transport }: { transport: PromptEnhancerTransport }) {
   const [state, setState] = useState<CatalogState>({ kind: "loading" });
+  const requestRef = useRef(0);
+  const controllerRef = useRef<AbortController | undefined>(undefined);
+  const inFlightRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const requestCatalog = useCallback((mode: "initial" | "refresh") => {
     const load = transport.getMetricOperabilityCatalog;
     if (!load) {
-      setState({ kind: "unavailable" });
-      return () => controller.abort();
+      setState({ kind: "unavailable", reason: "endpoint_absent", owner: transport });
+      return;
     }
-    setState({ kind: "loading" });
-    void load(controller.signal)
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (controllerRef.current) controllerRef.current.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const requestId = ++requestRef.current;
+    setState((current) => {
+      if (mode === "refresh" && (current.kind === "ready" || current.kind === "refreshing" || current.kind === "transient_failed_load") && current.catalog) {
+        return { kind: "refreshing", catalog: current.catalog, owner: transport };
+      }
+      return { kind: "loading" };
+    });
+    let result: Promise<MetricOperabilityCatalog>;
+    try {
+      result = load(controller.signal);
+    } catch (error) {
+      result = Promise.reject(error);
+    }
+    void Promise.resolve(result)
       .then((catalog) => {
-        if (!controller.signal.aborted) setState({ kind: "ready", catalog });
+        if (mountedRef.current && requestRef.current === requestId && !controller.signal.aborted) {
+          inFlightRef.current = false;
+          setState({ kind: "ready", catalog, owner: transport });
+        }
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        setState({
-          kind: error instanceof MetricOperabilityDefinitionsOutOfDateError
-            ? "definitions_out_of_date"
-            : "unavailable",
-        });
+        if (!mountedRef.current || requestRef.current !== requestId || controller.signal.aborted) return;
+        inFlightRef.current = false;
+        if (error instanceof MetricOperabilityDefinitionsOutOfDateError) {
+          setState({ kind: "definitions_out_of_date", owner: transport });
+        } else if (error instanceof MetricOperabilityPayloadError || (error instanceof TransportError && error.status === 200)) {
+          setState({ kind: "unavailable", reason: "invalid_payload", owner: transport });
+        } else {
+          setState((current) => ({
+            kind: "transient_failed_load",
+            catalog: current.kind === "ready" || current.kind === "refreshing" || current.kind === "transient_failed_load" ? current.catalog : undefined,
+            owner: transport,
+          }));
+        }
       });
-    return () => controller.abort();
   }, [transport]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    requestCatalog("initial");
+    return () => {
+      mountedRef.current = false;
+      inFlightRef.current = false;
+      requestRef.current += 1;
+      controllerRef.current?.abort();
+    };
+  }, [requestCatalog]);
+
+  const owned = (state.kind === "ready" || state.kind === "refreshing" || state.kind === "transient_failed_load") && state.owner === transport;
+  const boundaryOwned = (state.kind === "definitions_out_of_date" || state.kind === "unavailable") && state.owner === transport;
   const grouped = useMemo(() => {
-    if (state.kind !== "ready") return [];
+    const catalog = state.kind === "ready" || state.kind === "refreshing" || state.kind === "transient_failed_load"
+      ? state.catalog
+      : undefined;
+    if (!catalog || !owned) return [];
     return GROUPS.map((group) => ({
       ...group,
-      entries: state.catalog.entries.filter(
+      entries: catalog.entries.filter(
         (entry) => entry.shipped_path_state === group.state,
       ),
     })).filter((group) => group.entries.length > 0);
-  }, [state]);
+  }, [owned, state]);
 
-  if (state.kind === "loading") {
+  if (state.kind === "loading" || (!owned && !boundaryOwned)) {
     return (
       <section className="metric-operability metric-operability--state" role="status">
         Checking all twenty measurement paths…
       </section>
     );
   }
-  if (state.kind === "definitions_out_of_date") {
+  if (state.kind === "definitions_out_of_date" && boundaryOwned) {
     return (
       <section className="metric-operability metric-operability--state" role="alert">
         <strong>Metric definitions are newer than this app</strong>
@@ -145,18 +208,31 @@ export function MetricOperabilityPanel({ transport }: { transport: PromptEnhance
       </section>
     );
   }
-  if (state.kind === "unavailable") {
+  if (state.kind === "unavailable" && boundaryOwned) {
     return (
       <section className="metric-operability metric-operability--state" role="alert">
         <strong>Metric operability is unavailable</strong>
-        <span>Restart the local app after updating Prompt Enhancer. No session was read.</span>
+        <span>{state.reason === "endpoint_absent" ? "The metric map endpoint is unavailable." : "The metric map response was invalid."} No session was read; no model was called.</span>
       </section>
     );
   }
 
-  const { catalog } = state;
+  if (state.kind === "transient_failed_load" && !state.catalog) {
+    return (
+      <section className="metric-operability metric-operability--state" role="alert">
+        <strong>Metric operability could not be loaded</strong>
+        <span>This may be temporary. No session or model was read.</span>
+        <button type="button" onClick={() => requestCatalog("initial")}>Retry</button>
+      </section>
+    );
+  }
+
+  const catalog = owned && (state.kind === "ready" || state.kind === "refreshing" || state.kind === "transient_failed_load") ? state.catalog : undefined;
+  if (!catalog) return null;
   return (
     <section className="metric-operability" aria-labelledby="metric-operability-title">
+      {state.kind === "refreshing" && <p className="metric-operability__notice" role="status">Checking for an updated metric map. Showing the last validated map.</p>}
+      {state.kind === "transient_failed_load" && <div className="metric-operability__notice" role="alert"><span>Refresh failed; showing the last validated metric map.</span><button type="button" onClick={() => requestCatalog("refresh")}>Retry</button></div>}
       <header className="metric-operability__intro">
         <div>
           <p className="eyebrow">All-20 release gate · {catalog.catalog_version}</p>
@@ -198,6 +274,7 @@ export function MetricOperabilityPanel({ transport }: { transport: PromptEnhance
         <span>{catalog.total_metric_count}/20 contracts bound to the current client</span>
         <span>{catalog.experimental_model_path_count} have a separate experimental model path</span>
       </footer>
+      {state.kind === "ready" && <button className="metric-operability__refresh" type="button" onClick={() => requestCatalog("refresh")}>Refresh metric map</button>}
     </section>
   );
 }

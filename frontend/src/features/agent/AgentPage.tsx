@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { AgentArtifact, AgentArtifactLifecycleCounts, AgentArtifactListView, AgentAttachment, AgentCatalogSession, AgentEvent, AgentEvents, AgentMcpConnectionList, AgentSessionForkReceipt, AgentSessionView, AgentSettings, LocalModelStatus, LocalModelsOverview, LocalRuntimeCoordinatorStatus, PromptCheckResult, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
@@ -10,28 +10,29 @@ import {
   hasNativeWorkspaceFolderPicker,
 } from "../../shared/platform/nativeDesktopBridge";
 import type { LocalRuntimeTransport } from "../../shared/platform/runtimeMode";
-import { TeamFoldersPanel } from "./TeamFoldersPanel";
-import { AgentWorkspacePane, type AgentFileOpenRequest } from "./AgentWorkspacePane";
+import type { AgentFileOpenRequest } from "./AgentWorkspacePane";
 import { AgentSessionEffects } from "./AgentSessionEffects";
-import { AgentChangeSetPanel, type AgentChangeReviewRequest } from "./AgentChangeSetPanel";
+import type { AgentChangeReviewRequest } from "./AgentChangeSetPanel";
 import type { AgentTurnRevisionMode } from "./AgentTurnDetails";
 import { AgentPromptCheckResult, agentPromptContext } from "./AgentPromptCheck";
 import { AgentCatalogRail } from "./AgentCatalogRail";
+import type { AgentSavedMessageSearchHit } from "./AgentMessageSearchDialog";
 import { AgentDiffViewer } from "./AgentDiffViewer";
 import { AgentRuntimeControl } from "./AgentRuntimeControl";
-import { AgentArtifactsPanel, type AgentArtifactOpenRequest } from "./AgentArtifactsPanel";
+import type { AgentArtifactOpenRequest } from "./AgentArtifactsPanel";
 import { AgentComposerAttachments } from "./AgentComposerAttachments";
+import { AgentAttachmentRetryChecklist, type AttachmentRetryRequirement, unresolvedAttachmentRetryRequirements } from "./AgentAttachmentRetryChecklist";
 import { AgentConversationHeader } from "./AgentConversationHeader";
+import { agentExitRisk, sameAgentExitRisk, type AgentExitRisk } from "./agentExitRisk";
 import {
   coalesceLiveStreams,
   compactTerminalDeltas,
   RetainedHistoryView,
   TranscriptEventRows,
+  type TranscriptPageState,
   type TurnRevisionBusy,
 } from "./AgentConversationTimeline";
-import { AgentControllerPanel } from "./AgentControllerPanel";
-import { AgentNativeAcceptancePanel, type NativeAcceptanceRun } from "./AgentNativeAcceptancePanel";
-import { AgentMcpProjectToolsPanel } from "./AgentMcpProjectToolsPanel";
+import type { NativeAcceptanceRun } from "./AgentNativeAcceptancePanel";
 import {
   mcpServerLabel,
   mcpToolLabel,
@@ -48,8 +49,9 @@ import {
   type ExternalControllerAcceptanceEvidence,
   type ExternalControllerAcceptanceRun,
 } from "./externalControllerAcceptance";
-import { AgentReadinessPanel } from "./AgentReadinessPanel";
 import { AgentReviewDrawer, type AgentReviewView } from "./AgentReviewDrawer";
+import { RetryableLazyFeature } from "../../shared/ui/RetryableLazyFeature";
+import type { AgentChatSetupIntent } from "./agentChatSetupIntent";
 import {
   announceAgentWindowActiveSession,
   connectAgentCatalogSync,
@@ -81,6 +83,7 @@ function isLiveUpdateNotice(message: string): boolean {
 const MODEL_START_POLL_MS = 1500;
 const MAX_MODEL_START_POLLS = 20;
 const CONNECTION_POLL_MS = 3000;
+const WEB_FETCH_CAPABILITY_TIMEOUT_MS = 10_000;
 const REVIEW_DRAWER_MIN_PX = 352;
 const REVIEW_DRAWER_MAX_PX = 760;
 const ARTIFACT_SERVER_PAGE = 100;
@@ -88,10 +91,15 @@ const CLOSING_SESSION_MESSAGE = "This session is closing and cannot accept new m
 const COMMAND_CLEANUP_MESSAGE = "Command processes may still be running. Agent work is paused; inspect those processes before restarting the app. Copy your draft before restarting; it is not saved. Earlier command effects were not undone.";
 const EMPTY_DRAFT_ATTACHMENTS: AgentAttachment[] = [];
 type ArtifactLifecycleView = Exclude<AgentArtifactListView, "all">;
-const AgentMcpStorePanel = lazy(async () => {
-  const module = await import("./AgentMcpStorePanel");
-  return { default: module.AgentMcpStorePanel };
-});
+const loadAgentReadinessPanel = () => import("./AgentReadinessPanel").then((module) => ({ default: module.AgentReadinessPanel }));
+const loadAgentMcpProjectToolsPanel = () => import("./AgentMcpProjectToolsPanel").then((module) => ({ default: module.AgentMcpProjectToolsPanel }));
+const loadAgentControllerPanel = () => import("./AgentControllerPanel").then((module) => ({ default: module.AgentControllerPanel }));
+const loadAgentMcpStorePanel = () => import("./AgentMcpStorePanel").then((module) => ({ default: module.AgentMcpStorePanel }));
+const loadAgentNativeAcceptancePanel = () => import("./AgentNativeAcceptancePanel").then((module) => ({ default: module.AgentNativeAcceptancePanel }));
+const loadTeamFoldersPanel = () => import("./TeamFoldersPanel").then((module) => ({ default: module.TeamFoldersPanel }));
+const loadAgentChangeSetPanel = () => import("./AgentChangeSetPanel").then((module) => ({ default: module.AgentChangeSetPanel }));
+const loadAgentWorkspacePane = () => import("./AgentWorkspacePane").then((module) => ({ default: module.AgentWorkspacePane }));
+const loadAgentArtifactsPanel = () => import("./AgentArtifactsPanel").then((module) => ({ default: module.AgentArtifactsPanel }));
 
 function reconcileAgentEventPage(previous: AgentSessionView, page: AgentEvents): AgentSessionView {
   const latched = {
@@ -142,6 +150,23 @@ type SessionComposerDraft = {
   text: string;
   attachments: AgentAttachment[];
 };
+type AttachmentRetryChecklist = readonly AttachmentRetryRequirement[];
+type ComposerDraftOwner = {
+  transport: TransportSlice;
+  generation: number;
+};
+type TransportOwnedComposerDraftState = {
+  owner: ComposerDraftOwner;
+  drafts: Record<string, SessionComposerDraft>;
+  retryChecklists: Record<string, AttachmentRetryChecklist>;
+};
+type ScopedStreamNotice = {
+  owner: ComposerDraftOwner;
+  sessionId: string | null;
+  message: string;
+};
+const EMPTY_COMPOSER_DRAFTS: Record<string, SessionComposerDraft> = {};
+const EMPTY_ATTACHMENT_RETRY_CHECKLISTS: Record<string, AttachmentRetryChecklist> = {};
 type UserPresenceState = "checking" | "available" | "unavailable" | "error";
 type FolderPickerState = "checking" | "available" | "unavailable";
 type AgentConfirmationPrompt = {
@@ -153,12 +178,13 @@ type AgentConfirmationPrompt = {
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
-> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getAgentChangeSet" | "getAgentChangeDiff" | "previewAgentChangeRestore" | "applyAgentChangeRestore" | "getAgentWorkspaceSearch" | "previewAgentWorkspaceTransaction" | "applyAgentWorkspaceTransaction" | "previewAgentWorkspaceCreate" | "applyAgentWorkspaceCreate" | "previewAgentWorkspaceDirectoryCreate" | "applyAgentWorkspaceDirectoryCreate" | "previewAgentWorkspaceDirectoryMove" | "applyAgentWorkspaceDirectoryMove" | "previewAgentWorkspaceMove" | "applyAgentWorkspaceMove" | "previewAgentWorkspaceFileTrash" | "applyAgentWorkspaceFileTrash" | "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "getLocalRuntime" | "switchLocalRuntime" | "stopLocalRuntime" | "getAgentSessionContext" | "checkPrompt" | "getUserPresenceCapability" | "getWorkspaceFolderPickerCapability" | "chooseWorkspaceFolder" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>
+> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getAgentChangeSet" | "getAgentChangeDiff" | "previewAgentChangeRestore" | "applyAgentChangeRestore" | "getAgentWorkspaceSearch" | "previewAgentWorkspaceTransaction" | "applyAgentWorkspaceTransaction" | "previewAgentWorkspaceCreate" | "applyAgentWorkspaceCreate" | "previewAgentWorkspaceDirectoryCreate" | "applyAgentWorkspaceDirectoryCreate" | "previewAgentWorkspaceDirectoryMove" | "applyAgentWorkspaceDirectoryMove" | "previewAgentWorkspaceMove" | "applyAgentWorkspaceMove" | "previewAgentWorkspaceFileTrash" | "applyAgentWorkspaceFileTrash" | "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "getLocalRuntime" | "switchLocalRuntime" | "stopLocalRuntime" | "getAgentSessionContext" | "checkPrompt" | "getUserPresenceCapability" | "getWorkspaceFolderPickerCapability" | "getAgentWebFetchCapability" | "chooseWorkspaceFolder" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>
   & Partial<Pick<PromptEnhancerTransport, "getAgentOrchestration" | "getAgentHardening" | "listAgentMcpConnections" | "getAgentMcpClientSetup" | "listMcpRegistryCatalog" | "getMcpRegistryServerReview" | "listMcpManagedServers" | "getMcpManagedServer" | "getMcpManagedToolSnapshot" | "getMcpManagedHostStatus" | "getMcpManagedHostStartPreview" | "startMcpManagedHost" | "stopMcpManagedHost" | "getMcpManagedProjectRuntime" | "createMcpManagedServer" | "probeMcpManagedServer" | "getMcpManagedLifecyclePreview" | "getMcpManagedLocalConfigurationInspectionPreview" | "inspectMcpManagedLocalConfiguration" | "applyMcpManagedLifecycle" | "getMcpManagedLocalCleanupPreview" | "getMcpManagedLocalUpdatePreview" | "applyMcpManagedLocalUpdate" | "getMcpManagedLocalRollbackPreview" | "applyMcpManagedLocalRollback" | "getMcpManagedLocalRollbackCleanupPreview" | "cleanupMcpManagedLocalRollback" | "getMcpManagedLocalOperationRecoveryPreview" | "recoverMcpManagedLocalOperation" | "completeMcpManagedLocalCleanup" | "setMcpManagedProjectBinding" | "storeMcpManagedSecret" | "removeMcpManagedSecret" | "storeMcpManagedConfiguration" | "removeMcpManagedConfiguration" | "createAgentMcpConnection" | "rotateAgentMcpConnection" | "revokeAgentMcpConnection" | "releaseAgentControllerOwnership" | "beginAgentNativeAcceptance" | "listAgentProjects" | "pageAgentProjects" | "getAgentProject" | "createAgentProject" | "updateAgentProject" | "deleteAgentProject" | "listAgentCatalogSessions" | "pageAgentCatalogSessions" | "getAgentCatalogSession" | "updateAgentCatalogSession" | "deleteAgentCatalogSession" | "switchAgentSessionModel" | "getAgentPersistedEvents" | "forkAgentSession" | "resumeAgentSession" | "exportAgentHistory" | "revalidateAgentAuthority" | "listAgentArtifacts" | "pageAgentArtifacts" | "getAgentArtifact" | "exportAgentArtifact" | "updateAgentArtifact" | "removeAgentArtifact" | "previewAgentArtifactCapture" | "getAgentArtifactDocumentPreview" | "getAgentArtifactContent" | "captureAgentArtifact">>
   & Partial<Pick<PromptEnhancerTransport, "listAgentAttachments" | "stageAgentAttachment" | "deleteAgentAttachment" | "getAgentAttachmentContent">>
   & Partial<Pick<LocalRuntimeTransport, "getRuntimeHealth">>;
 
 type ModelCatalogState = "unavailable" | "loading" | "ready" | "error";
+type WebFetchCapabilityState = "checking" | "available" | "unavailable" | "error";
 type ModelFeedbackTarget = "selection" | "session";
 type ModelActionKind = "start" | "stop" | null;
 type SessionLookupState = "idle" | "loading" | "missing" | "error";
@@ -167,6 +193,13 @@ type TurnRevisionOperation = {
   controller: AbortController;
   expectedVisibleSessionId: string;
   owner: number;
+};
+type ResumeOperation = {
+  controller: AbortController;
+  key: string;
+  owner: number;
+  retainedHead: number;
+  transport: TransportSlice;
 };
 type AgentSettingsTab = "readiness" | "connections" | "store" | "acceptance" | "sharing";
 const AGENT_SETTINGS_TABS: readonly TabDescriptor<AgentSettingsTab>[] = [
@@ -183,6 +216,16 @@ type ModelOperationContext = {
   creation: object | null;
   refresh: object | null;
 };
+
+function resumeSelectionKey(session: AgentCatalogSession | null): string | null {
+  if (session === null || session.retention_policy !== "local_history") return null;
+  return [
+    session.project_id,
+    session.session_id,
+    session.revision,
+    session.history_revision,
+  ].join(":");
+}
 
 function hasDurableAgentCatalog(transport: TransportSlice): boolean {
   return transport.listAgentProjects !== undefined
@@ -237,10 +280,16 @@ export async function readCompleteRetainedEvents(
  * history retention; approvals and reusable mutation authority never persist.
  */
 export function AgentPage({
+  newChatIntent,
+  onNewChatIntentConsumed,
+  onExitRiskChange,
   sessionId,
   transport,
   windowMode = false,
 }: {
+  newChatIntent?: AgentChatSetupIntent | null;
+  onNewChatIntentConsumed?: (requestId: number) => void;
+  onExitRiskChange?: (risk: AgentExitRisk) => void;
   sessionId?: string;
   transport: TransportSlice;
   windowMode?: boolean;
@@ -250,6 +299,8 @@ export function AgentPage({
   const [windowTargetSessionId, setWindowTargetSessionId] = useState(sessionId);
   const requestedSessionId = windowMode ? windowTargetSessionId : sessionId;
   const [sessions, setSessions] = useState<AgentSessionView[] | null>(null);
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
   const [sessionListError, setSessionListError] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(
@@ -276,6 +327,13 @@ export function AgentPage({
   const [artifactsRefreshKey, setArtifactsRefreshKey] = useState(0);
   const [artifactOpenRequest, setArtifactOpenRequest] = useState<AgentArtifactOpenRequest | null>(null);
   const [artifactTurnFocus, setArtifactTurnFocus] = useState<{ requestId: number; turnId: string } | null>(null);
+  const [savedMessageFocus, setSavedMessageFocus] = useState<{
+    requestId: number;
+    eventSeq: number;
+    sessionId: string;
+    projectId: string;
+  } | null>(null);
+  const [retainedHistoryReloadKey, setRetainedHistoryReloadKey] = useState(0);
   const [artifactViewRevision, setArtifactViewRevision] = useState(0);
   const [nativeAcceptanceRun, setNativeAcceptanceRun] = useState<NativeAcceptanceRun | null>(null);
   const [trustedMcpAcceptanceRun, setTrustedMcpAcceptanceRun] = useState<TrustedMcpAcceptanceRun | null>(null);
@@ -290,6 +348,14 @@ export function AgentPage({
     setExternalControllerAcceptanceRun((run) => advanceExternalControllerAcceptance(run, evidence));
   }, []);
   const artifactTurnFocusSequence = useRef(0);
+  const savedMessageFocusSequence = useRef(0);
+  const savedMessageFocusTarget = useRef<{
+    sessionId: string;
+    projectId: string;
+    historyRevision: number;
+    eventSeq: number;
+    role: "user" | "assistant";
+  } | null>(null);
   const artifactReadOwnerRef = useRef(0);
   const artifactPageControllerRef = useRef<AbortController | null>(null);
   const artifactServerIdsRef = useRef(new Set<string>());
@@ -309,6 +375,9 @@ export function AgentPage({
       : null
   ), [transport]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  // Once the owner starts setting a chat up themselves, a startup landing that
+  // is still in flight describes a page they have already left behind.
+  const ownerOpenedNewChat = useRef(false);
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
   const catalogSyncRef = useRef<AgentCatalogSync | null>(null);
   const windowSelectionOwnerRef = useRef<AgentWindowSelectionOwner | null>(null);
@@ -322,6 +391,8 @@ export function AgentPage({
   }, []);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(!windowMode && !durableCatalogAvailable);
+  const consumedNewChatIntent = useRef<number | null>(null);
+  const handoffSetupOpen = useRef(false);
   const [startupCatalogSession, setStartupCatalogSession] = useState<AgentCatalogSession | null | undefined>(undefined);
   const startupCatalogHandled = useRef(windowMode || !durableCatalogAvailable);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -378,6 +449,11 @@ export function AgentPage({
   const [newSessionModelAlias, setNewSessionModelAlias] = useState("");
   const [allowWrites, setAllowWrites] = useState(false);
   const [allowCommands, setAllowCommands] = useState(false);
+  const [allowWeb, setAllowWeb] = useState(false);
+  const [webFetchCapabilityOwner, setWebFetchCapabilityOwner] = useState(transport);
+  const [webFetchCapabilityState, setWebFetchCapabilityState] = useState<WebFetchCapabilityState>(
+    transport.getAgentWebFetchCapability === undefined ? "unavailable" : "checking",
+  );
   const [retainHistory, setRetainHistory] = useState(true);
   const [recoveryAllowWrites, setRecoveryAllowWrites] = useState(false);
   const [recoveryAllowCommands, setRecoveryAllowCommands] = useState(false);
@@ -389,15 +465,72 @@ export function AgentPage({
   const [instructions, setInstructions] = useState("");
   // Keep unsent content scoped to this mounted window and exact chat. Browser
   // storage would turn private drafts into a second, ungoverned history store.
-  const [composerDrafts, setComposerDrafts] = useState<Record<string, SessionComposerDraft>>({});
+  // A replacement transport is a distinct local authority even if it happens
+  // to expose the same session id, so it must not inherit this window's text.
+  const composerDraftOwnerRef = useRef<ComposerDraftOwner>({ transport, generation: 0 });
+  if (composerDraftOwnerRef.current.transport !== transport) {
+    composerDraftOwnerRef.current = {
+      transport,
+      generation: composerDraftOwnerRef.current.generation + 1,
+    };
+  }
+  const composerDraftOwner = composerDraftOwnerRef.current;
+  const [composerDraftState, setComposerDraftState] = useState<TransportOwnedComposerDraftState>(() => ({
+    owner: composerDraftOwner,
+    drafts: EMPTY_COMPOSER_DRAFTS,
+    retryChecklists: EMPTY_ATTACHMENT_RETRY_CHECKLISTS,
+  }));
+  const composerDrafts = composerDraftState.owner === composerDraftOwner
+    ? composerDraftState.drafts
+    : EMPTY_COMPOSER_DRAFTS;
+  const [failedLiveClose, setFailedLiveClose] = useState<{
+    sessionIds: ReadonlySet<string>;
+    transport: TransportSlice;
+  }>({ sessionIds: new Set(), transport });
+  const [pendingLiveClose, setPendingLiveClose] = useState<{
+    sessionIds: ReadonlySet<string>;
+    transport: TransportSlice;
+  }>({ sessionIds: new Set(), transport });
+  // This is intentionally window-memory only, like the draft it protects. It
+  // contains retained metadata, never attachment bytes or a second vault.
+  const attachmentRetryChecklists = composerDraftState.owner === composerDraftOwner
+    ? composerDraftState.retryChecklists
+    : EMPTY_ATTACHMENT_RETRY_CHECKLISTS;
+  useEffect(() => {
+    // Rendering already hides an old owner synchronously. Drop it after the
+    // owner change as well, without clobbering a new owner's first edit.
+    setComposerDraftState((previous) => previous.owner === composerDraftOwner
+      ? previous
+      : {
+        owner: composerDraftOwner,
+        drafts: EMPTY_COMPOSER_DRAFTS,
+        retryChecklists: EMPTY_ATTACHMENT_RETRY_CHECKLISTS,
+      });
+  }, [composerDraftOwner]);
   const activeComposerDraft = current === null ? undefined : composerDrafts[current.session_id];
   const draft = activeComposerDraft?.text ?? "";
   const draftAttachments = activeComposerDraft?.attachments ?? EMPTY_DRAFT_ATTACHMENTS;
+  const attachmentRetryChecklist = current === null ? undefined : attachmentRetryChecklists[current.session_id];
+  const unresolvedRetryAttachments = attachmentRetryChecklist === undefined
+    ? []
+    : unresolvedAttachmentRetryRequirements(attachmentRetryChecklist, draftAttachments, current?.session_id ?? "");
   const draftSessionIds = useMemo(() => new Set(
-    Object.entries(composerDrafts)
-      .filter(([, value]) => value.text.length > 0 || value.attachments.length > 0)
-      .map(([id]) => id),
-  ), [composerDrafts]);
+    [...Object.keys(composerDrafts), ...Object.keys(attachmentRetryChecklists)]
+      .filter((id, index, all) => all.indexOf(id) === index)
+      .filter((id) => {
+        const draftForSession = composerDrafts[id];
+        return (draftForSession?.text.length ?? 0) > 0
+          || (draftForSession?.attachments.length ?? 0) > 0
+          || attachmentRetryChecklists[id]?.length > 0;
+      }),
+  ), [attachmentRetryChecklists, composerDrafts]);
+  const closeFailureSessionIds = failedLiveClose.transport === transport
+    ? failedLiveClose.sessionIds
+    : undefined;
+  const pendingCloseSessionIds = pendingLiveClose.transport === transport
+    ? pendingLiveClose.sessionIds
+    : undefined;
+  const currentClosePending = current !== null && pendingCloseSessionIds?.has(current.session_id) === true;
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [promptCheckBusy, setPromptCheckBusy] = useState(false);
   const [promptCheckError, setPromptCheckError] = useState("");
@@ -406,17 +539,66 @@ export function AgentPage({
   const [busy, setBusy] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [createMessage, setCreateMessage] = useState("");
-  const [conversationMessage, setConversationMessage] = useState("");
+  const [conversationMessage, setConversationMessageState] = useState("");
   const [windowOpenBusy, setWindowOpenBusy] = useState(false);
   const [stopPending, setStopPending] = useState<{ controller: AbortController; contextVersion: number; sessionId: string } | null>(null);
   const stopRequest = useRef<typeof stopPending>(null);
   const [sessionLookupState, setSessionLookupState] = useState<SessionLookupState>(requestedSessionId ? "loading" : "idle");
-  const [streamNotice, setStreamNotice] = useState("");
+  const [streamNoticeState, setStreamNoticeState] = useState<ScopedStreamNotice>(() => ({
+    owner: composerDraftOwner,
+    sessionId: current?.session_id ?? null,
+    message: "",
+  }));
+  const streamNotice = streamNoticeState.owner === composerDraftOwner
+    && streamNoticeState.sessionId === (current?.session_id ?? null)
+    ? streamNoticeState.message
+    : "";
+  const setStreamNotice = useCallback((
+    next: string | ((previous: string) => string),
+    targetSessionId?: string | null,
+  ) => {
+    const owner = composerDraftOwner;
+    const sessionId = targetSessionId ?? current?.session_id ?? null;
+    const hasExplicitTarget = targetSessionId !== undefined;
+    setStreamNoticeState((previous) => {
+      if (composerDraftOwnerRef.current !== owner) return previous;
+      // A stream/effect from the source chat can settle after an action has
+      // deliberately installed a notice for its child. Default writes belong
+      // only to their captured chat; only an explicit target may replace a
+      // same-transport notice for another chat during that transition.
+      if (previous.owner === owner && previous.sessionId !== sessionId && !hasExplicitTarget) return previous;
+      const visiblePrevious = previous.owner === owner && previous.sessionId === sessionId
+        ? previous.message
+        : "";
+      const message = typeof next === "function" ? next(visiblePrevious) : next;
+      return { owner, sessionId, message };
+    });
+  }, [composerDraftOwner, current?.session_id]);
+  useEffect(() => {
+    const sessionId = current?.session_id ?? null;
+    setStreamNoticeState((previous) => (
+      previous.owner === composerDraftOwner && previous.sessionId === sessionId
+        ? previous
+        : { owner: composerDraftOwner, sessionId, message: "" }
+    ));
+  }, [composerDraftOwner, current?.session_id]);
   const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [followingOutput, setFollowingOutput] = useState(true);
+  const [transcriptLatestRequest, setTranscriptLatestRequest] = useState(0);
+  const [transcriptPageState, setTranscriptPageState] = useState<{
+    browsingOlder: boolean;
+    sessionId: string | null;
+  }>({ browsingOlder: false, sessionId: null });
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
   const [historyGap, setHistoryGap] = useState(false);
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
+  const workspaceDirtyRef = useRef(workspaceDirty);
+  workspaceDirtyRef.current = workspaceDirty;
+  const exitRiskCallbackRef = useRef(onExitRiskChange);
+  const lastExitRiskRef = useRef<AgentExitRisk | null>(null);
+  const lastExitRiskCallbackRef = useRef<typeof onExitRiskChange>(undefined);
+  const exitRiskMountedRef = useRef(false);
+  exitRiskCallbackRef.current = onExitRiskChange;
   const [confirmationPrompt, setConfirmationPrompt] = useState<AgentConfirmationPrompt | null>(null);
   const [changeSetRevision, setChangeSetRevision] = useState(0);
   const [workspaceFileRequest, setWorkspaceFileRequest] = useState<(AgentFileOpenRequest & { transport: TransportSlice }) | null>(null);
@@ -430,6 +612,8 @@ export function AgentPage({
   const forkOwner = useRef(0);
   const turnRevisionOperation = useRef<TurnRevisionOperation | null>(null);
   const turnRevisionOwner = useRef(0);
+  const resumeOperation = useRef<ResumeOperation | null>(null);
+  const resumeOwner = useRef(0);
   const exportOperation = useRef<{ controller: AbortController; owner: number; key: string } | null>(null);
   const exportOwner = useRef(0);
   const reviewResizeCleanup = useRef<(() => void) | null>(null);
@@ -437,6 +621,7 @@ export function AgentPage({
     transport.getUserPresenceCapability === undefined ? "unavailable" : "checking",
   );
   const [userPresenceRetryNonce, setUserPresenceRetryNonce] = useState(0);
+  const [webFetchRetryNonce, setWebFetchRetryNonce] = useState(0);
   const lastSeq = useRef(0);
   const logRef = useRef<HTMLDivElement | null>(null);
   const approvalRef = useRef<HTMLDivElement | null>(null);
@@ -458,7 +643,24 @@ export function AgentPage({
     context.active && currentModelContext.current === context
   ), []);
   const closingSessions = useRef({ transport, ids: new Set<string>(), cleanupIds: new Set<string>(), cleanup: false });
-  const closeRequests = useRef(new Set<string>());
+  // A session ID is only unique within its transport. Keep the imperative
+  // close fence scoped the same way as the rendered pending/failure state so
+  // a delayed close in a replaced transport cannot lock an unrelated chat.
+  const closeRequests = useRef(new Map<TransportSlice, Set<string>>());
+  const hasCloseRequest = useCallback((owner: TransportSlice, sessionId: string): boolean => (
+    closeRequests.current.get(owner)?.has(sessionId) ?? false
+  ), []);
+  const beginCloseRequest = useCallback((owner: TransportSlice, sessionId: string): void => {
+    const requests = closeRequests.current.get(owner) ?? new Set<string>();
+    requests.add(sessionId);
+    closeRequests.current.set(owner, requests);
+  }, []);
+  const finishCloseRequest = useCallback((owner: TransportSlice, sessionId: string): void => {
+    const requests = closeRequests.current.get(owner);
+    if (requests === undefined) return;
+    requests.delete(sessionId);
+    if (requests.size === 0) closeRequests.current.delete(owner);
+  }, []);
   if (closingSessions.current.transport !== transport) closingSessions.current = { transport, ids: new Set(), cleanupIds: new Set(), cleanup: false };
   const commandCleanupBlocked = closingSessions.current.cleanup || Boolean(current?.cleanup_unconfirmed || sessions?.some((view) => view.cleanup_unconfirmed));
   const sessionContext = useRef({ id: current?.session_id, transport, version: 0 });
@@ -467,6 +669,26 @@ export function AgentPage({
   }
   const selectedCatalogSessionRef = useRef(selectedCatalogSession);
   selectedCatalogSessionRef.current = selectedCatalogSession;
+  // Composer feedback belongs to the chat it describes. An action that opens
+  // another chat itself, such as a turn revision branch, names that chat: the
+  // switch and the failure it reports can commit together, and the
+  // session-change reset below must then keep the message instead of erasing
+  // the only record of what happened.
+  const conversationMessageSession = useRef<string | undefined>(undefined);
+  const setConversationMessage = useCallback((message: string, sessionId?: string) => {
+    conversationMessageSession.current = message === ""
+      ? undefined
+      : sessionId ?? sessionContext.current.id;
+    setConversationMessageState(message);
+  }, []);
+  const abandonResumeOperation = useCallback(() => {
+    const operation = resumeOperation.current;
+    if (operation === null) return;
+    resumeOwner.current += 1;
+    operation.controller.abort();
+    resumeOperation.current = null;
+    setResumeBusy(false);
+  }, []);
   useEffect(() => () => { sessionContext.current.version += 1; }, []);
   useEffect(() => () => reviewResizeCleanup.current?.(), []);
   useEffect(() => {
@@ -514,6 +736,18 @@ export function AgentPage({
   }, [current?.session_id, selectedCatalogSession?.session_id]);
 
   useEffect(() => {
+    resumeOwner.current += 1;
+    resumeOperation.current?.controller.abort();
+    resumeOperation.current = null;
+    setResumeBusy(false);
+    return () => {
+      resumeOwner.current += 1;
+      resumeOperation.current?.controller.abort();
+      resumeOperation.current = null;
+    };
+  }, [transport]);
+
+  useEffect(() => {
     exportOwner.current += 1;
     exportOperation.current?.controller.abort();
     exportOperation.current = null;
@@ -525,14 +759,13 @@ export function AgentPage({
     };
   }, [transport]);
 
-  const selectedExportKey = selectedCatalogSession?.retention_policy === "local_history"
-    ? [
-        selectedCatalogSession.project_id,
-        selectedCatalogSession.session_id,
-        selectedCatalogSession.revision,
-        selectedCatalogSession.history_revision,
-      ].join(":")
-    : null;
+  const selectedExportKey = resumeSelectionKey(selectedCatalogSession);
+  useEffect(() => {
+    const operation = resumeOperation.current;
+    if (operation === null || operation.key === selectedExportKey) return;
+    abandonResumeOperation();
+  }, [abandonResumeOperation, selectedExportKey]);
+
   useEffect(() => {
     const operation = exportOperation.current;
     if (operation === null || operation.key === selectedExportKey) return;
@@ -558,57 +791,132 @@ export function AgentPage({
   }, []);
 
   const replaceComposerDraft = useCallback((sessionId: string, next: SessionComposerDraft) => {
-    setComposerDrafts((previous) => {
+    const owner = composerDraftOwner;
+    setComposerDraftState((previous) => {
+      if (composerDraftOwnerRef.current !== owner) return previous;
+      const drafts = previous.owner === owner ? previous.drafts : EMPTY_COMPOSER_DRAFTS;
       if (next.text.length === 0 && next.attachments.length === 0) {
-        if (previous[sessionId] === undefined) return previous;
-        const remaining = { ...previous };
+        if (drafts[sessionId] === undefined && previous.owner === owner) return previous;
+        const remaining = { ...drafts };
         delete remaining[sessionId];
-        return remaining;
+        return { owner, drafts: remaining, retryChecklists: previous.owner === owner ? previous.retryChecklists : EMPTY_ATTACHMENT_RETRY_CHECKLISTS };
       }
-      const existing = previous[sessionId];
-      if (existing?.text === next.text && existing.attachments === next.attachments) return previous;
-      return { ...previous, [sessionId]: next };
+      const existing = drafts[sessionId];
+      if (previous.owner === owner && existing?.text === next.text && existing.attachments === next.attachments) return previous;
+      return { owner, drafts: { ...drafts, [sessionId]: next }, retryChecklists: previous.owner === owner ? previous.retryChecklists : EMPTY_ATTACHMENT_RETRY_CHECKLISTS };
     });
-  }, []);
+  }, [composerDraftOwner]);
+
+  const replaceComposerAttachments = useCallback((
+    sessionId: string,
+    attachments: AgentAttachment[],
+  ) => {
+    const owner = composerDraftOwner;
+    setComposerDraftState((previous) => {
+      if (composerDraftOwnerRef.current !== owner) return previous;
+      const drafts = previous.owner === owner ? previous.drafts : EMPTY_COMPOSER_DRAFTS;
+      const existing = drafts[sessionId];
+      const next: SessionComposerDraft = {
+        attachments,
+        text: existing?.text ?? "",
+      };
+      if (next.text.length === 0 && next.attachments.length === 0) {
+        if (existing === undefined && previous.owner === owner) return previous;
+        const remaining = { ...drafts };
+        delete remaining[sessionId];
+        return { owner, drafts: remaining, retryChecklists: previous.owner === owner ? previous.retryChecklists : EMPTY_ATTACHMENT_RETRY_CHECKLISTS };
+      }
+      if (previous.owner === owner && existing?.text === next.text && existing.attachments === next.attachments) return previous;
+      return { owner, drafts: { ...drafts, [sessionId]: next }, retryChecklists: previous.owner === owner ? previous.retryChecklists : EMPTY_ATTACHMENT_RETRY_CHECKLISTS };
+    });
+  }, [composerDraftOwner]);
 
   const discardComposerDraft = useCallback((sessionId: string) => {
-    setComposerDrafts((previous) => {
-      if (previous[sessionId] === undefined) return previous;
-      const remaining = { ...previous };
+    const owner = composerDraftOwner;
+    setComposerDraftState((previous) => {
+      if (composerDraftOwnerRef.current !== owner || previous.owner !== owner || previous.drafts[sessionId] === undefined) return previous;
+      const remaining = { ...previous.drafts };
       delete remaining[sessionId];
-      return remaining;
+      return { ...previous, drafts: remaining };
     });
-  }, []);
+  }, [composerDraftOwner]);
 
   const clearSentComposerDraft = useCallback((
     sessionId: string,
     sentText: string,
     sentAttachmentIds: readonly string[],
   ) => {
-    setComposerDrafts((previous) => {
-      const existing = previous[sessionId];
+    const owner = composerDraftOwner;
+    setComposerDraftState((previous) => {
+      if (composerDraftOwnerRef.current !== owner || previous.owner !== owner) return previous;
+      const existing = previous.drafts[sessionId];
       if (
         existing === undefined
         || existing.text !== sentText
         || existing.attachments.length !== sentAttachmentIds.length
         || existing.attachments.some((attachment, index) => attachment.attachment_id !== sentAttachmentIds[index])
       ) return previous;
-      const remaining = { ...previous };
+      const remaining = { ...previous.drafts };
       delete remaining[sessionId];
-      return remaining;
+      return { ...previous, drafts: remaining };
     });
-  }, []);
+  }, [composerDraftOwner]);
+
+  const clearAttachmentRetryChecklist = useCallback((sessionId: string) => {
+    const owner = composerDraftOwner;
+    setComposerDraftState((previous) => {
+      if (composerDraftOwnerRef.current !== owner || previous.owner !== owner || previous.retryChecklists[sessionId] === undefined) return previous;
+      const remaining = { ...previous.retryChecklists };
+      delete remaining[sessionId];
+      return { ...previous, retryChecklists: remaining };
+    });
+  }, [composerDraftOwner]);
+
+  const replaceAttachmentRetryChecklist = useCallback((
+    sessionId: string,
+    checklist: AttachmentRetryChecklist,
+  ) => {
+    const owner = composerDraftOwner;
+    setComposerDraftState((previous) => {
+      if (composerDraftOwnerRef.current !== owner) return previous;
+      const retryChecklists = previous.owner === owner
+        ? previous.retryChecklists
+        : EMPTY_ATTACHMENT_RETRY_CHECKLISTS;
+      if (previous.owner === owner && retryChecklists[sessionId] === checklist) return previous;
+      return {
+        owner,
+        drafts: previous.owner === owner ? previous.drafts : EMPTY_COMPOSER_DRAFTS,
+        retryChecklists: { ...retryChecklists, [sessionId]: checklist },
+      };
+    });
+  }, [composerDraftOwner]);
+
+  const setAttachmentRetryOmitted = useCallback((sessionId: string, attachmentId: string, omitted: boolean) => {
+    if (hasCloseRequest(transport, sessionId) || pendingCloseSessionIds?.has(sessionId)) return;
+    const owner = composerDraftOwner;
+    setComposerDraftState((previous) => {
+      if (composerDraftOwnerRef.current !== owner || previous.owner !== owner) return previous;
+      const checklist = previous.retryChecklists[sessionId];
+      if (checklist === undefined) return previous;
+      const next = checklist.map((requirement) => requirement.attachment.attachment_id === attachmentId
+        ? { ...requirement, omitted }
+        : requirement);
+      return { ...previous, retryChecklists: { ...previous.retryChecklists, [sessionId]: next } };
+    });
+  }, [composerDraftOwner, hasCloseRequest, pendingCloseSessionIds, transport]);
   useEffect(() => {
     if (!current) {
       lastSelectedLiveSessionId.current = null;
       return;
     }
     if (lastSelectedLiveSessionId.current !== current.session_id) {
-      setNewChatOpen(false);
+      if (!handoffSetupOpen.current) setNewChatOpen(false);
       lastSelectedLiveSessionId.current = current.session_id;
     }
     setSelectedCatalogSession(null);
-    if (current.settings.project_id) setSelectedProjectId(current.settings.project_id);
+    // A one-shot Models handoff intentionally leaves project choice to the
+    // setup owner; an asynchronously restored live chat must not retarget it.
+    if (!handoffSetupOpen.current && current.settings.project_id) setSelectedProjectId(current.settings.project_id);
   }, [current?.session_id, current?.settings.project_id]);
   useEffect(() => {
     const contextVersion = sessionContext.current.version;
@@ -688,6 +996,7 @@ export function AgentPage({
 
   const acceptCatalogSessionDeleted = useCallback((sessionId: string) => {
     discardComposerDraft(sessionId);
+    clearAttachmentRetryChecklist(sessionId);
     if (selectedCatalogSessionRef.current?.session_id !== sessionId) return;
     selectedCatalogSessionRef.current = null;
     setSelectedCatalogSession(null);
@@ -703,7 +1012,7 @@ export function AgentPage({
     setArtifactsError("");
     lastSeq.current = 0;
     if (windowMode) setWindowTargetSessionId(undefined);
-  }, [discardComposerDraft, windowMode]);
+  }, [clearAttachmentRetryChecklist, discardComposerDraft, windowMode]);
 
   const noteRuntimeModelSelection = useCallback((_alias: string) => {
     // Runtime selection belongs to the active chat. Do not leak it into the
@@ -881,6 +1190,7 @@ export function AgentPage({
       setUserPresenceState("unavailable");
       setAllowWrites(false);
       setAllowCommands(false);
+      setAllowWeb(false);
       return;
     }
     const controller = new AbortController();
@@ -895,6 +1205,7 @@ export function AgentPage({
         if (!available) {
           setAllowWrites(false);
           setAllowCommands(false);
+          setAllowWeb(false);
         }
       })
       .catch(() => {
@@ -902,9 +1213,56 @@ export function AgentPage({
         setUserPresenceState("error");
         setAllowWrites(false);
         setAllowCommands(false);
+        setAllowWeb(false);
       });
     return () => controller.abort();
   }, [transport, userPresenceRetryNonce]);
+
+  useEffect(() => {
+    const getCapability = transport.getAgentWebFetchCapability;
+    setWebFetchCapabilityOwner(transport);
+    setAllowWeb(false);
+    if (getCapability === undefined) {
+      setWebFetchCapabilityState("unavailable");
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    const timeout = window.setTimeout(() => {
+      if (!active) return;
+      active = false;
+      controller.abort();
+      setWebFetchCapabilityState("error");
+      setAllowWeb(false);
+    }, WEB_FETCH_CAPABILITY_TIMEOUT_MS);
+    setWebFetchCapabilityState("checking");
+    getCapability(controller.signal)
+      .then((value) => {
+        if (!active || controller.signal.aborted) return;
+        active = false;
+        window.clearTimeout(timeout);
+        const available = value.contract_version === "agent-web-fetch-capability.v1"
+          && value.available === true
+          && value.policy_version === "governed-web-fetch.v1"
+          && value.reason_code === "available"
+          && value.requires_per_fetch_approval === true
+          && value.network_scope === "public_https";
+        setWebFetchCapabilityState(available ? "available" : "unavailable");
+        if (!available) setAllowWeb(false);
+      })
+      .catch(() => {
+        if (!active || controller.signal.aborted) return;
+        active = false;
+        window.clearTimeout(timeout);
+        setWebFetchCapabilityState("error");
+        setAllowWeb(false);
+      });
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [transport, userPresenceRetryNonce, webFetchRetryNonce]);
 
   useEffect(() => {
     const getCapability = transport.getWorkspaceFolderPickerCapability;
@@ -940,6 +1298,12 @@ export function AgentPage({
   }, []);
 
   const userPresenceAvailable = userPresenceState === "available";
+  const webFetchAvailable = webFetchCapabilityOwner === transport
+    && webFetchCapabilityState === "available"
+    && userPresenceAvailable;
+  const webFetchCapabilityDisplayState = webFetchCapabilityOwner === transport
+    ? webFetchCapabilityState
+    : "checking";
   const folderPickerAvailable = nativeFolderPickerAvailable
     || serverFolderPickerState === "available";
   const folderPickerChecking = !nativeFolderPickerAvailable
@@ -964,12 +1328,14 @@ export function AgentPage({
 
   useEffect(() => {
     clearPromptCheck();
-    setConversationMessage("");
+    // Feedback raised for the chat that is now visible survives the switch that
+    // opened it; only a message left over from the previous chat is dropped.
+    if (conversationMessageSession.current !== current?.session_id) setConversationMessage("");
     if (modelFeedbackTarget === "session") {
       setModelError("");
       setModelNotice("");
     }
-  }, [clearPromptCheck, current?.session_id]);
+  }, [clearPromptCheck, current?.session_id, setConversationMessage]);
 
   useEffect(() => {
     if (!current || composerFocusNonce === 0) return;
@@ -1016,7 +1382,9 @@ export function AgentPage({
 
   // Returning users land on their newest durable chat instead of a setup
   // drawer. A truly empty catalog still opens onboarding after both the live
-  // session list and durable catalog have loaded successfully.
+  // session list and durable catalog have loaded successfully, but never while
+  // the owner is already working in the Agent settings drawer, and never once
+  // they have moved on and started setting a chat up themselves.
   useEffect(() => {
     if (
       startupCatalogHandled.current
@@ -1024,12 +1392,28 @@ export function AgentPage({
       || sessions === null
       || sessionListError
     ) return;
-    startupCatalogHandled.current = true;
-    if (current || selectedCatalogSession || sessions.length > 0) return;
+    if (current || selectedCatalogSession || sessions.length > 0) {
+      startupCatalogHandled.current = true;
+      return;
+    }
+    // A startup answer that settles after the owner has already opened chat
+    // setup describes a page they have left behind. Landing on it now would
+    // move the rail selection, and with it the project their pending chat was
+    // aimed at, so the landing is abandoned instead.
+    if (ownerOpenedNewChat.current) {
+      startupCatalogHandled.current = true;
+      return;
+    }
     if (startupCatalogSession === null) {
+      // Exactly one rail drawer is open at a time. A late empty-catalog answer
+      // must not push onboarding on top of an Agent settings drawer the owner
+      // already opened, so it waits until that drawer is closed instead.
+      if (settingsOpen) return;
+      startupCatalogHandled.current = true;
       setNewChatOpen(true);
       return;
     }
+    startupCatalogHandled.current = true;
     setSelectedCatalogSession(startupCatalogSession);
     setSavedHistoryState(startupCatalogSession.retention_policy === "local_history" ? "loading" : "idle");
     setSavedHistoryMessage("");
@@ -1038,7 +1422,7 @@ export function AgentPage({
     setHistoryGap(false);
     setStreamNotice("");
     lastSeq.current = 0;
-  }, [current, selectedCatalogSession, sessionListError, sessions, startupCatalogSession]);
+  }, [current, selectedCatalogSession, sessionListError, sessions, settingsOpen, startupCatalogSession]);
 
   useEffect(() => {
     if (selectedCatalogSession === null) {
@@ -1070,6 +1454,42 @@ export function AgentPage({
         controller.signal,
       );
       if (controller.signal.aborted) return;
+      const focus = savedMessageFocusTarget.current;
+      if (focus !== null && focus.sessionId === selected.session_id) {
+        const refreshed = transport.getAgentCatalogSession === undefined
+          ? null
+          : await transport.getAgentCatalogSession(selected.session_id, controller.signal);
+        if (controller.signal.aborted) return;
+        const target = retained.find((event) => (
+          event.seq === focus.eventSeq && (focus.role === "user" ? event.kind === "user" : event.kind === "assistant")
+        ));
+        if (
+          refreshed === null
+          || refreshed.session_id !== focus.sessionId
+          || refreshed.project_id !== focus.projectId
+          || refreshed.retention_policy !== "local_history"
+          || refreshed.history_revision !== focus.historyRevision
+          || refreshed.last_event_seq !== head
+          || head < focus.eventSeq
+          || target === undefined
+        ) {
+          savedMessageFocusTarget.current = null;
+          setSavedMessageFocus(null);
+          setEvents(retained);
+          lastSeq.current = head;
+          setSavedHistoryState("ready");
+          setSavedHistoryMessage("The matching saved message changed or is no longer retained. Search again; no chat was resumed or changed.");
+          return;
+        }
+        savedMessageFocusSequence.current += 1;
+        setSavedMessageFocus({
+          requestId: savedMessageFocusSequence.current,
+          eventSeq: focus.eventSeq,
+          sessionId: focus.sessionId,
+          projectId: focus.projectId,
+        });
+        savedMessageFocusTarget.current = null;
+      }
       setEvents(retained);
       lastSeq.current = head;
       setSavedHistoryState("ready");
@@ -1087,6 +1507,7 @@ export function AgentPage({
     selectedCatalogSession?.project_id,
     selectedCatalogSession?.retention_policy,
     selectedCatalogSession?.session_id,
+    retainedHistoryReloadKey,
     transport,
   ]);
 
@@ -1467,6 +1888,14 @@ export function AgentPage({
       setCurrent((previous) => previous && previous.session_id === page.session_id
         ? rememberClosing(reconcileAgentEventPage(previous, page))
         : previous);
+      // The rail's session list is also an exit-risk source. Keep its matching
+      // entry at the accepted event head so a terminal page cannot leave an
+      // off-screen stale `running` snapshot protecting navigation forever.
+      setSessions((previous) => previous?.map((session) => (
+        session.session_id === page.session_id
+          ? rememberClosing(reconcileAgentEventPage(session, page))
+          : session
+      )) ?? null);
       return acceptedView.running || Boolean(acceptedView.pending_approval_id) || fresh.length > 0;
     };
 
@@ -1524,10 +1953,36 @@ export function AgentPage({
     return () => { cancelled = true; controller.abort(); window.clearTimeout(handle); };
   }, [current?.session_id, current?.running, markSessionClosing, refreshModels, rememberClosing, streamRetryNonce, transport]);
 
+  const transcriptBrowsingOlder = current !== null
+    && transcriptPageState.sessionId === current.session_id
+    && transcriptPageState.browsingOlder;
+  const handleTranscriptPageState = useCallback((pageState: TranscriptPageState) => {
+    const sessionId = current?.session_id ?? null;
+    if (sessionId === null) return;
+    setTranscriptPageState((previous) => (
+      previous.sessionId === sessionId && previous.browsingOlder === pageState.browsingOlder
+        ? previous
+        : { browsingOlder: pageState.browsingOlder, sessionId }
+    ));
+    if (pageState.browsingOlder) {
+      followOutput.current = false;
+      setFollowingOutput(false);
+    }
+  }, [current?.session_id]);
+  const handleTranscriptLatestRendered = useCallback(() => {
+    if (current === null) return;
+    followOutput.current = true;
+    setFollowingOutput(true);
+    const node = logRef.current;
+    if (node === null) return;
+    node.scrollTop = node.scrollHeight;
+    node.focus({ preventScroll: true });
+  }, [current?.session_id]);
+
   useEffect(() => {
     const node = logRef.current;
-    if (node && followOutput.current) node.scrollTop = node.scrollHeight;
-  }, [events]);
+    if (node && followOutput.current && !transcriptBrowsingOlder) node.scrollTop = node.scrollHeight;
+  }, [events, transcriptBrowsingOlder]);
 
   const selectedModel = useMemo(
     () => newSessionModelAlias
@@ -1535,6 +1990,10 @@ export function AgentPage({
       : null,
     [models, newSessionModelAlias],
   );
+  const creationBudgetError = selectedModel !== null
+    && maxTokens >= selectedModel.record.context_size
+    ? `Max output tokens (${maxTokens.toLocaleString()}) must be below ${selectedModel.record.context_size.toLocaleString()} for this model. Input and tools also consume context; exact send preflight remains authoritative.`
+    : "";
   const currentModelAlias = current?.model_alias ?? current?.settings.model_alias ?? null;
   const currentModel = useMemo(() => {
     if (!current) return null;
@@ -1600,6 +2059,52 @@ export function AgentPage({
     || busy
     || forkBusy
     || turnRevisionBusy !== null;
+  // This is deliberately an aggregate only: App navigation needs to protect
+  // retained drafts and observed work without receiving chat identity/content.
+  const exitRisk = agentExitRisk({
+    hasDrafts: draftSessionIds.size > 0,
+    workspaceDirty,
+    hasObservedWork: Boolean(
+      sessions?.some((session) => session.running || session.stopping || session.closing || session.cleanup_unconfirmed || session.pending_approval_id)
+      || current?.running
+      || current?.stopping
+      || current?.closing
+      || current?.cleanup_unconfirmed
+      || current?.pending_approval_id
+      || responseStopping
+      || pending
+      || creatingSession
+      || busy
+      || attachmentBusy
+      || promptCheckBusy
+      || runtimeControlBusy
+      || modelActionAlias
+      || commandCleanupBlocked
+      || forkBusy
+      || turnRevisionBusy !== null,
+    ),
+  });
+  useLayoutEffect(() => {
+    if (!onExitRiskChange || (sameAgentExitRisk(lastExitRiskRef.current, exitRisk) && lastExitRiskCallbackRef.current === onExitRiskChange)) return;
+    lastExitRiskRef.current = exitRisk;
+    lastExitRiskCallbackRef.current = onExitRiskChange;
+    onExitRiskChange(exitRisk);
+  }, [exitRisk, onExitRiskChange]);
+  useLayoutEffect(() => {
+    exitRiskMountedRef.current = true;
+    return () => {
+      exitRiskMountedRef.current = false;
+      queueMicrotask(() => {
+        if (!exitRiskMountedRef.current) exitRiskCallbackRef.current?.({ hasActiveWork: false, hasUnsavedChanges: false });
+      });
+    };
+  }, []);
+  useLayoutEffect(() => {
+    if (!exitRisk.hasUnsavedChanges && !exitRisk.hasActiveWork) return undefined;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [exitRisk.hasActiveWork, exitRisk.hasUnsavedChanges]);
   const lastActivity = [...events].reverse().find((event) => event.kind !== "done" && event.kind !== "assistant_delta");
   const activityState = commandCleanupBlocked
     ? { detail: "Agent work is paused. You can still select and copy your draft.", label: "Command cleanup unconfirmed", tone: "error" }
@@ -1837,6 +2342,8 @@ export function AgentPage({
 
   function openLiveSession(session: AgentSessionView): void {
     continueAfterWorkspaceDiscard("Discard and switch chat", () => {
+      savedMessageFocusTarget.current = null;
+      setSavedMessageFocus(null);
       if (windowMode) {
         if (dedicatedWindowKey !== null) announceAgentWindowActiveSession(dedicatedWindowKey, session.session_id);
         setWindowTargetSessionId(session.session_id);
@@ -1860,6 +2367,16 @@ export function AgentPage({
 
   function openUnavailableSession(session: AgentCatalogSession): void {
     continueAfterWorkspaceDiscard("Discard and open chat", () => {
+      selectUnavailableSession(session, false);
+    });
+  }
+
+  function selectUnavailableSession(session: AgentCatalogSession, preserveSavedMessageFocus = false): void {
+      abandonResumeOperation();
+      if (!preserveSavedMessageFocus) {
+        savedMessageFocusTarget.current = null;
+        setSavedMessageFocus(null);
+      }
       if (windowMode) {
         if (dedicatedWindowKey !== null) announceAgentWindowActiveSession(dedicatedWindowKey, session.session_id);
         setWindowTargetSessionId(undefined);
@@ -1878,11 +2395,49 @@ export function AgentPage({
       setHistoryGap(false);
       setStreamNotice("");
       lastSeq.current = 0;
-    });
+      // Selecting the same retained receipt is an explicit reread request. Its
+      // identity may be unchanged, so the retained-history effect needs this
+      // bounded key to leave Loading again after a prior error or transport swap.
+      setRetainedHistoryReloadKey((value) => value + 1);
+  }
+
+  async function openSavedMessage(
+    match: AgentSavedMessageSearchHit,
+    session: AgentCatalogSession,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const visibleBeforeConfirmation = sessionContext.current.id
+      ?? selectedCatalogSessionRef.current?.session_id
+      ?? null;
+    const requestedTransport = transport;
+    if (!(await mayLeaveWorkspace("Discard and open matching saved message")) || signal.aborted) return false;
+    if (
+      requestedTransport !== sessionContext.current.transport
+      || visibleBeforeConfirmation !== (sessionContext.current.id ?? selectedCatalogSessionRef.current?.session_id ?? null)
+    ) return false;
+    if (
+      session.session_id !== match.session_id
+      || session.project_id !== match.project_id
+      || session.retention_policy !== "local_history"
+      || session.history_revision !== match.history_revision
+    ) return false;
+    savedMessageFocusTarget.current = {
+      sessionId: match.session_id,
+      projectId: match.project_id,
+      historyRevision: match.history_revision,
+      eventSeq: match.match_event_seq,
+      role: match.role,
+    };
+    selectUnavailableSession(session, true);
+    return true;
   }
 
   function beginNewChat(projectId: string | null, trigger: HTMLButtonElement): void {
+    savedMessageFocusTarget.current = null;
+    setSavedMessageFocus(null);
+    handoffSetupOpen.current = false;
     newChatTriggerRef.current = trigger;
+    ownerOpenedNewChat.current = true;
     if (projectId !== null) setSelectedProjectId(projectId);
     setNewSessionModelAlias("");
     setSelectedCatalogSession(null);
@@ -1893,6 +2448,30 @@ export function AgentPage({
     setNewChatOpen(true);
     window.setTimeout(() => workspaceInputRef.current?.focus(), 0);
   }
+
+  useEffect(() => {
+    if (
+      windowMode
+      || newChatIntent === null
+      || newChatIntent === undefined
+      || consumedNewChatIntent.current === newChatIntent.requestId
+    ) return;
+    consumedNewChatIntent.current = newChatIntent.requestId;
+    handoffSetupOpen.current = true;
+    ownerOpenedNewChat.current = true;
+    // Only the selected alias crosses this explicit boundary. The workspace,
+    // project, retention, instructions, parameters, and temporary chat remain
+    // owned by their respective screens until the owner explicitly submits.
+    setNewSessionModelAlias(newChatIntent.modelAlias ?? "");
+    setSelectedCatalogSession(null);
+    setSavedHistoryState("idle");
+    setSavedHistoryMessage("");
+    setRailCollapsed(false);
+    setSettingsOpen(false);
+    setNewChatOpen(true);
+    onNewChatIntentConsumed?.(newChatIntent.requestId);
+    window.setTimeout(() => workspaceInputRef.current?.focus(), 0);
+  }, [newChatIntent, onNewChatIntentConsumed, windowMode]);
 
   async function forkCatalogSession(
     source: AgentCatalogSession,
@@ -2055,11 +2634,8 @@ export function AgentPage({
       const sourceUser = retained.events.find((event) => event.kind === "user" && event.turn_id === turnId);
       const settled = retained.events.find((event) => event.kind === "done" && event.turn_id === turnId);
       sourceText = sourceUser?.text?.trim() ?? "";
-      if (sourceUser === undefined || settled === undefined || sourceText.length === 0) {
+      if (sourceUser === undefined || settled === undefined || (sourceText.length === 0 && sourceUser.attachments.length === 0)) {
         throw new Error("turn_revision_source_unavailable");
-      }
-      if (mode !== "edit" && sourceUser.attachments.length > 0) {
-        throw new Error("turn_revision_attachments_require_edit");
       }
       const branchPoint = [...retained.events]
         .reverse()
@@ -2089,23 +2665,32 @@ export function AgentPage({
         || resumedBranch.settings.project_id !== forkReceipt.session.project_id
         || resumedBranch.settings.retention_policy !== "local_history"
       ) throw new Error("turn_revision_resume_mismatch");
+      const childBranch: AgentSessionView = resumedBranch;
 
-      const copiedEvents = retained.events.filter((event) => event.seq <= branchPoint);
-      replaceComposerDraft(resumedBranch.session_id, { text: sourceText, attachments: [] });
+      // The child is usable as a draft as soon as it has been resumed. Adopt it
+      // before reconstructing its retained prefix so a later read failure does
+      // not claim a prompt was kept in a branch the page never opened.
+      replaceComposerDraft(childBranch.session_id, { text: sourceText, attachments: [] });
+      if (sourceUser.attachments.length > 0) {
+        replaceAttachmentRetryChecklist(
+          childBranch.session_id,
+          sourceUser.attachments.map((attachment) => ({ attachment, omitted: false })),
+        );
+      }
       setSessions((previous) => [
-        resumedBranch as AgentSessionView,
-        ...(previous ?? []).filter((session) => session.session_id !== resumedBranch?.session_id),
+        childBranch,
+        ...(previous ?? []).filter((session) => session.session_id !== childBranch.session_id),
       ]);
       if (windowMode) {
-        if (dedicatedWindowKey !== null) announceAgentWindowActiveSession(dedicatedWindowKey, resumedBranch.session_id);
-        setWindowTargetSessionId(resumedBranch.session_id);
+        if (dedicatedWindowKey !== null) announceAgentWindowActiveSession(dedicatedWindowKey, childBranch.session_id);
+        setWindowTargetSessionId(childBranch.session_id);
       }
-      setCurrent(rememberClosing(resumedBranch));
+      setCurrent(rememberClosing(childBranch));
       setSelectedCatalogSession(null);
-      setSelectedProjectId(resumedBranch.settings.project_id);
-      setEvents(copiedEvents);
+      setSelectedProjectId(childBranch.settings.project_id ?? null);
+      setEvents([]);
       setHistoryGap(false);
-      lastSeq.current = branchPoint;
+      lastSeq.current = 0;
       setSavedHistoryState("idle");
       setNewChatOpen(false);
       setReviewOpen(false);
@@ -2118,9 +2703,27 @@ export function AgentPage({
       followOutput.current = true;
       setFollowingOutput(true);
 
-      if (mode === "edit") {
+      // The catalog remaps attachment IDs while copying a retained prefix. Read
+      // the child history rather than displaying source identities in its chat.
+      const copied = await readCompleteRetainedEvents(
+        transport.getAgentPersistedEvents,
+        forkReceipt.session.project_id,
+        forkReceipt.session.session_id,
+        controller.signal,
+      );
+      if (!ownsTurnRevision(operation)) return;
+      if (copied.head !== branchPoint) throw new Error("turn_revision_resume_mismatch");
+      const copiedEvents = copied.events;
+      setEvents(copiedEvents);
+      setHistoryGap(false);
+      lastSeq.current = branchPoint;
+
+      if (mode === "edit" || sourceUser.attachments.length > 0) {
         setStreamNotice(
-          `Editable branch created before turn ${settled.turn_summary?.turn_number ?? "?"}. The source chat and existing workspace effects are unchanged; review the draft before sending.`,
+          sourceUser.attachments.length > 0
+            ? `Retry branch prepared before turn ${settled.turn_summary?.turn_number ?? "?"}. Reattach each original file or explicitly omit it before sending; the source chat and workspace effects are unchanged.`
+            : `Editable branch created before turn ${settled.turn_summary?.turn_number ?? "?"}. The source chat and existing workspace effects are unchanged; review the draft before sending.`,
+          childBranch.session_id,
         );
         setComposerFocusNonce((value) => value + 1);
         return;
@@ -2142,6 +2745,7 @@ export function AgentPage({
         setCurrent(rememberClosing(started));
         setStreamNotice(
           `${mode === "regenerate" ? "Regeneration" : "Retry"} started in a new branch before turn ${settled.turn_summary?.turn_number ?? "?"}. The source chat and existing workspace effects are unchanged.`,
+          childBranch.session_id,
         );
       } catch (caught) {
         if (!ownsTurnRevision(operation)) return;
@@ -2151,6 +2755,7 @@ export function AgentPage({
           reason === "model_not_ready" || reason === "no_active_model"
             ? "The branch is ready and its prompt is kept, but the model is not running. Start this branch's model, then send the draft."
             : "The branch is ready and its prompt is kept, but the response did not start. Review the draft and send it manually.",
+          resumedBranch.session_id,
         );
         setComposerFocusNonce((value) => value + 1);
       }
@@ -2162,14 +2767,12 @@ export function AgentPage({
         ? "The new branch is open and its prompt is kept, but the revision did not start. Review the draft and send it manually."
         : forkReceipt !== null
           ? "The branch was created safely, but it could not be reopened. The source chat is unchanged; open the new branch from the project list."
-          : localReason === "turn_revision_attachments_require_edit"
-            ? "Attachments are never copied into a branch. Use Edit in branch, then add the files or recording again."
-            : localReason === "turn_revision_source_unavailable"
-              ? "This turn has no retained text request that can be revised safely. The source chat was not changed."
+          : localReason === "turn_revision_source_unavailable"
+              ? "This turn has no retained message that can be revised safely. The source chat was not changed."
               : reason === "agent_catalog_session_revision_conflict" || reason === "agent_history_revision_conflict" || localReason === "turn_revision_source_changed" || localReason === "retained_history_changed"
                 ? "This chat changed while the branch was being prepared. Reopen it and try again; no revision was started."
                 : "The revision branch could not be prepared. The source chat was not changed.";
-      setConversationMessage(message);
+      setConversationMessage(message, resumedBranch?.session_id);
       setSavedHistoryMessage(message);
     } finally {
       if (turnRevisionOperation.current?.owner === owner) {
@@ -2181,14 +2784,35 @@ export function AgentPage({
 
   async function resumeSelectedSession(): Promise<void> {
     const selected = selectedCatalogSession;
+    const key = resumeSelectionKey(selected);
     if (
       selected === null
+      || key === null
       || selected.archived_at !== null
       || selected.retention_policy !== "local_history"
       || savedHistoryState !== "ready"
       || resumeBusy
+      || resumeOperation.current !== null
       || transport.resumeAgentSession === undefined
     ) return;
+    const controller = new AbortController();
+    const owner = resumeOwner.current + 1;
+    resumeOwner.current = owner;
+    const operation: ResumeOperation = {
+      controller,
+      key,
+      owner,
+      retainedHead: lastSeq.current,
+      transport,
+    };
+    resumeOperation.current = operation;
+    const ownsResume = () => (
+      resumeOperation.current === operation
+      && resumeOwner.current === owner
+      && !controller.signal.aborted
+      && sessionContext.current.transport === operation.transport
+      && resumeSelectionKey(selectedCatalogSessionRef.current) === key
+    );
     setResumeBusy(true);
     setSavedHistoryMessage("");
     try {
@@ -2199,7 +2823,17 @@ export function AgentPage({
           expected_catalog_revision: selected.revision,
           expected_history_revision: selected.history_revision,
         },
+        controller.signal,
       );
+      if (!ownsResume()) return;
+      if (
+        resumed.session_id !== selected.session_id
+        || resumed.settings.project_id !== selected.project_id
+        || resumed.settings.retention_policy !== "local_history"
+        || resumed.history_revision < selected.history_revision
+        || resumed.last_seq < selected.last_event_seq
+        || resumed.last_seq < operation.retainedHead
+      ) throw new Error("resume_response_mismatch");
       setSessions((previous) => [
         resumed,
         ...(previous ?? []).filter((session) => session.session_id !== resumed.session_id),
@@ -2216,11 +2850,15 @@ export function AgentPage({
       setRecoveryAllowCommands(false);
       setConversationMessage("");
       setSavedHistoryState("idle");
-      lastSeq.current = resumed.last_seq;
+      // Retained events currently end at this cursor. Leave the live read at
+      // that verified head so it appends any newer events from the resumed
+      // session instead of silently skipping the suffix.
+      lastSeq.current = operation.retainedHead;
       followOutput.current = true;
       setFollowingOutput(true);
       setComposerFocusNonce((value) => value + 1);
     } catch (caught) {
+      if (!ownsResume()) return;
       const reason = caught instanceof TransportError ? caught.reasonCode : null;
       setSavedHistoryMessage(
         reason === "agent_catalog_session_revision_conflict" || reason === "agent_history_revision_conflict"
@@ -2230,7 +2868,10 @@ export function AgentPage({
             : "The retained chat could not be resumed. Its saved history remains unchanged.",
       );
     } finally {
-      setResumeBusy(false);
+      if (ownsResume()) {
+        resumeOperation.current = null;
+        setResumeBusy(false);
+      }
     }
   }
 
@@ -2346,6 +2987,7 @@ export function AgentPage({
   }
 
   function closeNewChatSetup(): void {
+    handoffSetupOpen.current = false;
     const trigger = newChatTriggerRef.current;
     newChatTriggerRef.current = null;
     setNewChatOpen(false);
@@ -2398,11 +3040,11 @@ export function AgentPage({
   }, [newChatOpen, settingsOpen]);
 
   useEffect(() => {
-    if (!windowMode || !current || current.closing || current.running || currentModelBlocked) return;
+    if (!windowMode || !current || current.closing || current.running || current.history_write_failed || commandCleanupBlocked) return;
     const composer = composerInputRef.current;
     composer?.scrollIntoView?.({ block: "nearest" });
     composer?.focus({ preventScroll: true });
-  }, [current?.session_id, current?.closing, current?.running, currentModelBlocked, windowMode]);
+  }, [commandCleanupBlocked, current?.session_id, current?.closing, current?.history_write_failed, current?.running, windowMode]);
 
   async function mayLeaveWorkspace(confirmLabel = "Discard and continue"): Promise<boolean> {
     if (!workspaceDirty) return true;
@@ -2422,9 +3064,15 @@ export function AgentPage({
     if (!windowMode) return;
     if (dedicatedWindowKey === null) return;
     const controller = new AbortController();
+    let selectionRevision = 0;
     const close = listenForAgentWindowSelection(dedicatedWindowKey, async (nextSessionId) => {
-      if (current?.session_id === nextSessionId || selectedCatalogSession?.session_id === nextSessionId) return true;
-      let target = sessions?.find((session) => session.session_id === nextSessionId) ?? null;
+      const revision = ++selectionRevision;
+      const ownsSelection = () => !controller.signal.aborted && revision === selectionRevision;
+      if (
+        sessionContext.current.id === nextSessionId
+        || selectedCatalogSessionRef.current?.session_id === nextSessionId
+      ) return true;
+      let target = sessionsRef.current?.find((session) => session.session_id === nextSessionId) ?? null;
       let catalogTarget: AgentCatalogSession | null = null;
       if (target === null) {
         try {
@@ -2433,6 +3081,7 @@ export function AgentPage({
           if (!(caught instanceof TransportError && caught.status === 404)) return false;
         }
       }
+      if (!ownsSelection()) return false;
       if (target === null) {
         const getCatalogSession = transport.getAgentCatalogSession;
         if (!durableCatalogAvailable || getCatalogSession === undefined) return false;
@@ -2443,11 +3092,19 @@ export function AgentPage({
         }
       }
       if (
-        controller.signal.aborted
+        !ownsSelection()
         || (target?.session_id !== nextSessionId && catalogTarget?.session_id !== nextSessionId)
       ) return false;
-      if (workspaceDirty && !(await mayLeaveWorkspace("Discard and switch chat"))) return false;
-      if (controller.signal.aborted) return false;
+      if (
+        workspaceDirtyRef.current
+        && !(await requestConfirmation({
+          title: "Discard workspace changes?",
+          description: "Discard the unsaved manual workspace edit?",
+          detail: "No workspace file is changed by this confirmation. Only the in-memory manual draft is cleared.",
+          confirmLabel: "Discard and switch chat",
+        }))
+      ) return false;
+      if (!ownsSelection()) return false;
       if (target !== null) {
         const resolved = rememberClosing(target);
         setSessions((previous) => [
@@ -2492,10 +3149,8 @@ export function AgentPage({
     rememberClosing,
     requestConfirmation,
     selectedCatalogSession?.session_id,
-    sessions,
     transport,
     windowMode,
-    workspaceDirty,
   ]);
 
   function changeWorkspace(value: string): void {
@@ -2689,7 +3344,9 @@ export function AgentPage({
 
   async function createSession() {
     const path = workspace.trim();
-    if (!path || commandCleanupBlocked || busy || modelContext.creation || !ownsModelContext(modelContext) || userPresenceState === "checking" || selectedModelUnavailableForSession) return;
+    if (!path || creationBudgetError || commandCleanupBlocked || busy || modelContext.creation || !ownsModelContext(modelContext) || userPresenceState === "checking" || selectedModelUnavailableForSession) return;
+    // The chat lands in the project selected in the render that asked for it.
+    const targetProjectId = selectedProjectId;
     if (workspaceDirty && !(await mayLeaveWorkspace("Discard and start chat"))) return;
     const creation = {};
     modelContext.creation = creation;
@@ -2713,13 +3370,13 @@ export function AgentPage({
       const protectedActionsAvailable = userPresenceState === "available";
       const settings: AgentSettings = {
         workspace: path,
-        project_id: selectedProjectId,
+        project_id: targetProjectId,
         model_alias: newSessionModelAlias || sessionModel?.record.alias || null,
         parameters: { temperature, top_p: topP, max_tokens: maxTokens, enable_thinking: thinking },
         instructions: instructions.trim() || null,
         allow_writes: protectedActionsAvailable && allowWrites,
         allow_commands: protectedActionsAvailable && allowCommands,
-        allow_web: false,
+        allow_web: webFetchAvailable && allowWeb,
         max_steps: 10,
         command_timeout_seconds: 120,
         retention_policy: retainHistory ? "local_history" : "metadata_only",
@@ -2738,9 +3395,10 @@ export function AgentPage({
         setWindowTargetSessionId(created.session_id);
       }
       setCurrent(created);
+      handoffSetupOpen.current = false;
       setNewSessionModelAlias("");
       setSelectedCatalogSession(null);
-      setSelectedProjectId(created.settings.project_id ?? selectedProjectId);
+      setSelectedProjectId(created.settings.project_id ?? targetProjectId);
       refreshAgentCatalog();
       newChatTriggerRef.current = null;
       setNewChatOpen(false);
@@ -2796,7 +3454,7 @@ export function AgentPage({
     const sentDraft = draft;
     const text = draft.trim();
     const attachmentIds = draftAttachments.map((attachment) => attachment.attachment_id);
-    if (!current || sendingSessionId === undefined || current.closing || current.running || current.history_write_failed || responseStopping || (!text && attachmentIds.length === 0) || busy || attachmentBusy || attachmentModelMismatch || promptCheckBusy || currentModelBlocked
+    if (!current || sendingSessionId === undefined || hasCloseRequest(transport, sendingSessionId) || currentClosePending || turnRevisionOperation.current !== null || current.closing || current.running || current.history_write_failed || responseStopping || unresolvedRetryAttachments.length > 0 || (!text && attachmentIds.length === 0) || busy || attachmentBusy || attachmentModelMismatch || promptCheckBusy || currentModelBlocked
       || modelContext.action?.alias === (currentModel?.record.alias ?? currentModelAlias)) return;
     const contextVersion = sessionContext.current.version;
     setBusy(true);
@@ -2806,6 +3464,7 @@ export function AgentPage({
     try {
       const view = await transport.sendAgentMessage(current.session_id, text, attachmentIds);
       clearSentComposerDraft(sendingSessionId, sentDraft, attachmentIds);
+      clearAttachmentRetryChecklist(sendingSessionId);
       if (sessionContext.current.version !== contextVersion) return;
       setCurrent(rememberClosing(view));
       clearPromptCheck();
@@ -2847,20 +3506,23 @@ export function AgentPage({
   }
 
   function changeDraft(value: string) {
-    if (current === null) return;
+    if (current === null || hasCloseRequest(transport, current.session_id) || currentClosePending) return;
     clearPromptCheck();
     replaceComposerDraft(current.session_id, { text: value, attachments: draftAttachments });
   }
 
-  function changeDraftAttachments(attachments: AgentAttachment[]) {
-    if (current === null) return;
-    replaceComposerDraft(current.session_id, { text: draft, attachments });
-  }
+  const changeDraftAttachments = useCallback((
+    sessionId: string,
+    attachments: AgentAttachment[],
+  ) => {
+    if (hasCloseRequest(transport, sessionId) || pendingCloseSessionIds?.has(sessionId)) return;
+    replaceComposerAttachments(sessionId, attachments);
+  }, [hasCloseRequest, pendingCloseSessionIds, replaceComposerAttachments, transport]);
 
   async function runPromptCheck() {
     const text = draft.trim();
     const checkPrompt = transport.checkPrompt;
-    if (!current || current.closing || !checkPrompt || !text || busy || promptCheckBusy || current.running || responseStopping
+    if (!current || hasCloseRequest(transport, current.session_id) || currentClosePending || current.closing || !checkPrompt || !text || busy || promptCheckBusy || current.running || responseStopping
       || modelContext.action?.alias === (currentModel?.record.alias ?? currentModelAlias)) return;
 
     const controller = new AbortController();
@@ -2898,7 +3560,7 @@ export function AgentPage({
   }
 
   function usePromptRewrite(value: string) {
-    if (!value.trim() || current === null) return;
+    if (!value.trim() || current === null || hasCloseRequest(transport, current.session_id) || currentClosePending) return;
     replaceComposerDraft(current.session_id, { text: value, attachments: draftAttachments });
     clearPromptCheck("Suggested prompt applied. Check it again to validate the revised draft before sending.");
   }
@@ -2988,11 +3650,13 @@ export function AgentPage({
   async function requestCloseLiveSession(session: AgentSessionView): Promise<void> {
     const retained = session.settings.retention_policy === "local_history";
     const discardsWorkspace = current?.session_id === session.session_id && workspaceDirty;
+    const discardsDraft = draftSessionIds.has(session.session_id);
+    const discardNotice = `${discardsWorkspace ? " The unsaved manual workspace edit in this chat will also be discarded." : ""}${discardsDraft ? " Its unsent draft and attachment-retry choices exist only in this window and will be discarded." : ""}`;
     const accepted = await requestConfirmation({
       title: "Close live chat?",
       description: retained
-        ? `Its retained conversation remains available and can be resumed later.${discardsWorkspace ? " The unsaved manual workspace edit in this chat will also be discarded." : ""}`
-        : `Its navigation entry remains, but metadata-only conversation content cannot be reopened.${discardsWorkspace ? " The unsaved manual workspace edit in this chat will also be discarded." : ""}`,
+        ? `Its retained conversation remains available and can be resumed later.${discardNotice}`
+        : `Its navigation entry remains, but metadata-only conversation content cannot be reopened.${discardNotice}`,
       detail: "This closes the live Agent session. It does not delete its project or durable catalog entry.",
       confirmLabel: "Close chat",
     });
@@ -3001,9 +3665,22 @@ export function AgentPage({
 
   async function closeSession(id: string, workspaceDiscardConfirmed = false) {
     if (commandCleanupBlocked) { setConversationMessage(COMMAND_CLEANUP_MESSAGE); return; }
-    if (closeRequests.current.has(id)) return;
+    if (hasCloseRequest(transport, id)) return;
     if (current?.session_id === id && !workspaceDiscardConfirmed && workspaceDirty && !(await mayLeaveWorkspace("Discard and retry close"))) return;
-    closeRequests.current.add(id);
+    beginCloseRequest(transport, id);
+    setPendingLiveClose((previous) => {
+      if (previous.transport !== transport) return { sessionIds: new Set([id]), transport };
+      const sessionIds = new Set(previous.sessionIds);
+      sessionIds.add(id);
+      return { sessionIds, transport };
+    });
+    if (sessionContext.current.id === id) clearPromptCheck();
+    setFailedLiveClose((previous) => {
+      if (previous.transport !== transport || !previous.sessionIds.has(id)) return previous;
+      const sessionIds = new Set(previous.sessionIds);
+      sessionIds.delete(id);
+      return { sessionIds, transport };
+    });
     try {
       try {
         await transport.deleteAgentSession(id);
@@ -3019,6 +3696,14 @@ export function AgentPage({
         closingSessions.current.cleanup = false;
       }
       setSessions((previous) => previous?.filter((session) => session.session_id !== id) ?? []);
+      setFailedLiveClose((previous) => {
+        if (previous.transport !== transport || !previous.sessionIds.has(id)) return previous;
+        const sessionIds = new Set(previous.sessionIds);
+        sessionIds.delete(id);
+        return { sessionIds, transport };
+      });
+      discardComposerDraft(id);
+      clearAttachmentRetryChecklist(id);
       if (sessionContext.current.id === id) {
         setCurrent(null);
         setSelectedCatalogSession(null);
@@ -3042,9 +3727,27 @@ export function AgentPage({
       }
       const waiting = caught instanceof TransportError && caught.reasonCode === "session_stop_timeout";
       if (waiting) markSessionClosing(id);
-      if (sessionContext.current.id === id) setConversationMessage(waiting ? CLOSING_SESSION_MESSAGE : "The session could not be closed.");
+      if (sessionContext.current.id === id) {
+        setConversationMessage(waiting ? CLOSING_SESSION_MESSAGE : "The session could not be closed.");
+      } else if (!waiting) {
+        setFailedLiveClose((previous) => {
+          if (previous.transport !== transport) return {
+            sessionIds: new Set([id]),
+            transport,
+          };
+          const sessionIds = new Set(previous.sessionIds);
+          sessionIds.add(id);
+          return { sessionIds, transport };
+        });
+      }
     } finally {
-      closeRequests.current.delete(id);
+      finishCloseRequest(transport, id);
+      setPendingLiveClose((previous) => {
+        if (previous.transport !== transport || !previous.sessionIds.has(id)) return previous;
+        const sessionIds = new Set(previous.sessionIds);
+        sessionIds.delete(id);
+        return { sessionIds, transport };
+      });
     }
   }
 
@@ -3104,6 +3807,7 @@ export function AgentPage({
             <div className="agent__side-scroll">
               <AgentCatalogRail
               collapsed={railCollapsed}
+              closeFailureSessionIds={closeFailureSessionIds}
               currentSessionId={current?.session_id ?? selectedCatalogSession?.session_id}
               draftSessionIds={draftSessionIds}
               disabled={commandCleanupBlocked || connectionDisconnected}
@@ -3113,6 +3817,7 @@ export function AgentPage({
               onNewChat={beginNewChat}
                onOpenLiveSession={(session) => { void openLiveSession(session); }}
                onOpenUnavailableSession={(session) => { void openUnavailableSession(session); }}
+               onOpenSavedMessage={openSavedMessage}
                onSessionDeleted={acceptCatalogSessionDeleted}
                onSessionUpdated={acceptCatalogSessionUpdate}
                onForkSession={transport.forkAgentSession === undefined
@@ -3200,6 +3905,15 @@ export function AgentPage({
                     value={newSessionModelAlias}
                   >
                     <option value="">Choose later in chat · no model</option>
+                    {newSessionModelAlias && selectedModel === null && (
+                      <option value={newSessionModelAlias}>
+                        {modelCatalogState === "ready"
+                          ? `Unavailable selected model · ${newSessionModelAlias}`
+                          : modelCatalogState === "loading"
+                            ? `Checking selected model · ${newSessionModelAlias}`
+                            : `Unverified selected model · ${newSessionModelAlias}`}
+                      </option>
+                    )}
                     {(models?.models ?? []).map((model) => (
                       <option key={model.record.alias} value={model.record.alias}>
                         {model.record.display_name} · {runtimeStateLabel(model.runtime.state)}
@@ -3263,6 +3977,7 @@ export function AgentPage({
                     <span>Max tokens per step</span>
                     <input aria-label="Max tokens" max={8192} min={64} onChange={(e) => setMaxTokens(Math.max(64, Math.min(8192, Number(e.currentTarget.value) || 1400)))} step={1} type="number" value={maxTokens} />
                   </label>
+                  {creationBudgetError && <p className="agent__error" role="alert">{creationBudgetError}</p>}
                   <label className="agent__toggle"><input checked={thinking} onChange={(e) => setThinking(e.currentTarget.checked)} type="checkbox" /><span>Thinking mode (models that support it reason before answering; slower)</span></label>
                 </div>
                 <label>
@@ -3283,14 +3998,30 @@ export function AgentPage({
                 <p className="agent__note">Approvals, raw tool arguments/output, and reusable mutation authority are never restored.</p>
               </fieldset>
               <fieldset
-                aria-describedby="agent-permission-status"
+                aria-describedby="agent-permission-status agent-web-fetch-status"
                 className="agent__permissions"
                 disabled={!userPresenceAvailable}
               >
                 <legend>Protected actions</legend>
                 <label className="agent__toggle"><input checked={allowWrites} onChange={(e) => setAllowWrites(e.currentTarget.checked)} type="checkbox" /><span>May write files (each write needs approval, diff shown)</span></label>
                 <label className="agent__toggle"><input checked={allowCommands} onChange={(e) => setAllowCommands(e.currentTarget.checked)} type="checkbox" /><span>May run commands (each command needs approval)</span></label>
-                <label className="agent__toggle"><input checked={false} disabled readOnly type="checkbox" /><span>Web fetch unavailable (no governed fetcher is installed in this release)</span></label>
+                <label className="agent__toggle">
+                  <input
+                    checked={allowWeb}
+                    disabled={!webFetchAvailable}
+                    onChange={(e) => setAllowWeb(e.currentTarget.checked)}
+                    type="checkbox"
+                  />
+                  <span>{webFetchCapabilityDisplayState === "available"
+                    ? userPresenceAvailable
+                      ? "May fetch approved public HTTPS URLs (each request leaves this machine and needs separate native approval; no cookies, credentials, or redirects)"
+                      : "Web fetch unavailable until native confirmation is available"
+                    : webFetchCapabilityDisplayState === "checking"
+                      ? "Checking governed web fetch capability…"
+                      : webFetchCapabilityDisplayState === "error"
+                        ? "Web fetch unavailable (capability could not be verified)"
+                        : "Web fetch unavailable (no governed fetcher is installed in this release)"}</span>
+                </label>
               </fieldset>
               <div className="agent__permission-state">
                 <p
@@ -3308,9 +4039,25 @@ export function AgentPage({
                             This browser can start read-only sessions. For Browse and protected actions on Windows, stop the current <code>serve</code> process and run <code>prompt-enhancer agent-desktop</code>.
                           </>}
                 </p>
+                <p className="agent__note" id="agent-web-fetch-status" role="status">
+                  {webFetchCapabilityDisplayState === "available"
+                    ? userPresenceAvailable
+                      ? "Approved URL requests use the governed public-HTTPS fetcher and leave this machine without cookies, credentials, or redirects. Each request still requires separate native confirmation."
+                      : "Web fetch is unavailable until native confirmation is available."
+                    : webFetchCapabilityDisplayState === "checking"
+                      ? "Checking whether this app composition has a governed public-HTTPS fetcher."
+                      : webFetchCapabilityDisplayState === "error"
+                        ? "Governed web fetch capability could not be verified; it remains unavailable."
+                        : "This app composition has no governed public-HTTPS fetcher."}
+                </p>
                 {userPresenceState === "error" && transport.getUserPresenceCapability && (
                   <button className="button button--ghost" onClick={() => setUserPresenceRetryNonce((value) => value + 1)} type="button">
                     Retry confirmation check
+                  </button>
+                )}
+                {webFetchCapabilityDisplayState === "error" && transport.getAgentWebFetchCapability && (
+                  <button className="button button--ghost" onClick={() => setWebFetchRetryNonce((value) => value + 1)} type="button">
+                    Retry governed web fetch check
                   </button>
                 )}
               </div>
@@ -3325,7 +4072,7 @@ export function AgentPage({
               <button
                 aria-describedby={createMessage ? "agent-create-error" : undefined}
                 className="button button--primary"
-                disabled={commandCleanupBlocked || busy || creatingSession || folderPickerBusy || userPresenceState === "checking" || selectedModelUnavailableForSession || !workspace.trim()}
+                disabled={commandCleanupBlocked || Boolean(creationBudgetError) || busy || creatingSession || folderPickerBusy || userPresenceState === "checking" || selectedModelUnavailableForSession || !workspace.trim()}
                 type="submit"
               >
                 {commandCleanupBlocked ? "Agent paused for cleanup" : creatingSession
@@ -3397,38 +4144,44 @@ export function AgentPage({
                   <div className="agent__settings-body">
                     {settingsTab === "readiness" && (
                       <div aria-labelledby={tabId("agent-settings", "readiness")} id={tabPanelId("agent-settings", "readiness")} role="tabpanel">
-                        <AgentReadinessPanel
-                          onOpenConnections={() => setSettingsTab("connections")}
-                          onOpenOwnerChecks={() => setSettingsTab("acceptance")}
-                          transport={transport}
-                          userPresenceAvailable={userPresenceAvailable}
-                        />
+                        <RetryableLazyFeature label="readiness" load={loadAgentReadinessPanel}>
+                          {(AgentReadinessPanel) => <AgentReadinessPanel
+                            onOpenConnections={() => setSettingsTab("connections")}
+                            onOpenOwnerChecks={() => setSettingsTab("acceptance")}
+                            transport={transport}
+                            userPresenceAvailable={userPresenceAvailable}
+                          />}
+                        </RetryableLazyFeature>
                       </div>
                     )}
                     {settingsTab === "connections" && (
                       <div aria-labelledby={tabId("agent-settings", "connections")} id={tabPanelId("agent-settings", "connections")} role="tabpanel">
-                        <AgentMcpProjectToolsPanel
-                          onOpenStore={openMcpStore}
-                          projectId={current?.settings.project_id ?? selectedProjectId}
-                          refreshKey={mcpProjectionRevision}
-                          transport={transport}
-                        />
-                        <AgentControllerPanel
-                          acceptanceRun={externalControllerAcceptanceRun}
-                          onAcceptanceEvidence={recordExternalControllerEvidence}
-                          onAcceptanceObservation={observeExternalControllerEvidence}
-                          onAcceptanceRunChange={setExternalControllerAcceptanceRun}
-                          selectedProjectId={current?.settings.project_id ?? selectedProjectId}
-                          selectedSessionId={current?.settings.project_id ? current.session_id : null}
-                          transport={transport}
-                          userPresenceAvailable={userPresenceAvailable}
-                        />
+                        <RetryableLazyFeature label="project tools" load={loadAgentMcpProjectToolsPanel}>
+                          {(AgentMcpProjectToolsPanel) => <AgentMcpProjectToolsPanel
+                            onOpenStore={openMcpStore}
+                            projectId={current?.settings.project_id ?? selectedProjectId}
+                            refreshKey={mcpProjectionRevision}
+                            transport={transport}
+                          />}
+                        </RetryableLazyFeature>
+                        <RetryableLazyFeature label="controller connections" load={loadAgentControllerPanel}>
+                          {(AgentControllerPanel) => <AgentControllerPanel
+                            acceptanceRun={externalControllerAcceptanceRun}
+                            onAcceptanceEvidence={recordExternalControllerEvidence}
+                            onAcceptanceObservation={observeExternalControllerEvidence}
+                            onAcceptanceRunChange={setExternalControllerAcceptanceRun}
+                            selectedProjectId={current?.settings.project_id ?? selectedProjectId}
+                            selectedSessionId={current?.settings.project_id ? current.session_id : null}
+                            transport={transport}
+                            userPresenceAvailable={userPresenceAvailable}
+                          />}
+                        </RetryableLazyFeature>
                       </div>
                     )}
                     {settingsTab === "store" && (
                       <div aria-labelledby={tabId("agent-settings", "store")} id={tabPanelId("agent-settings", "store")} role="tabpanel">
-                        <Suspense fallback={<p role="status">Loading MCP Store…</p>}>
-                          <AgentMcpStorePanel
+                        <RetryableLazyFeature label="MCP Store" load={loadAgentMcpStorePanel}>
+                          {(AgentMcpStorePanel) => <AgentMcpStorePanel
                             acceptanceRun={trustedMcpAcceptanceRun}
                             activeEventHead={activeEventHead}
                             activeProjectId={activeAgentProjectId}
@@ -3438,13 +4191,14 @@ export function AgentPage({
                             onManagedStateChange={refreshMcpProjection}
                             transport={transport}
                             userPresenceAvailable={userPresenceAvailable}
-                          />
-                        </Suspense>
+                          />}
+                        </RetryableLazyFeature>
                       </div>
                     )}
                     {settingsTab === "acceptance" && (
                       <div aria-labelledby={tabId("agent-settings", "acceptance")} id={tabPanelId("agent-settings", "acceptance")} role="tabpanel">
-                        <AgentNativeAcceptancePanel
+                        <RetryableLazyFeature label="owner checks" load={loadAgentNativeAcceptancePanel}>
+                          {(AgentNativeAcceptancePanel) => <AgentNativeAcceptancePanel
                           acceptanceRun={nativeAcceptanceRun}
                           artifactViewRevision={artifactViewRevision}
                           current={current}
@@ -3452,14 +4206,17 @@ export function AgentPage({
                           onAcceptanceRunChange={setNativeAcceptanceRun}
                           onRuntimeStatus={setRuntimeCoordinator}
                           reviewOpen={workspaceVisible}
-                          transport={transport}
-                          userPresenceAvailable={userPresenceAvailable}
-                        />
+                            transport={transport}
+                            userPresenceAvailable={userPresenceAvailable}
+                          />}
+                        </RetryableLazyFeature>
                       </div>
                     )}
                     {settingsTab === "sharing" && (
                       <div aria-labelledby={tabId("agent-settings", "sharing")} id={tabPanelId("agent-settings", "sharing")} role="tabpanel">
-                        <TeamFoldersPanel onUseAsWorkspace={changeWorkspace} transport={transport} />
+                        <RetryableLazyFeature label="team folders" load={loadTeamFoldersPanel}>
+                          {(TeamFoldersPanel) => <TeamFoldersPanel onUseAsWorkspace={changeWorkspace} transport={transport} />}
+                        </RetryableLazyFeature>
                       </div>
                     )}
                   </div>
@@ -3485,9 +4242,10 @@ export function AgentPage({
             <AgentReviewDrawer
               activeView={reviewView}
               changesPanel={(
-                <AgentChangeSetPanel
+                <RetryableLazyFeature label="change review" load={loadAgentChangeSetPanel}>
+                  {(AgentChangeSetPanel) => <AgentChangeSetPanel
                   artifactPaths={artifactPathSet}
-                  fileActionsDisabled={current.closing || connectionDisconnected}
+                      fileActionsDisabled={currentClosePending || current.closing || connectionDisconnected}
                   onAddArtifact={artifactProjectId !== null && transport.previewAgentArtifactCapture !== undefined && transport.captureAgentArtifact !== undefined ? addChangeArtifact : undefined}
                   onOpenArtifact={artifactViewerTransport !== null ? openChangeArtifact : undefined}
                   onOpenFile={openReceiptFile}
@@ -3497,15 +4255,22 @@ export function AgentPage({
                   sessionId={current.session_id}
                   transport={transport}
                   userPresenceAvailable={userPresenceAvailable}
-                />
+                  />}
+                </RetryableLazyFeature>
               )}
               filesPanel={(
-                <AgentWorkspacePane
-                  blockedReason={commandCleanupBlocked ? COMMAND_CLEANUP_MESSAGE : undefined}
+                <RetryableLazyFeature label="workspace files" load={loadAgentWorkspacePane}>
+                  {(AgentWorkspacePane) => <AgentWorkspacePane
+                  blockedReason={commandCleanupBlocked
+                    ? COMMAND_CLEANUP_MESSAGE
+                    : currentClosePending
+                      ? "This chat is closing. Workspace edits are locked until close is confirmed."
+                      : undefined}
                   fileRequest={currentFileRequest}
                   key={current.session_id}
                   onApplied={handleWorkspaceApplied}
                   onArtifactCaptured={() => setArtifactsRefreshKey((value) => value + 1)}
+                  onCaptureUncertain={() => setArtifactsRefreshKey((value) => value + 1)}
                   onDirtyChange={handleWorkspaceDirty}
                   pendingWrite={pending}
                   projectId={artifactProjectId}
@@ -3513,7 +4278,8 @@ export function AgentPage({
                   sessionId={current.session_id}
                   transport={transport}
                   userPresenceAvailable={userPresenceAvailable}
-                />
+                  />}
+                </RetryableLazyFeature>
               )}
               onActiveViewChange={setReviewView}
               onClose={() => { void hideWorkspace(); }}
@@ -3548,7 +4314,8 @@ export function AgentPage({
                   && artifactSessionId === selectedCatalogSession.session_id
                   && (artifactsLoading || artifactsError !== "" || artifactItems.length > 0 || (artifactCounts?.total ?? 0) > 0 || selectedCatalogSession.turn_count > 0)
                   ? (
-                    <AgentArtifactsPanel
+                    <RetryableLazyFeature label="artifacts" load={loadAgentArtifactsPanel}>
+                      {(AgentArtifactsPanel) => <AgentArtifactsPanel
                       artifacts={artifactItems}
                       canLoadMore={artifactNextOffset !== null}
                       counts={artifactCounts}
@@ -3566,10 +4333,16 @@ export function AgentPage({
                       transport={artifactViewerTransport}
                       userPresenceAvailable={userPresenceAvailable}
                       view={artifactView}
-                    />
+                      />}
+                    </RetryableLazyFeature>
                   )
                   : null}
                 events={events}
+                focusEventRequest={savedMessageFocus !== null
+                  && selectedCatalogSession?.session_id === savedMessageFocus.sessionId
+                  && selectedCatalogSession.project_id === savedMessageFocus.projectId
+                  ? savedMessageFocus
+                  : null}
                 focusTurnRequest={artifactTurnFocus}
                 exportBusy={exportBusy}
                 forkBusy={forkBusy}
@@ -3589,6 +4362,8 @@ export function AgentPage({
                   : undefined}
                 onNewChat={(trigger) => beginNewChat(selectedCatalogSession.project_id, trigger)}
                 onResume={() => void resumeSelectedSession()}
+                resumeSupported={transport.resumeAgentSession !== undefined}
+                exportSupported={transport.exportAgentHistory !== undefined}
                 resumeBusy={resumeBusy}
                 session={selectedCatalogSession}
                 state={savedHistoryState}
@@ -3655,7 +4430,9 @@ export function AgentPage({
                     <legend>Capabilities to re-enable</legend>
                     <label className="agent__toggle"><input checked={recoveryAllowWrites} onChange={(event) => setRecoveryAllowWrites(event.currentTarget.checked)} type="checkbox" /><span>File writes</span></label>
                     <label className="agent__toggle"><input checked={recoveryAllowCommands} onChange={(event) => setRecoveryAllowCommands(event.currentTarget.checked)} type="checkbox" /><span>Commands</span></label>
-                    <label className="agent__toggle"><input checked={false} disabled readOnly type="checkbox" /><span>Web fetch unavailable in this release</span></label>
+                    <label className="agent__toggle"><input checked={false} disabled readOnly type="checkbox" /><span>{current.settings.allow_web
+                      ? "Web fetch is enabled for this chat; each URL request still requires separate native confirmation"
+                      : "Web fetch stays off until explicitly enabled with a fresh native confirmation"}</span></label>
                   </fieldset>
                   <button className="button button--primary" disabled={!userPresenceAvailable || authorityBusy || transport.revalidateAgentAuthority === undefined} onClick={() => void revalidateRecoveredAuthority()} type="button">
                     {authorityBusy ? "Revalidating…" : userPresenceAvailable ? "Confirm and revalidate" : "Native confirmation required"}
@@ -3815,8 +4592,11 @@ export function AgentPage({
                     events={events}
                     fileActionsDisabled={current.closing || connectionDisconnected}
                     focusTurnRequest={artifactTurnFocus}
+                    latestRequest={transcriptLatestRequest}
                     liveStreams={liveStreams}
+                    onLatestRendered={handleTranscriptLatestRendered}
                     onOpenFile={openReceiptFile}
+                    onPageStateChange={handleTranscriptPageState}
                     onReviseTurn={turnRevisionSupported
                       ? (turnId, mode) => { void reviseTurn(turnId, mode); }
                       : undefined}
@@ -3830,7 +4610,8 @@ export function AgentPage({
                     && artifactSessionId === current.session_id
                     && (artifactsLoading || artifactsError !== "" || artifactItems.length > 0 || (artifactCounts?.total ?? 0) > 0 || current.turns > 0)
                     && (
-                      <AgentArtifactsPanel
+                      <RetryableLazyFeature label="artifacts" load={loadAgentArtifactsPanel}>
+                        {(AgentArtifactsPanel) => <AgentArtifactsPanel
                         artifacts={artifactItems}
                         canLoadMore={artifactNextOffset !== null}
                         counts={artifactCounts}
@@ -3853,7 +4634,8 @@ export function AgentPage({
                         transport={artifactViewerTransport}
                         userPresenceAvailable={userPresenceAvailable}
                         view={artifactView}
-                      />
+                        />}
+                      </RetryableLazyFeature>
                     )}
                   {current.turns === 0 && !current.closing && !current.running && !pending && !events.some((event) => event.kind === "user" || event.kind === "assistant" || event.kind === "assistant_delta") && (
                     <p className="agent__status">
@@ -3876,16 +4658,13 @@ export function AgentPage({
                   )}
                   {current.running && !pending && liveStreams.size === 0 && <p className="agent__thinking">{responseStopping ? "Stopping… waiting for the active operation to end" : activeExternalProposal ? "Applying the reviewed external file proposal…" : "Working… waiting for model activity"}</p>}
                 </div>
-                {!followingOutput && (
+                {(!followingOutput || transcriptBrowsingOlder) && (
                   <button
                     className="button button--ghost agent__jump-latest"
                     onClick={() => {
-                      const node = logRef.current;
-                      if (!node) return;
                       followOutput.current = true;
                       setFollowingOutput(true);
-                      node.scrollTop = node.scrollHeight;
-                      node.focus({ preventScroll: true });
+                      setTranscriptLatestRequest((request) => request + 1);
                     }}
                     type="button"
                   >
@@ -3958,20 +4737,25 @@ export function AgentPage({
                 <div className="agent__compose-head">
                   <label className="agent__compose-label" htmlFor="agent-message">Message to the agent</label>
                   <small id="agent-composer-shortcut">
-                    {current.running || responseStopping
+                    {currentClosePending
+                      ? "This chat is closing · draft editing is locked"
+                      : current.running || responseStopping
                       ? "Write the next message now · Send unlocks when this response ends"
                       : "Ctrl/⌘+Enter sends · Enter adds a line"}
                   </small>
                 </div>
+                {currentClosePending && <p aria-live="polite" className="agent__status" id="agent-close-pending" role="status">Closing this chat… You can still copy its draft.</p>}
                 <textarea
-                  aria-describedby={`agent-session-model-status agent-composer-shortcut${conversationMessage ? " agent-message-error" : ""}`}
-                  disabled={!commandCleanupBlocked && (current.closing || current.history_write_failed || currentModelBlocked)}
-                  readOnly={commandCleanupBlocked}
+                  aria-describedby={`agent-session-model-status agent-composer-shortcut${currentClosePending ? " agent-close-pending" : ""}${conversationMessage ? " agent-message-error" : ""}`}
+                  disabled={!commandCleanupBlocked && (current.closing || current.history_write_failed)}
+                  readOnly={commandCleanupBlocked || currentClosePending}
                   id="agent-message"
-                  onChange={(e) => { if (!commandCleanupBlocked) changeDraft(e.currentTarget.value); }}
+                  onChange={(e) => { if (!commandCleanupBlocked && !currentClosePending) changeDraft(e.currentTarget.value); }}
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }}
                   placeholder={commandCleanupBlocked ? "Agent paused for command cleanup; your draft is kept here" : current.history_write_failed
                     ? "Local history is unavailable; open a new chat after checking storage"
+                    : currentClosePending
+                    ? "Closing this chat. You can still copy its draft."
                     : current.closing
                     ? "This session is closing. Open a new session to chat."
                     : responseStopping
@@ -3979,17 +4763,21 @@ export function AgentPage({
                     : current.running
                     ? "Write the next message while the agent responds…"
                     : connectionDisconnected
-                      ? "The local app is disconnected; reopen it before writing a message"
+                      ? "Write a draft now; reopen the app before sending"
                       : currentModelAction !== null
-                        ? "Wait for the model change to finish; your draft is kept here"
+                        ? "Write a draft now; wait for the model change before sending"
                       : runtimeControlBusy
-                        ? "Switching the shared model; your draft is kept here"
+                        ? "Write a draft now; wait for the shared model before sending"
+                      : modelCatalogState === "loading"
+                        ? "Write a draft now; model status is checking before sending"
                       : currentModelBlocked
                       ? inlineRuntimeRecoveryAvailable
-                        ? "Choose or start a model in Model & context to write a message"
+                        ? "Write a draft now; choose or start a model before sending"
                         : currentModel === null
-                          ? "Open Models and start a local model to write a message"
-                          : "Start the session model to write a message"
+                          ? currentModelAlias
+                            ? "Write a draft now; restore a model before sending"
+                            : "Write a draft now; choose and start a model in Models before sending"
+                          : "Write a draft now; start the session model before sending"
                       : "What should the agent do? Ctrl+Enter sends"}
                   ref={composerInputRef}
                   rows={3}
@@ -3999,18 +4787,29 @@ export function AgentPage({
                   attachments={draftAttachments}
                   capabilities={mediaCapabilities}
                   compact
-                  disabled={commandCleanupBlocked || connectionDisconnected || current.closing || current.running || current.history_write_failed || responseStopping || runtimeControlBusy || currentModelAction !== null}
+                  disabled={commandCleanupBlocked || currentClosePending || connectionDisconnected || turnRevisionBusy !== null || current.closing || current.running || current.history_write_failed || responseStopping || runtimeControlBusy || currentModelAction !== null}
                   modelAlias={currentModelAlias}
-                  onAttachmentsChange={changeDraftAttachments}
+                  onAttachmentsChange={(attachments) =>
+                    changeDraftAttachments(current.session_id, attachments)}
                   onBusyChange={setAttachmentBusy}
                   runtimeKey={mediaRuntimeKey}
                   sessionId={current.session_id}
                   transport={transport}
                 />
+                {attachmentRetryChecklist !== undefined && <AgentAttachmentRetryChecklist
+                  requirements={attachmentRetryChecklist}
+                  sessionId={current.session_id}
+                  staged={draftAttachments}
+                    onOmitChange={(attachmentId, omitted) => {
+                      if (!currentClosePending && !hasCloseRequest(transport, current.session_id)) {
+                        setAttachmentRetryOmitted(current.session_id, attachmentId, omitted);
+                      }
+                    }}
+                />}
                 <div className="agent__compose-footer">
                   <AgentRuntimeControl
                     current={current}
-                    disabled={commandCleanupBlocked || connectionDisconnected || current.closing}
+                    disabled={commandCleanupBlocked || currentClosePending || connectionDisconnected || current.closing}
                     focusRequestKey={runtimeFocusRequest}
                     liveSessions={sessions}
                     models={models}
@@ -4028,7 +4827,7 @@ export function AgentPage({
                       aria-expanded={Boolean(promptCheckResult)}
                       aria-label="Review prompt without sending"
                       className="button button--ghost agent__compose-improve"
-                      disabled={commandCleanupBlocked || busy || promptCheckBusy || current.closing || current.history_write_failed || current.running || responseStopping || currentModelAction !== null || runtimeControlBusy || !draft.trim()}
+                      disabled={commandCleanupBlocked || currentClosePending || busy || promptCheckBusy || current.closing || current.history_write_failed || current.running || responseStopping || currentModelAction !== null || runtimeControlBusy || !draft.trim()}
                       onClick={() => void runPromptCheck()}
                       title="Review this draft and suggest a clearer version. This does not send it to the agent."
                       type="button"
@@ -4043,7 +4842,7 @@ export function AgentPage({
                   {current.running || responseStopping ? (
                     <button aria-label={responseStopping ? "Stopping…" : "Stop response"} className="button button--danger-ghost agent__compose-primary-action" disabled={responseStopping} onClick={() => void stop()} title={responseStopping ? "Stopping the active response" : "Stop the active response"} type="button"><Icon name="stop" /><span className="sr-only agent__forced-color-label">{responseStopping ? "Stopping…" : "Stop response"}</span></button>
                   ) : (
-                    <button aria-label="Send" className="button button--primary agent__compose-primary-action" disabled={busy || attachmentBusy || attachmentModelMismatch || promptCheckBusy || current.closing || current.history_write_failed || currentModelBlocked || (!draft.trim() && draftAttachments.length === 0)} title="Send message · Ctrl/Command+Enter" type="submit"><Icon name="send" /><span className="sr-only agent__forced-color-label">Send</span></button>
+                    <button aria-label="Send" className="button button--primary agent__compose-primary-action" disabled={currentClosePending || turnRevisionBusy !== null || busy || attachmentBusy || attachmentModelMismatch || promptCheckBusy || unresolvedRetryAttachments.length > 0 || current.closing || current.history_write_failed || currentModelBlocked || (!draft.trim() && draftAttachments.length === 0)} title={currentClosePending ? "Closing this chat" : turnRevisionBusy !== null ? "Finishing branch preparation" : unresolvedRetryAttachments.length > 0 ? "Reattach or explicitly omit every original attachment before sending" : "Send message · Ctrl/Command+Enter"} type="submit"><Icon name="send" /><span className="sr-only agent__forced-color-label">Send</span></button>
                   )}
                   </div>
                 </div>

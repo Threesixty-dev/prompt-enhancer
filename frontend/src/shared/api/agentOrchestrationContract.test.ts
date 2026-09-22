@@ -7,12 +7,12 @@ import {
 import { exampleAgentOrchestrationManifest } from "./agentOrchestrationFixtures.test-support";
 
 describe("agent controller manifest contract", () => {
-  it("accepts the complete provider-neutral v21 shape", () => {
+  it("accepts the complete provider-neutral v23 shape", () => {
     const fixture = exampleAgentOrchestrationManifest();
 
     const parsed = parseAgentOrchestrationManifest(fixture);
 
-    expect(parsed.contract_version).toBe("local-agent-orchestration.v22");
+    expect(parsed.contract_version).toBe("local-agent-orchestration.v23");
     expect(parsed.endpoints).toHaveLength(77);
     expect(parsed.endpoints.filter((item) => item.access === "native_user_presence_only"))
       .toHaveLength(12);
@@ -35,8 +35,13 @@ describe("agent controller manifest contract", () => {
       .toThrow(AgentOrchestrationPayloadError);
 
     const downgraded = structuredClone(exampleAgentOrchestrationManifest()) as unknown as Record<string, unknown>;
-    downgraded.contract_version = "local-agent-orchestration.v3";
+    downgraded.contract_version = "local-agent-orchestration.v22";
     expect(() => parseAgentOrchestrationManifest(downgraded))
+      .toThrow(AgentOrchestrationPayloadError);
+
+    const excluded = structuredClone(exampleAgentOrchestrationManifest());
+    excluded.endpoints[0].path_template = "/v1/agent/catalog/sessions/message-search";
+    expect(() => parseAgentOrchestrationManifest(excluded))
       .toThrow(AgentOrchestrationPayloadError);
   });
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   ModelEnsembleAttempt,
   ModelEnsembleRun,
@@ -95,9 +95,7 @@ function blocker(
       : "This installation cannot read the selected session through the bounded adapter.";
   }
   if (compatibilityLoading) return "Checking installed Codex compatibility.";
-  return promptTextCompatibilityBlocker(compatibility) === null
-    ? null
-    : "Recheck installed Codex compatibility before running the ensemble.";
+  return promptTextCompatibilityBlocker(compatibility);
 }
 
 function formatTimestamp(value: string): string {
@@ -180,6 +178,9 @@ export function ModelEnsemblePanel({
   const canonicalHeadRef = useRef<ModelEnsembleCanonicalHead | null>(null);
   const coordinatorRef = useRef<PollCoordinator | null>(null);
   const followingLive = useRef(true);
+  const commandOwner = useMemo(() => ({ projectId, sessionId, transport }), [projectId, sessionId, transport]);
+  const commandOwnerRef = useRef(commandOwner);
+  commandOwnerRef.current = commandOwner;
   const blocked = blocker(analysisCapability, providerCompatibility, compatibilityLoading);
   const supportsCanonicalSnapshots = transport.getSessionModelEnsembleCanonicalHead !== undefined
     && transport.getModelEnsembleSnapshot !== undefined;
@@ -540,7 +541,11 @@ export function ModelEnsemblePanel({
   }
 
   function finishMutation(kind: PendingMutation, controller: AbortController) {
-    if (controllerRef.current === controller) controllerRef.current = null;
+    // A late completion from an older owner must not settle a newer command of
+    // the same kind. The controller identity is the operation fence, not just
+    // the mutation label.
+    if (controllerRef.current !== controller) return;
+    controllerRef.current = null;
     if (pendingMutationRef.current === kind) {
       pendingMutationRef.current = null;
       setPendingMutation(null);
@@ -567,6 +572,8 @@ export function ModelEnsemblePanel({
 
   async function start() {
     if (
+      commandOwnerRef.current !== commandOwner
+      ||
       pendingMutationRef.current !== null
       || blocked !== null
       || definitionsOutOfDate !== null
@@ -993,6 +1000,22 @@ export function ModelEnsemblePanel({
             }
             evidenceEnabled={selectedPoint === null || selectedPoint.run_id === run?.run_id}
             evidenceSessionId={sessionId}
+            freshAnalysisAction={{
+              onRun: start,
+              busy: pendingMutation === "start",
+              disabled: pendingMutation !== null
+                || blocked !== null
+                || definitionsOutOfDate !== null
+                || durableAttemptRunning
+                || watchQueued
+                || legacyWatchBusy,
+              disabledReason: policyBlocker
+                ?? (durableAttemptRunning
+                  ? "A local analysis is already running."
+                  : watchQueued || legacyWatchBusy
+                    ? "Wait for the current watch activity to settle."
+                    : undefined),
+            }}
             transport={transport}
           />
         </>

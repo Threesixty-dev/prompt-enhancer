@@ -129,10 +129,16 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_59,
     MIGRATION_60,
     MIGRATION_61,
+    MIGRATION_62,
+    MIGRATION_63,
+    MIGRATION_64,
+    MIGRATION_65,
+    MIGRATION_66,
+    MIGRATION_67,
 )
 
 
-SCHEMA_VERSION = 61
+SCHEMA_VERSION = 67
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -407,6 +413,171 @@ COMMIT;
     except sqlite3.Error:
         connection.rollback()
         raise
+
+
+def _execute_sql_statements(connection: sqlite3.Connection, script: str) -> None:
+    """Execute one complete SQL statement at a time inside an open transaction."""
+
+    pending = ""
+    for line in script.splitlines(keepends=True):
+        pending += line
+        if not sqlite3.complete_statement(pending):
+            continue
+        if pending.strip():
+            connection.execute(pending)
+        pending = ""
+    if pending.strip():
+        raise DatabaseInvariantError("database migration SQL is incomplete")
+
+
+def _apply_migration_63_rebuild(
+    connection: sqlite3.Connection,
+    *,
+    version: int,
+    script: str,
+    checksum: str,
+    applied_at: str,
+) -> None:
+    """Rebuild M55 receipt checks without losing dependent guards or FK wiring."""
+
+    if version != 63 or script != MIGRATION_63:
+        raise DatabaseInvariantError("unexpected foreign-key rebuild migration")
+    if connection.in_transaction:
+        raise DatabaseInvariantError("migration rebuild started inside a transaction")
+    foreign_keys = int(connection.execute("PRAGMA foreign_keys").fetchone()[0])
+    legacy_alter_table = int(
+        connection.execute("PRAGMA legacy_alter_table").fetchone()[0]
+    )
+    if foreign_keys != 1:
+        raise DatabaseInvariantError("migration rebuild requires foreign keys enabled")
+    attached_names = (
+        "requirement_plan_evidence_proposals_session_idx",
+        "requirement_plan_evidence_proposal_source_exact",
+        "requirement_plan_evidence_proposals_no_update",
+        "requirement_plan_evidence_proposals_privacy_delete_only",
+        "requirement_plan_evidence_proposal_seal_complete",
+        "requirement_plan_evidence_proposal_seals_no_update",
+        "requirement_plan_evidence_proposal_seals_privacy_delete_only",
+    )
+    try:
+        # This must happen before BEGIN: SQLite ignores this pragma mid-transaction.
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("PRAGMA legacy_alter_table = ON")
+        if int(connection.execute("PRAGMA foreign_keys").fetchone()[0]) != 0:
+            raise DatabaseInvariantError("migration rebuild could not suspend foreign keys")
+        connection.execute("BEGIN IMMEDIATE")
+        attached = connection.execute(
+            """
+            SELECT type, name, sql FROM sqlite_master
+            WHERE type IN ('index', 'trigger')
+              AND tbl_name IN (
+                'requirement_plan_evidence_proposals',
+                'requirement_plan_evidence_proposal_seals'
+              )
+              AND sql IS NOT NULL
+            ORDER BY CASE type WHEN 'index' THEN 0 ELSE 1 END, name
+            """
+        ).fetchall()
+        if (
+            {str(item["name"]) for item in attached} != set(attached_names)
+            or any(item["sql"] is None for item in attached)
+        ):
+            raise DatabaseInvariantError("migration rebuild guards are incomplete")
+        for item in reversed(attached):
+            identifier = str(item["name"]).replace('"', '""')
+            connection.execute(f'DROP {item["type"].upper()} "{identifier}"')
+        _execute_sql_statements(connection, _migration_body(script))
+        for item in attached:
+            connection.execute(str(item["sql"]))
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise DatabaseInvariantError("migration rebuild foreign-key check failed")
+        connection.execute(
+            "INSERT INTO schema_migrations(version, checksum, applied_at) "
+            "VALUES (?, ?, ?)",
+            (version, checksum, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+        connection.execute("COMMIT")
+    except Exception:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
+    finally:
+        if connection.in_transaction:
+            connection.rollback()
+        connection.execute(f"PRAGMA legacy_alter_table = {legacy_alter_table}")
+        connection.execute(f"PRAGMA foreign_keys = {foreign_keys}")
+        if int(connection.execute("PRAGMA foreign_keys").fetchone()[0]) != foreign_keys:
+            raise DatabaseInvariantError("migration rebuild could not restore foreign keys")
+
+
+def _apply_migration_64_rebuild(
+    connection: sqlite3.Connection,
+    *,
+    version: int,
+    script: str,
+    checksum: str,
+    applied_at: str,
+) -> None:
+    """Admit the paired local-review-ui receipt without weakening action guards."""
+    if version != 64 or script != MIGRATION_64:
+        raise DatabaseInvariantError("unexpected requirement-action rebuild migration")
+    if connection.in_transaction:
+        raise DatabaseInvariantError("migration rebuild started inside a transaction")
+    foreign_keys = int(connection.execute("PRAGMA foreign_keys").fetchone()[0])
+    legacy_alter_table = int(connection.execute("PRAGMA legacy_alter_table").fetchone()[0])
+    attached_names = {
+        "requirement_action_evidence_proposals_session_idx",
+        "requirement_action_evidence_proposal_source_exact",
+        "requirement_action_evidence_proposal_seal_complete",
+        "requirement_action_evidence_proposals_no_update",
+        "requirement_action_evidence_proposals_privacy_delete_only",
+        "requirement_action_evidence_proposal_seals_no_update",
+        "requirement_action_evidence_proposal_seals_privacy_delete_only",
+    }
+    try:
+        if foreign_keys != 1:
+            raise DatabaseInvariantError("migration rebuild requires foreign keys enabled")
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("PRAGMA legacy_alter_table = ON")
+        if int(connection.execute("PRAGMA foreign_keys").fetchone()[0]) != 0:
+            raise DatabaseInvariantError("migration rebuild could not suspend foreign keys")
+        connection.execute("BEGIN IMMEDIATE")
+        attached = connection.execute(
+            """
+            SELECT type, name, sql FROM sqlite_master
+            WHERE type IN ('index', 'trigger')
+              AND tbl_name IN ('requirement_action_evidence_proposals',
+                               'requirement_action_evidence_proposal_seals')
+              AND sql IS NOT NULL
+            ORDER BY CASE type WHEN 'index' THEN 0 ELSE 1 END, name
+            """
+        ).fetchall()
+        if {str(item["name"]) for item in attached} != attached_names:
+            raise DatabaseInvariantError("migration rebuild guards are incomplete")
+        for item in reversed(attached):
+            identifier = str(item["name"]).replace('"', '""')
+            connection.execute(f'DROP {item["type"].upper()} "{identifier}"')
+        _execute_sql_statements(connection, _migration_body(script))
+        for item in attached:
+            connection.execute(str(item["sql"]))
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise DatabaseInvariantError("migration rebuild foreign-key check failed")
+        connection.execute("INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, ?)", (version, checksum, applied_at))
+        connection.execute(f"PRAGMA user_version = {version}")
+        connection.execute("COMMIT")
+    except Exception:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
+    finally:
+        if connection.in_transaction:
+            connection.rollback()
+        connection.execute(f"PRAGMA legacy_alter_table = {legacy_alter_table}")
+        connection.execute(f"PRAGMA foreign_keys = {foreign_keys}")
+        if int(connection.execute("PRAGMA foreign_keys").fetchone()[0]) != foreign_keys:
+            raise DatabaseInvariantError("migration rebuild could not restore foreign keys")
 
 
 class Database:
@@ -1673,6 +1844,12 @@ class Database:
                 (59, MIGRATION_59),
                 (60, MIGRATION_60),
                 (61, MIGRATION_61),
+                (62, MIGRATION_62),
+                (63, MIGRATION_63),
+                (64, MIGRATION_64),
+                (65, MIGRATION_65),
+                (66, MIGRATION_66),
+                (67, MIGRATION_67),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1721,13 +1898,18 @@ class Database:
                         raise DatabaseInvariantError("database migration checksum mismatch")
                     if version <= database_version:
                         continue
-                    _apply_migration_atomically(
-                        connection,
-                        version=version,
-                        script=script,
-                        checksum=checksum,
-                        applied_at=_iso(_utc_now()),
-                    )
+                    migration_kwargs = {
+                        "version": version,
+                        "script": script,
+                        "checksum": checksum,
+                        "applied_at": _iso(_utc_now()),
+                    }
+                    if version == 63:
+                        _apply_migration_63_rebuild(connection, **migration_kwargs)
+                    elif version == 64:
+                        _apply_migration_64_rebuild(connection, **migration_kwargs)
+                    else:
+                        _apply_migration_atomically(connection, **migration_kwargs)
                 pending_plan_decision_authority = int(
                     connection.execute(
                         """SELECT COUNT(*)
@@ -2007,6 +2189,19 @@ class Database:
             self._connection,
             self._ensure_initialized,
             identifiers=identifiers,
+        )
+
+    def claim_grounding_census_repository(self):
+        """Return append-only content-free reviewed-census storage."""
+        from .infrastructure.sqlite.claim_grounding_census import (
+            SqliteClaimGroundingCensusRepository,
+        )
+        self._ensure_initialized()
+        identifiers = self._local_artifact_id_factory
+        if identifiers is None:
+            raise DatabaseInvariantError("claim-census persistence requires local keyed ID issuance")
+        return SqliteClaimGroundingCensusRepository(
+            self._connection, self._ensure_initialized, identifiers=identifiers,
         )
 
     def requirement_verification_current_plan_authority(self):
