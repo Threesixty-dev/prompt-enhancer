@@ -916,6 +916,24 @@ clean-machine acceptance result. B00 remains open: hundreds of other dirty
 entries still require coherent custody review, and the binary-only release
 destination, signing inputs and hardware acceptance are not supplied.
 
+### B00r artifact capture receipt truth — September 23
+
+`c66d5b5` keeps a lost or malformed artifact-capture response explicitly
+uncertain and prevents a same-dialog repeat, while definite pre-dispatch
+denial remains retryable. The initially isolated clean-source build exposed
+a missing typed native-decline reason that the dirty working tree had hidden;
+`1a4b1fc` closes that transport contract and wires uncertain outcomes to a
+read-only artifact-list refresh. The exact clean-source build then passed,
+as did **9/9** focused capture-dialog tests, the new workspace reconciliation
+test and the native-decline/no-POST transport test. No actual native approval
+or file mutation was exercised by these synthetic frontend tests.
+
+The first combined isolated run had **63 passes and 2 focus failures**. The
+new uncertain-capture test left its dialog open; explicitly closing it in
+`4a8c9df` removed the interference, and the capture/workspace selection then
+passed **65/65**. This is a focused source-test result, not B05/V09 native
+acceptance; the final release gate must still run on the exact candidate.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
