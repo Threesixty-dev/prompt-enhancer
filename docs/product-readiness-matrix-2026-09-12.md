@@ -1013,6 +1013,15 @@ Its command and wheel-preparation focused suites passed **15** tests with
 the caller's source-state assertion, and the source wheel is not a binary-only
 release package.
 
+### B00z pinned npm archive extraction — September 23
+
+The offline npm-distribution entry point now has **7/7** direct synthetic
+tests: a pinned fictional archive extracts without execution, while traversal,
+duplicate names, links, foreign roots, wrong package identity, bad digest,
+and private-like parser values fail without publication. No real npm archive
+was acquired or executed; this remains a preparatory release-input boundary,
+not complete frontend dependency or license closure.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
