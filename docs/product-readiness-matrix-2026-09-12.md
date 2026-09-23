@@ -805,6 +805,19 @@ file passed **10/10** with the new case. This is component/source behavior,
 not a claim that attachment input or model inference works in the packaged app.
 Saved-message focus forwarding remains outside this source cut.
 
+### B00o saved-message search dialog and response contract — September 23
+
+The independent saved-message search component, CSS and strict response parser
+were reviewed with synthetic tests. The component requires an explicit query,
+keeps the current result set during retriable failures, invalidates stale
+results on scope/query/transport changes, handles snapshot conflicts, and
+aborts delayed opens on close. The parser rejects extra fields, incoherent
+pagination, duplicate chat matches and scope mismatches. Its two focused test
+files passed **14/14**. These five files are dependencies only: the current
+Agent-page trigger, HTTP transport, backend search route and saved-message
+focus path remain a separate cross-file group. No enabled search or private
+body indexing is claimed from this source cut alone.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
