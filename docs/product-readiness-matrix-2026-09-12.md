@@ -867,6 +867,24 @@ readiness, operability and core metrics. This validates those synthetic source
 paths but does not close B07's hand-calculated storage→API→rendered-UI matrix,
 provider-version qualification or native mini-window behavior.
 
+A new synthetic external-content-index corruption case exposed that SQLite can
+raise the broader `DatabaseError` class during search integrity checking. The
+search repository now maps that failure to a search-specific unavailable code
+instead of allowing the outer storage boundary to classify the entire catalog.
+All **12/12** saved-message search backend tests pass after this correction.
+The search source group remains uncommitted pending exact dependency review.
+
+The next bounded MCP source selections passed **118/118** registry,
+checksum-package and managed-host contract tests, then **48/48** synthetic
+managed-runtime tests. They do not replace the canceled packaged cache/restart/
+outage run, real native approval, or final test-owned host cleanup evidence
+required by B06/V10/V11.
+
+The current production frontend bundle-budget command also passed after the
+build. Its passing threshold does not clear the separately identified PDF
+worker's dependency-notice/packaging problem, nor does it establish native
+startup performance or accessibility acceptance.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
