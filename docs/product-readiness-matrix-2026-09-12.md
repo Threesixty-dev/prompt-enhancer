@@ -786,7 +786,7 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | All 645 individual pending files classified by the dated inventory/addendum; B00f controller/MCP candidate remains dependency-open; B00g provider-capability group committed locally | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 23; B00h 104 backend, 25 frontend and 15 browser checks passed; 25 legacy failed phase reports remain unmapped | Review exact route/OpenAPI/client dependency closure and remaining coherent groups; continue bounded backend shards; verify source custody again before any source push. |
+| B00: recoverable, private, reviewed baseline | Required | All 645 then-pending files classified by the dated inventory/addendum; controller/MCP and timeline groups remain dependency-open; provider-capability and metric-semantics groups committed locally | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 23; current full frontend baseline has 3,585/3,587 tests passing with two timeouts, followed by a 19-pass targeted timeline shard; 25 legacy backend failed phase reports remain unmapped | Review exact route/OpenAPI/client and timeline dependency closure, then remaining coherent groups; continue bounded backend shards; rerun full frontend only on the next frozen candidate. |
 | B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
 | B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
 | B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
@@ -825,10 +825,13 @@ their original code/artifact scope and cannot close these rows automatically.
    after the bounded fixture/spec repair above. Six original skips remain skips;
    the full suite was not repeated after changing only these test inputs. Record
    this scoped evidence honestly; it is not native approval or installation proof.
-3. **B00 — final evidence reconciliation:** frontend tests, API, types, build and
-   bundle checks passed; all four browser failures passed targeted recheck.
-   Preserve the completed and partial receipts with their exact source scope;
-   final privacy/diff checks cover the reviewed documents and changes.
+3. **B00 — final evidence reconciliation:** the September 17 frontend suite,
+   API, types, build and bundle checks passed on their historical source; all
+   four identified browser failures passed targeted recheck. The September 23
+   full frontend baseline failed on two timeline-test timeouts, then the
+   narrowed fixture passed in a 19-test timeline shard; the full suite has not
+   been repeated on that candidate. Preserve completed and partial receipts
+   with their exact source scope; final privacy/diff checks cover reviewed work.
    The original missing-source and quarantined-helper defects are repaired,
    not remaining open defects. No automatic broad rerun or budget increase.
 4. **B00 — source recovery/commit gate:** initial files are classified but not all
@@ -838,8 +841,10 @@ their original code/artifact scope and cannot close these rows automatically.
    B00f found that the 15-file controller/MCP candidate depends on additional
    dirty routes, OpenAPI and generated-client inputs; it cannot be committed in
    isolation. No blanket stage/commit. Snapshot preservation alone does not meet
-   full version-control recovery exit criteria. Review coherent dependency
-   groups individually after their targeted gates.
+   full version-control recovery exit criteria. The provider-capability and
+   metric-semantics groups are now committed locally; timeline navigation is
+   still dependency-open. Review coherent groups individually after their
+   targeted gates.
 5. **B00 custody owner input:** source visibility returned private in the
    September 23 read-only query. The separate public binary-only release
    repository is not yet identified/verified; never reuse the private source
@@ -856,8 +861,8 @@ their original code/artifact scope and cannot close these rows automatically.
 9. **B09–B11 / P1:** signed install, actual update executor/recovery, clean-machine
    retention/uninstall, supported UX and owner pilot acceptance remain open.
 
-The next recommended owner-selected action is a bounded B00 baseline repair,
-**not** automatically starting B01. Beta closes only with zero P0/P1 issues, all V01–V18 required scenarios on
+The next campaign action is a bounded B00 baseline/source-custody repair;
+B01 does not start until B00 closes. Beta closes only with zero P0/P1 issues, all V01–V18 required scenarios on
 the exact compiled/signed candidate, full quality/privacy gates, appropriate
 CPU/NVIDIA/native environments, two consecutive packaged smokes, no test-owned
 process/model remaining, owner approval and published known P2 limitations.
