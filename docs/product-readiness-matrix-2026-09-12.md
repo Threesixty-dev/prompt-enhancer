@@ -1035,6 +1035,21 @@ generated temporary output and must not be staged. The Agent and workflow UI
 groups still require source-by-source classification and acceptance evidence;
 this count is a custody snapshot, not B00 closure.
 
+### B00ab Agent branch-navigation race triage — September 23
+
+In the dirty Agent UI tree, the three central suites initially produced
+**288 pass / 1 fail**: a delayed child-history result could leave the newly
+created branch visible after the user selected another chat. A focused
+two-test sequence reproduced it while the failing test alone passed. An
+immediate turn-revision cancellation fence on chat navigation made the focused
+navigation set pass **3/3**, the full AgentPage suite pass **197/197**, and the
+current-tree frontend build pass. This small AgentPage source fix is **not yet
+a recoverable commit**: that file also carries a large unreviewed UI diff.
+An isolated clean-source regression fixture could not expose the second chat
+after two fixture corrections, so the clean transfer and package-level
+acceptance remain blocked rather than being reported as passed. No model or
+native app process was used for this test.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
