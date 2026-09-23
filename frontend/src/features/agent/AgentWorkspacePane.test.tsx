@@ -384,6 +384,8 @@ describe("workspace inspection truth", () => {
     expect(uncertain).toHaveBeenCalledOnce();
     expect(captured).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Add verified output" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Close and inspect saved artifacts" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add generated output" })).toBeNull());
   });
 
   it("opens an exact reviewed-path capture request once without reading the file", async () => {
