@@ -1003,6 +1003,16 @@ and opaque bundled-component provenance unresolved even when a file hash
 matches. These tests do not establish complete third-party notice closure,
 real bundled-module provenance, or publishable B08 artifacts.
 
+### B00y application-wheel command safety — September 23
+
+The application-wheel command now requires the caller to state **dirty** or
+**clean** source explicitly; absence no longer silently records clean.
+Malformed arguments and builder failures emit fixed, content-free diagnostics.
+Its command and wheel-preparation focused suites passed **15** tests with
+**one intentional reviewed-tool skip**. The CLI does not independently prove
+the caller's source-state assertion, and the source wheel is not a binary-only
+release package.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
