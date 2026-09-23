@@ -73,6 +73,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/catalog/sessions/message-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search Catalog Messages */
+        post: operations["search_catalog_messages_v1_agent_catalog_sessions_message_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/catalog/sessions/page": {
         parameters: {
             query?: never;
@@ -6478,6 +6495,85 @@ export interface components {
             sha256: string;
             /** Width */
             width?: number | null;
+        };
+        /**
+         * AgentMessageSearchHit
+         * @description First visible-message match per chat; the query is never echoed.
+         */
+        AgentMessageSearchHit: {
+            /** Excerpt */
+            excerpt: string;
+            /** History Revision */
+            history_revision: number;
+            /** Match Event Seq */
+            match_event_seq: number;
+            /** Project Id */
+            project_id: string;
+            /** Project Name */
+            project_name: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Session Id */
+            session_id: string;
+            /** Title */
+            title: string;
+        };
+        /** AgentMessageSearchPage */
+        AgentMessageSearchPage: {
+            /** Complete */
+            complete: boolean;
+            /**
+             * Contract Version
+             * @default agent-message-search.v1
+             * @constant
+             */
+            contract_version: "agent-message-search.v1";
+            /** Limit */
+            limit: number;
+            /** Matches */
+            matches: components["schemas"]["AgentMessageSearchHit"][];
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Snapshot */
+            snapshot: string;
+            /** Total */
+            total: number;
+        };
+        /**
+         * AgentMessageSearchRequest
+         * @description Owner-requested local search of opted-in visible messages only.
+         *
+         *     The request is never durable state: callers must not put its query in a
+         *     URL, log, export, or snapshot. Search is a case-insensitive Unicode-token
+         *     phrase; punctuation and quotes are literal input, not FTS grammar.
+         */
+        AgentMessageSearchRequest: {
+            /**
+             * Include Archived
+             * @default false
+             */
+            include_archived: boolean;
+            /**
+             * Limit
+             * @default 20
+             */
+            limit: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Project Id */
+            project_id?: string | null;
+            /** Query */
+            query: string;
+            /** Snapshot */
+            snapshot?: string | null;
         };
         /** AgentMetricEvidenceFileContract */
         AgentMetricEvidenceFileContract: {
@@ -21363,6 +21459,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentCatalogSessionList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_catalog_messages_v1_agent_catalog_sessions_message_search_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentMessageSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMessageSearchPage"];
                 };
             };
             /** @description Validation Error */

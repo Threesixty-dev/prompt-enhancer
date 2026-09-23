@@ -4611,6 +4611,199 @@
         "title": "AgentMessageAttachment",
         "type": "object"
       },
+      "AgentMessageSearchHit": {
+        "additionalProperties": false,
+        "description": "First visible-message match per chat; the query is never echoed.",
+        "properties": {
+          "excerpt": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "history_revision": {
+            "minimum": 1.0,
+            "title": "History Revision",
+            "type": "integer"
+          },
+          "match_event_seq": {
+            "minimum": 1.0,
+            "title": "Match Event Seq",
+            "type": "integer"
+          },
+          "project_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Project Name",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "project_id",
+          "project_name",
+          "title",
+          "match_event_seq",
+          "history_revision",
+          "role",
+          "excerpt"
+        ],
+        "title": "AgentMessageSearchHit",
+        "type": "object"
+      },
+      "AgentMessageSearchPage": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "agent-message-search.v1",
+            "default": "agent-message-search.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/AgentMessageSearchHit"
+            },
+            "maxItems": 50,
+            "title": "Matches",
+            "type": "array"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "maximum": 2000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Snapshot",
+            "type": "string"
+          },
+          "total": {
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "snapshot",
+          "limit",
+          "offset",
+          "total",
+          "complete",
+          "matches"
+        ],
+        "title": "AgentMessageSearchPage",
+        "type": "object"
+      },
+      "AgentMessageSearchRequest": {
+        "additionalProperties": false,
+        "description": "Owner-requested local search of opted-in visible messages only.\n\nThe request is never durable state: callers must not put its query in a\nURL, log, export, or snapshot. Search is a case-insensitive Unicode-token\nphrase; punctuation and quotes are literal input, not FTS grammar.",
+        "properties": {
+          "include_archived": {
+            "default": false,
+            "title": "Include Archived",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "maximum": 2000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{32}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "query": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "AgentMessageSearchRequest",
+        "type": "object"
+      },
       "AgentMetricEvidenceFileContract": {
         "additionalProperties": false,
         "properties": {
@@ -40273,6 +40466,81 @@
           }
         },
         "summary": "List Catalog Sessions",
+        "tags": [
+          "local-agent"
+        ]
+      }
+    },
+    "/v1/agent/catalog/sessions/message-search": {
+      "post": {
+        "operationId": "search_catalog_messages_v1_agent_catalog_sessions_message_search_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentMessageSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMessageSearchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Catalog Messages",
         "tags": [
           "local-agent"
         ]
