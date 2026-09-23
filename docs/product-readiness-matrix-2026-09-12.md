@@ -957,6 +957,18 @@ run passed **23/23** tests. This closes that specific old collection failure,
 not the full backend baseline or the 25 unidentifiable historical phase
 reports; a final release-candidate suite still needs exact recorded results.
 
+### B00u frontend package-preparation dependency review — September 23
+
+The current working tree's `frontend_package_bindings.py` and
+`frontend_dashboard_preparation.py` passed **61/61** focused synthetic tests.
+They are not yet a recoverable source cut: both modules, their tests, and
+required `frontend_module_inventory.py` / `application_wheel_preparation.py`
+dependencies remain untracked or otherwise outside the reviewed commit.
+Do not infer that the release-enabled Vite inventory can be driven from a clean
+checkout, that its private physical-root mapping is publishable, or that B08
+dependency/notice closure has passed. Review this whole dependency group and
+its generated-input custody before staging it.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
