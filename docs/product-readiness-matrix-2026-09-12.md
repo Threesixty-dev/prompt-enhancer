@@ -969,6 +969,19 @@ checkout, that its private physical-root mapping is publishable, or that B08
 dependency/notice closure has passed. Review this whole dependency group and
 its generated-input custody before staging it.
 
+### B00v offline packaging preparation foundation — September 23
+
+The four bounded preparation modules named above and their synthetic tests are
+now a reviewed, recoverable source group. Their direct suite passed **141**
+tests with **one intentional skip** for the owner-supplied reviewed setuptools
+wheel. The downstream frontend-dependency suite passed **37/37** in the current
+tree. This establishes input/manifest and failure-path behavior, not a clean
+packaged app: the downstream dependency/notice modules and command wrappers
+remain outside this cut, the actual Vite inventory emission and compiled
+Windows build were not run, and source-wheel output does not meet B08's
+binary-only requirement. Absolute npm physical-root bindings are private
+build inputs and must never enter a public artifact.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
