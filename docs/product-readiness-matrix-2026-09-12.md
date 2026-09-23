@@ -699,6 +699,37 @@ source commit, review exact code and generated-API closure for each cluster;
 do not stage the much larger OpenAPI/client diff merely because these tests
 pass. B00 remains open.
 
+### B00i full frontend baseline and timeline-test isolation — September 23
+
+One full frontend source-suite run against the pending worktree collected **252
+test files and 3,587 tests**. It finished with **251 files passing, one file
+failing; 3,585 tests passing and two failing**. Both failures were 15-second
+timeouts in the untracked
+`AgentConversationTimeline.navigation.test.tsx`: "lets an explicit latest
+request win over a queued local-find focus" and "does not restore a local-find
+focus after manual Earlier or Later navigation." This is a **failed full-suite
+baseline**, not a passing release gate. The backend full suite and packaged or
+native gates were not run in this step.
+
+The same nine-test file passed unchanged in isolation, but took 21.02 seconds
+of test execution. The two affected tests each rendered 401 full user-message
+rows although their assertions require only one searchable message and the
+same 401-event page boundaries. The synthetic fixture was narrowed to one user
+message and 400 status events; no application code or assertion changed. The
+targeted file then passed **nine tests** in 3.51 seconds, including the two
+former timeouts at 499 and 609 ms. This is a bounded performance correction to
+test data, not proof that the full suite now passes. The next frozen-candidate
+frontend gate must run the full suite again; do not rerun it unchanged merely
+to relabel this historical result. A three-file Agent timeline shard then
+passed **19 tests** together with no failures. B00 remains open.
+
+The narrowed navigation fixture remains uncommitted with its timeline
+component and helpers. That component's current diff also adds required
+retained-history capability props; the calling `AgentPage` is dirty and
+provides them. Committing the test or component in isolation would leave the
+checked-out source inconsistent. Treat the timeline/navigation source as a
+pending dependency group for exact-hunk review, not a standalone commit.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
