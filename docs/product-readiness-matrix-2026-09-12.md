@@ -730,6 +730,24 @@ provides them. Committing the test or component in isolation would leave the
 checked-out source inconsistent. Treat the timeline/navigation source as a
 pending dependency group for exact-hunk review, not a standalone commit.
 
+### B00j metric coverage semantics candidate — September 23
+
+One independent metric-display group was content-reviewed: the semantics
+helper now validates that finite, bounded coverage matches observed/eligible
+counts. Complete evidence coverage with unreported confidence is labeled
+"Confidence unknown" rather than partial coverage; inconsistent counts show
+"Coverage unknown" without inventing a value or changing a known metric's
+numeric result. Its three existing UI consumers are clean at HEAD; the group
+contains one helper, three updated component test files and one new helper
+test. Four targeted frontend files passed **25 tests** with no failures, and
+the TypeScript/production frontend build passed. Four separate synthetic
+backend tests for persisted unknowns, the session-metrics HTTP route and
+provenance passed; these were not a single backend-to-rendered-UI transaction.
+This is unit/component/build and selected backend evidence, not end-to-end
+metric truth across ingestion, storage, API and UI, nor a full frontend-suite
+pass. The build still emits existing large-chunk warnings, and its generated
+assets remain excluded from source staging.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.

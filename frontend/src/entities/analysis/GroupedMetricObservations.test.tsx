@@ -89,7 +89,7 @@ describe("GroupedMetricObservations", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("marks task evidence as partial even when a rate covers its observed denominator", () => {
+  it("keeps task-stream completeness separate from metric confidence", () => {
     const eventStream = {
       ...GENERIC_RESULT,
       key: "task.workflow.observed_event_count",
@@ -115,6 +115,8 @@ describe("GroupedMetricObservations", () => {
       name: "Unknown event kind rate",
     }).closest("article")!;
     expect(within(rateCard).getByText("1/6")).toBeVisible();
-    expect(within(rateCard).getByText(/Observed rate - partial coverage/i)).toBeVisible();
+    expect(within(rateCard).getByText(/Coverage is complete/i)).toBeVisible();
+    expect(within(rateCard).getByText("Confidence unknown")).toBeVisible();
+    expect(within(rateCard).queryByText(/partial coverage/i)).not.toBeInTheDocument();
   });
 });
