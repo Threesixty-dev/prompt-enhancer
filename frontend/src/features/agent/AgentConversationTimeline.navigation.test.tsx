@@ -51,7 +51,7 @@ describe("TranscriptEventRows local conversation navigation", () => {
       attachment_id: "d".repeat(32),
       display_name: "example-diagram.png",
       kind: "image" as const,
-      media_type: "image/png",
+      media_type: "image/png" as const,
       byte_size: 68,
       sha256: "e".repeat(64),
       width: 1,
