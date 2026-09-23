@@ -1375,4 +1375,304 @@ describe("AgentCatalogRail", () => {
     expect(onProjectChange).toHaveBeenCalledWith(SECOND_PROJECT_ID);
     expect(onOpenUnavailableSession).toHaveBeenCalledWith(otherSession);
   });
+
+  it("restores the active chat row after a non-matching search is cleared", async () => {
+    const api = transport();
+    const onProjectChange = vi.fn();
+    render(
+      <AgentCatalogRail
+        currentSessionId={SESSION_ID}
+        liveSessions={[]}
+        onCloseLiveSession={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenLiveSession={vi.fn()}
+        onOpenUnavailableSession={vi.fn()}
+        onProjectChange={onProjectChange}
+        selectedProjectId={PROJECT_ID}
+        transport={api}
+      />,
+    );
+    expect((await screen.findByRole("button", { name: /^Example chat ·/u })).closest("li"))
+      .toHaveAttribute("data-current", "true");
+    onProjectChange.mockClear();
+    api.listAgentCatalogSessions.mockResolvedValueOnce({
+      contract_version: "agent-catalog.v2",
+      sessions: [],
+    });
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "unmatched chat" } });
+    expect(await screen.findByText("No chat matches your search.")).toBeVisible();
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } });
+    const restored = await screen.findByRole("button", { name: /^Example chat ·/u });
+    expect(restored.closest("li")).toHaveAttribute("data-current", "true");
+    expect(onProjectChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps the selected project when its exact record read fails transiently", async () => {
+    const api = {
+      ...transport(),
+      getAgentProject: vi.fn(async (
+        _projectId: string,
+        _signal?: AbortSignal,
+      ): Promise<AgentProject> => {
+        throw new TransportError(
+          "Synthetic catalog storage failure",
+          503,
+          "agent_catalog_storage_unavailable",
+        );
+      }),
+    };
+    const onProjectChange = vi.fn();
+    render(
+      <AgentCatalogRail
+        liveSessions={[]}
+        onCloseLiveSession={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenLiveSession={vi.fn()}
+        onOpenUnavailableSession={vi.fn()}
+        onProjectChange={onProjectChange}
+        selectedProjectId={SECOND_PROJECT_ID}
+        transport={api}
+      />,
+    );
+
+    expect(await screen.findByText(
+      "The selected project could not be reloaded. It stays selected; retry this read.",
+    )).toBeVisible();
+    expect(screen.getByRole("button", { name: "Retry project" })).toBeVisible();
+    expect(api.getAgentProject).toHaveBeenCalledWith(
+      SECOND_PROJECT_ID,
+      expect.any(AbortSignal),
+    );
+    expect(onProjectChange).not.toHaveBeenCalled();
+  });
+
+  it("retargets the rail only when the selected project is authoritatively absent", async () => {
+    const api = {
+      ...transport(),
+      getAgentProject: vi.fn(async (
+        _projectId: string,
+        _signal?: AbortSignal,
+      ): Promise<AgentProject> => {
+        throw new TransportError(
+          "Synthetic missing project",
+          404,
+          "agent_project_not_found",
+        );
+      }),
+    };
+    const onProjectChange = vi.fn();
+    render(
+      <AgentCatalogRail
+        liveSessions={[]}
+        onCloseLiveSession={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenLiveSession={vi.fn()}
+        onOpenUnavailableSession={vi.fn()}
+        onProjectChange={onProjectChange}
+        selectedProjectId={SECOND_PROJECT_ID}
+        transport={api}
+      />,
+    );
+
+    await waitFor(() => expect(onProjectChange).toHaveBeenCalledWith(PROJECT_ID));
+    expect(screen.queryByText(/could not be reloaded/u)).toBeNull();
+  });
+
+  it("focuses the delete dialog itself instead of a destructive default action", async () => {
+    const api = transport();
+    render(
+      <AgentCatalogRail
+        liveSessions={[]}
+        onCloseLiveSession={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenLiveSession={vi.fn()}
+        onOpenUnavailableSession={vi.fn()}
+        onProjectChange={vi.fn()}
+        selectedProjectId={PROJECT_ID}
+        transport={api}
+      />,
+    );
+    await screen.findByText("Example project");
+    fireEvent.click(screen.getByLabelText("Chat actions for Example chat"));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Chat actions for Example chat" }))
+      .getByRole("button", { name: "Delete" }));
+
+    const deleteDialog = screen.getByRole("dialog", { name: "Delete chat" });
+    const form = deleteDialog.querySelector("form");
+    expect(form).not.toBeNull();
+    await waitFor(() => expect(form!).toHaveFocus());
+    const cancel = within(deleteDialog).getByRole("button", { name: "Cancel" });
+    const confirm = within(deleteDialog).getByRole("button", { name: "Delete" });
+    expect(confirm).not.toHaveFocus();
+
+    fireEvent.keyDown(form!, { key: "Tab" });
+    expect(cancel).toHaveFocus();
+    fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true });
+    expect(confirm).toHaveFocus();
+    expect(api.deleteAgentCatalogSession).not.toHaveBeenCalled();
+  });
+
+  it("returns focus to a stable originating control after a completed mutation", async () => {
+    const api = transport();
+    render(
+      <AgentCatalogRail
+        liveSessions={[]}
+        onCloseLiveSession={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenLiveSession={vi.fn()}
+        onOpenUnavailableSession={vi.fn()}
+        onProjectChange={vi.fn()}
+        selectedProjectId={PROJECT_ID}
+        transport={api}
+      />,
+    );
+    await screen.findByText("Example project");
+    const trigger = screen.getByRole("button", { name: "Create project" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Create project" });
+    fireEvent.change(within(dialog).getByLabelText("Project name"), {
+      target: { value: "Focused project" },
+    });
+    fireEvent.submit(dialog.querySelector("form")!);
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create project" })).toBeNull());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("re-homes focus into the rail when a completed action removed its trigger row", async () => {
+    const api = transport();
+    render(
+      <AgentCatalogRail
+        liveSessions={[]}
+        onCloseLiveSession={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenLiveSession={vi.fn()}
+        onOpenUnavailableSession={vi.fn()}
+        onProjectChange={vi.fn()}
+        selectedProjectId={PROJECT_ID}
+        transport={api}
+      />,
+    );
+    await screen.findByText("Example project");
+    const trigger = screen.getByLabelText("Chat actions for Example chat");
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Chat actions for Example chat" }))
+      .getByRole("button", { name: "Pin" }));
+
+    await waitFor(() => expect(api.updateAgentCatalogSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      { expected_revision: 2, pinned: true },
+      expect.any(AbortSignal),
+    ));
+    await waitFor(() => expect(screen.getByRole("button", { name: "New chat" })).toHaveFocus());
+    expect(document.body).not.toHaveFocus();
+  });
+
+  it("does not steal focus the user moved while a catalog mutation was pending", async () => {
+    const api = transport();
+    const pending = deferred<AgentProject>();
+    api.createAgentProject.mockImplementationOnce(() => pending.promise);
+    render(
+      <AgentCatalogRail
+        liveSessions={[]}
+        onCloseLiveSession={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenLiveSession={vi.fn()}
+        onOpenUnavailableSession={vi.fn()}
+        onProjectChange={vi.fn()}
+        selectedProjectId={PROJECT_ID}
+        transport={api}
+      />,
+    );
+    await screen.findByText("Example project");
+    const trigger = screen.getByRole("button", { name: "Create project" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Create project" });
+    fireEvent.change(within(dialog).getByLabelText("Project name"), {
+      target: { value: "Background project" },
+    });
+    fireEvent.submit(dialog.querySelector("form")!);
+
+    const searchBox = screen.getByRole("searchbox");
+    searchBox.focus();
+    pending.resolve(project({ name: "Background project" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create project" })).toBeNull());
+    await new Promise((resolve) => { window.setTimeout(resolve, 0); });
+    expect(searchBox).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
+  });
+
+  it("opens retained-message search without a model and restores its trigger on Escape", async () => {
+    const api = {
+      ...transport(),
+      searchAgentSavedMessages: vi.fn(),
+      getAgentCatalogSession: vi.fn(),
+    };
+    render(
+      <AgentCatalogRail
+        liveSessions={[]}
+        onCloseLiveSession={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenLiveSession={vi.fn()}
+        onOpenUnavailableSession={vi.fn()}
+        onOpenSavedMessage={vi.fn()}
+        onProjectChange={vi.fn()}
+        selectedProjectId={PROJECT_ID}
+        transport={api}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Search saved messages" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Search saved messages" });
+    expect(within(dialog).getByRole("searchbox")).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(api.searchAgentSavedMessages).not.toHaveBeenCalled();
+  });
+
+  it("refuses a search hit whose retained history changed before navigation", async () => {
+    const retained = catalogSession({
+      retention_policy: "local_history", history_revision: 4, last_event_seq: 8,
+    });
+    const api = {
+      ...transport(retained),
+      searchAgentSavedMessages: vi.fn(async () => ({
+        contract_version: "agent-message-search.v1" as const,
+        snapshot: SNAPSHOT, limit: 20, offset: 0, total: 1, next_offset: null, complete: true,
+        matches: [{
+          session_id: SESSION_ID, project_id: PROJECT_ID, project_name: "Example project",
+          title: "Example chat", match_event_seq: 7, history_revision: 3,
+          role: "user" as const, excerpt: "Synthetic retained request",
+        }],
+      })),
+      getAgentCatalogSession: vi.fn(async () => retained),
+    };
+    const onOpenSavedMessage = vi.fn(async () => true);
+    render(
+      <AgentCatalogRail
+        liveSessions={[]}
+        onCloseLiveSession={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenLiveSession={vi.fn()}
+        onOpenUnavailableSession={vi.fn()}
+        onOpenSavedMessage={onOpenSavedMessage}
+        onProjectChange={vi.fn()}
+        selectedProjectId={PROJECT_ID}
+        transport={api}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Search saved messages" }));
+    const dialog = screen.getByRole("dialog", { name: "Search saved messages" });
+    fireEvent.change(within(dialog).getByRole("searchbox"), { target: { value: "retained" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Search saved messages" }));
+    fireEvent.click(await within(dialog).findByRole("button", { name: /Open matching saved message/u }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("may have changed or been deleted");
+    expect(onOpenSavedMessage).not.toHaveBeenCalled();
+  });
 });

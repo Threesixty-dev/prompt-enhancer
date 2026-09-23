@@ -17,6 +17,11 @@ import type {
 import { TransportError } from "../../shared/api/httpTransport";
 import { BoundedListPager, useBoundedListPage } from "../../shared/ui/BoundedListPager";
 import { connectAgentCatalogSync, type AgentCatalogSync } from "./agentWindowChannel";
+import {
+  AgentMessageSearchDialog,
+  type AgentSavedMessageSearch,
+  type AgentSavedMessageSearchHit,
+} from "./AgentMessageSearchDialog";
 import "./AgentCatalogRail.css";
 
 const CATALOG_RENDER_PAGE = 40;
@@ -39,6 +44,7 @@ type CatalogTransport = CoreCatalogTransport & Partial<Pick<
   | "pageAgentCatalogSessions"
   | "getAgentProject"
   | "getAgentCatalogSession"
+  | "searchAgentSavedMessages"
 >>;
 
 interface CatalogPageCoverage {
@@ -88,10 +94,13 @@ function trapModalFocus(event: ReactKeyboardEvent<HTMLElement>): void {
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
   const active = document.activeElement;
-  if (event.shiftKey && (active === first || !container.contains(active))) {
+  // The dialog container itself is focusable but outside the tab sequence, so it
+  // wraps like an edge instead of letting Shift+Tab escape the modal.
+  const inSequence = active instanceof HTMLElement && focusable.includes(active);
+  if (event.shiftKey && (!inSequence || active === first)) {
     event.preventDefault();
     last.focus();
-  } else if (!event.shiftKey && (active === last || !container.contains(active))) {
+  } else if (!event.shiftKey && (!inSequence || active === last)) {
     event.preventDefault();
     first.focus();
   }
@@ -101,6 +110,7 @@ export interface AgentCatalogRailProps {
   transport: Partial<CatalogTransport>;
   liveSessions: AgentSessionView[] | null;
   currentSessionId?: string;
+  closeFailureSessionIds?: ReadonlySet<string>;
   draftSessionIds?: ReadonlySet<string>;
   selectedProjectId: string | null;
   collapsed?: boolean;
@@ -112,6 +122,11 @@ export interface AgentCatalogRailProps {
   onNewChat: (projectId: string | null, trigger: HTMLButtonElement) => void;
   onOpenLiveSession: (session: AgentSessionView) => void;
   onOpenUnavailableSession: (session: AgentCatalogSession) => void;
+  onOpenSavedMessage?: (
+    match: AgentSavedMessageSearchHit,
+    session: AgentCatalogSession,
+    signal: AbortSignal,
+  ) => Promise<boolean>;
   onCloseLiveSession: (session: AgentSessionView) => void;
   onSessionDeleted?: (sessionId: string) => void;
   onSessionUpdated?: (session: AgentCatalogSession) => void;
@@ -212,6 +227,7 @@ export function AgentCatalogRail({
   transport,
   liveSessions,
   currentSessionId,
+  closeFailureSessionIds,
   draftSessionIds,
   selectedProjectId,
   collapsed = false,
@@ -223,6 +239,7 @@ export function AgentCatalogRail({
   onNewChat,
   onOpenLiveSession,
   onOpenUnavailableSession,
+  onOpenSavedMessage,
   onCloseLiveSession,
   onSessionDeleted,
   onSessionUpdated,
@@ -242,6 +259,7 @@ export function AgentCatalogRail({
   const [sessionPageBusy, setSessionPageBusy] = useState(false);
   const [projectPageError, setProjectPageError] = useState("");
   const [sessionPageError, setSessionPageError] = useState("");
+  const [selectedProjectError, setSelectedProjectError] = useState("");
   const [search, setSearch] = useState("");
   const [includeArchived, setIncludeArchived] = useState(false);
   const [error, setError] = useState("");
@@ -253,8 +271,11 @@ export function AgentCatalogRail({
   const [moveDestinationError, setMoveDestinationError] = useState("");
   const [moveDestinationNonce, setMoveDestinationNonce] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const actionMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const dialogRef = useRef<HTMLFormElement | null>(null);
+  const newChatRef = useRef<HTMLButtonElement | null>(null);
   const catalogSyncRef = useRef<AgentCatalogSync | null>(null);
   const selectedProjectSnapshotRef = useRef<AgentProject | null>(null);
   const initialCatalogReported = useRef(false);
@@ -268,6 +289,9 @@ export function AgentCatalogRail({
   const sessionReadOwnerRef = useRef(0);
   const projectPageControllerRef = useRef<AbortController | null>(null);
   const sessionPageControllerRef = useRef<AbortController | null>(null);
+  const messageOpenControllerRef = useRef<AbortController | null>(null);
+  const messageOpenOwnerRef = useRef(0);
+  const messageSearchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const projectServerIdsRef = useRef(new Set<string>());
   const sessionServerIdsRef = useRef(new Set<string>());
 
@@ -276,6 +300,7 @@ export function AgentCatalogRail({
     [liveSessions],
   );
   const normalizedSearch = search.trim();
+  const savedMessageSearch: AgentSavedMessageSearch | undefined = transport.searchAgentSavedMessages;
   const projectItems = useMemo(() => {
     const loaded = projects ?? [];
     if (
@@ -346,12 +371,17 @@ export function AgentCatalogRail({
     setSessionPageBusy(false);
     setProjectPageError("");
     setSessionPageError("");
+    setSelectedProjectError("");
     mutationOwnerRef.current += 1;
     mutationRef.current?.controller.abort();
     mutationRef.current = null;
     setBusyKey("");
     setMoveDestinations(null);
     setMoveDestinationError("");
+    messageOpenOwnerRef.current += 1;
+    messageOpenControllerRef.current?.abort();
+    messageOpenControllerRef.current = null;
+    setMessageSearchOpen(false);
     return () => {
       projectReadOwnerRef.current += 1;
       sessionReadOwnerRef.current += 1;
@@ -360,6 +390,9 @@ export function AgentCatalogRail({
       mutationOwnerRef.current += 1;
       mutationRef.current?.controller.abort();
       mutationRef.current = null;
+      messageOpenOwnerRef.current += 1;
+      messageOpenControllerRef.current?.abort();
+      messageOpenControllerRef.current = null;
     };
   }, [transport]);
 
@@ -453,6 +486,7 @@ export function AgentCatalogRail({
     setProjectCoverage(null);
     setProjectPageBusy(false);
     setProjectPageError("");
+    setSelectedProjectError("");
     const handle = window.setTimeout(() => {
       void (async () => {
         try {
@@ -525,16 +559,23 @@ export function AgentCatalogRail({
                 )) ?? firstProjects[0];
                 onProjectChange(preferredProject?.project_id ?? null);
               }
-            } catch {
-              if (
-                !controller.signal.aborted
-                && projectReadOwnerRef.current === owner
-                && (!paged || initialComplete)
-              ) {
+            } catch (selectedCaught: unknown) {
+              if (controller.signal.aborted || projectReadOwnerRef.current !== owner) return;
+              // Only an authoritative absence retargets the rail. A transient read
+              // failure keeps the user's selection instead of silently opening
+              // another project's chats.
+              const absent = selectedCaught instanceof TransportError
+                && (selectedCaught.reasonCode === "agent_project_not_found"
+                  || selectedCaught.status === 404);
+              if (absent && (!paged || initialComplete)) {
                 const preferredProject = firstProjects.find((project) => (
                   project.archived_at === null && project.session_count > 0
                 )) ?? firstProjects[0];
                 onProjectChange(preferredProject?.project_id ?? null);
+              } else if (!absent) {
+                setSelectedProjectError(
+                  "The selected project could not be reloaded. It stays selected; retry this read.",
+                );
               }
             }
           } else if (selectedProjectId === null && normalizedSearch === "") {
@@ -803,11 +844,80 @@ export function AgentCatalogRail({
     else onOpenUnavailableSession(session);
   }
 
+  const closeMessageSearch = useCallback(() => {
+    messageOpenOwnerRef.current += 1;
+    messageOpenControllerRef.current?.abort();
+    messageOpenControllerRef.current = null;
+    setMessageSearchOpen(false);
+    window.setTimeout(() => messageSearchTriggerRef.current?.focus(), 0);
+  }, []);
+
+  async function openSavedMessage(match: AgentSavedMessageSearchHit, signal: AbortSignal): Promise<boolean> {
+    if (
+      onOpenSavedMessage === undefined
+      || typeof transport.getAgentCatalogSession !== "function"
+    ) throw new Error("saved-message navigation is unavailable");
+    messageOpenControllerRef.current?.abort();
+    const controller = new AbortController();
+    messageOpenControllerRef.current = controller;
+    const abort = () => controller.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    const owner = messageOpenOwnerRef.current + 1;
+    messageOpenOwnerRef.current = owner;
+    try {
+      const session = await transport.getAgentCatalogSession(match.session_id, controller.signal);
+      if (controller.signal.aborted || messageOpenOwnerRef.current !== owner) return false;
+      if (
+        session.session_id !== match.session_id
+        || session.project_id !== match.project_id
+        || session.retention_policy !== "local_history"
+        || session.history_revision !== match.history_revision
+        || match.match_event_seq > session.last_event_seq
+      ) throw new Error("saved message changed");
+      const opened = await onOpenSavedMessage(match, session, controller.signal);
+      return !controller.signal.aborted && messageOpenOwnerRef.current === owner && opened;
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
+  }
+
+  // A row trigger is replaced when the catalog reloads after a mutation, so only a
+  // control outside the reloading lists can still own focus afterwards.
+  function stableFocusOrigin(origin: HTMLElement | null): HTMLElement | null {
+    if (origin === null || !origin.isConnected) return null;
+    return origin.closest(".agent-rail__project-list, .agent-rail__chat-section") === null
+      ? origin
+      : null;
+  }
+
+  function restoreCatalogFocus(origin: HTMLElement | null): void {
+    // A settled mutation closes its menu and may remove the row that owned focus.
+    // Focus is re-homed only when it was actually lost, so a focus the user moved
+    // during the request is never stolen back.
+    window.setTimeout(() => {
+      const active = document.activeElement;
+      if (active !== null && active !== document.body && active.isConnected) return;
+      const openDialogElement = dialogRef.current;
+      if (openDialogElement !== null && openDialogElement.isConnected) {
+        openDialogElement.focus();
+        return;
+      }
+      if (origin !== null && origin.isConnected) {
+        origin.focus();
+        return;
+      }
+      newChatRef.current?.focus();
+    }, 0);
+  }
+
   async function mutate(
     key: string,
     operation: (signal: AbortSignal) => Promise<unknown>,
   ): Promise<boolean> {
     if (disabled || !supported || mutationRef.current !== null) return false;
+    const focusOrigin = stableFocusOrigin(
+      dialog === null ? actionMenuTriggerRef.current : dialogTriggerRef.current,
+    );
     const controller = new AbortController();
     const owner = mutationOwnerRef.current + 1;
     mutationOwnerRef.current = owner;
@@ -832,6 +942,7 @@ export function AgentCatalogRail({
       if (mutationRef.current?.owner === owner) {
         mutationRef.current = null;
         setBusyKey("");
+        restoreCatalogFocus(focusOrigin);
       }
     }
   }
@@ -879,6 +990,17 @@ export function AgentCatalogRail({
       window.setTimeout(() => dialogTriggerRef.current?.focus(), 0);
     }
   }
+
+  useEffect(() => {
+    // Delete and unavailable-destination dialogs have no autofocused field. Focus
+    // moves to the dialog itself rather than to a destructive default action.
+    if (dialog === null) return;
+    const container = dialogRef.current;
+    if (container === null) return;
+    const active = document.activeElement;
+    if (active !== null && container.contains(active)) return;
+    container.focus();
+  }, [dialog]);
 
   useEffect(() => {
     if (dialog === null) return;
@@ -1025,6 +1147,9 @@ export function AgentCatalogRail({
                 onClick={() => onCloseLiveSession(session)}
                 type="button"
               >×</button>
+              {closeFailureSessionIds?.has(session.session_id) && (
+                <p className="agent-rail__close-failure" role="alert">Close was not confirmed. Its draft was kept. Try closing this chat again.</p>
+              )}
             </li>
           ))}
         </ul>
@@ -1053,8 +1178,18 @@ export function AgentCatalogRail({
         className="button button--primary agent-rail__new-chat"
         disabled={newChatDisabled}
         onClick={(event) => onNewChat(selectedProjectId, event.currentTarget)}
+        ref={newChatRef}
         type="button"
       >New chat</button>
+
+      {savedMessageSearch !== undefined && onOpenSavedMessage !== undefined && typeof transport.getAgentCatalogSession === "function" && (
+        <button
+          className="button button--ghost agent-rail__saved-message-search"
+          disabled={disabled}
+          onClick={(event) => { messageSearchTriggerRef.current = event.currentTarget; setMessageSearchOpen(true); }}
+          type="button"
+        >Search saved messages</button>
+      )}
 
       <label className="agent-rail__search">
         <span className="sr-only">Search projects and chats</span>
@@ -1101,6 +1236,12 @@ export function AgentCatalogRail({
           </div>
         ))}
       </div>
+      {selectedProjectError && (
+        <div className="agent-rail__error" role="alert">
+          <span>{selectedProjectError}</span>
+          <button onClick={refresh} type="button">Retry project</button>
+        </div>
+      )}
       <BoundedListPager label="Agent project pages" page={projectPage} />
       {projectCoverage !== null && typeof transport.pageAgentProjects === "function" && (
         <div className="agent-rail__server-page" aria-live="polite">
@@ -1163,6 +1304,9 @@ export function AgentCatalogRail({
                           onClick={(event) => openActionMenu({ kind: "session", session }, event.currentTarget)}
                           type="button"
                         >•••</button>
+                        {live !== undefined && closeFailureSessionIds?.has(session.session_id) && (
+                          <p className="agent-rail__close-failure" role="alert">Close was not confirmed. Its draft was kept. Try closing this chat again.</p>
+                        )}
                       </li>
                     );
                   })}
@@ -1271,6 +1415,7 @@ export function AgentCatalogRail({
             className="agent-rail__dialog"
             onKeyDownCapture={trapModalFocus}
             onSubmit={(event) => { event.preventDefault(); void submitDialog(); }}
+            ref={dialogRef}
             tabIndex={-1}
           >
             <h2 id="agent-catalog-dialog-title">
@@ -1325,6 +1470,14 @@ export function AgentCatalogRail({
             </div>
           </form>
         </div>
+      )}
+      {messageSearchOpen && savedMessageSearch !== undefined && onOpenSavedMessage !== undefined && (
+        <AgentMessageSearchDialog
+          initialProjectId={selectedProjectId}
+          onClose={closeMessageSearch}
+          onOpenMatch={openSavedMessage}
+          search={savedMessageSearch}
+        />
       )}
     </nav>
   );

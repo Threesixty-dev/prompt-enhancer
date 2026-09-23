@@ -11,6 +11,7 @@
 .agent-rail__project-mark { display: grid; place-items: center; width: 2.35rem; height: 2.35rem; margin-top: 0.2rem; border: 1px solid var(--line-strong); border-radius: 0.65rem; background: var(--surface-soft); color: var(--ink-650); font-size: 0.78rem; font-weight: 850; }
 .agent-rail__collapsed-count { min-width: 1.35rem; padding: 0.14rem 0.28rem; border-radius: 999px; background: var(--surface-soft); color: var(--ink-500); font-size: var(--type-caption); font-weight: 750; text-align: center; }
 .agent-rail__new-chat { width: 100%; min-height: 2.75rem; }
+.agent-rail__saved-message-search { width: 100%; min-height: 2.75rem; }
 .agent-rail__search input { width: 100%; min-height: 2.75rem; box-sizing: border-box; padding: 0.48rem 0.62rem; border: 1px solid var(--line); border-radius: 0.55rem; background: var(--surface-soft); color: inherit; font: inherit; font-size: 0.78rem; }
 .agent-rail__error { display: grid; gap: 0.35rem; padding: 0.55rem; border: 1px solid var(--status-negative); border-radius: 0.55rem; background: color-mix(in srgb, var(--status-negative) 7%, var(--surface)); color: var(--ink-650); font-size: var(--type-caption); }
 .agent-rail__error button { justify-self: start; border: 0; background: transparent; color: var(--accent-primary); font: inherit; font-weight: 750; cursor: pointer; }
@@ -46,7 +47,8 @@
 .agent-rail__section-head h2 { margin: 0; font-size: var(--type-caption); letter-spacing: 0.08em; text-transform: uppercase; }
 .agent-rail__section-head span { color: var(--ink-500); font-size: var(--type-caption); }
 .agent-rail__sessions { display: grid; align-content: start; gap: 0.2rem; min-height: 0; max-height: 18rem; margin: 0; padding: 0; overflow: auto; list-style: none; }
-.agent-rail__sessions > li > button:last-child:not(.agent-rail__session-pick) { min-width: 2.75rem; min-height: 2.75rem; margin-right: 0.25rem; border: 0; background: transparent; color: var(--ink-500); cursor: pointer; }
+.agent-rail__sessions > li > button[aria-label^="Close session "] { min-width: 2.75rem; min-height: 2.75rem; margin-right: 0.25rem; border: 0; background: transparent; color: var(--ink-500); cursor: pointer; }
+.agent-rail__close-failure { grid-column: 1 / -1; margin: 0.1rem 0.45rem 0.4rem; color: var(--status-negative); font-size: var(--type-caption); line-height: 1.35; }
 .agent-rail__server-page { display: grid; gap: 0.35rem; padding: 0.35rem; color: var(--ink-500); font-size: var(--type-caption); line-height: 1.4; }
 .agent-rail__server-page button { justify-self: stretch; min-height: var(--touch-target); padding: 0.45rem 0.6rem; border: 1px solid var(--line-strong); border-radius: 0.5rem; background: var(--surface-soft); color: inherit; font: inherit; font-weight: 750; cursor: pointer; }
 .agent-rail__server-page button:disabled { cursor: wait; opacity: 0.62; }
@@ -55,6 +57,9 @@
 .agent-rail__truth { margin: 0; padding-top: 0.55rem; border-top: 1px solid var(--line); color: var(--ink-500); font-size: var(--type-caption); line-height: 1.45; }
 .agent-rail__dialog-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(0 0 0 / 52%); }
 .agent-rail__dialog { display: grid; gap: 0.8rem; width: min(25rem, 100%); padding: 1rem; border: 1px solid var(--line-strong); border-radius: 0.8rem; background: var(--surface); box-shadow: 0 18px 50px rgb(0 0 0 / 30%); }
+/* Dialogs without an autofocused field receive focus on their container, so the
+   container itself needs a visible focus ring. */
+.agent-rail__dialog:focus, .agent-rail__action-dialog:focus { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .agent-rail__dialog h2, .agent-rail__dialog p { margin: 0; }
 .agent-rail__dialog p { color: var(--ink-650); font-size: 0.78rem; line-height: 1.5; }
 .agent-rail__dialog label { display: grid; gap: 0.35rem; font-size: var(--type-caption); font-weight: 750; }
