@@ -818,6 +818,28 @@ Agent-page trigger, HTTP transport, backend search route and saved-message
 focus path remain a separate cross-file group. No enabled search or private
 body indexing is claimed from this source cut alone.
 
+### B00p current-tree search and frontend baseline — September 23
+
+The still-uncommitted saved-message search cross-file group was exercised on
+the current working tree with synthetic data: **11/11** backend tests passed,
+including browser-origin/CSRF rejection, indexed-history restart and migration,
+and a private 503 timeout response without query echo. Its frontend parser,
+dialog and HTTP transport passed **19/19** focused tests; the isolated browser
+fixture passed **7/7** tests, including a jump to an early paged event without
+starting agent work. The disposable browser listener exited. These results
+do not close the route/OpenAPI/generated-client/source-custody dependency group;
+none of its unreviewed changes is approved for blanket staging.
+
+After correcting the synthetic attachment fixture's widened TypeScript media
+type, the production frontend build and API-client consistency check passed.
+The first full frontend run after narrowing the timeline fixture completed with
+**252/252 files and 3,589/3,589 tests passed** (682.86 seconds). The prior two
+timeline timeouts are therefore resolved for this *dirty current-tree source
+snapshot*, not for a frozen release candidate. The privacy scanner passed after
+the code/test correction. The built payload still includes an unresolved PDF
+worker and oversized bundle warnings; neither the build nor the test suite
+constitutes B08 package/notice closure.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -856,7 +878,7 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | All 645 then-pending files classified by the dated inventory/addendum; controller/MCP and timeline groups remain dependency-open; provider-capability and metric-semantics groups committed locally | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 23; current full frontend baseline has 3,585/3,587 tests passing with two timeouts, followed by a 19-pass targeted timeline shard; 25 legacy backend failed phase reports remain unmapped | Review exact route/OpenAPI/client and timeline dependency closure, then remaining coherent groups; continue bounded backend shards; rerun full frontend only on the next frozen candidate. |
+| B00: recoverable, private, reviewed baseline | Required | Dated inventory classified the starting tree; selected frontend/provider/metric groups committed locally; search route/OpenAPI/client and other groups remain dependency-open | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 23; current dirty-tree full frontend suite passed 3,589/3,589 after the timeline-fixture correction; 25 legacy backend failed phase reports remain unmapped | Review exact route/OpenAPI/client and remaining coherent groups; continue bounded backend shards; repeat full quality gate only on a frozen release candidate. |
 | B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
 | B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
 | B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
@@ -898,10 +920,10 @@ their original code/artifact scope and cannot close these rows automatically.
 3. **B00 — final evidence reconciliation:** the September 17 frontend suite,
    API, types, build and bundle checks passed on their historical source; all
    four identified browser failures passed targeted recheck. The September 23
-   full frontend baseline failed on two timeline-test timeouts, then the
-   narrowed fixture passed in a 19-test timeline shard; the full suite has not
-   been repeated on that candidate. Preserve completed and partial receipts
-   with their exact source scope; final privacy/diff checks cover reviewed work.
+   full frontend baseline initially timed out in two timeline tests; after the
+   narrowed fixture and a literal media-type correction, the current working
+   tree passed all 3,589 tests across 252 files. Preserve both observations and
+   their source scope; a release-candidate rerun remains required.
    The original missing-source and quarantined-helper defects are repaired,
    not remaining open defects. No automatic broad rerun or budget increase.
 4. **B00 — source recovery/commit gate:** initial files are classified but not all
