@@ -1,6 +1,6 @@
 # Product feature and readiness matrix
 
-Updated 2026-09-21 for checkpoint B00. This is the authoritative beta ledger,
+Updated 2026-09-23 for checkpoint B00. This is the authoritative beta ledger,
 not a release certification. The filename is retained to preserve existing links.
 It distinguishes code present in this working tree from a product a new user can
 install, sign into, or buy. The repository's synthetic fixtures and local tests
@@ -548,6 +548,42 @@ package, native execution, installer, network-isolated build, model/GPU path,
 release candidate or publication. B00 remains blocked and no push is authorized
 or claimed.
 
+### B00d bounded baseline reconciliation — September 23
+
+The main B00 status below now includes B00c's locally committed 16-file Windows
+recipe custody group (`ae22e99`) instead of stopping at B00b. At the start of
+this slice, 636 other worktree entries remained pending with zero staged files;
+this count is a point-in-time status, not 636 confirmed defects or authorization
+to blanket-commit them. The original interrupted backend run's 25 failed phase
+reports still lack exact test IDs and are neither reproduced nor resolved by a
+passing selected test.
+
+One historically identified failure was rechecked, without changing its dirty
+source or fixture:
+`tests/test_agent_orchestration.py::test_orchestration_manifest_covers_every_agent_route_and_only_real_routes`.
+It passed on the current checkout (one unique test, three passed phase reports,
+zero failures/skips), with completed termination, confirmed owned-process cleanup
+and unchanged hashes for the four selected test/runner inputs. The bound input
+set is intentionally partial: other modules imported by the application remain
+current-tree inputs, not an immutable release artifact. Receipt SHA-256 is
+`f152d1ca270c4f3674c86bc7b7f039bebd43554203b7eaea7071ad2da6e96c71`;
+journal SHA-256 is
+`73efdde05e1c672e08a8e42f33ec7cfe118b482571a018728a05abd2d1e665f8`.
+This recheck confirms that named route-contract failure remains closed in this
+selection. A second, non-additive run of its complete four-test module also
+passed (12 passed phase reports, zero failures/skips), with completed termination,
+confirmed cleanup and unchanged selected inputs. Its receipt SHA-256 is
+`8c677d93c3f3fdfd7416064d35caa7e0554b8a056fcc3d6f95008100f75606da`;
+journal SHA-256 is
+`8f232a4a757721fcf115b37f1a25fb66f3c577da5c3ab7c31c8abde1903c5f94`.
+These overlapping selections do not map the other historical failures, finish
+the full backend baseline, or establish native, model, package or beta acceptance.
+B00d's bounded full-checkout privacy selection also passed eight unique tests
+with 24 passed phase reports, zero failures/skips, unchanged bound inputs and
+confirmed cleanup. Its receipt SHA-256 is
+`7c274e211556980ddf167047088d2408f1c447936276fe1d420f0dde8f3c8b90`.
+B00 remains open; B01 and W00 have not started.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -580,7 +616,7 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | B00b classified/preserved 662 pending entries; frontend custody group committed locally; remaining source groups outstanding | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / 25 legacy failed reports remain unmapped; custody refresh network-blocked | Obtain current custody evidence, add fresh bounded backend coverage and review/stage coherent groups only after gates. |
+| B00: recoverable, private, reviewed baseline | Required | B00b classified/preserved the starting tree; frontend and B00c Windows recipe custody groups committed locally; 636 other entries pending at B00d start | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / four-test orchestration module passed; 25 legacy failed phase reports remain unmapped; current source visibility unverified | Continue bounded backend coverage and review/stage coherent groups only after gates; confirm custody before any source push. |
 | B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
 | B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
 | B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
@@ -607,8 +643,9 @@ their original code/artifact scope and cannot close these rows automatically.
    be recovered from counts. B00a closed
    the held MCP harness defects with 6 regression, 4 real owned-listener integration
    and 8 privacy tests passing under bounded cleanup. B00b reconciled the 662-entry
-   classification and existing receipts; its one approved recipe selection passed
-   23 tests, but this does not complete the current backend baseline. Continue
+   classification and existing receipts. B00c's final Windows recipe selection
+   passed 124 tests with two capability skips, and B00d's four-test orchestration
+   module passed. These do not complete the current backend baseline. Continue
    fresh bounded coverage and reviewed custody.
    Do not increase the timeout, blindly repeat the full suite, infer causes from
    counts, or broaden into unrelated product implementation.
@@ -623,10 +660,11 @@ their original code/artifact scope and cannot close these rows automatically.
    The original missing-source and quarantined-helper defects are repaired,
    not remaining open defects. No automatic broad rerun or budget increase.
 4. **B00 — source recovery/commit gate:** initial files are classified but not all
-   content-reviewed. The four-file frontend custody group is committed locally;
-   hundreds of pending entries remain. No blanket stage/commit. Snapshot preservation
-   alone does not meet full version-control recovery exit criteria. Review the
-   backend recipe together with its untracked packaging prerequisites, not alone.
+   content-reviewed. The four-file frontend custody group and 16-file Windows
+   recipe group are committed locally; 636 other entries were pending at B00d
+   start. No blanket stage/commit. Snapshot preservation alone does not meet
+   full version-control recovery exit criteria. Review remaining coherent groups
+   individually after their targeted gates.
 5. **B00 custody owner input:** separate public binary-only release repository
    not yet identified/verified; never reuse the private source remote to publish
    binaries by copying its history.
