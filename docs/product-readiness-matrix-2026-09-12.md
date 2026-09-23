@@ -724,7 +724,7 @@ to relabel this historical result. A three-file Agent timeline shard then
 passed **19 tests** together with no failures. B00 remains open.
 
 The narrowed navigation fixture remains uncommitted with its timeline
-component and helpers. That component's current diff also adds required
+component and CSS. That component's current diff also adds required
 retained-history capability props; the calling `AgentPage` is dirty and
 provides them. Committing the test or component in isolation would leave the
 checked-out source inconsistent. Treat the timeline/navigation source as a
@@ -747,6 +747,18 @@ This is unit/component/build and selected backend evidence, not end-to-end
 metric truth across ingestion, storage, API and UI, nor a full frontend-suite
 pass. The build still emits existing large-chunk warnings, and its generated
 assets remain excluded from source staging.
+
+### B00k bounded Agent search-helper custody — September 23
+
+The pure loaded-message search helper and its synthetic tests were reviewed as
+an independent dependency of the still-pending Agent timeline. Literal search
+matches only user/assistant text, not reasoning, tool output or status events;
+the candidate-path test preserves sparse event indices needed by pagination.
+The helper's description was corrected so it does not imply only the currently
+rendered page is searched. Its three helper tests and nine pending timeline
+navigation tests passed together (**12 tests**); this does not accept the
+timeline component, its CSS, or the dirty Agent page. Committing the helper
+alone adds no enabled beta UI claim.
 
 ### Evidence corrections that supersede older wording
 
