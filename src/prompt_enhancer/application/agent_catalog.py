@@ -38,6 +38,7 @@ from .local_agent_receipts import (
 
 AGENT_CATALOG_CONTRACT_VERSION = "agent-catalog.v2"
 AGENT_CATALOG_PAGE_CONTRACT_VERSION = "agent-catalog-page.v1"
+AGENT_MESSAGE_SEARCH_CONTRACT_VERSION = "agent-message-search.v1"
 AGENT_HISTORY_CONTRACT_VERSION = "agent-history.v1"
 AGENT_SESSION_FORK_CONTRACT_VERSION = "agent-session-fork.v1"
 AGENT_SESSION_LINEAGE_CONTRACT_VERSION = "agent-session-lineage.v1"
@@ -50,6 +51,8 @@ MAX_AGENT_CATALOG_PAGE_SIZE = 100
 MAX_AGENT_HISTORY_EVENTS = 4_000
 MAX_AGENT_HISTORY_PAGE = 500
 MAX_AGENT_HISTORY_EVENT_CHARS = 250_000
+MAX_AGENT_MESSAGE_SEARCH_PAGE = 50
+MAX_AGENT_MESSAGE_SEARCH_EXCERPT_CHARS = 240
 
 
 class AgentCatalogError(ValueError):
@@ -477,6 +480,66 @@ class AgentCatalogSessionPage(StrictModel):
         return self
 
 
+class AgentMessageSearchRequest(StrictModel):
+    """Owner-requested local search of opted-in visible messages only.
+
+    The request is never durable state: callers must not put its query in a
+    URL, log, export, or snapshot. Search is a case-insensitive Unicode-token
+    phrase; punctuation and quotes are literal input, not FTS grammar.
+    """
+
+    query: str = Field(min_length=1, max_length=120)
+    project_id: str | None = Field(default=None, pattern=AGENT_PROJECT_ID_PATTERN)
+    include_archived: bool = False
+    limit: int = Field(default=20, strict=True, ge=1, le=MAX_AGENT_MESSAGE_SEARCH_PAGE)
+    offset: int = Field(default=0, strict=True, ge=0, le=MAX_AGENT_CATALOG_SESSIONS)
+    snapshot: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        return _trimmed(value)
+
+    @model_validator(mode="after")
+    def require_snapshot_after_first_page(self) -> "AgentMessageSearchRequest":
+        if self.offset > 0 and self.snapshot is None:
+            raise ValueError("message search snapshot required")
+        return self
+
+
+class AgentMessageSearchHit(StrictModel):
+    """First visible-message match per chat; the query is never echoed."""
+
+    session_id: str = Field(pattern=AGENT_CATALOG_SESSION_ID_PATTERN)
+    project_id: str = Field(pattern=AGENT_PROJECT_ID_PATTERN)
+    project_name: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=120)
+    match_event_seq: int = Field(strict=True, ge=1)
+    history_revision: int = Field(strict=True, ge=1)
+    role: Literal["user", "assistant"]
+    excerpt: str = Field(min_length=1, max_length=MAX_AGENT_MESSAGE_SEARCH_EXCERPT_CHARS)
+
+
+class AgentMessageSearchPage(StrictModel):
+    contract_version: Literal["agent-message-search.v1"] = AGENT_MESSAGE_SEARCH_CONTRACT_VERSION
+    snapshot: str = Field(pattern=r"^[0-9a-f]{64}$")
+    limit: int = Field(strict=True, ge=1, le=MAX_AGENT_MESSAGE_SEARCH_PAGE)
+    offset: int = Field(strict=True, ge=0, le=MAX_AGENT_CATALOG_SESSIONS)
+    total: int = Field(strict=True, ge=0, le=MAX_AGENT_CATALOG_SESSIONS)
+    next_offset: int | None = Field(default=None, strict=True, ge=1, le=MAX_AGENT_CATALOG_SESSIONS)
+    complete: bool
+    matches: tuple[AgentMessageSearchHit, ...] = Field(max_length=MAX_AGENT_MESSAGE_SEARCH_PAGE)
+
+    @model_validator(mode="after")
+    def coherent_page(self) -> "AgentMessageSearchPage":
+        _validate_page_shape(limit=self.limit, offset=self.offset, total=self.total,
+                             next_offset=self.next_offset, complete=self.complete,
+                             item_count=len(self.matches))
+        if len({hit.session_id for hit in self.matches}) != len(self.matches):
+            raise ValueError("message search page contains duplicate chats")
+        return self
+
+
 class AgentCatalogRepository(Protocol):
     def create_project(
         self,
@@ -568,6 +631,10 @@ class AgentCatalogRepository(Protocol):
         offset: int,
         snapshot: str | None,
     ) -> tuple[tuple[AgentCatalogSessionRecord, ...], int, str]: ...
+
+    def search_messages(
+        self, *, request: AgentMessageSearchRequest
+    ) -> tuple[tuple[AgentMessageSearchHit, ...], int, str]: ...
 
     def update_session(
         self,
@@ -804,6 +871,21 @@ class AgentCatalogService:
             sessions=sessions,
         )
 
+    def search_messages(self, *, request: AgentMessageSearchRequest) -> AgentMessageSearchPage:
+        if request.project_id is not None:
+            self.get_project(request.project_id)
+        matches, total, snapshot = self._repository.search_messages(request=request)
+        next_offset = request.offset + len(matches)
+        return AgentMessageSearchPage(
+            snapshot=snapshot,
+            limit=request.limit,
+            offset=request.offset,
+            total=total,
+            next_offset=next_offset if next_offset < total else None,
+            complete=next_offset >= total,
+            matches=matches,
+        )
+
     def update_session(
         self,
         session_id: str,
@@ -933,6 +1015,7 @@ class AgentCatalogService:
 __all__ = (
     "AGENT_CATALOG_CONTRACT_VERSION",
     "AGENT_CATALOG_PAGE_CONTRACT_VERSION",
+    "AGENT_MESSAGE_SEARCH_CONTRACT_VERSION",
     "AGENT_HISTORY_CONTRACT_VERSION",
     "AGENT_SESSION_FORK_CONTRACT_VERSION",
     "AGENT_SESSION_LINEAGE_CONTRACT_VERSION",
@@ -943,6 +1026,9 @@ __all__ = (
     "AgentCatalogService",
     "AgentCatalogSessionList",
     "AgentCatalogSessionPage",
+    "AgentMessageSearchRequest",
+    "AgentMessageSearchHit",
+    "AgentMessageSearchPage",
     "AgentCatalogSessionRecord",
     "AgentHistoryState",
     "AgentHistorySnapshot",
