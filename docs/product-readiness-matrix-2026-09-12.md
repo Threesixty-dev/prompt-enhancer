@@ -794,6 +794,17 @@ production frontend build passed with existing large-chunk warnings. These
 are source/component results, not a full-suite rerun, native action, packaged
 journey or supported-transport acceptance.
 
+### B00n attachment-only turn revision action — September 23
+
+The remaining independent timeline hunk enables revision actions when the
+source user turn contains an attachment but no text. A direct synthetic
+timeline regression checks that "Prepare regeneration with attachments"
+dispatches the exact turn and revision mode; the existing Agent-page suite
+contains the separate no-auto-send child-draft scenario. The timeline test
+file passed **10/10** with the new case. This is component/source behavior,
+not a claim that attachment input or model inference works in the packaged app.
+Saved-message focus forwarding remains outside this source cut.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.

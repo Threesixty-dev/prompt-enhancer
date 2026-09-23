@@ -43,6 +43,40 @@ async function nextFrame(): Promise<void> {
 }
 
 describe("TranscriptEventRows local conversation navigation", () => {
+  it("offers a revision action for an attachment-only source turn", async () => {
+    const turnId = "a".repeat(32);
+    const onReviseTurn = vi.fn();
+    const attachment = {
+      contract_version: "agent-attachment.v2" as const,
+      attachment_id: "d".repeat(32),
+      display_name: "example-diagram.png",
+      kind: "image" as const,
+      media_type: "image/png",
+      byte_size: 68,
+      sha256: "e".repeat(64),
+      width: 1,
+      height: 1,
+      duration_ms: null,
+      sample_rate_hz: null,
+      channels: null,
+      routing: "native_multimodal" as const,
+      document_format: null,
+      projected_characters: null,
+      projection_truncated: null,
+      omitted_features: [],
+      context_tokens: null,
+      context_cost_source: "runtime_unreported" as const,
+    };
+    renderTimeline([
+      event(1, "user", { text: null, attachments: [attachment], turn_id: turnId }),
+      event(2, "done", { turn_id: turnId, turn_summary: exampleAgentTurn({ turn_id: turnId }) }),
+    ], { onReviseTurn });
+
+    fireEvent.click(await screen.findByLabelText("Turn 1 details"));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare regeneration with attachments" }));
+    expect(onReviseTurn).toHaveBeenCalledExactlyOnceWith(turnId, "regenerate");
+  });
+
   it("finds literal Unicode text in loaded user and stopped assistant messages, excluding other activity", async () => {
     renderTimeline([
       event(1, "user", { text: "İx [a-z]+ request" }),

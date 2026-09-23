@@ -728,7 +728,7 @@ function EventRow({
         turnId={event.turn_id}
         onOpenFile={onOpenFile}
         fileActionsDisabled={fileActionsDisabled}
-        onRevise={onReviseTurn && sourceUser?.text?.trim()
+        onRevise={onReviseTurn && (sourceUser?.text?.trim() || sourceUser?.attachments.length)
           ? (mode) => onReviseTurn(event.turn_id as string, mode)
           : undefined}
         revisionBusyMode={turnRevisionBusy?.turnId === event.turn_id ? turnRevisionBusy.mode : null}
