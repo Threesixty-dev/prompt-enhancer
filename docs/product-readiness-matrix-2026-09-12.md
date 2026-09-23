@@ -723,12 +723,11 @@ frontend gate must run the full suite again; do not rerun it unchanged merely
 to relabel this historical result. A three-file Agent timeline shard then
 passed **19 tests** together with no failures. B00 remains open.
 
-The narrowed navigation fixture remains uncommitted with its timeline
-component and CSS. That component's current diff also adds required
+The narrowed navigation fixture, timeline component and CSS were initially
+uncommitted. The component diff also included unrelated required
 retained-history capability props; the calling `AgentPage` is dirty and
-provides them. Committing the test or component in isolation would leave the
-checked-out source inconsistent. Treat the timeline/navigation source as a
-pending dependency group for exact-hunk review, not a standalone commit.
+provides them. B00l below records the later exact-hunk separation of those
+changes rather than treating the entire component diff as one group.
 
 ### B00j metric coverage semantics candidate — September 23
 
@@ -759,6 +758,26 @@ rendered page is searched. Its three helper tests and nine pending timeline
 navigation tests passed together (**12 tests**); this does not accept the
 timeline component, its CSS, or the dirty Agent page. Committing the helper
 alone adds no enabled beta UI claim.
+
+### B00l Agent timeline navigation source cut — September 23
+
+The Agent timeline diff was split at exact hunks: local Find, page/focus state,
+optional external focus/latest inputs and row focus targets are selected with
+their CSS and two synthetic component tests. Separate retained-history
+transport-capability UI and attachment-revision hunks remain unstaged with the
+dirty caller; the selected timeline inputs are optional at the clean caller.
+The staged timeline module was checked to contain no retained-history
+capability props or unrelated attachment-revision change.
+
+The helper plus two timeline test files passed **13 focused tests**. On the
+current dirty application checkout, **14 synthetic Chromium journeys** passed
+with one worker, zero retries, including narrow/desktop keyboard focus, paging,
+chat switching and short work-area visibility. The TypeScript/production build
+passed; its pre-existing large-chunk warnings remain. The Chromium fixture and
+spec themselves remain uncommitted because they exercise pending Agent-page
+behavior beyond this selected component; browser evidence does not establish
+the clean staged checkout, native approval, model behavior or a full-suite pass.
+Test port 4173 was disposable and released after the run.
 
 ### Evidence corrections that supersede older wording
 
