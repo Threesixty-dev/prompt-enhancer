@@ -45,6 +45,8 @@ export function RetainedHistoryView({
   onReviseTurn,
   onNewChat,
   onResume,
+  resumeSupported,
+  exportSupported,
   resumeBusy,
   session,
   state,
@@ -63,6 +65,8 @@ export function RetainedHistoryView({
   onReviseTurn?: (turnId: string, mode: AgentTurnRevisionMode) => void;
   onNewChat: (trigger: HTMLButtonElement) => void;
   onResume: () => void;
+  resumeSupported: boolean;
+  exportSupported: boolean;
   resumeBusy: boolean;
   session: AgentCatalogSession;
   state: "idle" | "loading" | "ready" | "error";
@@ -78,6 +82,14 @@ export function RetainedHistoryView({
   }
   const interrupted = lastUser > lastDone;
   const donePoints = events.filter((event) => event.kind === "done");
+  const resumeUnavailableId = `agent-retained-resume-unavailable-${session.session_id}`;
+  const exportUnavailableId = `agent-retained-export-unavailable-${session.session_id}`;
+  const resumeUnavailable = !resumeSupported
+    ? "Resume is unavailable because this local transport does not provide retained-session resume."
+    : "";
+  const exportUnavailable = !exportSupported
+    ? "Export is unavailable because this local transport does not provide retained-history export."
+    : "";
   return (
     <article className="agent__retained" aria-labelledby="agent-retained-title">
       <header className="agent__retained-head">
@@ -92,13 +104,27 @@ export function RetainedHistoryView({
           <p><code>{session.workspace}</code> · {session.model_alias ?? "No saved model"}</p>
         </div>
         <div className="agent__history-stub-actions">
-          <button className="button button--primary" disabled={state !== "ready" || resumeBusy || Boolean(session.archived_at)} onClick={onResume} type="button">
-            {resumeBusy ? "Resuming…" : session.archived_at ? "Restore chat before resuming" : "Resume chat"}
+          <button
+            aria-describedby={!resumeSupported ? resumeUnavailableId : undefined}
+            className="button button--primary"
+            disabled={!resumeSupported || state !== "ready" || resumeBusy || Boolean(session.archived_at)}
+            onClick={onResume}
+            type="button"
+          >
+            {!resumeSupported ? "Resume unavailable" : resumeBusy ? "Resuming…" : session.archived_at ? "Restore chat before resuming" : "Resume chat"}
           </button>
-          <button className="button button--ghost" disabled={state !== "ready" || exportBusy} onClick={onExport} type="button">
-            {exportBusy ? "Exporting…" : "Export JSON"}
+          <button
+            aria-describedby={!exportSupported ? exportUnavailableId : undefined}
+            className="button button--ghost"
+            disabled={!exportSupported || state !== "ready" || exportBusy}
+            onClick={onExport}
+            type="button"
+          >
+            {!exportSupported ? "Export unavailable" : exportBusy ? "Exporting…" : "Export JSON"}
           </button>
         </div>
+        {!resumeSupported && <small id={resumeUnavailableId} role="status">{resumeUnavailable}</small>}
+        {!exportSupported && <small id={exportUnavailableId} role="status">{exportUnavailable}</small>}
       </header>
       <p className="agent__retained-truth">
         Visible messages and bounded receipts were retained locally. Approval IDs, approval decisions, raw tool arguments/output, and reusable mutation authority were not restored.

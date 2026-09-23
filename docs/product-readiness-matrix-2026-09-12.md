@@ -779,6 +779,21 @@ behavior beyond this selected component; browser evidence does not establish
 the clean staged checkout, native approval, model behavior or a full-suite pass.
 Test port 4173 was disposable and released after the run.
 
+### B00m retained-history capability controls — September 23
+
+The retained-history view now gates Resume and Export independently on the
+transport methods actually available. Disabled actions have accessible
+explanations; busy, archived and loading rules remain distinct. The source
+cut is limited to the view's capability props/controls, two corresponding
+caller prop expressions and one synthetic component test file. Saved-message
+focus forwarding and attachment-revision hunks remain outside this cut.
+
+Focused retained-history/timeline tests passed **18/18**. The current Agent
+page suite passed **197/197** in one uninterrupted run. The TypeScript and
+production frontend build passed with existing large-chunk warnings. These
+are source/component results, not a full-suite rerun, native action, packaged
+journey or supported-transport acceptance.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.

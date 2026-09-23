@@ -3589,6 +3589,8 @@ export function AgentPage({
                   : undefined}
                 onNewChat={(trigger) => beginNewChat(selectedCatalogSession.project_id, trigger)}
                 onResume={() => void resumeSelectedSession()}
+                resumeSupported={transport.resumeAgentSession !== undefined}
+                exportSupported={transport.exportAgentHistory !== undefined}
                 resumeBusy={resumeBusy}
                 session={selectedCatalogSession}
                 state={savedHistoryState}
