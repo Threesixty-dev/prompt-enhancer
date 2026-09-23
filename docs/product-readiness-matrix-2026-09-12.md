@@ -982,6 +982,17 @@ Windows build were not run, and source-wheel output does not meet B08's
 binary-only requirement. Absolute npm physical-root bindings are private
 build inputs and must never enter a public artifact.
 
+### B00w frontend dependency installer boundary — September 23
+
+The reviewed frontend dependency-preparation module and synthetic adversarial
+suite are a separate source cut. **37/37** focused tests passed, including
+registry-only lock acceptance, nonregistry rejection, output revalidation,
+process failure, and unconfirmed-cleanup behavior. The test substitutes a
+fictional Node/npm run; it does **not** prove a real network install, tarball
+byte provenance, complete license notices, or packaged execution. The command
+wrapper and notice closure remain outside this cut, and no download or install
+was launched against the owner's PC.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
