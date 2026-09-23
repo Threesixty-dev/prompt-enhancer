@@ -95,6 +95,9 @@ initially ignored by the broad `build/` rule. Their hashes and disposition are r
 the inventory addendum. They are preserved separately, not silently inserted
 into the initial test snapshot. This was a concrete source-custody/build blocker:
 `frontend/vite.config.ts` imports a module absent from a Git-derived checkout.
+That paragraph describes the initial snapshot: both module files are now
+tracked (source commit `b773295`), and the optional Vite release-build wiring
+was separately reviewed and committed as `a3e305e` on September 23.
 
 An external 2,098-file source snapshot preserves all enumerated non-generated
 inputs. Its inventory SHA-256 is
@@ -933,6 +936,26 @@ new uncertain-capture test left its dialog open; explicitly closing it in
 `4a8c9df` removed the interference, and the capture/workspace selection then
 passed **65/65**. This is a focused source-test result, not B05/V09 native
 acceptance; the final release gate must still run on the exact candidate.
+
+### B00s frontend module-inventory build wiring — September 23
+
+The already-tracked `viteModuleInputInventory` source and test passed **17/17**
+focused tests. The optional Vite integration was checked in an isolated source
+worktree and committed as `a3e305e`; its ordinary no-release-input production
+build passed there and on the current working tree. It emits the normal Vite
+manifest and enables the provenance plugin only when the required release
+bindings are complete. The source test covers malformed/partial bindings and
+bounded module identities. A real release-bound invocation, notice closure,
+compiled package and reproducible payload remain unverified B08 work.
+
+### B00t Windows stage-recipe collection recheck — September 23
+
+The historical collection blocker referring to a quarantined generated helper
+is no longer present in the current tracked test: it imports the tracked
+`scripts/prepare_windows_stage_recipe.py` candidate. A fresh focused source
+run passed **23/23** tests. This closes that specific old collection failure,
+not the full backend baseline or the 25 unidentifiable historical phase
+reports; a final release-candidate suite still needs exact recorded results.
 
 ### Evidence corrections that supersede older wording
 
