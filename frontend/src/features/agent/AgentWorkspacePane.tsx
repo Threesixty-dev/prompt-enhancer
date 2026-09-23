@@ -275,6 +275,7 @@ export function AgentWorkspacePane({
   refreshKey = 0,
   onApplied,
   onArtifactCaptured,
+  onCaptureUncertain,
   onDirtyChange,
   userPresenceAvailable = true,
   blockedReason,
@@ -288,6 +289,7 @@ export function AgentWorkspacePane({
   refreshKey?: string | number;
   onApplied?: (path: string) => void;
   onArtifactCaptured?: () => void;
+  onCaptureUncertain?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   userPresenceAvailable?: boolean;
   blockedReason?: string;
@@ -2324,6 +2326,10 @@ export function AgentWorkspacePane({
           onCaptured={(artifact) => {
             setNotice(`${artifact.title} is now available as a verified chat artifact.`);
             onArtifactCaptured?.();
+          }}
+          onCaptureUncertain={() => {
+            setNotice("Capture outcome is unknown. The saved-artifacts list is refreshing; inspect it before trying again.");
+            onCaptureUncertain?.();
           }}
           onClose={() => setArtifactCapturePath(null)}
           open

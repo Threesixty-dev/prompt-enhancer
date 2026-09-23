@@ -1067,6 +1067,7 @@ export type SafeTransportReasonCode =
   | "agent_artifact_page_snapshot_required"
   | "agent_artifact_page_snapshot_conflict"
   | "agent_artifact_page_out_of_range"
+  | "native_confirmation_declined_before_dispatch"
   | "agent_attachment_unavailable"
   | "agent_attachment_capabilities_unavailable"
   | "agent_attachment_not_found"
@@ -1355,6 +1356,7 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "agent_artifact_page_snapshot_required",
   "agent_artifact_page_snapshot_conflict",
   "agent_artifact_page_out_of_range",
+  "native_confirmation_declined_before_dispatch",
   "agent_attachment_unavailable",
   "agent_attachment_capabilities_unavailable",
   "agent_attachment_not_found",
@@ -3382,6 +3384,7 @@ export function createHttpTransport(options: {
           ? "Native user-presence confirmation was declined"
           : "Native user-presence confirmation is unavailable",
         record.reason === "user_declined" ? 403 : 503,
+        record.reason === "user_declined" ? "native_confirmation_declined_before_dispatch" : null,
       );
     }
     if (

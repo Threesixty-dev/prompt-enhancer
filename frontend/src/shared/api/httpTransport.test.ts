@@ -5100,6 +5100,40 @@ describe("workspace folder picker transport", () => {
 });
 
 describe("native user-presence transport binding", () => {
+  it("marks a native decline before dispatch and does not post the capture", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE));
+    const host = globalThis as typeof globalThis & { pywebview?: unknown };
+    const previous = host.pywebview;
+    host.pywebview = {
+      api: {
+        confirm_user_presence: vi.fn(async () => ({
+          version: "native-user-presence-v1",
+          approved: false,
+          reason: "user_declined",
+        })),
+      },
+    };
+    try {
+      const transport = createHttpTransport({
+        fetch: fetchMock as unknown as typeof fetch,
+        origin: "http://127.0.0.1:4173",
+        userPresenceBridgeAvailable: () => true,
+      });
+      await expect(transport.captureAgentArtifact(
+        AGENT_PROJECT_ID,
+        AGENT_CATALOG_SESSION_ID,
+        {
+          path: "docs/example.md",
+          expected_sha256: "5".repeat(64),
+          expected_byte_size: 27,
+        },
+      )).rejects.toMatchObject({ status: 403, reasonCode: "native_confirmation_declined_before_dispatch" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      host.pywebview = previous;
+    }
+  });
+
   it("reports only the exact server-issued native confirmation capability", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
       ...AUTH_RESPONSE,

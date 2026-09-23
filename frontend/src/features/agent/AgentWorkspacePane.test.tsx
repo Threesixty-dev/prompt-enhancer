@@ -342,6 +342,50 @@ describe("workspace inspection truth", () => {
     expect(screen.getByText(/large\.log is now available as a verified chat artifact/u)).toBeVisible();
   });
 
+  it("refreshes saved artifacts without claiming success when a capture receipt is lost", async () => {
+    const capturePreview: AgentArtifactCapturePreview = {
+      contract_version: "agent-artifact-capture-preview.v1",
+      project_id: PROJECT,
+      session_id: SESSION,
+      path: "large.log",
+      title: "large.log",
+      kind: "text",
+      media_type: "text/plain; charset=utf-8",
+      preview_kind: "text",
+      sha256: "8".repeat(64),
+      byte_size: 300_000,
+      requires_native_confirmation: true,
+      file_content_included: false,
+    };
+    const api = {
+      ...transport(),
+      previewAgentArtifactCapture: vi.fn(async () => capturePreview),
+      captureAgentArtifact: vi.fn(async () => { throw new Error("synthetic connection lost after request"); }),
+    };
+    const uncertain = vi.fn();
+    const captured = vi.fn();
+    render(
+      <AgentWorkspacePane
+        onArtifactCaptured={captured}
+        onCaptureUncertain={uncertain}
+        pendingWrite={null}
+        projectId={PROJECT}
+        sessionId={SESSION}
+        transport={api}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /large\.log — add as generated output/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Review output" }));
+    await screen.findByRole("button", { name: "Add verified output" });
+    fireEvent.click(screen.getByRole("button", { name: "Add verified output" }));
+
+    expect(await screen.findByText(/Capture outcome is unknown/i)).toBeVisible();
+    expect(uncertain).toHaveBeenCalledOnce();
+    expect(captured).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Add verified output" })).toBeDisabled();
+  });
+
   it("opens an exact reviewed-path capture request once without reading the file", async () => {
     const api = {
       ...transport(),

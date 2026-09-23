@@ -3604,6 +3604,7 @@ export function AgentPage({
                   key={current.session_id}
                   onApplied={handleWorkspaceApplied}
                   onArtifactCaptured={() => setArtifactsRefreshKey((value) => value + 1)}
+                  onCaptureUncertain={() => setArtifactsRefreshKey((value) => value + 1)}
                   onDirtyChange={handleWorkspaceDirty}
                   pendingWrite={pending}
                   projectId={artifactProjectId}
