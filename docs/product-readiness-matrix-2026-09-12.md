@@ -993,6 +993,16 @@ byte provenance, complete license notices, or packaged execution. The command
 wrapper and notice closure remain outside this cut, and no download or install
 was launched against the owner's PC.
 
+### B00x frontend notice evidence semantics — September 23
+
+The frontend notice-inventory module now has direct synthetic tests for
+present/missing/multiple notices, nested package ownership, opaque asset
+identity, and oversize rejection. Its focused suite plus the dependency
+preparation suite passed **45/45**. The report deliberately keeps obligations
+and opaque bundled-component provenance unresolved even when a file hash
+matches. These tests do not establish complete third-party notice closure,
+real bundled-module provenance, or publishable B08 artifacts.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
