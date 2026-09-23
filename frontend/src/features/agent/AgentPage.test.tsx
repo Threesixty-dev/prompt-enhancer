@@ -3847,6 +3847,11 @@ describe("AgentPage", () => {
     });
     const transport = retainedCatalogTransport(project, [saved], {
       getAgentSession,
+      resumeAgentSession: vi.fn(async () => view({
+        session_id: SESSION,
+        model_alias: saved.model_alias,
+        settings: { ...view().settings, project_id: projectId, model_alias: saved.model_alias, title: saved.title, retention_policy: "local_history" },
+      })),
       getAgentPersistedEvents: vi.fn(async () => ({
         contract_version: "local-agent.v9" as const,
         session_id: SESSION,

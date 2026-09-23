@@ -17,6 +17,7 @@ import { AgentChangeSetPanel, type AgentChangeReviewRequest } from "./AgentChang
 import type { AgentTurnRevisionMode } from "./AgentTurnDetails";
 import { AgentPromptCheckResult, agentPromptContext } from "./AgentPromptCheck";
 import { AgentCatalogRail } from "./AgentCatalogRail";
+import type { AgentSavedMessageSearchHit } from "./AgentMessageSearchDialog";
 import { AgentDiffViewer } from "./AgentDiffViewer";
 import { AgentRuntimeControl } from "./AgentRuntimeControl";
 import { AgentArtifactsPanel, type AgentArtifactOpenRequest } from "./AgentArtifactsPanel";
@@ -276,6 +277,13 @@ export function AgentPage({
   const [artifactsRefreshKey, setArtifactsRefreshKey] = useState(0);
   const [artifactOpenRequest, setArtifactOpenRequest] = useState<AgentArtifactOpenRequest | null>(null);
   const [artifactTurnFocus, setArtifactTurnFocus] = useState<{ requestId: number; turnId: string } | null>(null);
+  const [savedMessageFocus, setSavedMessageFocus] = useState<{
+    requestId: number;
+    eventSeq: number;
+    sessionId: string;
+    projectId: string;
+  } | null>(null);
+  const [retainedHistoryReloadKey, setRetainedHistoryReloadKey] = useState(0);
   const [artifactViewRevision, setArtifactViewRevision] = useState(0);
   const [nativeAcceptanceRun, setNativeAcceptanceRun] = useState<NativeAcceptanceRun | null>(null);
   const [trustedMcpAcceptanceRun, setTrustedMcpAcceptanceRun] = useState<TrustedMcpAcceptanceRun | null>(null);
@@ -290,6 +298,14 @@ export function AgentPage({
     setExternalControllerAcceptanceRun((run) => advanceExternalControllerAcceptance(run, evidence));
   }, []);
   const artifactTurnFocusSequence = useRef(0);
+  const savedMessageFocusSequence = useRef(0);
+  const savedMessageFocusTarget = useRef<{
+    sessionId: string;
+    projectId: string;
+    historyRevision: number;
+    eventSeq: number;
+    role: "user" | "assistant";
+  } | null>(null);
   const artifactReadOwnerRef = useRef(0);
   const artifactPageControllerRef = useRef<AbortController | null>(null);
   const artifactServerIdsRef = useRef(new Set<string>());
@@ -1070,6 +1086,42 @@ export function AgentPage({
         controller.signal,
       );
       if (controller.signal.aborted) return;
+      const focus = savedMessageFocusTarget.current;
+      if (focus !== null && focus.sessionId === selected.session_id) {
+        const refreshed = transport.getAgentCatalogSession === undefined
+          ? null
+          : await transport.getAgentCatalogSession(selected.session_id, controller.signal);
+        if (controller.signal.aborted) return;
+        const target = retained.find((event) => (
+          event.seq === focus.eventSeq && (focus.role === "user" ? event.kind === "user" : event.kind === "assistant")
+        ));
+        if (
+          refreshed === null
+          || refreshed.session_id !== focus.sessionId
+          || refreshed.project_id !== focus.projectId
+          || refreshed.retention_policy !== "local_history"
+          || refreshed.history_revision !== focus.historyRevision
+          || refreshed.last_event_seq !== head
+          || head < focus.eventSeq
+          || target === undefined
+        ) {
+          savedMessageFocusTarget.current = null;
+          setSavedMessageFocus(null);
+          setEvents(retained);
+          lastSeq.current = head;
+          setSavedHistoryState("ready");
+          setSavedHistoryMessage("The matching saved message changed or is no longer retained. Search again; no chat was resumed or changed.");
+          return;
+        }
+        savedMessageFocusSequence.current += 1;
+        setSavedMessageFocus({
+          requestId: savedMessageFocusSequence.current,
+          eventSeq: focus.eventSeq,
+          sessionId: focus.sessionId,
+          projectId: focus.projectId,
+        });
+        savedMessageFocusTarget.current = null;
+      }
       setEvents(retained);
       lastSeq.current = head;
       setSavedHistoryState("ready");
@@ -1087,6 +1139,7 @@ export function AgentPage({
     selectedCatalogSession?.project_id,
     selectedCatalogSession?.retention_policy,
     selectedCatalogSession?.session_id,
+    retainedHistoryReloadKey,
     transport,
   ]);
 
@@ -1837,6 +1890,8 @@ export function AgentPage({
 
   function openLiveSession(session: AgentSessionView): void {
     continueAfterWorkspaceDiscard("Discard and switch chat", () => {
+      savedMessageFocusTarget.current = null;
+      setSavedMessageFocus(null);
       if (windowMode) {
         if (dedicatedWindowKey !== null) announceAgentWindowActiveSession(dedicatedWindowKey, session.session_id);
         setWindowTargetSessionId(session.session_id);
@@ -1860,6 +1915,15 @@ export function AgentPage({
 
   function openUnavailableSession(session: AgentCatalogSession): void {
     continueAfterWorkspaceDiscard("Discard and open chat", () => {
+      selectUnavailableSession(session);
+    });
+  }
+
+  function selectUnavailableSession(session: AgentCatalogSession, preserveSavedMessageFocus = false): void {
+      if (!preserveSavedMessageFocus) {
+        savedMessageFocusTarget.current = null;
+        setSavedMessageFocus(null);
+      }
       if (windowMode) {
         if (dedicatedWindowKey !== null) announceAgentWindowActiveSession(dedicatedWindowKey, session.session_id);
         setWindowTargetSessionId(undefined);
@@ -1878,10 +1942,43 @@ export function AgentPage({
       setHistoryGap(false);
       setStreamNotice("");
       lastSeq.current = 0;
-    });
+      setRetainedHistoryReloadKey((value) => value + 1);
+  }
+
+  async function openSavedMessage(
+    match: AgentSavedMessageSearchHit,
+    session: AgentCatalogSession,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const visibleBeforeConfirmation = sessionContext.current.id
+      ?? selectedCatalogSessionRef.current?.session_id
+      ?? null;
+    const requestedTransport = transport;
+    if (!(await mayLeaveWorkspace("Discard and open matching saved message")) || signal.aborted) return false;
+    if (
+      requestedTransport !== sessionContext.current.transport
+      || visibleBeforeConfirmation !== (sessionContext.current.id ?? selectedCatalogSessionRef.current?.session_id ?? null)
+    ) return false;
+    if (
+      session.session_id !== match.session_id
+      || session.project_id !== match.project_id
+      || session.retention_policy !== "local_history"
+      || session.history_revision !== match.history_revision
+    ) return false;
+    savedMessageFocusTarget.current = {
+      sessionId: match.session_id,
+      projectId: match.project_id,
+      historyRevision: match.history_revision,
+      eventSeq: match.match_event_seq,
+      role: match.role,
+    };
+    selectUnavailableSession(session, true);
+    return true;
   }
 
   function beginNewChat(projectId: string | null, trigger: HTMLButtonElement): void {
+    savedMessageFocusTarget.current = null;
+    setSavedMessageFocus(null);
     newChatTriggerRef.current = trigger;
     if (projectId !== null) setSelectedProjectId(projectId);
     setNewSessionModelAlias("");
@@ -3113,6 +3210,7 @@ export function AgentPage({
               onNewChat={beginNewChat}
                onOpenLiveSession={(session) => { void openLiveSession(session); }}
                onOpenUnavailableSession={(session) => { void openUnavailableSession(session); }}
+               onOpenSavedMessage={openSavedMessage}
                onSessionDeleted={acceptCatalogSessionDeleted}
                onSessionUpdated={acceptCatalogSessionUpdate}
                onForkSession={transport.forkAgentSession === undefined
@@ -3570,6 +3668,11 @@ export function AgentPage({
                   )
                   : null}
                 events={events}
+                focusEventRequest={savedMessageFocus !== null
+                  && selectedCatalogSession?.session_id === savedMessageFocus.sessionId
+                  && selectedCatalogSession.project_id === savedMessageFocus.projectId
+                  ? savedMessageFocus
+                  : null}
                 focusTurnRequest={artifactTurnFocus}
                 exportBusy={exportBusy}
                 forkBusy={forkBusy}
@@ -3967,7 +4070,7 @@ export function AgentPage({
                 </div>
                 <textarea
                   aria-describedby={`agent-session-model-status agent-composer-shortcut${conversationMessage ? " agent-message-error" : ""}`}
-                  disabled={!commandCleanupBlocked && (current.closing || current.history_write_failed || currentModelBlocked)}
+                  disabled={!commandCleanupBlocked && (current.closing || current.history_write_failed)}
                   readOnly={commandCleanupBlocked}
                   id="agent-message"
                   onChange={(e) => { if (!commandCleanupBlocked) changeDraft(e.currentTarget.value); }}

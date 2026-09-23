@@ -34,6 +34,7 @@ export type TranscriptPageState = {
 export function RetainedHistoryView({
   artifactsPanel,
   events,
+  focusEventRequest,
   focusTurnRequest,
   exportBusy,
   forkBusy,
@@ -54,6 +55,7 @@ export function RetainedHistoryView({
 }: {
   artifactsPanel: ReactNode;
   events: AgentEvent[];
+  focusEventRequest?: { requestId: number; eventSeq: number } | null;
   focusTurnRequest: { requestId: number; turnId: string } | null;
   exportBusy: boolean;
   forkBusy: boolean;
@@ -176,6 +178,7 @@ export function RetainedHistoryView({
               key={session.session_id}
               events={events}
               fileActionsDisabled
+              focusEventRequest={focusEventRequest}
               focusTurnRequest={focusTurnRequest}
               interrupted={interrupted}
               onOpenFile={() => undefined}
