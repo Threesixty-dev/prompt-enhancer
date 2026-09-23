@@ -1022,6 +1022,19 @@ and private-like parser values fail without publication. No real npm archive
 was acquired or executed; this remains a preparatory release-input boundary,
 not complete frontend dependency or license closure.
 
+### B00aa combined packaging-boundary check — September 23
+
+The eight focused wheel/frontend-preparation and CLI suites passed **196**
+tests with **one explicit reviewed-setuptools-wheel skip** on this source
+branch. This confirms the reviewed modules compose at the test level, not
+that a real npm distribution, release Vite inventory, compiled package, or
+native install has passed. After this cut, **601** changed/untracked worktree
+entries remained. The largest path groups were frontend (259), tests (175),
+source (75), and docs (57); ten entries under `.tmp-cp39-lifecycle` are
+generated temporary output and must not be staged. The Agent and workflow UI
+groups still require source-by-source classification and acceptance evidence;
+this count is a custody snapshot, not B00 closure.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
