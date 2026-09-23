@@ -840,6 +840,33 @@ the code/test correction. The built payload still includes an unresolved PDF
 worker and oversized bundle warnings; neither the build nor the test suite
 constitutes B08 package/notice closure.
 
+The next bounded B00 backend selection covered Agent catalog, session forking,
+local-model service, acquisition, provenance, compatibility and ensemble
+contract tests. It completed with **210 passed and one skipped** in 65.24 seconds.
+The skip is `tests/test_local_model_provenance.py:520`, whose symlink negative
+case cannot run because this Windows environment cannot create symlinks. No
+real model, GPU qualification, provider state or network download was used.
+This selection gives exact current-tree IDs and results for its seven modules;
+it does not identify the interrupted legacy run's 25 failed phase reports or
+replace full backend/release-candidate acceptance.
+
+A separate bounded workspace selection completed **220/220** tests in 44.56
+seconds across read/write boundaries, transactions, lifecycle, inspection,
+folder-picker contract, discovery and file-stat semantics. Fixtures used only
+synthetic paths. This does not prove a native Windows folder dialog, approval
+prompt or packaged Agent action; those remain V03/V08 acceptance work.
+
+The generated OpenAPI artifact matches the current source-built schema, and
+the generated TypeScript client passes its `check:api` consistency check.
+This is a current-tree contract check, not proof that the large uncommitted
+schema/client diff is independently reviewable or safe to publish.
+
+A third bounded backend selection completed **67/67** tests in 37.67 seconds
+for metric contracts, calculation composition, coverage storage/API,
+readiness, operability and core metrics. This validates those synthetic source
+paths but does not close B07's hand-calculated storage→API→rendered-UI matrix,
+provider-version qualification or native mini-window behavior.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
