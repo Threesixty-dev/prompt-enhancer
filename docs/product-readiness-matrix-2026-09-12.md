@@ -25,10 +25,12 @@ new research metrics and major redesigns are deferred. Preserve their code/data;
 later B01 hides or clearly separates unsupported UI. Client-side JavaScript
 remains inspectable; compiled packaging is deterrence, not uncopyability.
 
-Only B00 and its selected baseline repairs are in scope. No goal, recurring
-continuation, repository visibility change, reboot, release or source push is
-authorized by this ledger. B01 has not started. End each selected checkpoint
-with an owner report and stop. One implementation worker maximum; two
+The owner authorized a sequential beta campaign on September 23. B00 is still
+the active gate; B01 has not started and cannot be claimed from this authority.
+Record each checkpoint's evidence and continue only when its exit gate is met.
+Owner-dependent signing, hardware, custody or product decisions remain explicit
+stops. No recurring automation, repository visibility change, reboot, release
+or source push is authorized by this ledger. One implementation worker maximum; two
 hypothesis-driven corrections maximum for a failure; no blind reruns or budget
 increases. Use synthetic data and hidden, bounded, owned processes only.
 
@@ -625,6 +627,37 @@ failures/skips and confirmed cleanup; receipt SHA-256 is
 `ff2c008b6871c918c07c235bb72d0cda0058f10f1bf7391c3a5428f57bd803fc`.
 The historical 25 failed phase reports remain unidentified, so B00 remains open.
 
+### B00f controller/MCP dependency review — September 23
+
+The 15-file addendum group was reviewed against its current diffs, including
+the disposable owned-listener harness. Its v23 controller manifest selects 72
+Agent routes and five runtime routes while excluding the web-fetch capability
+metadata, private-body message search, and native session-parameter control.
+Current API documentation and one browser assertion were aligned to v23;
+historical checkpoint documents retain their original v22 claims as history.
+
+Focused current-tree validation passed: **14 backend tests** across the direct
+MCP probe, owned real-loopback integration and orchestration manifest; **26
+frontend contract tests** across three files; **two Chromium controller-panel
+journeys** at 360 and 1440 px; and `npm run check:api`. The backend run used a
+disposable OS-assigned loopback port and synthetic user/provider roots. Its
+process tests assert hidden windows, bounded streams, timeout cleanup and
+confirmed owned exit. The browser server's test port was free after the run.
+These are scoped source/browser results, not protected native approval,
+packaged MCP lifecycle, owner-model, or release evidence. No app/model in the
+owner's running session was stopped or restarted.
+
+**The candidate is not commit-ready as 15 files.** At HEAD, the three newly
+excluded local API routes are absent. Their current definitions also depend on
+dirty `local_agent_routes.py` and `agent_catalog.py`; the matching v23 OpenAPI,
+generated TypeScript client and OpenAPI test are dirty as well. The browser spec
+contains other unrelated pending changes. A commit of only the 15 addendum
+files would produce an internally inconsistent checkout; staging the entire
+dependent files without review would violate source custody. No files were
+staged, committed or pushed in B00f. The next bounded action is to review these
+route/contract dependencies as coherent exact hunks or a larger reviewed group,
+then rerun the affected tests before any commit. B00 remains open.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -647,6 +680,12 @@ The historical 25 failed phase reports remain unidentified, so B00 remains open.
 
 ## Authoritative beta requirements and acceptance ledger
 
+The [Windows beta acceptance gates](beta-acceptance-gates.md) define the exact
+V01–V18 and W00–W08 closure predicates, evidence levels, negative cases and
+content-free receipt fields. The gate contract is not a second status ledger:
+all current results, blockers and next actions remain here. Its structural
+inventory test guards definition completeness, not application correctness.
+
 The source scope for every row below is the starting dirty snapshot at
 `7888064a1cf25703b6e312da97868edd4573c5b3`; **no release candidate commit or compiled,
 signed artifact digest exists yet**. Vxx are acceptance scenario IDs from the
@@ -657,7 +696,7 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | All 645 individual pending files classified by the dated inventory/addendum; frontend and B00c recipe groups committed locally; 636 status entries remain | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / first ten-module backend shard passed 199 tests; 25 legacy failed phase reports remain unmapped; current source visibility unverified | Continue bounded backend shards and content-review coherent groups before staging; confirm custody before any source push. |
+| B00: recoverable, private, reviewed baseline | Required | All 645 individual pending files classified by the dated inventory/addendum; frontend and B00c recipe groups committed locally; B00f found the 15-file controller/MCP candidate is not dependency-closed | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / B00e 199-test shard and B00f focused 14 backend, 26 frontend, two browser checks passed; 25 legacy failed phase reports remain unmapped; current source visibility unverified | Review exact route/OpenAPI/client dependency closure before staging; continue bounded backend shards; confirm custody before any source push. |
 | B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
 | B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
 | B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
@@ -686,7 +725,8 @@ their original code/artifact scope and cannot close these rows automatically.
    and 8 privacy tests passing under bounded cleanup. B00b reconciled the 662-entry
    classification and existing receipts. B00c's final Windows recipe selection
    passed 124 tests with two capability skips; B00d's four-test orchestration
-   module and B00e's ten-module/199-test shard passed. These overlapping selections
+   module and B00e's ten-module/199-test shard passed; B00f's 14-test
+   listener/probe selection also passed. These overlapping selections
    do not complete the current backend baseline. Continue
    fresh bounded coverage and reviewed custody.
    Do not increase the timeout, blindly repeat the full suite, infer causes from
@@ -703,10 +743,12 @@ their original code/artifact scope and cannot close these rows automatically.
    not remaining open defects. No automatic broad rerun or budget increase.
 4. **B00 — source recovery/commit gate:** initial files are classified but not all
    content-reviewed. The four-file frontend custody group and 16-file Windows
-   recipe group are committed locally; 636 other status entries remain. B00e
-   confirms that all 645 individual files have a dated category, but most content
-   is not yet reviewed. No blanket stage/commit. Snapshot preservation alone does
-   not meet full version-control recovery exit criteria. Review remaining coherent
+   recipe group are committed locally. B00e confirmed that 645 then-pending
+   individual files had a dated category, but most content is not yet reviewed.
+   B00f found that the 15-file controller/MCP candidate depends on additional
+   dirty routes, OpenAPI and generated-client inputs; it cannot be committed in
+   isolation. No blanket stage/commit. Snapshot preservation alone does not meet
+   full version-control recovery exit criteria. Review coherent dependency
    groups individually after their targeted gates.
 5. **B00 custody owner input:** separate public binary-only release repository
    not yet identified/verified; never reuse the private source remote to publish
