@@ -480,6 +480,74 @@ dependency boundaries. The reviewed commit scope is exactly this ledger and the
 dated inventory addendum. Any resulting local commit is identified by Git history
 and handoff rather than embedded here; no publication is authorized or claimed.
 
+### B00c Windows stage-recipe source custody — September 23
+
+B00c reviewed one coherent 16-file untracked custody group: three offline Windows
+recipe/inventory command scripts, five directly required infrastructure modules
+and eight synthetic test modules. Tracked path-policy, owned-process, domain,
+test-configuration and bounded-receipt inputs were hash-bound execution
+dependencies rather than new custody files. No adjacent packaging, acquisition,
+staging or release helper was included.
+
+Review first found three bounded readers that compared the named path before and
+after consumption without binding the opened descriptor. Staged-scope review then
+found the same gap in the desktop dependency input hasher. All four corrections
+now check device, inode, file type, link count, size, timestamps and Windows file
+attributes on the opened handle, while retaining exact full-mode and file-attribute
+comparison between the two path snapshots and the existing symlink, reparse-point
+and hard-link refusals.
+Windows may assign different permission bits to an opened `.exe`, so handle
+comparison intentionally uses `stat.S_IFMT` rather than requiring identical full
+mode bits. Redirected-open regressions cover reviewed inputs, build output and
+provenance, and an ordinary synthetic `.exe` covers the Windows mode distinction.
+
+The first full selection exposed the `.exe` mode distinction with two failures;
+receipt SHA-256 is
+`199b4c4a7012d774207f10f3d88ffff29afbe16717b800df3b0f05b4f39cd8ff`.
+After the focused correction, five unique proxy-reader checks passed with 15
+passed phase reports, zero failures/skips and unchanged source; receipt SHA-256 is
+`5949ee0c51025d082f179d29a5a95b677184789a48b637b16a5764ea5f06c51d`
+and journal SHA-256 is
+`f948692d6585e6535db7518c86a4eb2f380c7ac1440ac2d52030db05e36b9e10`.
+The final eight-module selection then passed 123 unique tests with 373 passed
+phase reports and zero failures in 4.344s. Two checks were skipped because this
+Windows environment could not create the required symlinks:
+`test_export_rejects_symlinked_lockfile` and
+`test_symlinked_lock_or_parent_is_rejected`. They remain unverified capability
+checks, not passes. Cleanup was confirmed and all bound inputs were unchanged.
+Receipt SHA-256 is
+`3b857080a4be1c4b835c1778bee30bd6da7806ab62571b4f173e57ddafee06be`;
+journal SHA-256 is
+`405829f709e48509b507bcd3c5f4af5a9f55d1f50481e77c808b629d523cd222`.
+That batch is preserved as historical evidence but is superseded by the final
+post-staged-review gates. Six unique opened-reader checks passed with 18 passed
+phase reports and no failures/skips; receipt SHA-256 is
+`1cedd2ca2e8a65ff3f6e921b6d578b3b365352d240df5c716c9eb8d156753a44`
+and journal SHA-256 is
+`60a13cf90c0eb3af349d50a7e3404078c311c4e339f8c8e1e5c062ce238f464f`.
+The final eight-module batch passed 124 unique tests with 376 passed phase reports,
+zero failures and the same two Windows symlink-capability skips in 4.453s. Cleanup
+was confirmed and all bound inputs were unchanged. Final receipt SHA-256 is
+`47a06ca3e9ac6c613b85e6e0a45ad8b25fb19b338cf20cfa72efb871b492958a`;
+final journal SHA-256 is
+`105006fda76273d5b295902813b2d6b8168a15729135914c0964b2b96abeea6f`.
+
+The bounded full-checkout privacy scan passed one unique test with three passed
+phase reports, no failures/skips, confirmed cleanup and unchanged bound inputs.
+Receipt SHA-256 is
+`a3474029ac4dada0ade4dfdc28667893ca459f9e04b2dca4f1f16f4793f41613`;
+journal SHA-256 is
+`f206d98082eb627d594448512fa60eb740b928bfe3d2586cedb68b1a184d4cd4`.
+The privacy gate was repeated after the staged-review correction and again passed
+one unique test with three passed phase reports, no failures/skips, confirmed
+cleanup and unchanged bound inputs. Its final receipt SHA-256 is
+`4c25e9971e678af22e8ae26e19f00c77a190fd6559897b5f59ddedac3b545705`;
+the unchanged journal content has the same SHA-256 above.
+This is source-custody and synthetic-test evidence only. It does not prove a
+package, native execution, installer, network-isolated build, model/GPU path,
+release candidate or publication. B00 remains blocked and no push is authorized
+or claimed.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
