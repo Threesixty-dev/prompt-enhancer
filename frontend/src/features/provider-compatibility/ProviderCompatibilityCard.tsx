@@ -34,11 +34,20 @@ function familyVersion(family: string, version: string | null): string {
   return version === null ? `${family} · version unknown` : `${family} · ${version}`;
 }
 
+function capabilityLabel(
+  capability: ProviderCompatibilityStatus["capability"],
+): string {
+  return capability === "session_text_analysis"
+    ? "Session text analysis"
+    : "Operational events";
+}
+
 export function isPromptTextCompatible(
   status: ProviderCompatibilityStatus | null,
 ): boolean {
   return (
     status !== null &&
+    status.capability === "session_text_analysis" &&
     status.capability_state === "supported" &&
     (status.state === "exact" || status.state === "compatible")
   );
@@ -48,6 +57,9 @@ export function promptTextCompatibilityBlocker(
   status: ProviderCompatibilityStatus | null,
 ): string | null {
   if (isPromptTextCompatible(status)) return null;
+  if (status?.capability === "operational_events") {
+    return "This compatibility result covers operational events, not session-text analysis, so prompt-text analysis stays disabled.";
+  }
   if (status === null || status.state === "untested") {
     return "Provider compatibility has not been checked, so prompt-text analysis stays disabled.";
   }
@@ -126,7 +138,9 @@ export function ProviderCompatibilityCard({
           <span className="sr-only">
             {loading
               ? "Loading provider compatibility status."
-              : `${state.label}. ${status ? REASON_COPY[status.reason_code] : "No verified compatibility result is available."}`}
+              : `${state.label}. ${status
+                ? `${capabilityLabel(status.capability)}: ${status.capability_state}. ${REASON_COPY[status.reason_code]}`
+                : "No verified compatibility result is available."}`}
           </span>
         </div>
       </div>
@@ -155,7 +169,7 @@ export function ProviderCompatibilityCard({
             </div>
           </dl>
           <p className="provider-compatibility__capability">
-            Session text analysis: <strong>{status.capability_state}</strong>
+            {capabilityLabel(status.capability)}: <strong>{status.capability_state}</strong>
           </p>
         </>
       ) : (

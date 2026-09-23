@@ -658,6 +658,27 @@ staged, committed or pushed in B00f. The next bounded action is to review these
 route/contract dependencies as coherent exact hunks or a larger reviewed group,
 then rerun the affected tests before any commit. B00 remains open.
 
+### B00g private-source custody and provider-capability gate — September 23
+
+A read-only repository visibility query returned **private** for the configured
+source repository on September 23. No remote URL, credential or source push was
+recorded. This closes the point-in-time visibility unknown, not the separate
+binary-release repository identity or ongoing custody checks.
+
+One independent frontend source/test group was content-reviewed: prompt-text
+analysis now requires the exact `session_text_analysis` capability, so an exact
+or compatible **operational-events** result cannot open text analysis. The
+component labels the capability it actually verified rather than calling an
+operational-events result session-text support. Focused validation passed **45
+component/quality-profile tests**, **five Chromium capability-gate journeys**
+including the 360 px keyboard path, and the frontend TypeScript/production
+build. The browser fixture uses only synthetic status and content-free request
+counters. These results are source/browser evidence, not provider ingestion,
+native approval, packaging or metric-truth acceptance. Test port 4173 was owned
+only by the disposable browser run and released afterward. The reviewed five
+frontend source/test/fixture files form a standalone candidate group; unrelated
+dirty API and Agent files remain unstaged.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -696,7 +717,7 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | All 645 individual pending files classified by the dated inventory/addendum; frontend and B00c recipe groups committed locally; B00f found the 15-file controller/MCP candidate is not dependency-closed | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / B00e 199-test shard and B00f focused 14 backend, 26 frontend, two browser checks passed; 25 legacy failed phase reports remain unmapped; current source visibility unverified | Review exact route/OpenAPI/client dependency closure before staging; continue bounded backend shards; confirm custody before any source push. |
+| B00: recoverable, private, reviewed baseline | Required | All 645 individual pending files classified by the dated inventory/addendum; B00f controller/MCP candidate remains dependency-open; B00g provider-capability group reviewed | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / source visibility read-only check returned private on September 23; B00e/B00f shards and B00g 45 unit + five browser checks passed; 25 legacy failed phase reports remain unmapped | Review exact route/OpenAPI/client dependency closure and remaining coherent groups; continue bounded backend shards; verify source custody again before any source push. |
 | B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
 | B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
 | B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
@@ -750,9 +771,10 @@ their original code/artifact scope and cannot close these rows automatically.
    isolation. No blanket stage/commit. Snapshot preservation alone does not meet
    full version-control recovery exit criteria. Review coherent dependency
    groups individually after their targeted gates.
-5. **B00 custody owner input:** separate public binary-only release repository
-   not yet identified/verified; never reuse the private source remote to publish
-   binaries by copying its history.
+5. **B00 custody owner input:** source visibility returned private in the
+   September 23 read-only query. The separate public binary-only release
+   repository is not yet identified/verified; never reuse the private source
+   remote to publish binaries by copying its history.
 6. **B01 owner inputs:** package identity/publisher, public signer fingerprint and
    update verification key, owner-controlled signing location, precise clean
    Windows/NVIDIA test environments, approved model artifacts/resource limits,
