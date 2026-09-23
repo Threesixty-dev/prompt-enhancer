@@ -679,6 +679,26 @@ only by the disposable browser run and released afterward. The reviewed five
 frontend source/test/fixture files form a standalone candidate group; unrelated
 dirty API and Agent files remain unstaged.
 
+### B00h Agent route-dependent validation shard — September 23
+
+Against local commit `b5cbfdc` plus the unchanged pending route implementation,
+a fresh isolated four-module backend shard passed **104 tests** with no failures
+or skips in 44.18 seconds. It covered authored-Agent catalog persistence,
+private saved-message search, revision-bound generation-parameter contracts,
+and governed web-fetch policy. The parent test process used synthetic user,
+provider and cache roots; its socket tests used local disposable socket pairs
+or in-process API clients, not the owner's listener. The corresponding four
+frontend contract/component files passed **25 tests**, and two synthetic
+Chromium browser files passed **15 journeys** across search, opt-in, refusal,
+retry, stale-state and narrow/desktop paths. The browser test listener was
+released. These results do not establish native approval, a real external
+fetch, packaged behavior, source dependency closure, or beta acceptance.
+
+The route clusters remain cross-file changes in the dirty worktree. Before a
+source commit, review exact code and generated-API closure for each cluster;
+do not stage the much larger OpenAPI/client diff merely because these tests
+pass. B00 remains open.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -717,7 +737,7 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | All 645 individual pending files classified by the dated inventory/addendum; B00f controller/MCP candidate remains dependency-open; B00g provider-capability group reviewed | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / source visibility read-only check returned private on September 23; B00e/B00f shards and B00g 45 unit + five browser checks passed; 25 legacy failed phase reports remain unmapped | Review exact route/OpenAPI/client dependency closure and remaining coherent groups; continue bounded backend shards; verify source custody again before any source push. |
+| B00: recoverable, private, reviewed baseline | Required | All 645 individual pending files classified by the dated inventory/addendum; B00f controller/MCP candidate remains dependency-open; B00g provider-capability group committed locally | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 23; B00h 104 backend, 25 frontend and 15 browser checks passed; 25 legacy failed phase reports remain unmapped | Review exact route/OpenAPI/client dependency closure and remaining coherent groups; continue bounded backend shards; verify source custody again before any source push. |
 | B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
 | B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
 | B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
