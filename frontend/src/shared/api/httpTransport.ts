@@ -156,6 +156,8 @@ import type {
   AgentAttachmentContent,
   AgentAttachmentList,
   AgentAttachmentUpload,
+  AgentMessageSearchRequest,
+  AgentMessageSearchResult,
   WorkspaceFolderPick,
   WorkspaceFolderPickerCapability,
   ApplicationUpdateAction,
@@ -252,6 +254,10 @@ import {
   AgentWorkspaceSearchPayloadError,
   parseAgentWorkspaceSearchResult,
 } from "./agentWorkspaceSearchContract";
+import {
+  AgentMessageSearchPayloadError,
+  parseAgentMessageSearchResult,
+} from "./agentMessageSearchContract";
 import {
   AgentWorkspaceLifecyclePayloadError,
   parseAgentWorkspaceCreatePreview,
@@ -524,6 +530,17 @@ function agentCatalogSessionPageResponse(
   } catch (error) {
     if (error instanceof AgentCatalogPayloadError) {
       throw new TransportError("Agent catalog session page response was invalid", 200);
+    }
+    throw error;
+  }
+}
+
+function agentMessageSearchResponse(value: unknown, request: AgentMessageSearchRequest): AgentMessageSearchResult {
+  try {
+    return parseAgentMessageSearchResult(value, request);
+  } catch (error) {
+    if (error instanceof AgentMessageSearchPayloadError) {
+      throw new TransportError("Agent message search response was invalid", 200);
     }
     throw error;
   }
@@ -5281,6 +5298,26 @@ export function createHttpTransport(options: {
         true,
       );
       return agentCatalogSessionListResponse(value, projectId);
+    },
+    async searchAgentSavedMessages(search: AgentMessageSearchRequest, signal) {
+      const query = typeof search.query === "string" ? search.query.replace(/\s+/gu, " ").trim() : "";
+      if (query.length < 1 || Array.from(query).length > 120 || typeof search.includeArchived !== "undefined" && typeof search.includeArchived !== "boolean"
+        || (search.projectId !== undefined && !/^[0-9a-f]{32}$/u.test(search.projectId))
+        || (search.limit !== undefined && (!Number.isInteger(search.limit) || search.limit < 1 || search.limit > 50))
+        || (search.offset !== undefined && (!Number.isInteger(search.offset) || search.offset < 0 || search.offset > 2000))
+        || (search.snapshot !== undefined && !/^[0-9a-f]{64}$/u.test(search.snapshot))) {
+        throw new TransportError("Agent message search request was invalid", 422);
+      }
+      const prepared: AgentMessageSearchRequest = { ...search, query, includeArchived: search.includeArchived ?? false, limit: search.limit ?? 20, offset: search.offset ?? 0 };
+      if (prepared.offset !== undefined && prepared.offset > 0 && prepared.snapshot === undefined) throw new TransportError("Agent message search continuation requires a snapshot", 422);
+      const value = await request<unknown>(
+        "/v1/agent/catalog/sessions/message-search",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: prepared.query, project_id: prepared.projectId ?? null, include_archived: prepared.includeArchived, limit: prepared.limit, offset: prepared.offset, ...(prepared.snapshot === undefined ? {} : { snapshot: prepared.snapshot }) }) },
+        signal,
+        true,
+        true,
+      );
+      return agentMessageSearchResponse(value, prepared);
     },
     async pageAgentCatalogSessions(
       query: AgentCatalogSessionPageQuery = {},

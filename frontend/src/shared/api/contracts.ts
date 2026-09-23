@@ -1427,6 +1427,7 @@ export type AgentWorkspaceGitChange = Schemas["WorkspaceGitChange"];
 export type AgentWorkspaceFile = Schemas["WorkspaceFile"];
 export type AgentWorkspaceSearchMatch = Schemas["WorkspaceSearchMatch"];
 export type AgentWorkspaceSearchResult = Schemas["WorkspaceSearchResult"];
+export type { AgentMessageSearchRequest, AgentMessageSearchMatch, AgentMessageSearchResult } from "./agentMessageSearchContract";
 export type AgentWorkspaceSearchRequest = {
   query: string;
   glob: string;
@@ -2927,6 +2928,7 @@ export interface PromptEnhancerTransport {
   updateAgentProject(projectId: string, request: UpdateAgentProject, signal?: AbortSignal): Promise<AgentProject>;
   deleteAgentProject(projectId: string, request: DeleteAgentProject, signal?: AbortSignal): Promise<void>;
   listAgentCatalogSessions(query?: AgentCatalogSessionQuery, signal?: AbortSignal): Promise<AgentCatalogSessionList>;
+  searchAgentSavedMessages(request: import("./agentMessageSearchContract").AgentMessageSearchRequest, signal?: AbortSignal): Promise<import("./agentMessageSearchContract").AgentMessageSearchResult>;
   pageAgentCatalogSessions?(query?: AgentCatalogSessionPageQuery, signal?: AbortSignal): Promise<AgentCatalogSessionPage>;
   getAgentCatalogSession(sessionId: string, signal?: AbortSignal): Promise<AgentCatalogSession>;
   updateAgentCatalogSession(sessionId: string, request: UpdateAgentCatalogSession, signal?: AbortSignal): Promise<AgentCatalogSession>;
