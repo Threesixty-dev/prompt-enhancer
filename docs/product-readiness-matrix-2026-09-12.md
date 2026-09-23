@@ -885,6 +885,37 @@ build. Its passing threshold does not clear the separately identified PDF
 worker's dependency-notice/packaging problem, nor does it establish native
 startup performance or accessibility acceptance.
 
+### B00q reviewed saved-message search source chain — September 23
+
+The synthetic retained-message search is now a locally committed, bounded
+source chain: SQLite v31 FTS storage `4c29e31`, authenticated private POST
+route plus clean-source OpenAPI/client `c281401`, HTTP transport `1998d07`,
+catalog rail and focus/close reliability `11f312a`, and verified retained-event
+navigation `93dbabb`. The independent dialog/parser was committed earlier as
+`f48d17a`. Search excludes metadata-only chats and requires exact retained
+history; opening a hit re-reads its catalog identity and verifies the retained
+event/head before focusing it. Assistant claims do not create search records.
+
+The committed-source integration was assembled and built in an isolated Git
+worktree rather than blanket-staging the dirty Agent page. Focused catalog and
+dialog tests passed **52/52**, two selected retained-route Agent tests passed,
+and the isolated browser fixture passed **7/7** after a model-free draft fix.
+The browser run covered an early paged match, plaintext excerpts, archive
+scope, retry, bounded pagination, cancellation/draft preservation, and desktop/
+mobile layouts; it observed no model creation, send, resume, or activation.
+The corresponding current-tree catalog tests passed **43/43**, and the full
+current-tree frontend suite still has the B00p **3,589/3,589** receipt; it was
+not rerun after this source-chain commit. The privacy scan and staged diff
+checks passed before both UI commits. One isolated pre-existing test fixture
+omitted the Resume capability it asserted; its synthetic fixture was corrected
+in `93dbabb`, then that focused test passed. A canceled broad Agent-page test
+selection was not counted as a pass.
+
+This is source/browser evidence, not a native, packaged, real-model or
+clean-machine acceptance result. B00 remains open: hundreds of other dirty
+entries still require coherent custody review, and the binary-only release
+destination, signing inputs and hardware acceptance are not supplied.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -923,7 +954,7 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | Dated inventory classified the starting tree; selected frontend/provider/metric groups committed locally; search route/OpenAPI/client and other groups remain dependency-open | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 23; current dirty-tree full frontend suite passed 3,589/3,589 after the timeline-fixture correction; 25 legacy backend failed phase reports remain unmapped | Review exact route/OpenAPI/client and remaining coherent groups; continue bounded backend shards; repeat full quality gate only on a frozen release candidate. |
+| B00: recoverable, private, reviewed baseline | Required | Dated inventory classified the starting tree; selected source groups and the saved-message search chain through `93dbabb` committed locally; other groups remain dependency-open | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 23; dirty-tree frontend suite passed 3,589/3,589; isolated committed-source search build, focused tests and 7 browser scenarios passed; 25 legacy backend failed phase reports remain unmapped | Review remaining coherent groups and owner release inputs; continue bounded backend shards; repeat full quality gate only on a frozen release candidate. |
 | B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
 | B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
 | B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
@@ -979,9 +1010,9 @@ their original code/artifact scope and cannot close these rows automatically.
    dirty routes, OpenAPI and generated-client inputs; it cannot be committed in
    isolation. No blanket stage/commit. Snapshot preservation alone does not meet
    full version-control recovery exit criteria. The provider-capability and
-   metric-semantics groups are now committed locally; timeline navigation is
-   still dependency-open. Review coherent groups individually after their
-   targeted gates.
+   metric-semantics groups and saved-message timeline navigation are now
+   committed locally; the broader controller/MCP candidate remains dependency-
+   open. Review coherent groups individually after their targeted gates.
 5. **B00 custody owner input:** source visibility returned private in the
    September 23 read-only query. The separate public binary-only release
    repository is not yet identified/verified; never reuse the private source
