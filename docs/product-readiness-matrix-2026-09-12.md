@@ -1,6 +1,6 @@
 # Product feature and readiness matrix
 
-Updated 2026-09-26 for the workflow/composer scope decision and B00ac notice CLI;
+Updated 2026-09-26 for the serial B00–B11 campaign and independent B00 baseline checks;
 B00 remains open. This is the authoritative beta ledger,
 not a release certification. The filename is retained to preserve existing links.
 It distinguishes code present in this working tree from a product a new user can
@@ -26,7 +26,8 @@ new research metrics and major redesigns are deferred. Preserve their code/data;
 later B01 hides or clearly separates unsupported UI. Client-side JavaScript
 remains inspectable; compiled packaging is deterrence, not uncopyability.
 
-The owner authorized a sequential beta campaign on September 23. B00 is still
+The owner authorized a sequential beta campaign on September 23 and explicitly
+requested all B00–B11 tasks on September 26. B00 is still
 the active gate; B01 has not started and cannot be claimed from this authority.
 Record each checkpoint's evidence and continue only when its exit gate is met.
 Owner-dependent signing, hardware, custody or product decisions remain explicit
@@ -1114,6 +1115,80 @@ are retained; attempted worker-fixture cleanup was refused and was not retried.
 Next: continue the remaining B00 source/dependency review, then the real
 release-bound frontend inventory and notice-closure work under B08.
 
+### B00ad release command boundaries and clean-source baseline — September 26
+
+The serial campaign starts with source base `3968cb0`, not a signed release
+candidate. Private source visibility and public/noreply commit identity were
+rechecked without recording their private values. The separate binary-only
+release repository remains an owner dependency; no repository was created,
+visibility changed, source pushed, installer applied or reboot requested.
+
+The three dependency-preparation commands now contain parsing, service and
+serialization errors without echoing submitted values. Abbreviated arguments
+are rejected. Existing success fields and limitation flags remain intact. The
+frontend command retains its existing exit-1/stdout-JSON failure contract;
+Windows and proxy preparation retain fixed stderr diagnostics and exit 2.
+These wrappers do not establish actual dependency builds or notice closure.
+
+Two raw child launches in `test_windows_distribution_hardening.py` were replaced
+with the existing hidden owned-process boundary: allowlisted environment,
+bounded input/output, ten-second timeout and confirmed tree cleanup. Real Git
+ignore-policy and synthetic Python manifest checks remain integration tests.
+The dirty-tree module produced **46 passes / 1 failure** at
+`test_every_network_capable_source_module_is_egress_classified`: pending
+`infrastructure.governed_web_fetch` and `infrastructure.windows_wheel_acquisition`
+are absent from the exact egress inventory. Neither the inventory nor assertion
+was relaxed. Their source/dependency review remains a separate pending group.
+
+An independent command-test run exposed shared test-state pollution: replacing
+the global `json.dumps` also broke the incremental receipt writer. Its receipt
+has **19 unique passes and an unfinished termination**, not a passing suite.
+The correction isolates the injected serializer on the command module rather
+than modifying the shared JSON library. This failure is retained in receipt
+`b00-cli-independent-a8894ca28aab4b6a8241e923d1d1ce0d`.
+
+After that single correction, independent command validation passed **22/22**,
+with zero skips, empty stderr and a completed receipt
+`b00-cli-corrected-69c10689fcf84799ad02adfad6ccb860` (0.95s including runner).
+The isolated checkout at `3968cb0` plus only the five reviewed files passed
+**130/130**, zero failed/skipped, including the exact egress census. Its receipt
+`b00-clean-3968cb0-serializerfix` was independently reread; journal SHA-256
+`ca957a3833df1420388813f59ee67f3c69737eee4905d4d70a1db7cc95adb097`.
+The four preparation/CLI files match byte-for-byte between checkouts. The
+hardening test matches after CRLF/LF normalization; no semantic diff was hidden
+by this comparison. This proves the selected source group without relying on
+the unreviewed working tree, not correctness of the pending network modules.
+
+| Check / external receipt ID | Observed result | Evidence limit |
+| --- | --- | --- |
+| Clean-source collection, `b00-clean-collect-1a708a137b7642c0b0b024b4e8a7591c` | 5,978 tests collected, zero collection failures; 31.03s; exit 0; cleanup confirmed | Isolated checkout at `3968cb0`, existing development interpreter. Collection is not test execution or a full quality pass. |
+| Thirteen update modules, `b00-updates-11750c64d55e41b18058ae5c7a6e9124` | 309 passed, 2 skipped; 15.65s; exit 0; cleanup confirmed | Synthetic verification, staging, replay and recovery/handoff evidence; no native update executor or installation. |
+| Bootstrap/owned-process/candidate batch, `b00-lifecycle-e180811e787047e3873c8743cbcd1946` | 51 passed, 56 setup errors; exit 1; cleanup confirmed | The harness omitted `USERPROFILE`; candidate helper import could not resolve a home. These are one harness cause, not 56 independently observed product defects. |
+| Candidate-only corrected harness, `b00-candidate-corrected-0848a80bbc0b42c086888da28e71ed35` | 56 passed; 3.38s; exit 0; cleanup confirmed | Fresh synthetic home supplied; passing 51 tests were not repeated. No MSIX assembly or installed-app lifecycle. |
+| `uv lock --check --offline` | Pass; no dependency mutation/download | Lock consistency only. |
+
+The update skips are `test_application_update_replay.py:323` and
+`test_application_update_staging_failures.py:305`, both unavailable symlink
+fixtures. They remain skips, not accepted native security cases. The lifecycle
+tests include real test-owned hidden Python children and repeated launches;
+they do not establish ten native application open/close cycles.
+
+All new test state and bounded receipts are external to source. Completed owned
+runners confirmed cleanup. No personal app, provider sessions, model, GPU,
+listener or native approval window was used. These results do not close B00,
+B02, B08 or B09. Continue with reviewed dependency groups and the identified
+owner inputs; do not substitute dirty-tree test totals for an accepted baseline.
+
+The fresh inventory observation classified all **603** then-pending entries:
+153 beta implementation, 368 tests/build tooling, 58 documentation, 14 unrelated
+and 10 generated; zero unknown categories. Its dated addendum retains the
+observation binding and explicitly separates classification from content
+approval. The full privacy scan passed with zero findings. The five reviewed
+source/test files and these two B00 documents form the only commit group;
+remaining work and quarantine are preserved. No source push or release is part
+of this slice. The resulting commit is identified by Git history and handoff,
+not a self-referential digest in this document.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -1152,7 +1227,7 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | Dated inventory classified the starting tree; selected source groups and the saved-message search chain through `93dbabb` committed locally; other groups remain dependency-open | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 23; dirty-tree frontend suite passed 3,589/3,589; isolated committed-source search build, focused tests and 7 browser scenarios passed; 25 legacy backend failed phase reports remain unmapped | Review remaining coherent groups and owner release inputs; continue bounded backend shards; repeat full quality gate only on a frozen release candidate. |
+| B00: recoverable, private, reviewed baseline | Required | Dated inventory refreshed for 603 pending entries; reviewed source groups recoverable through `3968cb0`; B00ad five-file group passes clean-checkout validation; other groups remain dependency-open | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 26; 5,978 clean-source tests collect, selected group 130/130 passes; historical dirty-tree frontend 3,589/3,589 and 7 scoped browser scenarios; old 25 failed phase reports remain unmapped; current dirty-tree egress census failure identified | Review remaining coherent groups, including both unregistered pending network modules; obtain binary-release destination. Full quality and release-candidate gates remain open. |
 | B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
 | B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
 | B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
@@ -1184,7 +1259,13 @@ their original code/artifact scope and cannot close these rows automatically.
    module and B00e's ten-module/199-test shard passed; B00f's 14-test
    listener/probe selection also passed. These overlapping selections
    do not complete the current backend baseline. Continue
-   fresh bounded coverage and reviewed custody.
+   fresh bounded coverage and reviewed custody. September 26 clean-source
+   collection at `3968cb0` found 5,978 tests with no collection failures;
+   B00ad's clean-source group passed 130/130. Neither observation maps or erases
+   the historical 25 failed reports. The current dirty-tree failure is exactly
+   `test_windows_distribution_hardening.py::test_every_network_capable_source_module_is_egress_classified`:
+   two pending network modules require source/custody and egress review before
+   inclusion. Do not suppress this gate.
    Do not increase the timeout, blindly repeat the full suite, infer causes from
    counts, or broaden into unrelated product implementation.
 2. **B00 — browser evidence boundary:** all four identified failures now pass
@@ -1212,7 +1293,7 @@ their original code/artifact scope and cannot close these rows automatically.
    committed locally; the broader controller/MCP candidate remains dependency-
    open. Review coherent groups individually after their targeted gates.
 5. **B00 custody owner input:** source visibility returned private in the
-   September 23 read-only query. The separate public binary-only release
+   September 26 read-only query. The separate public binary-only release
    repository is not yet identified/verified; never reuse the private source
    remote to publish binaries by copying its history.
 6. **B01 owner inputs:** package identity/publisher, public signer fingerprint and

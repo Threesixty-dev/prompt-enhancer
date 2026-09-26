@@ -5,10 +5,10 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
 import sqlite3
 import socket
-import subprocess
 import sys
 
 from pydantic import SecretBytes, SecretStr
@@ -50,6 +50,7 @@ from prompt_enhancer.application.maintenance.inventory import (
     PathSensitivity,
     validate_application_path_inventory,
 )
+from prompt_enhancer.application.owned_process import run_owned_process
 from prompt_enhancer.application.paths import (
     HardeningState,
     PathInspectionState,
@@ -83,6 +84,38 @@ from prompt_enhancer.infrastructure.updates import DevelopmentHmacManifestVerifi
 
 
 _SOURCE_ROOT = Path(__file__).parents[1] / "src" / "prompt_enhancer"
+_CHILD_ENVIRONMENT_KEYS = (
+    "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "COMSPEC",
+)
+_PROCESS_STDOUT_LIMIT = 256 * 1024
+_PROCESS_STDERR_LIMIT = 64 * 1024
+_PROCESS_TIMEOUT_SECONDS = 10
+
+
+def _owned_child_environment() -> dict[str, str]:
+    environment: dict[str, str] = {}
+    for name in _CHILD_ENVIRONMENT_KEYS:
+        value = os.environ.get(name)
+        if value:
+            environment[name] = value
+    if "SYSTEMROOT" not in environment and (value := os.environ.get("SystemRoot")):
+        environment["SYSTEMROOT"] = value
+    return environment
+
+
+def _run_test_process(
+    arguments: tuple[str, ...], *, cwd: Path, stdin_payload: bytes = b"",
+):
+    return run_owned_process(
+        arguments,
+        cwd=cwd,
+        env=_owned_child_environment(),
+        stdin_payload=stdin_payload,
+        stdout_limit=_PROCESS_STDOUT_LIMIT,
+        stderr_limit=_PROCESS_STDERR_LIMIT,
+        timeout=_PROCESS_TIMEOUT_SECONDS,
+        maximum_active_processes=1,
+    )
 
 
 def test_path_inspection_converts_os_errors_to_typed_rejection(
@@ -253,17 +286,49 @@ def test_source_package_directories_are_not_swallowed_by_ignore_rules() -> None:
         path.relative_to(repository).as_posix()
         for path in (repository / "src" / "prompt_enhancer").rglob("__init__.py")
     )
-    completed = subprocess.run(
-        ["git", "check-ignore", "--no-index", "--stdin"],
+    completed = _run_test_process(
+        ("git", "check-ignore", "--no-index", "--stdin"),
         cwd=repository,
-        input=("\n".join(candidates) + "\n").encode("utf-8"),
-        capture_output=True,
-        check=False,
-        timeout=10,
+        stdin_payload=("\n".join(candidates) + "\n").encode("utf-8"),
     )
 
     assert completed.returncode == 1, completed.stdout.decode("utf-8")
     assert completed.stdout == b""
+
+
+def test_owned_test_process_forwards_bounded_handoff_without_raw_subprocess(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+    child_environment = {"PATH": "C:/example/bin", "TEMP": "C:/example/temp"}
+
+    def run(arguments, **kwargs):
+        calls.append((arguments, kwargs))
+        return object()
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "_owned_child_environment", lambda: child_environment,
+    )
+    monkeypatch.setattr(sys.modules[__name__], "run_owned_process", run)
+
+    result = _run_test_process(
+        ("example-tool", "--synthetic"), cwd=tmp_path,
+        stdin_payload=b"synthetic-input",
+    )
+
+    assert result is not None
+    assert calls == [(('example-tool', '--synthetic'), {
+        "cwd": tmp_path,
+        "env": child_environment,
+        "stdin_payload": b"synthetic-input",
+        "stdout_limit": _PROCESS_STDOUT_LIMIT,
+        "stderr_limit": _PROCESS_STDERR_LIMIT,
+        "timeout": _PROCESS_TIMEOUT_SECONDS,
+        "maximum_active_processes": 1,
+    })]
+    source = Path(__file__).read_text(encoding="utf-8")
+    assert "subprocess" + ".run" not in source
+    assert "import" + " subprocess" not in source
 
 
 def test_application_path_inventory_enforces_sensitive_and_sqlite_policy() -> None:
@@ -409,9 +474,9 @@ def test_public_build_manifest_cli_compares_two_trees_without_host_paths(
     _build_tree(first_root)
     _build_tree(second_root)
 
-    completed = subprocess.run(
-        [
-            sys.executable,
+    completed = _run_test_process(
+        (
+            sys._base_executable,
             "scripts/build_public_manifest.py",
             str(first_root),
             "--compare-root",
@@ -422,11 +487,8 @@ def test_public_build_manifest_cli_compares_two_trees_without_host_paths(
             "python=3.11.9",
             "--lockfile-hash",
             "uv.lock=" + "b" * 64,
-        ],
+        ),
         cwd=Path(__file__).parents[1],
-        check=False,
-        capture_output=True,
-        timeout=10,
     )
 
     assert completed.returncode == 0

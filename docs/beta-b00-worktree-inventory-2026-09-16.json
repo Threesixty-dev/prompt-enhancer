@@ -7,6 +7,36 @@
   "staged_entries_at_start": 0,
   "snapshot_file_count": 2098,
   "snapshot_inventory_sha256": "43d43d410865f0c41e849adc1795f49435601cc372d602fe767df54c653cc704",
+  "reconciliation_addendum_2026_09_26": {
+    "source_commit": "3968cb0",
+    "source_visibility": "PRIVATE; freshly checked repository metadata only",
+    "observation_scope": "Before this addendum and final ledger update; classification is triage, not content review or an atomic source snapshot.",
+    "entry_count": 603,
+    "unclassified_entries": 0,
+    "category_counts": {
+      "beta_implementation": 153,
+      "beta_tests_build_tooling": 368,
+      "documentation": 58,
+      "generated_output": 10,
+      "unrelated_work": 14
+    },
+    "observation_sha256": "2d2b6eae180e74a7e0a43ae0a7f9e71ecbf4fe45b41111e53f6fca49eeca97ab",
+    "observation_encoding": "Ordinal-sorted rows of two-character porcelain status, category, relative path and current file SHA-256, tab-separated; UTF-8 without BOM, LF-separated with final LF. This document cannot bind its own later bytes.",
+    "newly_classified_entries": [
+      {"path": "docs/agent-controller-api.md", "category": "documentation"},
+      {"path": "docs/local-models-and-agent-access.md", "category": "documentation"},
+      {"path": "tests/test_release_preparation_cli_boundaries.py", "category": "beta_tests_build_tooling"},
+      {"path": "tests/test_windows_distribution_hardening.py", "category": "beta_tests_build_tooling"}
+    ],
+    "reviewed_source_group": [
+      {"path": "scripts/prepare_frontend_dependencies.py", "sha256": "a494c9616c8d064cbec0df264785b4c6e9e1b130ef1d9797a630f432188fc687"},
+      {"path": "scripts/prepare_windows_dependencies.py", "sha256": "df77f43659ad00e166c60ba3f15eb5e412a051cd8f1f66b15646c3f2a94ddda4"},
+      {"path": "scripts/prepare_proxy_tools_wheel.py", "sha256": "74e19ae4f022aeb48f20ec3824fa02f8180e03d4a6e82fbfc2355be44fb7bf59"},
+      {"path": "tests/test_release_preparation_cli_boundaries.py", "sha256": "9e36f1620f77cb8863f41db6683ab86877922b87848c78cfd7e66b4d4e485154"},
+      {"path": "tests/test_windows_distribution_hardening.py", "sha256": "5cec49a62b0665f7b1c726e33e8d54ab6d592a9e21830fd057465aa70ca83812"}
+    ],
+    "disposition": "Only this reviewed five-file preparation/test group and the two B00 documents are commit candidates. Other pending changes, all ten generated outputs, unrelated work and external quarantine remain preserved and unstaged. The beta ledger records test outcomes and owner blockers; this observation does not accept B00 or authorize publication."
+  },
   "b00_documentation_changes": [
     "README.md",
     "docs/product-readiness-matrix-2026-09-12.md",
