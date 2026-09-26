@@ -103,9 +103,9 @@ the corresponding cell rather than authorizing an invented replacement.
 | W02 | Immutable workflow revisions and exact run bindings survive restart. Synthetic chain/fork/join preserves port identity; duplicate Run creates one run; cancellation and crash mark interrupted nodes truthfully; no auto-resume. | Durable integration + restart. |
 | W03 | Each qualified text, vision-language, text/image classifier, detector, embedding, speech-recognition and audio-classifier profile performs genuine inference and validates declared typed output. Preprocessing and resource cleanup are observed. | Real model on every advertised backend/profile. |
 | W04 | Sequential, automatic and require-parallel modes obey admission. Demonstrate overlapping inference for admitted CPU/CPU, CPU/GPU and GPU/GPU cells; automatic serializes visibly when needed, require-parallel refuses. Existing chat/research runtimes are neither unloaded nor killed. | Physical CPU/NVIDIA resource measurements + owned cleanup. |
-| W05 | Saved typed graph works in accessible canvas and keyboard list; invalid links explain why; device recommendations show evidence and unknowns; Build/Run/Results stay usable at supported sizes. | Browser + native owner journey. |
+| W05 | Saved typed graph works in accessible canvas and keyboard list; invalid links explain why; device recommendations show evidence and unknowns; Build/Run/Results stay usable at supported sizes. Compatible saved workflows can enhance an Agent composer draft through the WP01–WP08 review contract below. | Browser + native owner journey. |
 | W06 | Export/import binds a versioned definition and model locks, omits contents/credentials/absolute paths/weights/source, and runs through the installed headless engine with GUI-equivalent results and limits. Import never downloads or executes on its own. | Installed runner with GUI closed + privacy inspection. |
-| W07 | All declared model/data, topology, scheduler, placement, cancellation, crash, restart and cleanup cells pass; unsupported cells reject. Two consecutive packaged smoke runs leave no test-owned process or GPU model. | Exact packaged candidate + genuine model/hardware. |
+| W07 | All declared model/data, topology, scheduler, placement, cancellation, crash, restart and cleanup cells, including WP01–WP08, pass; unsupported cells reject. Two consecutive packaged smoke runs leave no test-owned process or GPU model. | Exact packaged candidate + genuine model/hardware. |
 | W08 | B00–B11 release gates still pass after workflow integration, including signed install/update, retention, privacy and native approvals. | Exact signed release candidate + clean machine + owner review. |
 
 ### Required workflow matrix dimensions
@@ -134,6 +134,50 @@ For each cell, record case ID, workflow revision, model/runtime hashes,
 hardware/placement, scheduling mode, expected/actual outcome, duration,
 RAM/VRAM evidence, source/package digest and cleanup. Raw media and model
 responses stay out of diagnostic receipts. A queued pair is not parallel proof.
+
+### Composer prompt-enhancement hook (WP01–WP08)
+
+Required by the owner's September 26 scope decision. These are subcases of the
+existing W checkpoints, not an additional implementation campaign. A "hook"
+here is an internal Agent composer integration with the same workflow engine,
+validation, run journal and resource coordinator used by the visual builder and
+installed runner. It does not authorize shell callbacks, external connectors or
+changes to existing provider hooks. The basic prompt-check service described in
+[ADR 0015](adr/0015-prompt-check.md) remains available; its presence is not proof
+of this new saved-workflow integration.
+
+The composer offers a compact workflow selector and an **Enhance prompt** action.
+Manual invocation is the default; an optional, visibly enabled before-send hook
+pauses submission for review. Neither mode silently rewrites or sends. Review
+offers the original and suggested text, an explicit apply action with undo, and
+the choice to keep/send the original or cancel. Sending the reviewed suggestion
+still requires an explicit Send action and must not recursively invoke the hook.
+
+A compatible workflow declares a bounded text draft input and a bounded text
+suggestion output. Context and attachments are optional, separately declared,
+explicitly selected inputs: no automatic workspace or full-history collection.
+Declared image/audio inputs use the existing qualified media limits and visible
+preprocessing. An enhancement cannot silently remove or replace the attachments
+that will accompany the chat message. Empty, malformed, incomplete or incompatible
+outputs are failures, not successful empty prompts. Explanations are optional
+model advice; measured prompt-check metrics retain their own provenance and
+unknown states. No invented facts, permissions or quality score may be presented
+as verified merely because a workflow generated them.
+
+| Case | Checkpoint mapping | Observable pass and required refusal/recovery | Minimum evidence |
+| --- | --- | --- | --- |
+| WP01 | W01, W03 | Draft-to-suggestion and declared optional context/media contracts validate before load. Missing ports, wrong types, oversize inputs and invalid outputs fail without modifying the draft. Only compatible workflows are selectable; unavailable ones explain why. | Exhaustive contract cases + qualified adapter output validation. |
+| WP02 | W05 | Select a saved workflow beside the composer, run it manually, compare original/suggestion, apply, undo, keep original or cancel. Explicitly enabled before-send mode pauses for review. Nothing is silently sent; switching the hook off restores ordinary Send. Keyboard/focus and supported viewport checks pass. | Browser + native interaction. |
+| WP03 | W02, W05 | Bind each run/result to the chat, draft revision, workflow revision, model-profile versions and selected input snapshots. Editing a draft/attachment, switching chats, closing a chat or replacing a workflow cannot apply a late result to a different target. Editing a graph cannot mutate its active run. | Integration + adversarial browser completion ordering. |
+| WP04 | W02, W05 | Double-click Enhance/Send or reconnect resolves to one enhancement run and at most one explicitly authorized message. Sending a reviewed draft does not re-enter enhancement. A newly edited draft requires fresh review; no recursive hook chain or automatic retry. | Integration + browser duplicate/reconnect tests. |
+| WP05 | W02, W05 | Cancel, timeout, worker crash, invalid suggestion and restart preserve the original draft/attachments with truthful interrupted/failed states. Nothing resumes, applies or sends automatically. The user can retry or deliberately send the original. | Fault injection + packaged restart. |
+| WP06 | W04, W05 | Enhancement shares the one-run/two-stage resource budget with builder runs. A loaded chat model is neither silently unloaded nor replaced; show waiting or require explicit stop-and-run. Low-memory refusal is recoverable, Stop remains available and owned cleanup is confirmed before lease reuse. | Integration + physical CPU/NVIDIA ownership/cleanup. |
+| WP07 | W02, W06, W08 | Show exactly which draft/context/attachments enter the local workflow. Any retained content uses the private run store with explicit retention controls, never analytics records, diagnostics or default exports. Preserve ADR 0015's content-free prompt-check storage. Export/import carries no chat binding, content or hook authority by default and never auto-enables a hook. | Storage/export inspection + privacy tests. |
+| WP08 | W05, W06, W07, W08 | The same pinned prompt-enhancement workflow works in Build/Run/Results, the composer and installed headless runner without a second engine. Genuine-model results satisfy declared contracts/tolerances; completed private results and selected hook settings survive upgrade with no automatic execution. Two packaged smokes and owner review cover the composer path. | Exact packaged/signed candidate + real model + update retention + owner review. |
+
+Every case requires its own content-free receipt using the fields above; source
+contract tests alone do not pass the packaged/native cases. These gates define
+required behavior only, not an implementation or acceptance claim.
 
 ## How to use this contract at each checkpoint
 

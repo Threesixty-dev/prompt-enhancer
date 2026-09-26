@@ -1,6 +1,7 @@
 # Product feature and readiness matrix
 
-Updated 2026-09-23 for checkpoint B00. This is the authoritative beta ledger,
+Updated 2026-09-26 for the workflow/composer scope decision and B00ac notice CLI;
+B00 remains open. This is the authoritative beta ledger,
 not a release certification. The filename is retained to preserve existing links.
 It distinguishes code present in this working tree from a product a new user can
 install, sign into, or buy. The repository's synthetic fixtures and local tests
@@ -44,6 +45,30 @@ is 32 nodes, including at most 16 model nodes, at most two concurrently executin
 stages, and one active workflow run. Sequential scheduling must support unloading
 between model stages for constrained-memory devices.
 
+**Owner reaffirmation, 2026-09-26:** visual multimodel workflows, including
+qualified text/image/audio paths and genuine parallel execution, remain required
+for the first beta even though this moves beta completion further away. They are
+not a post-beta option or grounds for weakening the existing release gates.
+
+The same saved workflows must also be usable for **prompt enhancement from the
+Agent chat composer**. Here "hook" means an internal, optional pre-send workflow
+step, not arbitrary shell execution or a newly enabled external-provider hook.
+Select a compatible saved workflow beside the draft, run it manually or opt into
+review-before-send, and compare its suggestion with the original before applying
+it. Never silently replace or send the draft. Reuse the workflow engine and
+existing prompt-check boundaries; do not create a second scheduler or treat
+model advice as a measured improvement. The existing basic prompt check is not
+evidence that this workflow integration exists.
+
+Acceptance cases **WP01–WP08** in the
+[workflow prompt-enhancement contract](beta-acceptance-gates.md#composer-prompt-enhancement-hook-wp01wp08)
+cover typed inputs/outputs, review, stale drafts, duplicate sends, cancellation,
+resource ownership, privacy and installed-app parity. They are required parts of
+W01–W08, not a separate checkpoint campaign.
+**Implementation: not started. Latest result: not run. Source/artifact: no
+implementation commit or qualifying package.** Next action: retain this contract
+through B00 closure and W00 qualification, then implement at the mapped W slices.
+
 | ID | Required beta result | Current state / gate |
 | --- | --- | --- |
 | W00 | Qualification and packaging feasibility: freeze profiles, fixtures, hardware and dependencies; prove early compiled text/image/audio workers. | Required, not started; gated on B00. No profile, hardware or package acceptance exists. |
@@ -51,7 +76,7 @@ between model stages for constrained-memory devices.
 | W02 | Durable sequential engine with persisted run state, deterministic dependency ordering, cancellation/recovery and unload between constrained-memory model stages. | Required, not started; native owned-process/model cleanup foundations required. |
 | W03 | Production model adapters for the explicitly supported local text, image and audio formats/runtimes. | Required, not started; no arbitrary model/runtime compatibility is implied. |
 | W04 | Resource-aware parallel execution capped at two ready stages, 32 total nodes, 16 model nodes and one active run. | Required, not started; measured RAM/VRAM and cleanup evidence required. |
-| W05 | Visual builder and model advisor with typed composition, including image-classifier → LLM → rendered-output flows and reasoned compatible-model recommendations. | Required, not started; native UX and genuine device/profile acceptance remain separate. |
+| W05 | Visual builder and model advisor with typed composition, including image-classifier → LLM → rendered-output flows, reasoned compatible-model recommendations and saved prompt-enhancement workflows selectable in the Agent composer. | Required, not started; native UX, WP01–WP08 and genuine device/profile acceptance remain separate. |
 | W06 | Headless export/import for the installed Prompt Enhancer runner, binding workflow and model/runtime requirements without weights, credentials, source history or arbitrary code. | Required, not started; not standalone/package acceptance. |
 | W07 | End-to-end qualification of the exact installed-runner workflow across supported local modalities, limits, interruption/recovery and cleanup. | Required, not started; qualifying native/hardware/package evidence required. |
 | W08 | Beta integration with B00–B11, preserving their custody, privacy, packaging, native acceptance and release gates. | Required, not started; cannot close or bypass any B00–B11 gate. |
@@ -1050,6 +1075,45 @@ after two fixture corrections, so the clean transfer and package-level
 acceptance remain blocked rather than being reported as passed. No model or
 native app process was used for this test.
 
+### B00ac frontend notice command boundary — September 26
+
+The interrupted `scripts/prepare_frontend_notice_inventory.py` command and its
+new direct suite are now reviewed as a bounded source-custody slice. Before the
+fix, injected unknown domain errors exposed their text and unexpected runtime/OS
+errors escaped; the direct regression run had **5 passes / 3 failures**. The
+command now emits only allowlisted diagnostic codes, sanitizes unexpected
+exceptions, and rejects abbreviated arguments without echoing submitted values.
+This is a defensive synthetic reproduction, not evidence of an actual private
+data incident. No verifier or dependency obligation was relaxed.
+
+The final direct suite passed **14/14**. Independent combined validation passed
+**106/106**, with no skips, in **4.09 seconds** across
+`test_prepare_frontend_notice_inventory_cli.py`, `test_frontend_notice_inventory.py`,
+`test_frontend_module_inventory.py`, `test_frontend_package_bindings.py` and
+`test_beta_acceptance_gate_inventory.py`. Tests ran with `-B`, cache disabled,
+external fixture storage and the incremental bounded receipt plugin. The receipt
+ended normally with 106 unique passes (318 phase passes), zero failures/skips;
+journal SHA-256: `ac2b5e54e5498c010c6a87fd584182fefdb55187170be02b5660527341a034c7`.
+
+The successful synthetic staged-file journey uses the real binding, manifest,
+hash and module verifiers. It checks report contents and output digest/size;
+wrong graph hashes and changed installed notices cannot publish a report, and
+existing output bytes are preserved. Both report and receipt retain
+`complete=false` and `release_accepted=false`. This is not a real Node/Vite build,
+independent npm-tarball provenance, dependency-notice closure, compiled package
+or installation acceptance. B00 and B08 remain open.
+
+Source base: `906008d`; command SHA-256:
+`0c7baff288a2f35656868b48e4b3e2122a7db98e719479798fdd0fe78c01862f`;
+direct-test SHA-256: `c3cd135978495174dd13009fdcf809ea048a4927d5b722e6b111ea5a7d82a3f4`.
+The repository privacy scan passed, private source visibility was rechecked, and
+the commit identity check confirmed a public/noreply identity without recording
+it. No app, model, GPU worker, listener, network download or native window was
+started. Small synthetic external test directories and the content-free receipt
+are retained; attempted worker-fixture cleanup was refused and was not retried.
+Next: continue the remaining B00 source/dependency review, then the real
+release-bound frontend inventory and notice-closure work under B08.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -1101,7 +1165,7 @@ their original code/artifact scope and cannot close these rows automatically.
 | B09: signed per-user install, verified update/recovery | Required | Verification/staging/handoff foundations; actual native executor missing | V01, V14, V15, V16, V17 | Not run / clean Windows + native update | Owner identity/keys; durable operation journal, exact reviewed consent, retention/recovery, no reboot/schema downgrade misuse. |
 | B10: usable supported layouts and accessibility | Required | UI exists; no current full acceptance matrix | V02–V04, V08, V12–V14 | Not run / native/browser sizes and scaling | Test 1280×720, 1366×768, 1920×1080; 100/125/150/200% supported scaling; keyboard, focus and failure states. |
 | B11: signed RC, clean-machine pilot and owner acceptance | Required | No qualifying release candidate | V01–V18 | Not run / exact RC and clean CPU + physical NVIDIA | Full quality gate, two consecutive packaged smokes, zero P0/P1, cleanup, owner review, approved binary-only publication. |
-| W00–W08: bounded local typed multi-model workflow | Required | Approved scope; not started and gated on B00/native foundations | W00–W08 | Not run / exact installed runner + supported local text/image/audio profile | Implement only after its gates: 32 nodes, 16 model nodes, two concurrent stages, one active run; no arbitrary code or remote connectors. |
+| W00–W08: bounded local typed multi-model workflow | Required | Reaffirmed September 26, including Agent composer prompt-enhancement hook; not started and gated on B00/native foundations | W00–W08, WP01–WP08 | Not run / exact installed runner + supported local text/image/audio profile + composer journey | Implement only after its gates: 32 nodes, 16 model nodes, two concurrent stages, one active run; review before applying/sending, no arbitrary code or remote connectors. |
 | Post-beta: accounts/payments/teams/hosted/social/new integrations | Deferred | Partial source/tests retained | Outside beta gate | Not run for release / no activation | Do not expand beta scope. A later owner decision is required. |
 
 ## Prioritized beta blocker list
