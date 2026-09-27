@@ -1562,6 +1562,74 @@ commit or push occurred. **B08 remains open:** next complete exact dependency an
 license-notice inventory, then build from clean reviewed source and qualify native
 behavior on that exact candidate; signing and clean-machine acceptance remain later.
 
+#### B08 frozen dashboard CLI and exact notice qualification — September 27
+
+Requirements V17/V18, **required, partial pass**. The reusable offline dashboard
+CLI and its tests are committed as `cc7bc35` and pushed to the private source
+branch. Only those two reviewed files entered that code commit; unrelated pending
+work remained intact. A single confirmed `claude-opus-5-5`/high worker implemented
+the wrapper around the existing builder, with one bounded test-harness correction.
+The CLI emits only fixed scalar receipt fields and sanitized failure codes;
+private paths, exception contents and unknown fields are excluded.
+
+Independent CLI/dashboard/module-inventory selection: initially 181 passed and
+three Windows subprocess cases failed before the CLI started. An isolated probe
+confirmed the virtual-environment launcher needs two owned process slots rather
+than one; only the test cap was corrected, not production limits or assertions.
+The corrected selection passed **184/184** in the isolated checkout and again in
+the primary checkout. Primary output SHA-256:
+`98170b910321af11c3ccea06c0c3fe1adb9e671b46fba0b2fb01f1fb0b3d8013`.
+CLI source SHA-256:
+`f398655002cd6fdb4bd958f94f9043924b9c42e9788cfbda66422bea2735012a`.
+Whole-repository privacy scanning and staged diff checks passed.
+
+The actual release-input path was then exercised, not just a mocked build:
+
+- Froze 641 frontend source files; source-manifest SHA-256
+  `874ec83e9975c518f53c8b6c07ea044f3140d80252ac64e8eba10afb8f0d4418`.
+  This remains a **dirty-development snapshot based on `698a034`**, not a clean
+  release candidate. The first preparation harness omitted the platform home
+  identity required by the external-output safety check and failed before
+  publication. A diagnostic reproduced that failure; preserving the identity
+  input corrected the harness without reading private configuration or weakening
+  the check. The corrected dependency preparation completed in 302.88 seconds.
+- Fresh locked dependency preparation with lifecycle scripts disabled produced
+  7,559 files / 210,315,090 bytes. Its installed-file manifest exactly matches
+  the retained prior dependency manifest. Dependency provenance SHA-256:
+  `0858fd8c2e7cf905cd6b603badc3d70647ea7ce385462cdbd3589cac7e4ae855`.
+  The 41 missing packages are declared optional platform entries, not waived
+  required dependencies. Independent registry-tarball proof remains absent.
+- The new CLI built successfully in 76.62 seconds, with app/Node typechecks and
+  existing source/tool/runtime/output verification. All **90 generated outputs**
+  were independently rehashed. Dashboard manifest SHA-256:
+  `cf69b922feb5bbcdf1870f26613f8bc71a07dc87de9b8f85e33a9af176be2cd1`;
+  module graph SHA-256:
+  `41094253d2592bf169ae19342bd4efcfb26d29207956a0a4a0ed16d51ccac76d`.
+  Zero PDF parser modules, original PDF viewers, PDF workers or source maps
+  shipped in this dashboard; the unavailable-viewer module is present.
+- All ten deferred boundaries passed. Unchanged byte limits passed: shell
+  1,170,667/1,180,000; incremental Agent 569,479/575,000; initial Agent
+  1,740,146/1,750,000.
+- The exact new graph yielded **73 packages / 73 notice files**, zero missing
+  notices and zero opaque assets. Every notice's source bytes were independently
+  checked in the bundle. Two renders were identical: 143,190 bytes, SHA-256
+  `4ade2067906c57e674b6fbffe9d566858f1ce13d89a17351066f715a4e7225c5`.
+  Inventory SHA-256:
+  `1af0e00b161b7eb4ee0236d0ad12ad2745515494d15c87b9e04ee69b8ebf1654`.
+
+Evidence scope: unit, real filesystem, owned CLI processes and frozen frontend
+build—not a compiled/signed Windows package or native acceptance. The remaining
+notice gaps are installed-metadata provenance and undetermined obligations.
+`complete` and `release_accepted` remain false; no licensing clearance is implied.
+All task-owned process trees/readers/handles confirmed cleanup. No local inference
+model, personal app, provider data or GPU workload was touched; no reboot occurred.
+Build outputs and raw evidence remain external, and the running app was not updated.
+
+**Next concrete action:** integrate this exact PDF-free dashboard and notice bundle
+into the compiled Windows candidate, inspect the payload, and qualify its actual
+runtime/native journeys. Complete application/runtime/proxy notice closure and
+clean-source custody before signed installation/update and clean-machine gates.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
