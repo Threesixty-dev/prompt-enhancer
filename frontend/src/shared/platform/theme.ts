@@ -24,8 +24,16 @@ export function readStoredTheme(storage: Pick<Storage, "getItem"> | null | undef
 
 export function applyTheme(theme: ThemeName, root: HTMLElement | null | undefined = globalThis.document?.documentElement): void {
   if (!root) return;
-  root.setAttribute("data-theme", theme);
-  root.style.colorScheme = theme;
+  root.setAttribute("data-theme-applying", "");
+  try {
+    root.setAttribute("data-theme", theme);
+    root.style.colorScheme = theme;
+    // Resolve the new palette while transitions are suppressed. Removing the
+    // marker afterwards cannot interpolate old foregrounds over new surfaces.
+    void root.offsetWidth;
+  } finally {
+    root.removeAttribute("data-theme-applying");
+  }
 }
 
 export function persistTheme(theme: ThemeName, storage: Pick<Storage, "setItem"> | null | undefined): void {

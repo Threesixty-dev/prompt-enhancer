@@ -23,6 +23,7 @@ describe("theme", () => {
     const root = document.createElement("html");
     applyTheme("light", root);
     expect(root.getAttribute("data-theme")).toBe("light");
+    expect(root.hasAttribute("data-theme-applying")).toBe(false);
     expect(root.style.colorScheme).toBe("light");
     applyTheme("dark", root);
     expect(root.getAttribute("data-theme")).toBe("dark");
@@ -30,5 +31,18 @@ describe("theme", () => {
     persistTheme("light", storage);
     expect(storage.store.get(THEME_STORAGE_KEY)).toBe("light");
     expect(() => persistTheme("dark", { setItem: () => { throw new Error("full"); } })).not.toThrow();
+  });
+
+  it("removes the transition guard when style resolution fails", () => {
+    const root = document.createElement("html");
+    Object.defineProperty(root, "offsetWidth", {
+      configurable: true,
+      get: () => { throw new Error("synthetic layout failure"); },
+    });
+
+    expect(() => applyTheme("light", root)).toThrow("synthetic layout failure");
+    expect(root.getAttribute("data-theme")).toBe("light");
+    expect(root.style.colorScheme).toBe("light");
+    expect(root.hasAttribute("data-theme-applying")).toBe(false);
   });
 });

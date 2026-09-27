@@ -1,7 +1,7 @@
 # Product feature and readiness matrix
 
-Updated 2026-09-26 for the serial B00–B11 campaign and independent B00 baseline checks;
-B00 remains open. This is the authoritative beta ledger,
+Updated 2026-09-27 for the reviewed-source handoff and B08 development evidence;
+B00 remains open without blocking independent source work. This is the authoritative beta ledger,
 not a release certification. The filename is retained to preserve existing links.
 It distinguishes code present in this working tree from a product a new user can
 install, sign into, or buy. The repository's synthetic fixtures and local tests
@@ -10,6 +10,27 @@ are not evidence of a packaged product or a live external service.
 Point-in-time dispositions such as "committed locally" and "nothing was pushed"
 record the state at their named B00 review event. They are retained as historical
 evidence, not asserted as live remote-sync status when this ledger is read.
+
+## Session handoff — September 27
+
+The owner requested a source commit, push and primary-branch merge to continue
+in another session. The verified source remote is private and its primary branch
+is `main` (there is no `master` branch). This handoff includes the five reviewed
+B10 theme implementation/regression files and this ledger, together with the
+previously committed source history. It is not a release or beta certification.
+
+At selection time, 632 individual worktree entries were pending. The other 626
+entries remain preserved locally, unstaged and excluded from this commit: their
+classification includes unfinished source, tests, generated output and unrelated
+work. A fresh checkout of `main` is therefore not the entire development tree
+used by the recorded B08 build. Continue in the existing project checkout to
+retain that work; review coherent groups before committing them. Do not discard
+the dirty tree, external test receipts, build outputs or quarantine.
+
+Next bounded work remains B08 dependency/license-notice closure and reviewed
+source custody, followed by clean-source/native qualification. Existing B00–B11
+and W00–W08 release gates remain open as recorded below. No model loading,
+reboot, installer execution or automatic continuation is part of this handoff.
 
 ## Current beta contract
 
@@ -27,11 +48,17 @@ later B01 hides or clearly separates unsupported UI. Client-side JavaScript
 remains inspectable; compiled packaging is deterrence, not uncopyability.
 
 The owner authorized a sequential beta campaign on September 23 and explicitly
-requested all B00–B11 tasks on September 26. B00 is still
-the active gate; B01 has not started and cannot be claimed from this authority.
-Record each checkpoint's evidence and continue only when its exit gate is met.
-Owner-dependent signing, hardware, custody or product decisions remain explicit
-stops. No recurring automation, repository visibility change, reboot, release
+requested B01–B11 implementation without a blanket B00 hold on September 26.
+**This supersedes the earlier implementation-order hold, not release gates.**
+Advance independent code/test tasks while blocked acceptance work remains
+explicitly open. A missing binary-release repository blocks publication; a
+missing signer blocks signing; unavailable hardware blocks its real acceptance.
+None alone blocks unrelated navigation, persistence, tooling or metric fixes.
+Do not call a checkpoint accepted until its complete exit evidence exists.
+Preserve/review dirty changes per file, use the private source checkout, and
+record each task before continuing. Actual shared-code dependencies, unsafe
+process ownership and new product decisions still stop the affected task.
+No recurring automation, repository visibility change, reboot, release
 or source push is authorized by this ledger. One implementation worker maximum; two
 hypothesis-driven corrections maximum for a failure; no blind reruns or budget
 increases. Use synthetic data and hidden, bounded, owned processes only.
@@ -1189,6 +1216,352 @@ remaining work and quarantine are preserved. No source push or release is part
 of this slice. The resulting commit is identified by Git history and handoff,
 not a self-referential digest in this document.
 
+### Dependency-aware B01–B11 campaign — September 26
+
+The current owner request permits independent implementation while release-only
+dependencies remain open. New evidence below uses the working tree based on
+`acb4b78`, not a clean release candidate. For the initial source-only campaign
+selections, artifact digest was **not applicable** and no compiled or signed app
+package was exercised. The later B08 row explicitly records development
+compiled-probe distribution and executable digests; those are not a signed,
+installable release package. External receipt identifiers refer to retained
+bounded test output, not files to ship or provider records.
+
+| Requirement / external receipt ID | Observed result | Evidence scope and remaining limit |
+| --- | --- | --- |
+| B01, `b01-supervised-00f731c223564d84a4d637763493760e` | 41 tests passed; zero failed/skipped; 15.08s; exit 0; owned cleanup confirmed | Independent manifest/deferred-navigation and Agent/Models unsaved-navigation checks. JSON report SHA-256 `795c0f28427f4ffeae9d02ac1968163b19278d5aa8e79258df1ed6c6db73e4bd`. Before the subsequent Settings slice; DOM tests are not browser/native acceptance. |
+| B01 Settings, `b01-settings-sol-20260926` | TypeScript check passed; 186 tests passed after one test-only correction; zero failed/skipped | Thirteen route/control suites, including the new Settings page, theme persistence, update-status-only behavior and guarded navigation. Parent independently read retained report; SHA-256 `4e5527c9624819d3ed37b9ede46152ab1de7dbb793864ef41757877d30344e15`. Original 185/186 report is retained: the test tried to spy on an intentionally absent optional update method; no application behavior was changed to pass. |
+| B01/B10 build/browser, `b01-build-supervised-mui3qoz5` | Production build and unchanged bundle budgets passed; eight browser cases passed after one harness-only correction; owned cleanup confirmed | Settings at 1280×720, 1366×768, 1920×1080, 640×360 and 320×720; mobile navigation; deferred Team/Social deep links. Headless browser, disposable loopback static server and synthetic unavailable APIs; no mutation requests or uncaught page errors. Viewport checks do not prove Windows scaling/native acceptance. Manifest SHA-256 `b6bf2f80d85bd5c6ec59530e8f63c63ab13774f987081f93f68e2454ff73a458`. Original harness expected disabled status for an HTTP outage, while the existing transport correctly offers a read-only retry. |
+| B01 imported analytics labels, `b01-imported-analytics-20260926` | Two direct component suites passed 31/31 after one test-fixture correction; zero failed; exit 0; empty stderr | Projects/Sessions headings remain stable, while visible help now distinguishes read-only imported provider analytics from editable Agent projects/chats. Synthetic mode says demo-only and an `Open Agent chats` action performs only the existing Agent-route navigation. JSON report SHA-256 `6fbc6426fa5d18d7a38ef484dc29bdc404171545db0678161ccf9acd2b165f85`. This is a small user-visible correctness check, not a whole B01 checkpoint or provider-network/mutation test. |
+| B02, `beta-b02-native-0ab5b10780b1454babf12a644ec5f729` | Ten consecutive native Agent launch/document-load/close cycles passed; each exit 0, port released and owned cleanup confirmed | Actual hidden Windows webview and isolated local service with disposable synthetic state, private profile, ephemeral port and provider ingestion disabled. Per-cycle durations 15.77–17.25s; content-free `lifecycle-summary.json` retained. Existing bundled dashboard, not the new B01 bundle. No folder picker, native approval, model inference, main/child interaction or installed package claimed. |
+| B02, `beta-b02-service-885c72afeffc4cb092cf29180d5c87c6` | 21 tests passed; zero failed/skipped; 20.03s; exit 0; owned cleanup confirmed | `test_desktop_lifecycle.py`: synthetic service restart/forced-exit, occupied-port ownership and cleanup/error boundaries. Does not replace full native main/child-window and installation acceptance. |
+| B03/B05, `beta-b03-b05-4b9de24bb3a74f519ed2f5cf85bfa4a8` | 125 tests passed; zero failed/skipped; 53.28s; exit 0; owned cleanup confirmed | `test_agent_catalog.py`, `test_agent_history.py`, `test_agent_write_proposals.py`, `test_agent_artifacts.py`; synthetic persistence/proposals/artifacts. Native authorities are substituted; actual human approval and installed-app restart remain unproven. |
+| B04, `beta-b04-boundaries-c08329b155d64b45a02e169eb5eda637` | 12 selected tests passed; zero failed/skipped; 2.69s; exit 0; owned cleanup confirmed | Coordinator switch/active-inference/cleanup refusal, capability gating, exact-counter unknowns, context preflight and hardware-admission negatives. Fake runtimes; no real inference, download, GPU usage or compatibility qualification. |
+| B06/B07, `beta-b06-b07-7118aa37629643a7b82f1db5d0b52a26` | 79 tests passed; zero failed/skipped; 26.41s; exit 0; owned cleanup confirmed | Metric operability/projection, session/task provenance, calibration ratings and MCP catalog modules. Synthetic values, storage and fake registry transports; not the canceled packaged outage run, real MCP installation or full rendered-metric qualification. |
+| B07 metric contracts, `beta-metric-contracts-d9_pcefp` | 39 unique backend tests passed; zero failed/skipped; 40.38s | Storage/API metric contracts and exact synthetic calculations. Receipt SHA-256 `c81077106ac4f40be2f83ace4bb0779801d2aaa253cc90bb1f640dbd9c5843b1`. This is not the same fixture carried end-to-end into rendered UI or evidence that all 20 declared metrics are measured. |
+| B07 metric UI, `b07-metric-ui-20260926` | 84 JSDOM tests passed; zero failed/skipped; 11.73s; empty stderr | Synthetic rendered metric selection and unavailable/conditional presentation. Receipt SHA-256 `a2e7f553697784705131b2da51c0cd95f2201eba641fa9b8f2a08d5c21103f36`. JSDOM is not browser/native mini-window acceptance and was not the backend fixture above. |
+| B06 packaged restart/outage, `b06-cache-campaign-20260926/attempt3.summary.json` | Real service restart, injected outage and production packaged UI passed in 21.31s; all owned resources cleaned | Exact cached age survived restart; uncached listing and registry-required exact review returned 503 without substituted results. Cache and candidate stayed unchanged; zero forbidden egress, mutation or page errors. Receipt SHA-256 `3930117cfd89198b181e0391c0acdcd62c35976887d996d166523c50a7ebfde9`. Development unsigned source-shipping package; not the latest frontend, signed RC, official-network test or native MCP installation. |
+| B05/B08 egress, `b05-b08-egress-sol-20260926` | Original exact inventory failure reproduced; 49 focused tests then passed, zero failed/skipped | Reviewed public-fetch/native-approval and pinned wheel-acquisition/explicit-CLI boundaries; accurately classified their distinct purposes. No external requests or installation exercised. Exact census retained and unknown-module rejection added. |
+| B05/B08 independent gate, `beta-egress-independent-43c6ba6cf90843ed847f6a2a12291c33` | Entire hardening module passed 49/49; 4.50s; exit 0; cleanup confirmed | Independently closes the identified dirty-tree egress-census failure; not a full backend, distribution or dependency-notice pass. |
+| Campaign ledger/privacy, `beta-campaign-gates-15a36080fea44f0fb4c655bbf1729a1e` | Four ledger-contract tests passed; full privacy scan then failed with four prohibited generated artifacts | Native testing left Windows cache databases under an unresolved environment-variable directory in the checkout. No database contents were read. All four files, 989,728 bytes, were moved recoverably into external `quarantine-campaign-cache-16bfc9f02b0549078a64ad37d7abac67`; prior quarantine remains untouched. Native process cleanup passed, but this observation invalidates any complete native file-isolation/cleanup claim. Recheck privacy after quarantine; require resolved environment values and external working directory for further native probes. |
+| B02 environment correction, `b02-native-boundary-sol-20260926` | Corrected pure boundary tests passed 12/12, zero failed/skipped on Windows; one corrected hidden Agent smoke passed | Probe now refuses missing/unexpanded Windows environment and source-tree cwd/mutable roots before desktop/webview imports. Import-refusal tests block root and submodule imports, with explicit Windows-only filesystem semantics and cross-platform unsupported-platform coverage. Corrected native run: entry 0, window created/loaded/closed, listener released, temporary app state removed, no timeout/error/stderr and no new checkout artifact. Process cleanup confirmed. Five empty protected external profile directories were retained after safe deletion was denied; no files remain there. No native approval, picker, model or installed package acceptance. |
+| Independent final boundary/ledger/privacy, `beta-campaign-final-41005284a61c46da8663413794709c9f` | 16 tests passed, zero failed/skipped; full privacy scan passed with zero findings after quarantine; all owned cleanup confirmed | Independent corrected native-environment tests plus ledger-contract tests (0.72s); source privacy scan (10.73s). This supersedes the four-artifact scan failure without erasing its record; not release-package privacy acceptance. |
+| B09 journal integration, `beta-update-integration-f9n6nz4m` | New journal tests passed 21/21; independent update/handoff/recovery/API/MCP selection passed 195/195 with zero skips in 8.12s | Durable bounded apply-operation records, exact release/status binding, ordered CAS transitions, restart ambiguity, corruption/interruption refusal and no false success. Independent receipt SHA-256 `0baf3ef570fc8b0100f27aa40ff7f42a52b2d003433730b1f291769a2c0497ae`. Journal remains uncomposed and non-authoritative: no apply executor, native consent, signer authority or installation was added; `can_apply` remains false. |
+| B09 uncomposed execution boundary, `b09-independent-final-ljhk9gcy` and `b09-independent-final-r0fk8lcr` | Updated seven-module regression passed 132 tests with no skips in 8.47s; separate real-held synthetic-package review passed 11 tests in 1.25s | Exact-binding native-token boundary, held quiescence and anti-swap lease, journal-before-helper ordering, fixed encoded PowerShell transport, durable installer-return distinction and fail-closed recovery. Receipt SHA-256 values respectively `cdbc97ee9b03073ed9a17553d8f2622a6fc8cef2b66cab03ea75ba6c9775137b` and `dec53b539cb8b7aca2271af5475a10452d8f8fcf26a9515b5d75182db1afc5c2`. Synthetic/fake deployment only; these overlap prior update selections and must not be summed. |
+| B09 broader independent gate, `b09-independent-final-3pjgsse1` and corrected `b09-independent-final-pnfjbf1c` | Initial selection: 515 passed, one harness failure, two skips; corrected affected hardening module: 49 passed in 6.67s with empty stderr | The only failure was the sterile external harness omitting Git from `PATH`; source was unchanged and the corrected module passed. Receipt SHA-256 values respectively `7833a2047bd8a90656c09057119c80d2fd9443094b84d321f0c4130ef53c0c3f` and `1fd30f8da2332bd08dc0e179ce3b9f45f3fdbacc6cba22d41d96a960f4909603`. The two symlink/reparse fixture skips named above remain open. This selection overlaps the B09 regressions and is not additive. |
+| B10 first-paint theme contrast, `b10-visual-followthrough-20260926` | Four focused unit tests and two maintained real-browser cases passed; independent six-journey Agent rerun passed in 7.81s; parent gate-inventory tests passed 4/4 and the full current source-checkout privacy scan had zero findings; owned cleanup confirmed | Exact five-file implementation/regression scope and bounded evidence are recorded below. Computed contrast covers only three sampled Agent texts in source React fixtures with synthetic transport. The privacy result covers repository source, not a compiled/signed payload; none of these checks proves broad accessibility, native scaling, packaged-app privacy or model acceptance. |
+| B08 supported standalone completion, `attempt-supported-standalone-1` | **Development feasibility pass; B08 and release remain open.** Normal standalone compile exited 0 in 1,385.84s and its packaged runtime probe exited 0 in 3.53s | Receipt SHA-256 `6ee90e38211a22b43d91de23d3f096d8473c2df951abdf98c6e6b47a0d66d947`; parent independently rehashed the distribution and executable and verified receipt fields. Payload/runtime details and remaining release gates are recorded below. |
+| B08 current-UI actual application, `b08-actual-app-runtime-resume.v1` and `b08-compiled-browser-probe.v1` | **Development actual-application pass; B08 and release remain open.** The unchanged compiled CLI service passed bounded runtime checks, then its `local_real` Agent UI passed a 12.19-second headless-browser journey at three required viewports | Resume receipt SHA-256 `5a5531679e143db4e70f9ffe023aaf277c92f4f997047e4dc5c27b7729f254ec`; browser receipt SHA-256 `2ca4a5022e1c6bacdd9d2b637b527eb21483dfb959b964d436b763957a754121`. Exact artifact, embedded-metadata correction, browser scope and remaining limits are recorded below. No rebuild or payload mutation occurred. |
+| Final source privacy, `beta-final-privacy-ualulon0` | Zero findings in 11.45s; canonical diff check exit 0 | Current dirty source observation only. It does not replace exact compiled/signed-candidate privacy or package inspection. |
+
+No personal application, port, provider session or model was a test target. No
+test-owned model was loaded, so no GPU-unload pass is inferred. The native
+probe and desktop entry source hashes were observed after execution, not used
+as a pre-run frozen source binding; keep this evidence scoped to development.
+The selected passing tests reduce uncertainty but do not accept entire B rows.
+Continue source work; retain signing, actual model/hardware, clean installation,
+update execution and owner-review requirements as unresolved release gates.
+
+#### B10 first-paint theme contrast evidence — September 26
+
+The exact reviewed source scope is five files: implementation in
+`frontend/src/app/theme.css` and `frontend/src/shared/platform/theme.ts`; direct
+unit coverage in `frontend/src/app/themeFirstPaint.test.ts` and
+`frontend/src/shared/platform/theme.test.ts`; and maintained Chromium coverage
+in `frontend/e2e/theme-first-paint.spec.ts`. The change removes the blanket
+descendant/text-colour transition and makes `applyTheme` resolve a new palette
+under a temporary transition guard that is removed in `finally`. It does not
+change the palette, bundle budgets, Agent behavior, permissions, metrics or
+runtime composition.
+
+Two focused unit files passed **4/4** tests. The maintained browser regression
+passed **2/2** cases with one worker in 4.9 seconds: normal and reduced-motion
+variants each require real rendered samples, cover first paint and the production
+`applyTheme` dark-to-light-to-dark path, and evaluate effective foreground and
+composited ancestor backgrounds. Its pre-render observation is bounded at ten
+seconds for cold Vite/CI loading, but a successful observation ends only after
+all required targets appear plus 300 ms of frames; missing targets fail. Vite
+used `envDir:false`; profiles, cache, output and reports were external; cleanup
+was confirmed. An isolated external serve-time override restored the original
+theme CSS and `applyTheme` without changing the working tree. The same maintained
+test then failed both motion variants on the first `Projects` sample at **1.199:1**,
+demonstrating that the regression detects the original behavior.
+
+The retained computed-frame comparison is deliberately limited to three texts:
+`Projects`, `Synthetic coding chat`, and the synthetic assistant response. Before
+the fix, their initial minima were respectively **1.094:1**, **1.004:1** and
+**1.094:1**, and the observed dark-to-light minima were **1.186:1**, **1.090:1**
+and **1.186:1**. After the fix, initial minima were **16.256:1**, **17.853:1** and
+**16.256:1**; theme-change minima were **17.321:1**, **15.564:1** and **17.321:1**.
+These are source-fixture observations, not a census of all application text.
+
+The parent's original six synthetic Agent journeys passed before the fix at
+1280x720, 1366x768 and 1920x1080, but their first chat screenshot exposed the
+transient low-contrast frame; opening the model picker later showed the settled
+palette. After the fix the parent independently reran the same six journeys:
+all passed in **7.81 seconds**, source digest
+`3a3b35d5c8d6f9a4ffedbb5a7b6d8bd80ed904fda395189acf55df4b1d8cc6ca`,
+with owned cleanup confirmed. Passing journey controls did not substitute for
+the contrast regression. An initial external harness attempt failed before the
+browser; it is neither a product failure nor a pass. The retained final passing
+receipts were independently verified, and the harness correction did not change
+product source to pass. No more specific failure label is assigned because the
+bounded retained-log search did not substantiate one.
+
+The parent's post-fix 1280x720 no-model-draft observation also showed the
+timeline's `NO MODEL` badge partly clipped at its upper edge while the composer
+and actions remained reachable. This is a **suspected P2 visual issue** requiring
+separate reproduction and cause analysis, not a confirmed failed core journey,
+not part of the first-paint contrast fix, and not evidence of a universal layout
+pass. The external screenshot is not stored in the repository.
+
+The parent also ran `tests/test_beta_acceptance_gate_inventory.py`: **4/4** tests passed. These validate the gate-document structure and referenced test anchors, not product behavior or the five-file theme implementation. Separately, the privacy command called `scan_repository(Path.cwd())` and reported zero findings across the full current source checkout. That source scan does not inspect the compiled
+or signed payload, replace release-artifact privacy review, or establish native,
+scaling, packaged-UI or broader accessibility acceptance.
+
+#### B06 and B09 campaign evidence — September 26
+
+The packaged MCP cache/restart/outage scenario now has a passing receipt against
+the retained development candidate. It exercised one initial catalog, two search results,
+restart-preserved exact cache age, honest uncached and exact-review 503 failures,
+unchanged cache/candidate state, and complete server, browser, process-tree,
+reader, handle and port cleanup. The three current MCP backend module hashes
+match candidate review 4; its manifest SHA-256 is
+`9e08c053102c6ce064e1dc9e663cf7bfb233d5469c3154640c606d6a34b9671a`.
+One initial fixture placed its artifact root above the synthetic home and was
+refused. The root-only correction then reproduced Full Chromium closing a new
+page under the unchanged eight-process bound. The final run added the dedicated
+headless shell correction and passed under that same bound. No limit was raised.
+
+The B09 source now includes a durable journal plus an uncomposed transaction
+controller, exact-binding native-confirmation seam, held Windows anti-swap lease,
+descriptor-bound final package review and a fixed encoded-command MSIX deployment
+adapter. The journal records installer return separately from relaunch success;
+unknown helper or cleanup outcomes remain installation-may-have-started and are
+never retried automatically. The adapter was substituted in tests, and the native
+candidate resolver is unavailable by default. There is still no Apply route or UI,
+production candidate/quiescence/handoff/relaunch wiring, actual signed upgrade,
+rollback execution, clean-machine installation or authority to change
+`can_apply=false`.
+
+The B07 development host was observed read-only as Windows 11 x64 with 32 GiB
+RAM, a 14-core mobile CPU and a 16 GiB laptop NVIDIA GPU; 14,941 MiB GPU memory
+was free at observation time. No model was loaded and no model or application
+setting was touched. This is capacity context only, not a supported hardware
+profile, inference result, VRAM-cleanup result or native metric acceptance.
+
+The B01 source changes classify all 23 route families, hide deferred actions
+from local navigation, keep synthetic previews explicitly separated, and label
+imported analytics projects/sessions distinctly from Agent chats. `/settings`
+is lazy-loaded and has genuine theme/update-status controls and links to existing
+local settings. Only one theme and one update control are active while Settings
+owns them. The update UI still cannot install; no placeholder install action
+was enabled. Shell/Agent-incremental/initial-Agent payloads are respectively
+1,170,396 / 569,479 / 1,739,875 bytes, within unchanged limits. This source has
+not replaced the owner's running dashboard, been staged, committed or pushed.
+
+The campaign inventory addendum classifies all 613 then-pending entries with
+zero unclassified files (156 implementation, 375 tests/build, 58 documentation,
+14 unrelated and ten original generated files). Its observation precedes the
+inventory addendum itself and final ledger note. Classification is not approval
+of all overlapping pre-existing diffs. All remain unstaged; no broad commit,
+source publication or release was performed. Process/model cleanup and preserved
+external evidence are reported separately from five empty protected test-profile
+directories that were intentionally not force-deleted.
+
+A later documentation-time observation contains **627 pending entries and zero
+staged entries**. The nine new untracked B09 files are classified explicitly:
+five beta implementation files (`apply_execution.py`, both apply-journal modules,
+`windows_msix_executor.py`, and `windows_staged_package_lease.py`) and four direct
+tests (`test_update_apply_execution.py`, `test_update_apply_journal.py`,
+`test_windows_msix_executor.py`, and `test_windows_staged_package_lease.py`). The
+three journal files were already described in the earlier 613-entry addendum;
+this later note adds the execution/lease source and tests without claiming a new
+content review of any other pre-existing or subsequently modified path. The 613
+observation remains historical rather than being rewritten.
+
+#### September 26 owner decisions
+
+The owner selected **Prompt Enhancer** as the public-facing publisher/display
+name for current release planning. This does not establish the MSIX identity
+publisher distinguished name, package identity, signing certificate or keys,
+signer fingerprint, update endpoint, binary repository, support contact or beta
+terms. The support contact remains undecided, and no missing value is inferred.
+
+The owner also approved exactly one guarded 1,800-second continuation of the
+retained B08 C-backend development spike, with four compiler jobs, a 16-process
+maximum, a 4 GiB summed owned-private-memory guard and a 2 GiB available-system-
+memory floor. That attempt completed in 1,019.61 seconds with root exit zero,
+1,651 object files and a linked executable. Peak summed owned private memory was
+1,785,958,400 bytes (about 1.66 GiB). The only owned child still present when the
+root exited was `vctip.exe`; owned-tree cleanup, handle closure and reader shutdown
+all completed. The external summary receipt has SHA-256
+`fc53423b20e901ea13d59f9669af6ff78a65c56a6f96e6b40771a257cff870a7`,
+and the linked executable has SHA-256
+`0d2a907e67d20f48f757635c0d15c02b6eb9fd33398aace4d961cd70edd38e18`.
+The attempt used the retained generated helper identified by SHA-256
+`c5d411f9197bd004de34d23c515ba2e3f4ae80d73dc106241cbb751187249634`;
+it is neither the current release candidate nor approval for another build.
+Earlier bounded termination left the SCons signature database empty, so the
+successful attempt recompiled from the beginning rather than incrementally
+reusing the existing object files.
+
+#### B08 representative compilation feasibility
+
+External receipt scope `b08-nuitka-sol-20260926` uses a development-only candidate:
+CPython 3.11.0 x64, Nuitka 4.0.7, installed MSVC product 18.4.3 / toolset
+14.50.35717 / compiler 19.50.35728. These are not approved release pins.
+The official PyPI Nuitka archive is 4,421,537 bytes, SHA-256
+`26543bfed6009a466ae8608bdc643add81a497e8662e4aaf157cd00aa7fd5b9f`.
+No installed development environment, project dependency lock, user model,
+source package or application setting was modified.
+
+The external probe follows the existing packaged-bootstrap probe shape and
+references actual configuration/bootstrap, disposable SQLite migration,
+dashboard resources, native lifecycle/pywebview/pythonnet integration and an
+internal owned child operation. The required Dependency Walker archive was
+later fetched over official HTTPS for this private spike only: 468,618 bytes,
+SHA-256 `35db68a613874a2e8c1422eb0ea7861f825fc71717d46dabf1f249ce9634b4f1`.
+The extracted `depends.exe` is version 2.2.6000, SHA-256
+`57c483dc985a9757501993e969c2a7043c26517f97fd49a42b33d2d6a4193d8b`,
+and is unsigned. This is an observed HTTPS pin, not publisher-authenticated
+checksum evidence. Dependency Walker is external build-only tooling and its
+stated terms prohibit bundling it with this product. Nuitka's compiler AGPL
+license and separate `LICENSE-RUNTIME.txt` runtime exception both remain
+required build-input notice inventory; neither compiler nor Dependency Walker
+is a payload dependency.
+
+The first corrected compile completed Nuitka analysis and generated 1,651 C
+files. Its initial backend report did not capture a useful SCons error. Later
+bounded backend work with the corrected system-discovery environment demonstrated
+actual compiler activity: the one-job run ended with **393 files bearing `.obj`
+names** in 600.08 seconds, and the four-job run ended with **918 such files** in
+600.11 seconds. Because bounded termination left the SCons signature database
+empty, these are retained-file counts rather than counts of newly completed or
+incrementally reused compilation units. The
+four-job run used a 16-process maximum, 4 GiB summed owned-private-memory guard
+and 2 GiB system-available floor; observed peak owned private memory was
+1,843,281,920 bytes (about 1.72 GiB). It produced no executable. Its 95-byte
+stderr contained only MSVC resolution information and no C compiler error.
+Process trees, handles and readers were confirmed clean after both timeouts.
+The first four-job harness invocation was refused before launch because its
+argument guard expected the `--jobs` value in the reviewed exact shape; that
+external harness input was corrected once. These results show object compilation
+progress, not a completed backend, link, executable, payload or runtime probe.
+
+Bounded backend-only diagnostics then identified the first failure as an
+environment-harness omission, not a demonstrated compiler incompatibility. A
+direct SCons dry run failed in 0.55 seconds with MSVC unresolved because the
+sterile environment omitted `ProgramFiles` and `ProgramFiles(x86)`, which the
+bundled SCons discovery code uses to locate `vswhere`; it then ignored host GCC
+and failed at `g++` detection. With verified system Program Files and Common
+Program Files directories allowlisted, the generated report resolved `CC=cl`,
+`MSVS_VERSION=14.5` and x64. That second diagnostic hit the unchanged 128 KiB
+stdout bound while printing dry-run commands after 13.02 seconds. A third,
+silent diagnostic reached its 45-second timeout. Owned cleanup was confirmed
+for both: the raw second-driver summary conservatively records cleanup false,
+but the owned runner's cleanup failures override output-limit results, so the
+observed output-limit result itself confirms cleanup. Preserve that raw summary
+and this addendum; do not rewrite the evidence. No diagnostic passed, and
+none was a real compiler build.
+
+The earlier dependency-refusal compilation report remains retained externally
+(2,983,755 bytes, SHA-256
+`eaa4383b813f55dfca57f3698fb645089598883c764f3dfe32acad2f7df61ef2`).
+The private-development probe hash is
+`b6bf587e3c89154556148c73b0458058bdd697522a25d77fab698509b41d701f`.
+The generated-source/object trees remain external. In that earlier analysis and
+partial-backend evidence, no first-party `.py` fallback, DLL payload, link,
+executable run or native installation occurred. Supporting
+one-object diagnosis observed the SCons root exit normally while its `vctip.exe`
+helper remained briefly active; the owned tree then cleaned fully. This explains
+an earlier bounded wait without establishing application compilation. Earlier
+harness corrections handled interpreter re-execution/process admission, Python
+archive extraction compatibility, resolved Windows environment values, and
+removal of an unsupported tool option. They are not successful application builds.
+
+**B08 supported standalone development feasibility now passes, but B08 and the
+release gate remain open.** The parent-owned normal Nuitka standalone attempt
+completed without `--recompile-c-only` or manual payload assembly. Compilation
+exited 0 in 1,385.84 seconds under the reviewed 1,800-second, four-job,
+16-process, 4 GiB summed-private-memory and 2 GiB available-system-memory bounds.
+Peak summed owned private memory was 3,538,513,920 bytes. The only helper retained
+after root exit was the exact owned `vctip.exe`; it was explicitly cleaned, and
+tree cleanup, handle closure, reader shutdown and stream closure were confirmed.
+The external summary receipt has SHA-256
+`6ee90e38211a22b43d91de23d3f096d8473c2df951abdf98c6e6b47a0d66d947`.
+
+The supported distribution contains 168 files totaling 182,359,381 bytes and 18
+DLLs, including `python311.dll`. Its full-tree SHA-256 is
+`5a5178387b62b086a6508f98802e9bd0288afdddddb0758adbc3e82fc8ea341d`;
+the linked executable SHA-256 is
+`21aac63d3e758840484d1a8f93dffb403bfd539896b7c4ba128532cbbb8a72a8`.
+The bounded checks detected zero first-party Python source/cache files and zero
+source maps, and the packaged dashboard matched the frozen source snapshot.
+The parent independently rehashed the entire distribution and executable and
+verified the receipt fields.
+
+The packaged probe then exited 0 in 3.53 seconds with a system-only `PATH` and
+confirmed cleanup. It exercised bootstrap, disposable SQLite initialization,
+packaged dashboard resolution, native-bridge import, lifecycle-marker transitions
+and an owned child. It did not create a real native window or listener, run a
+model, use a clean machine, sign/install/update a package, deploy the UI, or prove
+release inventory/notices. The build snapshot was frozen before the B10 UI edit,
+so current frontend-resource freshness was **not established by that historical
+attempt**. The later September 27 actual-application attempt below supersedes
+only that freshness gap, not its other limitations.
+
+The earlier backend-only timeouts, environment diagnostics and successful direct
+link remain historical evidence and are not rewritten as supported standalone
+results. Its then-current next action was to rebuild with the current UI; that
+historical action was completed by the September 27 development attempt below.
+Signing, installation, update/recovery and clean-machine release acceptance remain
+later gates; this feasibility pass does not close or publish B08.
+Independent B02–B07 work continues. Signing, compiled inventory verification,
+clean-source reproducibility and installed-app acceptance remain separate.
+
+#### B08 current-UI actual-application evidence — September 27
+
+An uninterrupted normal Nuitka 4.0.7 standalone compile of the thin production
+CLI entry completed in 1,321.25 seconds with exit 0 and confirmed cleanup. The
+dirty development distribution contains 169 files totaling 175,027,007 bytes;
+its SHA-256 is `a3b4033e05be6cf08d03cb9b0e3e77ad4f8bf8172d7174e6dadfe584dde67f1f`
+and the executable SHA-256 is
+`a3e2fe835ba2afe160fa8ed95d309ab9fc81e0ca2b5f2b59b4d730934adcdddf`.
+The fresh 91-file/5,383,309-byte frontend includes B10 and passed the unchanged
+bundle budget; the payload scan found zero Python source/cache files or source maps.
+
+The original compile receipt remains failed only because it required a loose
+`METADATA` file. Generated code, compiler report, Nuitka loader implementation and
+binary evidence instead prove the requested `prompt-enhancer` 0.1.0 metadata is
+embedded at global constant record 108; the exact metadata and entry-point records
+each occur once in the constants blob and executable. The correction used the
+unchanged distribution—no rebuild or payload mutation. The bounded resume passed
+unsupported interpreter-argument rejection and actual CLI-service health/resource
+checks with a system-only `PATH`; owned hard termination, not graceful shutdown,
+released the port and closed all owned resources. Resume receipt SHA-256:
+`5a5531679e143db4e70f9ffe023aaf277c92f4f997047e4dc5c27b7729f254ec`.
+
+The exact distribution then passed a 12.19-second headless `local_real` Agent
+journey: one fictional project/chat, an unsent draft, model picker at 1280x720,
+1366x768 and 1920x1080, and retained chat after reload/reopen. The draft was
+cleared before reload, so draft persistence is not claimed. External requests,
+page errors, server 5xx responses, sends and model starts were all zero. The
+distribution remained unchanged; cleanup and port release passed with no window.
+Browser receipt SHA-256:
+`2ca4a5022e1c6bacdd9d2b637b527eb21483dfb959b964d436b763957a754121`.
+
+This is dirty source-built CLI/headless-browser evidence, not a release candidate.
+The native global-mutex entry was intentionally not used because it could focus
+the owner's application. Native window/lifecycle, graceful shutdown, actual-app
+restart, folder picker, real model, installation and updates remain unverified.
+Optional ML packages, probes, public notices and update-trust resources were
+omitted. Full source privacy reported zero findings; a separate narrow home-pattern
+scan reported zero matches but is not a full payload-privacy gate. No installer,
+commit or push occurred. **B08 remains open:** next complete exact dependency and
+license-notice inventory, then build from clean reviewed source and qualify native
+behavior on that exact candidate; signing and clean-machine acceptance remain later.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -1199,10 +1572,10 @@ not a self-referential digest in this document.
   `bdf694073425cebe14595ebdd48d0fa4cea6397a5f969ec7176969a1ead49f73`.
   This was a dirty-snapshot source-shipping candidate, not the agreed compiled,
   signed beta, not native byte-for-byte reproducibility, and not installation.
-- The latest two-phase packaged MCP cache/restart/outage execution was
-  **canceled** by the owner. There is no passing receipt for it. Its 37 focused
-  harness tests and the older single-launch synthetic browsing probe do not
-  establish V11 restart/outage acceptance.
+- The September 26 two-phase packaged MCP cache/restart/outage development run
+  passed with the exact receipt recorded above. V11 still requires rerun on the
+  exact compiled and signed release candidate; the receipt does not establish
+  native MCP install/use/revoke/remove acceptance.
 - Native installation, actual update execution, compiled-package acceptance,
   genuine model/hardware and current native approval journeys remain unproven.
   The update handoff evaluator still cannot apply/install an update.
@@ -1217,9 +1590,12 @@ content-free receipt fields. The gate contract is not a second status ledger:
 all current results, blockers and next actions remain here. Its structural
 inventory test guards definition completeness, not application correctness.
 
-The source scope for every row below is the starting dirty snapshot at
-`7888064a1cf25703b6e312da97868edd4573c5b3`; **no release candidate commit or compiled,
-signed artifact digest exists yet**. Vxx are acceptance scenario IDs from the
+Rows with September 26 campaign evidence use the dirty working tree based on
+`acb4b78`; other rows retain their explicitly dated historical source scope.
+An unsigned compiled development artifact digest now exists for B08, but **no
+clean reviewed release-candidate commit or compiled, signed release artifact
+exists yet**.
+Vxx are acceptance scenario IDs from the
 approved plan, not claims that a corresponding executable test has passed.
 For each row, replace the source/artifact binding with exact current evidence
 when its selected checkpoint runs. Historical receipts later in this file retain
@@ -1227,18 +1603,18 @@ their original code/artifact scope and cannot close these rows automatically.
 
 | Requirement / user journey | Beta classification | Implementation status | Acceptance IDs | Latest result / required scope | Limitation / next concrete action |
 | --- | --- | --- | --- | --- | --- |
-| B00: recoverable, private, reviewed baseline | Required | Dated inventory refreshed for 603 pending entries; reviewed source groups recoverable through `3968cb0`; B00ad five-file group passes clean-checkout validation; other groups remain dependency-open | B00-CUSTODY, B00-INVENTORY, quality commands above | Blocked / private visibility checked September 26; 5,978 clean-source tests collect, selected group 130/130 passes; historical dirty-tree frontend 3,589/3,589 and 7 scoped browser scenarios; old 25 failed phase reports remain unmapped; current dirty-tree egress census failure identified | Review remaining coherent groups, including both unregistered pending network modules; obtain binary-release destination. Full quality and release-candidate gates remain open. |
-| B01: supported navigation/actions and frozen release inputs | Required | Existing route/capability manifests; beta classifications not yet implemented | V02, V13, V17 | Not run / browser + source contracts | Map every route/action; hide unavailable actions without deleting data; record owner dependencies. |
-| B02: launch, child windows, exit and recovery | Required | Owned lifecycle/hidden-process boundaries exist; native acceptance incomplete | V07, V13, V17 | Not run / native + ten repeated cycles | Verify one owner, port refusal, recovery and cleanup without affecting unrelated models. |
-| B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Not run / packaged + native restart | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states. |
-| B04: acquire, use, switch and unload supported models | Required | GGUF/llama.cpp adapter exists; real CPU/NVIDIA profiles unaccepted | V05, V06, V07 | Not run / installed app + real CPU/NVIDIA | Freeze artifacts/licenses/runtime/settings; prove inference, stop/switch and test-owned process/VRAM release. |
-| B05: exact workspace approval and truthful artifacts | Required | Workspace tools/diffs/artifact paths exist; native end-to-end proof incomplete | V08, V09, V17 | Not run / native protected approval | Verify stale/reparse/traversal rejection, cancellation and actual-file-only artifact cards; resolve PDF shipping gate. |
-| B06: curated MCP discovery/setup/use/revoke/remove | Required for declared curated profile | Registry/cache/managed boundaries exist; complete packaged/native lifecycle unaccepted | V10, V11, V17 | Not run; latest outage execution canceled / packaged + native | Complete real restart/exact-cache outage journey; then checksum-pinned local and loopback-remote lifecycle tests. |
-| B07: useful, truthful analytics and mini-window | Required | 20 contracts, 18 conditional paths; not 20 measured metrics per session | V12, V13, V17 | Not run / storage → API → rendered UI + native mini-window | Hand-compute fixtures; preserve unknown vs zero, coverage, denominator, provenance, read-only ingestion. |
+| B00: recoverable, private, reviewed baseline | Required | Reviewed source groups recoverable through `acb4b78`; other groups remain dependency-open; identified dirty-tree egress census repaired and independently verified | B00-CUSTODY, B00-INVENTORY, quality commands above | Open / private visibility checked September 26; 5,978 clean-source tests collect, selected group 130/130 passes; documentation-time inventory is 627 pending/zero staged with the nine B09 files classified; historical frontend totals are not current full gates; old 25 failed phase reports remain unmapped | Review remaining coherent groups without treating classification as content approval; obtain binary-release destination before publication. Full quality and release-candidate gates remain open. |
+| B01: supported navigation/actions and frozen release inputs | Required | In progress: all route families classified, focused local navigation, inert deferred deep links, genuine lazy Settings and explicit imported-analytics labels; release inputs remain owner-dependent | V02, V13, V17 | Partial pass: prior 186 focused tests, type/build/budgets and eight browser cases, plus the separate 31-test imported-label selection; evidence above | Complete remaining primary-action/capability audit and owner release-input checklist. Do not treat route or label coverage as every control/native journey accepted. |
+| B02: launch, child windows, exit and recovery | Required | Owned lifecycle boundaries exist; native test environment preflight repaired; acceptance incomplete | V07, V13, V17 | Partial pass: 21 service tests, 12 environment-boundary tests and one corrected native smoke; ten earlier cycles retain process-only evidence after file-isolation failure | Complete packaged main/child interaction, startup conflict and forced-termination scenarios. Do not treat one corrected source smoke as the required ten clean packaged cycles. |
+| B03: model-free projects/chats, draft and durable lifecycle | Required | Durable catalog/composer paths exist; current acceptance incomplete | V02, V03, V04, V07 | Partial pass: B03/B05 selection 125 tests; packaged/native restart not run | Verify folder select/cancel, CRUD/search/pin/archive/restore/delete/export/fork, draft and interrupted states in the actual app. |
+| B04: acquire, use, switch and unload supported models | Required | GGUF/llama.cpp adapter exists; real CPU/NVIDIA profiles unaccepted | V05, V06, V07 | Partial pass: 12 model-boundary/admission tests; real CPU/NVIDIA not run | Freeze artifacts/licenses/runtime/settings; prove inference, stop/switch and test-owned process/VRAM release. |
+| B05: exact workspace approval and truthful artifacts | Required | Workspace tools/diffs/artifact paths exist; native end-to-end proof incomplete | V08, V09, V17 | Partial pass: B03/B05 selection 125 tests; native protected approval not run | Verify stale/reparse/traversal rejection, cancellation and actual-file-only artifact cards under genuine approval; resolve PDF shipping gate. |
+| B06: curated MCP discovery/setup/use/revoke/remove | Required for declared curated profile | Registry/cache/managed boundaries exist; packaged restart/outage development journey passed; native lifecycle unaccepted | V10, V11, V17 | Partial pass: 79-test selection plus real-service packaged restart/outage receipt; not exact signed RC | Rerun V11 on the exact RC, then complete checksum-pinned local and loopback-remote setup/use/revoke/remove with native approval. |
+| B07: useful, truthful analytics and mini-window | Required | 20 contracts, 18 conditional paths; not 20 measured metrics per session | V12, V13, V17 | Partial pass: prior 79-test mixed selection plus separate 39-test backend contracts and 84-test JSDOM UI selections; rendered/native journey open | Carry the same hand-computed fixture through storage/API/rendered browser UI, then native mini-window; prove the whole declared set while retaining unknowns, coverage, denominator, provenance and read-only ingestion. |
 | B07-X: hypothesis linkage and claim grounding | Experimental/unavailable | Required adapter evidence remains incomplete | V12 negative/unavailable states | Not run / evidence contract + UI | Keep `logic.hypothesis_test_linkage` and `outcome.agent_claim_grounding` unavailable until supported evidence exists. |
-| B08: compiled, source-private MSIX payload and notices | Required | Existing MSIX tooling; first-party compilation and notice closure missing | V18, V17 and all relevant packaged journeys | Not run / clean private build + compiled payload | Bounded representative Nuitka proof with pinned toolchain, maximum two corrections; resolve notices or remove unresolved payload. |
-| B09: signed per-user install, verified update/recovery | Required | Verification/staging/handoff foundations; actual native executor missing | V01, V14, V15, V16, V17 | Not run / clean Windows + native update | Owner identity/keys; durable operation journal, exact reviewed consent, retention/recovery, no reboot/schema downgrade misuse. |
-| B10: usable supported layouts and accessibility | Required | UI exists; no current full acceptance matrix | V02–V04, V08, V12–V14 | Not run / native/browser sizes and scaling | Test 1280×720, 1366×768, 1920×1080; 100/125/150/200% supported scaling; keyboard, focus and failure states. |
+| B08: compiled, source-private MSIX payload and notices | Required | Supported standalone compilation, actual CLI-service runtime and current production Agent UI pass as dirty-development feasibility; release qualification remains open | V18, V17 and all relevant packaged journeys | September 27: compile 1,321.25s exit 0; unchanged 169-file/175,027,007-byte distribution and linked executable digest-bound; embedded Nuitka metadata proven after preserving the original loose-file-gate failure; fresh 91-file frontend including B10; zero Python source/cache/maps; exact runtime and three-viewport headless Agent journey passed with cleanup. No native entry/window, graceful shutdown, real model, installer, notices or full payload-privacy acceptance | Complete exact dependency/license-notice and source-private payload inventory; build from clean reviewed source; qualify native launch/lifecycle and the remaining packaged journeys on that exact candidate before signing, install/update or clean-machine acceptance. |
+| B09: signed per-user install, verified update/recovery | Required | Verification/staging/handoff, durable journal, uncomposed transaction controller, native-confirmation seam, anti-swap lease and Windows deployment adapter exist; production activation remains disabled | V01, V14, V15, V16, V17 | Partial unit/integration pass: independent 132-test updated regression and separate 11-test real-held synthetic-package review; no actual installation | Continue the missing candidate-resolver, held-quiescence/handoff and relaunch-authority implementation against synthetic reviewed configurations. Production activation and exact signed `artifact.staged` acceptance require owner-controlled release inputs; then prove app-in-use handoff, retention/recovery and no reboot/downgrade misuse. |
+| B10: usable supported layouts and accessibility | Required | Settings/navigation responsive checks pass; Agent first-paint/theme contrast regression repaired with maintained computed-style browser coverage; full core-journey matrix remains open | V02–V04, V08, V12–V14 | Partial pass: earlier eight scoped cases, four focused theme units, two maintained theme browser cases and six independently rerun Agent journeys; three-text contrast sample only; native/scaling acceptance not run | Extend core Agent/Models/metrics/update journeys at required sizes; verify 100/125/150/200% supported scaling, keyboard, focus and failure states. |
 | B11: signed RC, clean-machine pilot and owner acceptance | Required | No qualifying release candidate | V01–V18 | Not run / exact RC and clean CPU + physical NVIDIA | Full quality gate, two consecutive packaged smokes, zero P0/P1, cleanup, owner review, approved binary-only publication. |
 | W00–W08: bounded local typed multi-model workflow | Required | Reaffirmed September 26, including Agent composer prompt-enhancement hook; not started and gated on B00/native foundations | W00–W08, WP01–WP08 | Not run / exact installed runner + supported local text/image/audio profile + composer journey | Implement only after its gates: 32 nodes, 16 model nodes, two concurrent stages, one active run; review before applying/sending, no arbitrary code or remote connectors. |
 | Post-beta: accounts/payments/teams/hosted/social/new integrations | Deferred | Partial source/tests retained | Outside beta gate | Not run for release / no activation | Do not expand beta scope. A later owner decision is required. |
@@ -1262,12 +1638,15 @@ their original code/artifact scope and cannot close these rows automatically.
    fresh bounded coverage and reviewed custody. September 26 clean-source
    collection at `3968cb0` found 5,978 tests with no collection failures;
    B00ad's clean-source group passed 130/130. Neither observation maps or erases
-   the historical 25 failed reports. The current dirty-tree failure is exactly
-   `test_windows_distribution_hardening.py::test_every_network_capable_source_module_is_egress_classified`:
-   two pending network modules require source/custody and egress review before
-   inclusion. Do not suppress this gate.
+   the historical 25 failed reports. The identified dirty-tree failure
+   `test_windows_distribution_hardening.py::test_every_network_capable_source_module_is_egress_classified`
+   is now repaired by purpose-accurate registrations, with exact equality and
+   unknown-module rejection retained. Its full module independently passes
+   49/49 in this campaign. Remaining source/custody review is still required;
+   this does not close the full backend baseline.
    Do not increase the timeout, blindly repeat the full suite, infer causes from
-   counts, or broaden into unrelated product implementation.
+   counts, or broaden a baseline repair. Independent approved B01–B11 work may
+   proceed under the current campaign contract.
 2. **B00 — browser evidence boundary:** all four identified failures now pass
    after the bounded fixture/spec repair above. Six original skips remain skips;
    the full suite was not repeated after changing only these test inputs. Record
@@ -1296,20 +1675,46 @@ their original code/artifact scope and cannot close these rows automatically.
    September 26 read-only query. The separate public binary-only release
    repository is not yet identified/verified; never reuse the private source
    remote to publish binaries by copying its history.
-6. **B01 owner inputs:** package identity/publisher, public signer fingerprint and
-   update verification key, owner-controlled signing location, precise clean
-   Windows/NVIDIA test environments, approved model artifacts/resource limits,
-   support contact and beta terms are not yet verified. Do not collect secrets.
+6. **B01 owner inputs:** the public-facing publisher/display name is now
+   **Prompt Enhancer**. The MSIX identity publisher distinguished name and package
+   identity, public signer fingerprint and update verification key, owner-
+   controlled signing location, precise clean Windows/NVIDIA test environments,
+   approved model artifacts/resource limits, support contact and beta terms are
+   not yet verified. Do not equate the display name with signing identity, infer
+   the undecided support contact or collect secrets.
 7. **B02–B07 / P1 acceptance gaps:** native lifecycle, durable usability, genuine
-   model/VRAM behavior, exact native approvals, MCP lifecycle/outage, and metric
-   truth still need the corresponding real executions, not source assertions.
-8. **B08 / P1:** first-party compilation, clean-source repeatability, dependency
-   notices and opaque PDF-worker closure are required before distribution.
-9. **B09–B11 / P1:** signed install, actual update executor/recovery, clean-machine
+   model/VRAM behavior, exact native approvals, curated MCP native installation
+   lifecycle, and metric truth still need their corresponding real executions.
+   The packaged MCP cache/restart/outage development scenario passed, but still
+   requires exact-RC repetition.
+8. **B08 / P1:** the corrected MSVC backend four-job run ended with 918 files
+   bearing `.obj` names, but timed out before link and produced no executable;
+   the empty SCons signature database makes this a retained-file count rather
+   than a count of completed or incrementally reused compilation units.
+   That timeout is historical. The subsequently owner-approved, from-start
+   1,800-second direct SCons pass completed in 1,019.61 seconds, compiled 1,651
+   objects and linked one executable with owned cleanup confirmed. It is direct
+   retained-C compile/link proof only, not an incremental or release-candidate
+   build. The output folder contains only the executable and omits listed runtime
+   dependencies. Direct backend completion does not perform the supported
+    standalone DLL/data/resource assembly, and `--recompile-c-only` skips those
+    copies. This is historical: later supported standalone attempts completed,
+    including the September 27 current-UI actual CLI-service/browser evidence
+    above. Clean-reviewed-source repeatability, exact dependency/notice and
+    source-private payload inventory, native qualification and opaque PDF-worker
+    closure remain required before distribution.
+9. **B09–B11 / P1:** the journal, uncomposed transaction controller, native
+   approval seam, held anti-swap review and fixed Windows adapter now exist in
+   source and have synthetic regression evidence. Production remains disabled:
+   there is no Apply route/UI, candidate resolver, held host quiescence/handoff,
+   relaunch authority or exact signed-package installation. Clean-machine
    retention/uninstall, supported UX and owner pilot acceptance remain open.
 
-The next campaign action is a bounded B00 baseline/source-custody repair;
-B01 does not start until B00 closes. Beta closes only with zero P0/P1 issues, all V01–V18 required scenarios on
+The current campaign action is B01 route/navigation implementation, followed by
+independent B02–B11 code and validation tasks in dependency order. B00 source
+review and release inputs remain open; they are not a blanket implementation
+veto. Earlier dated hold language records historical sequencing only.
+Beta closes only with zero P0/P1 issues, all V01–V18 required scenarios on
 the exact compiled/signed candidate, full quality/privacy gates, appropriate
 CPU/NVIDIA/native environments, two consecutive packaged smokes, no test-owned
 process/model remaining, owner approval and published known P2 limitations.

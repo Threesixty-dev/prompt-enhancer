@@ -232,9 +232,20 @@ main table thead th { position: sticky; top: 0; z-index: 1; }
 /* numbers line up everywhere */
 main td, main .metric-value, main [class*="__value"], main [class*="-value"] { font-variant-numeric: tabular-nums; }
 
-/* soft motion when the theme flips */
+/* Theme application is an atomic accessibility boundary: a foreground from
+   one palette must never render over a background from the other palette. */
+:root[data-theme-applying],
+:root[data-theme-applying] *,
+:root[data-theme-applying] *::before,
+:root[data-theme-applying] *::after {
+  transition: none !important;
+}
+
+/* Keep restrained shell motion available for non-theme state changes. */
 @media (prefers-reduced-motion: no-preference) {
-  body, .sidebar, .topbar, main, main * { transition: var(--theme-transition); }
+  body, .sidebar, .topbar, main {
+    transition: background-color 220ms ease, border-color 220ms ease;
+  }
 }
 
 /* charts in dark: bars and areas get enough luminance to read against the deep surface */
