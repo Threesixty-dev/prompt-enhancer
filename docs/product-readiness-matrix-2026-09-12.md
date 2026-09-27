@@ -1630,6 +1630,79 @@ into the compiled Windows candidate, inspect the payload, and qualify its actual
 runtime/native journeys. Complete application/runtime/proxy notice closure and
 clean-source custody before signed installation/update and clean-machine gates.
 
+#### B08 compiled resource integration and repeated Agent smoke — September 27
+
+Requirement V18/V17 with a bounded V02/V13 development check, **partial pass**.
+The exact frozen PDF-free dashboard and frontend notice bundle above were
+integrated into a fresh external copy of the compiled application. No original
+artifact, installed app or live service was modified. This was resource
+reassembly, not a new compilation or clean-source release build. Assembly review
+revision: `078e7a18d11c94995595efe18d0066cadee55925`; the earlier dirty
+compiled snapshot's Git revision is unknown and is not inferred from that hash.
+
+The candidate contains 169 files / 173,736,742 bytes: 78 byte-identical core
+files, 90 dashboard outputs replacing all 91 previous dashboard outputs, and
+one 143,190-byte partial frontend notice sidecar. Independent per-file hash
+comparison passed, with zero Python/TypeScript source/cache files, source maps,
+original PDF viewer or PDF worker. The executable remains
+`a3e2fe835ba2afe160fa8ed95d309ab9fc81e0ca2b5f2b59b4d730934adcdddf`.
+Candidate fingerprint:
+`0c54a99bcf50321f70d55a5f29731ff6eb14419c8782bada7f6f22c4f0c5aa5f`.
+Composition receipt SHA-256:
+`f2fd1548616039966b26df73c57e9bb28d3433c12cea20eabe2206d6f4b22395`.
+
+The single Opus 5.5/high worker's initial harness was rejected in review for
+guessed interfaces and insufficient receipt binding. After access correction,
+it wrote the revised external harness/tests and reached its 600-second bound;
+its tree/readers/handles were cleaned up and it was not automatically restarted.
+Acceptance is based on the supervisor's execution, not a worker completion claim:
+
+- External `test_integrate_resources.py`: **76 passed**, zero skipped, 38.70s.
+  Synthetic integration uses the real Windows stager and pinned fingerprint
+  implementation. Coverage includes exact inventory, old-asset removal,
+  no-clobber, source preservation, malformed paths, bounds, forbidden files,
+  forged receipts/DLLs and post-probe revalidation. Output SHA-256:
+  `0c83c73cc8c764e3bc260ce84ca934ccf3aab77a4fd63273024e6d31ae5e314a`.
+- Existing staging selection: **35 passed, two skipped**, 1.95s. The skipped
+  `test_symlink_source_ancestor_is_rejected` and
+  `test_nested_symlink_source_ancestor_is_rejected` require unavailable symlink
+  creation capability. They remain unverified, not accepted release evidence.
+- Two consecutive real compiled-service/headless Agent smoke runs passed on
+  the same unchanged candidate, at 1280x720, 1366x768 and 1920x1080.
+  Each creates a fictional model-free project/chat, types but does not send a
+  draft, checks the model picker, clears the draft and reopens the chat after
+  reload. Neither draft persistence nor an application restart is claimed.
+  Probe durations were 26.09s and 23.80s; external requests were zero.
+  Receipt SHA-256 values:
+  `e6bf8daa5382e7942fc1e9005896466b9f5f18ba4251a35dea30d60bcc81450f` and
+  `22faf79e89a914f49b150f6b37826f326d6af75d3c33b67a5f4a6b40b19ccc9b`.
+- A separate compiled HTTP check verified health, Agent HTML and byte hashes
+  of all three referenced initial assets. Its original one-second request
+  timeout failed; bounded diagnostics isolated a cold first Agent response
+  exceeding one second. A five-second per-request test budget passed, retaining
+  the overall deadline, exact byte checks, memory/process limits and cleanup.
+  This changed only the external probe, not application behavior. Failed
+  receipts remain preserved; this does not establish a startup-performance SLA.
+
+Every actual run confirmed unchanged payload, test-owned process-tree exit,
+closed handles/readers/streams and released loopback port. No visible helper
+window, local model load, personal app interruption or reboot occurred.
+Termination was owned-process cleanup, **not proven graceful/native shutdown**.
+The original compiled distribution and prior probe files remain unchanged.
+
+The harness, synthetic test artifacts and unsigned candidate remain external.
+The notice file is a partial frontend sidecar, not the complete app notice
+resource; installed-metadata provenance and undetermined obligations remain
+open. Optional model dependencies/probes and update-trust resources are still
+absent from this feasibility payload. Native approval/window/lifecycle, real
+models, signing, installation/update, clean-machine and full artifact-privacy
+acceptance are not established. `distributable` and `release_accepted` remain false.
+
+**Next concrete action:** close the application/runtime/proxy dependency and
+notice inventory, preserve the explicit frontend gaps, and prepare a clean
+reviewed-source compiled candidate before native and installer qualification.
+These development smoke passes do not close B08 or the signed-RC release gate.
+
 ### Evidence corrections that supersede older wording
 
 - Full privacy scan `6f25d8` **passed** after the owner-approved quarantine.
@@ -1680,7 +1753,7 @@ their original code/artifact scope and cannot close these rows automatically.
 | B06: curated MCP discovery/setup/use/revoke/remove | Required for declared curated profile | Registry/cache/managed boundaries exist; packaged restart/outage development journey passed; native lifecycle unaccepted | V10, V11, V17 | Partial pass: 79-test selection plus real-service packaged restart/outage receipt; not exact signed RC | Rerun V11 on the exact RC, then complete checksum-pinned local and loopback-remote setup/use/revoke/remove with native approval. |
 | B07: useful, truthful analytics and mini-window | Required | 20 contracts, 18 conditional paths; not 20 measured metrics per session | V12, V13, V17 | Partial pass: prior 79-test mixed selection plus separate 39-test backend contracts and 84-test JSDOM UI selections; rendered/native journey open | Carry the same hand-computed fixture through storage/API/rendered browser UI, then native mini-window; prove the whole declared set while retaining unknowns, coverage, denominator, provenance and read-only ingestion. |
 | B07-X: hypothesis linkage and claim grounding | Experimental/unavailable | Required adapter evidence remains incomplete | V12 negative/unavailable states | Not run / evidence contract + UI | Keep `logic.hypothesis_test_linkage` and `outcome.agent_claim_grounding` unavailable until supported evidence exists. |
-| B08: compiled, source-private MSIX payload and notices | Required | Supported standalone compilation, actual CLI-service runtime and current production Agent UI pass as dirty-development feasibility; release qualification remains open | V18, V17 and all relevant packaged journeys | September 27: compile 1,321.25s exit 0; unchanged 169-file/175,027,007-byte distribution and linked executable digest-bound; embedded Nuitka metadata proven after preserving the original loose-file-gate failure; fresh 91-file frontend including B10; zero Python source/cache/maps; exact runtime and three-viewport headless Agent journey passed with cleanup. No native entry/window, graceful shutdown, real model, installer, notices or full payload-privacy acceptance | Complete exact dependency/license-notice and source-private payload inventory; build from clean reviewed source; qualify native launch/lifecycle and the remaining packaged journeys on that exact candidate before signing, install/update or clean-machine acceptance. |
+| B08: compiled, source-private MSIX payload and notices | Required | Standalone compiled-service feasibility plus exact PDF-free dashboard/partial-notice resource reassembly verified; release qualification remains open | V18, V17 and bounded V02/V13 packaged journeys | September 27: 169-file/173,736,742-byte integrated development candidate; unchanged 78-file compiled core, exact 90-file dashboard and frontend notice sidecar; 76 integration tests pass; existing staging 35 pass/two symlink capability skips; two consecutive three-viewport headless Agent smokes and a bounded HTTP asset-hash check pass with cleanup. Exact hashes, cold-start probe correction and scope limits above | Close application/runtime/proxy notices and frontend provenance/obligation gaps; review clean source and compile the release candidate; qualify native lifecycle, real models, full artifact privacy, signing, installation/update and clean-machine journeys. No signed beta acceptance yet. |
 | B09: signed per-user install, verified update/recovery | Required | Verification/staging/handoff, durable journal, uncomposed transaction controller, native-confirmation seam, anti-swap lease and Windows deployment adapter exist; production activation remains disabled | V01, V14, V15, V16, V17 | Partial unit/integration pass: independent 132-test updated regression and separate 11-test real-held synthetic-package review; no actual installation | Continue the missing candidate-resolver, held-quiescence/handoff and relaunch-authority implementation against synthetic reviewed configurations. Production activation and exact signed `artifact.staged` acceptance require owner-controlled release inputs; then prove app-in-use handoff, retention/recovery and no reboot/downgrade misuse. |
 | B10: usable supported layouts and accessibility | Required | Settings/navigation responsive checks pass; Agent first-paint/theme contrast regression repaired with maintained computed-style browser coverage; full core-journey matrix remains open | V02–V04, V08, V12–V14 | Partial pass: earlier eight scoped cases, four focused theme units, two maintained theme browser cases and six independently rerun Agent journeys; three-text contrast sample only; native/scaling acceptance not run | Extend core Agent/Models/metrics/update journeys at required sizes; verify 100/125/150/200% supported scaling, keyboard, focus and failure states. |
 | B11: signed RC, clean-machine pilot and owner acceptance | Required | No qualifying release candidate | V01–V18 | Not run / exact RC and clean CPU + physical NVIDIA | Full quality gate, two consecutive packaged smokes, zero P0/P1, cleanup, owner review, approved binary-only publication. |
