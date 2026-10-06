@@ -2,6 +2,14 @@
 
 Thank you for helping build Prompt Enhancer. Privacy and measurement validity are part of correctness, not optional polish.
 
+## Start here
+
+Work happens on your own feature branch and reaches `main` only through a pull
+request that the owner reviews and merges. The short workflow, branch and title
+naming rules, task partitions, and review expectations are in
+[the collaboration workflow](docs/collaboration-workflow.md). Read it before
+picking up a task.
+
 ## Safe contribution checklist
 
 Before staging a change:
