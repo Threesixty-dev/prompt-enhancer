@@ -3,6 +3,7 @@ name: Quality gate
 on:
   pull_request:
   push:
+  workflow_call:
 
 permissions:
   contents: read
