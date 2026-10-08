@@ -13,6 +13,7 @@ from prompt_enhancer.application.analysis.coaching_baselines import (
 )
 from prompt_enhancer.application.analysis.text_analysis_presets import COACHING_PROFILE_V1
 from prompt_enhancer.application.analysis.text_contracts import (
+    MAX_ACTION_REVIEW_PREVIEW_CHARACTERS,
     P1LocalAnalysisGrant,
     TextAnalysisScopeKind,
     TextAnalysisScopeReason,
@@ -96,6 +97,63 @@ class RecordingTransport:
 
 def _pseudonymizer() -> Pseudonymizer:
     return Pseudonymizer(bytes(range(32)))
+
+
+@pytest.mark.parametrize("field", ("command", "aggregatedOutput"))
+@pytest.mark.parametrize("characters", (1400, 5000))
+def test_redaction_expansion_preserves_reviewable_case_and_preview_bounds(
+    field: str, characters: int,
+) -> None:
+    from prompt_enhancer.application.analysis.calibration_cases import (
+        CalibrationReviewService, prepare_calibration_case,
+    )
+    from prompt_enhancer.application.analysis.model_judge import render_window
+
+    wire = _content_read()
+    command = next(
+        item for item in wire["thread"]["turns"][0]["items"]
+        if item["type"] == "commandExecution"
+    )
+    # NFKC expands this fictional ligature from one character to three.
+    command[field] = "\ufb03 " * characters
+    transport = RecordingTransport([
+        {"serverInfo": {"version": "example-1.0"}}, _listed(), wire,
+    ])
+    selection = _selection()
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(), client_factory=lambda: CodexAppServerClient(transport),
+    )
+    context = source.read(selection=selection, grant=_grant(selection), task_profile=_profile())
+    descriptor = next(
+        item for item in context.action_descriptors
+        if item.tool_name.get_secret_value() == "commandExecution"
+    )
+    assert (
+        len(descriptor.invocation_preview.get_secret_value())
+        <= MAX_ACTION_REVIEW_PREVIEW_CHARACTERS
+    )
+    assert descriptor.result_or_effect_preview is not None
+    assert (
+        len(descriptor.result_or_effect_preview.get_secret_value())
+        <= MAX_ACTION_REVIEW_PREVIEW_CHARACTERS
+    )
+    assert descriptor.invocation_truncated is (field == "command")
+    assert descriptor.result_or_effect_truncated is (field == "aggregatedOutput")
+    assert transport.closed
+    case = prepare_calibration_case(
+        session_id=selection.session_id, provider=Provider.CODEX,
+        window_fingerprint=context.analysis_window_fingerprint, rendered_window=render_window(context),
+    )
+    reviews = CalibrationReviewService(
+        read_case=lambda *_args: case, provider_for=lambda _sid: Provider.CODEX,
+        has_consent=lambda _provider: True, enabled=True,
+    )
+    review = reviews.issue(selection.session_id)
+    assert review.records[0].role == "user"
+    assert (
+        reviews.resolve(review.review_id, selection.session_id).case_fingerprint
+        == case.case_fingerprint
+    )
 
 
 def _safe_session_id(pseudonymizer: Pseudonymizer, raw_id: str) -> str:
