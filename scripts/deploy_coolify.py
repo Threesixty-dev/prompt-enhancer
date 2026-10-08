@@ -1,8 +1,8 @@
 """Trigger one reviewed Coolify application and check its deployed revision.
 
 Secrets and response bodies never enter output. A queued deployment is not a
-successful release. Redirects/proxies are disabled so credentials stay at the
-configured controller. Run this only after the tested image has been pushed.
+successful release. Redirects/proxies are disabled and each credential is sent
+only to its configured destination. Run this after the tested image is pushed.
 """
 
 from __future__ import annotations
@@ -68,18 +68,30 @@ def configuration(env: Mapping[str, str]) -> tuple[str, str, str, str]:
     return webhook, token, public_url, revision
 
 
-def deploy(env: Mapping[str, str], *, opener=None, monotonic=time.monotonic, sleep=time.sleep) -> None:
-    webhook, token, public_url, revision = configuration(env)
-    opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    headers = {"Authorization": f"Bearer {token}"}
-    access_id = env.get("COOLIFY_ACCESS_CLIENT_ID", "")
-    access_secret = env.get("COOLIFY_ACCESS_CLIENT_SECRET", "")
+def access_headers(env: Mapping[str, str], prefix: str, *, required: bool = False) -> dict[str, str]:
+    access_id = env.get(prefix + "_ACCESS_CLIENT_ID", "")
+    access_secret = env.get(prefix + "_ACCESS_CLIENT_SECRET", "")
     if bool(access_id) != bool(access_secret):
         raise ValueError("cloudflare_access_credentials_incomplete")
     if access_id:
         if any(not value.isascii() or len(value) > 1024 or any(ord(c) <= 32 or ord(c) >= 127 for c in value) for value in (access_id, access_secret)):
             raise ValueError("cloudflare_access_credentials_invalid")
-        headers.update({"CF-Access-Client-Id": access_id, "CF-Access-Client-Secret": access_secret})
+        return {"CF-Access-Client-Id": access_id, "CF-Access-Client-Secret": access_secret}
+    if required:
+        raise ValueError("cloudflare_access_credentials_required")
+    return {}
+
+
+def deploy(env: Mapping[str, str], *, opener=None, monotonic=time.monotonic, sleep=time.sleep) -> None:
+    webhook, token, public_url, revision = configuration(env)
+    opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    headers = {"Authorization": f"Bearer {token}", **access_headers(env, "COOLIFY")}
+    # Validate health authentication before triggering any deployment. This
+    # profile keeps the entire app, including /health, behind Cloudflare Access.
+    health_headers = {
+        "Cache-Control": "no-cache",
+        **access_headers(env, "PROMPT_ENHANCER", required=True),
+    }
     request = urllib.request.Request(webhook, headers=headers, method="GET")
     # Exactly one trigger: retrying a timed-out trigger could deploy twice.
     with opener.open(request, timeout=30) as response:
@@ -100,8 +112,8 @@ def deploy(env: Mapping[str, str], *, opener=None, monotonic=time.monotonic, sle
     consecutive = 0
     while monotonic() < deadline:
         try:
-            # The controller token is deliberately absent from this request.
-            health = urllib.request.Request(public_url + "/health", headers={"Cache-Control": "no-cache"})
+            # Only the app's Access credential belongs on health requests.
+            health = urllib.request.Request(public_url + "/health", headers=health_headers)
             with opener.open(health, timeout=10) as response:
                 body = response.read(4097)
                 ready = (

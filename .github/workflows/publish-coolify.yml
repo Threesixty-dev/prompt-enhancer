@@ -86,5 +86,7 @@ jobs:
           COOLIFY_PUBLIC_URL: https://prompt-enhancer.threesixty.dev
           COOLIFY_ACCESS_CLIENT_ID: ${{ secrets.COOLIFY_ACCESS_CLIENT_ID }}
           COOLIFY_ACCESS_CLIENT_SECRET: ${{ secrets.COOLIFY_ACCESS_CLIENT_SECRET }}
+          PROMPT_ENHANCER_ACCESS_CLIENT_ID: ${{ secrets.PROMPT_ENHANCER_ACCESS_CLIENT_ID }}
+          PROMPT_ENHANCER_ACCESS_CLIENT_SECRET: ${{ secrets.PROMPT_ENHANCER_ACCESS_CLIENT_SECRET }}
           DEPLOY_REVISION: ${{ github.sha }}
         run: python scripts/deploy_coolify.py

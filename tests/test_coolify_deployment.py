@@ -32,6 +32,8 @@ def environment():
         "COOLIFY_WEBHOOK": "https://controller.example.test/api/v1/deploy?uuid=example-app&force=false",
         "COOLIFY_PUBLIC_URL": "https://prompt.example.test",
         "COOLIFY_TOKEN": "example-invalid-deploy-token",
+        "PROMPT_ENHANCER_ACCESS_CLIENT_ID": "example-app.invalid",
+        "PROMPT_ENHANCER_ACCESS_CLIENT_SECRET": "example-invalid-app-secret",
         "DEPLOY_REVISION": "a" * 40,
     }
 
@@ -82,7 +84,7 @@ def test_timed_out_trigger_is_not_retried():
     assert len(opener.requests) == 1
 
 
-def test_cloudflare_service_credentials_only_reach_controller():
+def test_controller_and_app_access_credentials_stay_at_their_destinations():
     opener = Opener([
         accepted(), Response({"status": "ok"}, revision="a" * 40),
         Response({"status": "ok"}, revision="a" * 40),
@@ -91,7 +93,38 @@ def test_cloudflare_service_credentials_only_reach_controller():
     release.deploy(env, opener=opener, sleep=lambda _: None)
     assert opener.requests[0].get_header("Cf-access-client-id") == "example.invalid"
     assert opener.requests[0].get_header("Cf-access-client-secret") == "example-invalid-service-secret"
-    assert all(request.get_header("Cf-access-client-id") is None and request.get_header("Cf-access-client-secret") is None for request in opener.requests[1:])
+    assert all(request.get_header("Cf-access-client-id") == "example-app.invalid" for request in opener.requests[1:])
+    assert all(request.get_header("Cf-access-client-secret") == "example-invalid-app-secret" for request in opener.requests[1:])
+    assert all(request.get_header("Authorization") is None for request in opener.requests[1:])
+
+
+def test_app_access_credentials_are_not_sent_to_controller_without_access():
+    opener = Opener([
+        accepted(), Response({"status": "ok"}, revision="a" * 40),
+        Response({"status": "ok"}, revision="a" * 40),
+    ])
+    release.deploy(environment(), opener=opener, sleep=lambda _: None)
+    assert opener.requests[0].get_header("Cf-access-client-id") is None
+    assert opener.requests[0].get_header("Cf-access-client-secret") is None
+    assert all(request.get_header("Cf-access-client-id") == "example-app.invalid" for request in opener.requests[1:])
+
+
+@pytest.mark.parametrize("access_id,access_secret", [
+    ("", ""),
+    ("example-app.invalid", ""),
+    ("", "example-invalid-app-secret"),
+    ("example-app.invalid", "example\ninvalid"),
+])
+def test_missing_or_invalid_app_access_fails_before_deployment(access_id, access_secret):
+    opener = Opener([])
+    env = {
+        **environment(),
+        "PROMPT_ENHANCER_ACCESS_CLIENT_ID": access_id,
+        "PROMPT_ENHANCER_ACCESS_CLIENT_SECRET": access_secret,
+    }
+    with pytest.raises(ValueError, match="cloudflare_access_credentials"):
+        release.deploy(env, opener=opener)
+    assert opener.requests == []
 
 
 @pytest.mark.parametrize("extra", [

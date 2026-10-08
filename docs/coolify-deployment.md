@@ -4,8 +4,9 @@ The publishing workflow is configured for `prompt-enhancer.threesixty.dev`,
 application `v54k3b620pmvofib5itgfsue` on `coolify-02`, managed by
 `coolify.threesixty.dev`. These non-secret deployment targets are explicit in the
 workflow at the owner's request. Credentials remain in GitHub/Coolify secret
-storage. The controller's Cloudflare Access policy requires a service token
-allowed to reach its API.
+storage. This deployment requires Cloudflare Access on both the controller and
+the application, including its health endpoint. Use the existing Service Auth
+tokens where their policies already authorize these destinations.
 
 The optional hosted profile serves one owner's workspace behind HTTPS and a
 password. Everyone with that password shares the same data and authority. It is
@@ -66,12 +67,27 @@ Set these environment secrets:
 | `COOLIFY_TOKEN` | Dedicated, expiring Coolify API token with only `deploy` permission in the appropriate team |
 | `COOLIFY_ACCESS_CLIENT_ID` | Client ID of a Cloudflare Access service token permitted by the controller application's Service Auth policy |
 | `COOLIFY_ACCESS_CLIENT_SECRET` | Corresponding Cloudflare Access service-token secret |
+| `PROMPT_ENHANCER_ACCESS_CLIENT_ID` | Client ID of an existing Access service token authorized for the application's health endpoint |
+| `PROMPT_ENHANCER_ACCESS_CLIENT_SECRET` | Corresponding application Access service-token secret |
 
 The webhook and public app URL are set directly in the workflow. Update those
-values if moving this deployment. Cloudflare credentials are sent only to the
-controller, never to the app's public health endpoint. They may both be omitted
-for a controller without Cloudflare Access; setting only one fails before any
-network request. Do not disable the controller's Access policy for CI.
+values if moving this deployment. The controller credential pair is sent only to
+the controller; the application pair is sent only to `/health`. The Coolify API
+token never reaches the application. An existing service token authorized for
+both destinations can supply both pairs; a new token is not required merely to
+use this workflow. Missing application credentials or an incomplete pair fail
+before a deployment is triggered. Controller Access credentials may be omitted
+when using an authenticated private SSH tunnel to the controller.
+
+Keep the human login policies on both Cloudflare Access applications. Add or
+reuse **Service Auth** policies with an **Include → Service Token** rule for the
+existing CI token. Requests must still authenticate as an allowed person or
+service. Keep `/health` protected at Cloudflare; do not add a Bypass policy or
+an Everyone rule. The container's internal health check needs no Cloudflare
+credential because it stays on loopback. Keep the origin reachable only through
+the tunnel or trusted private network so direct Internet traffic cannot avoid
+Access. Cloudflare policy and origin restrictions must be verified in the
+infrastructure; this repository's workflow does not create or replace them.
 
 Enable controller API access if disabled. The webhook must select exactly one
 application; tag/bulk deployment URLs are rejected. The deploy token remains a
@@ -111,8 +127,9 @@ Set the image tag back to `production` before the next workflow release.
 
 The build context admits only application/build inputs. The image contains no
 provider sessions, models, credentials or seeded demo data. Runtime logs suppress
-request-bearing diagnostics. The public `/health` endpoint returns only fixed
-runtime status fields and the image revision; private routes require login.
+request-bearing diagnostics. The `/health` endpoint returns only fixed runtime
+status fields and the image revision. Cloudflare authenticates external health
+requests; other routes also require the hosted gateway login.
 
 ## Hosted capabilities and limits
 
@@ -139,3 +156,4 @@ only temporary container storage and synthetic inputs.
 - [Coolify Docker Image applications](https://coolify.io/docs/applications/deployments/docker-image)
 - [Coolify deploy webhooks](https://coolify.io/docs/core/automation/deploy-webhooks)
 - [Caddy password authentication](https://caddyserver.com/docs/caddyfile/directives/basic_auth)
+- [Cloudflare Access service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
