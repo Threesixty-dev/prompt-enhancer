@@ -1,5 +1,31 @@
 # Product feature and readiness matrix
 
+## Architecture audit addendum — 2026-10-08
+
+The [architecture atlas](architecture/README.md) maps 122 components to source,
+tests, dependencies, status, gaps and next actions. It is a dated navigation view;
+this matrix remains the acceptance ledger. The [published journal handoff](beta-progress-journal.md)
+and [validation](architecture/validation.md) preserve the source/evidence boundary.
+
+Published base `bfb67b6` differs materially from the observed development tree
+`acdf0e5` plus 747 pending files. This documentation-only branch does not include
+those product changes. Three independent static review lanes and a fresh
+122-test synthetic contract selection support bounded component observations.
+No B/W/WP gate closes from this audit, and no installed beta is certified.
+
+Later development evidence remains explicit: the October 7 full frontend batch
+timed out at 600.11 seconds without a final complete case census; the main-based
+deferred bundle graph failed `E_BOUNDARY`; inventory portable-safety admission
+remains open. Native/compiled/signed/clean-machine qualification and the required
+workflow implementation remain unfinished. These are observations from preserved
+development evidence, not new executions against the historical main ledger below.
+
+Owner review and acceptance control all merges and architectural supersessions.
+ADRs 0019–0021 record that rule, the already agreed product scope and a proposed
+atlas maintenance convention. Historical entries below remain unchanged.
+
+---
+
 Updated 2026-09-27 for the reviewed-source handoff and B08 development evidence;
 B00 remains open without blocking independent source work. This is the authoritative beta ledger,
 not a release certification. The filename is retained to preserve existing links.
