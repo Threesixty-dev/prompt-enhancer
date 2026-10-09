@@ -17,6 +17,8 @@ dependencies = [
   "mcp==2.1.1",
   # Managed MCP calls validate the exact reviewed input/output contracts.
   "jsonschema>=4.26,<5",
+  # Apache-2.0/BSD-2-Clause; runtime MCP package validation imports this directly.
+  "packaging==26.3",
   "pydantic>=2.11.7,<3",
   "regex==2026.7.19",
   "uvicorn>=0.35,<1",

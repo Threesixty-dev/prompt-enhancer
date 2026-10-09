@@ -242,6 +242,7 @@ The browser-install command is only needed for the end-to-end suite. See [the CI
 
 ## Documentation
 
+- [Private browser deployment with Coolify](docs/coolify-deployment.md)
 - [Phase 1 local workflow](docs/phase-1.md)
 - [Live metric radar contract](docs/live-metric-radar-pipeline.md)
 - [Metrics catalog](docs/metrics-catalog.md)
