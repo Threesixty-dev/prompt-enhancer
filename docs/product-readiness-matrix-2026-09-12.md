@@ -1,5 +1,19 @@
 # Product feature and readiness matrix
 
+## Team prompt review requirement — 2026-10-08 follow-up
+
+The owner explicitly requested team-leader review of shared prompts and their
+metrics. [TR01–TR08](work-packages/team-prompt-review.md) now name the data
+contract, retention, grants, reviewed sharing, leader views, deletion/audit and
+end-to-end acceptance. **Not implemented; all TR results: not run.** Existing
+development foundations are not a pass.
+
+[ADR 0022](adr/0022-consented-session-retention-and-team-review.md) is proposed;
+the content-free team policy stays in force. Teams remain deferred from the local
+beta unless the owner changes its scope. No capture, raw vault, remote sharing or
+broader manager authority is enabled. See [current data lifecycle](architecture/session-data-lifecycle.md)
+before assuming imported prompts/tool payloads are durably retained.
+
 ## Architecture audit addendum — 2026-10-08
 
 The [architecture atlas](architecture/README.md) maps 122 components to source,

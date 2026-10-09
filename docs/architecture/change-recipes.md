@@ -54,8 +54,10 @@ Fetch the approved baseline; create `feature/`, `fix/`, `docs/`, `test/`,
 `refactor/`, `chore/`, `ci/` or `release/` branch. Preserve unrelated changes.
 Run targeted checks, then the relevant integration gate. Review the staged diff,
 privacy scan and public/noreply commit identity. Push the feature branch and
-open a PR targeting `main`, following [collaboration workflow](../collaboration-workflow.md).
-The owner reviews and merges. Contributors never self-merge or force-push main.
+open a PR targeting `develop`, following [collaboration workflow](../collaboration-workflow.md).
+The owner reviews and authorizes merges; accepted develop changes promote to main
+through a separate PR. Exact `dev_pm` is the owner work branch, not an integration
+target. No autonomous self-merge or force-push of shared branches.
 
 The current CI declares repository integrity, backend tests on Linux/Windows,
 frontend tests/API/build/browser checks, and collaboration metadata validation.

@@ -6,7 +6,46 @@ The owner's preserved development checkout contains additional October 6–7
 journal history; this documentation branch does not overwrite or blanket-publish
 that dirty tree. Reconcile those entries when admitting their source cohorts.
 
+## 2026-10-09 — develop integration and dev_pm routing
+
+The owner requested integrating the follow-up documentation into develop and
+creating exact dev_pm afterward. At inspection, origin/main already included
+the atlas PR; origin/develop included main plus a collaborator's calibration
+preview fix. The 747-file original development checkout remains separate.
+The follow-up branch starts from that existing develop head and preserves its
+fix. ADR 0023, contributor/agent guidance and metadata-policy regressions record
+the requested task → develop → main flow. Merge/branch execution outcomes are
+reported separately; no release or application acceptance is inferred.
+
+The focused metadata-policy regression suite passed 173 tests in 1.72 seconds;
+trusted-base execution and hostile-input/no-echo protections remain intact.
+Hosted Actions on develop was inspected: jobs had zero executed steps and an
+account billing/spending-limit annotation. This is not passing hosted evidence.
+No billing, branch-protection or release settings were changed.
+
+The first ordinary merge attempt was refused because repository merge commits
+are disabled. Metadata confirmed squash is allowed. The documentation branch is
+short-lived and can use squash; future long-lived promotions need an explicit
+owner decision on merge-method settings. No setting was changed to force it.
+
 ## 2026-10-08 — architecture and collaborator documentation
+
+### Follow-up: explicit shared-prompt review and storage clarification
+
+At the owner's request, added the [TR01–TR08 product requirement](work-packages/team-prompt-review.md)
+and proposed ADR 0022. Documented [actual session-data lanes](architecture/session-data-lifecycle.md)
+from read-only source inspection: imported metadata versus ephemeral transcript
+reads, sensitive title exception, separate authored-chat retention, and bounded
+tool-event/payload coverage. No personal data or actual installation settings were
+read. No implementation, collection, sharing or beta-scope expansion is claimed.
+The existing gates and owner-review rules remain unchanged.
+
+Documentation-only validation: all TR01–TR08 rows present, ADR proposed status
+checked, generated catalog synchronized, 599 changed-document local links
+resolved, scoped privacy scan zero findings and diff whitespace check passed.
+No application tests or runtime acceptance were rerun for this documentation edit.
+
+### Initial atlas delivery
 
 Selected scope: source architecture/feature audit, colored graph, ADRs, README,
 repository skill and a reviewed documentation branch/PR. Application behavior,

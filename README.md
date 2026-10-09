@@ -27,6 +27,8 @@ work. This documentation update does not include all pending application code.
 | [Architecture atlas](docs/architecture/README.md) | System boundaries, dependencies, features and evidence |
 | [Change recipes](docs/architecture/change-recipes.md) | Where to edit and how to validate a vertical change |
 | [Design handoff](docs/architecture/design-handoff.md) | User journeys, unavailable/failure states and accessibility |
+| [Session-data lifecycle](docs/architecture/session-data-lifecycle.md) | What is stored, temporary or missing; imported versus authored chats |
+| [Team prompt review](docs/work-packages/team-prompt-review.md) | Explicit planned shared-prompt/metric review and TR01–TR08 acceptance gates |
 | [ADRs](docs/adr/README.md) | Existing decisions and reviewable architecture proposals |
 | [Repository skill](.agents/skills/prompt-enhancer-development/SKILL.md) | Shared routing instructions for coding agents |
 | [Collaboration workflow](docs/collaboration-workflow.md) | Feature branches, PRs, task cards and owner-only merge |
@@ -34,6 +36,9 @@ work. This documentation update does not include all pending application code.
 Any collaborator may propose changes and architecture improvements. The owner
 reviews and accepts them before merging. Written policy is distinct from GitHub
 permission enforcement.
+
+Git flow: task branches (including the owner's `dev_pm`) → reviewed PR into
+`develop` → reviewed promotion PR into `main`. A push is not an app release.
 
 The largest remaining delivery groups are coherent source integration, qualified
 model/metric/native journeys, the multimodel workflow engine and editor, and

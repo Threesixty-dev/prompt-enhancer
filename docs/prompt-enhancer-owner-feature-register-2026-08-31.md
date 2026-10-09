@@ -16,6 +16,18 @@ The parent finish goal defines privacy, checkpoint discipline and the connected
 north-star journey. This register is the feature-level checklist used to prevent
 requested behavior from being forgotten during implementation or UI cleanup.
 
+## 2026-10-08 — team prompt review requirement
+
+Newer scope clarification: the owner explicitly added **team-leader review of
+shared prompts, permitted conversation/tool context and corresponding metrics**
+on 2026-10-08. Numeric team snapshots alone do not implement it. See
+[TR01–TR08](work-packages/team-prompt-review.md) and proposed
+[ADR 0022](adr/0022-consented-session-retention-and-team-review.md).
+Implementation is not delivered; capture, retention and disclosure are separate
+permissions. Teams remain outside the current local beta until an explicit
+owner-approved scope amendment. This records a requirement, not permission to
+collect all machine history or enable sharing.
+
 ## 2026-09-04 audit override
 
 The [convergence audit](prompt-enhancer-convergence-audit-2026-09-04.md) is the

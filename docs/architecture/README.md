@@ -11,6 +11,9 @@ Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 5. Take one [bounded task](remaining-work.md), with owner review before merge.
 
 Designers should also read the [journey/state handoff](design-handoff.md).
+For prompts, tool payloads and storage, read the [session-data lifecycle](session-data-lifecycle.md).
+The explicit [team prompt-review requirement](../work-packages/team-prompt-review.md)
+belongs to R30's planned product milestone, not delivered functionality.
 
 The [readiness matrix](../product-readiness-matrix-2026-09-12.md) remains the
 authority for requirement acceptance. This atlas is a dated projection of code,

@@ -28,7 +28,7 @@ def _event(
     *,
     title: object = "feat(radar): show stale state",
     head: object = "feature/radar-stale-state",
-    base: object = "main",
+    base: object = "develop",
 ) -> dict[str, object]:
     return {
         "pull_request": {
@@ -110,9 +110,10 @@ def test_invalid_titles_are_rejected_with_fixed_code(title: str) -> None:
         "codex/legacy-campaign-7",
         "feature/a",
         "feature/v1.2-rc.1",
+        "dev_pm",
     ],
 )
-def test_valid_branches_are_accepted(branch: str) -> None:
+def test_valid_task_branches_are_accepted_into_develop(branch: str) -> None:
     assert policy.validate(_event(head=branch)) == ()
 
 
@@ -120,7 +121,6 @@ def test_valid_branches_are_accepted(branch: str) -> None:
     "branch",
     [
         "",
-        "main",
         "feature",
         "feature/",
         "/feature/x",
@@ -161,15 +161,72 @@ def test_invalid_branches_are_rejected_with_fixed_code(branch: str) -> None:
     assert policy.validate(_event(head=branch)) == (policy.BRANCH_INVALID,)
 
 
-@pytest.mark.parametrize("base", ["develop", "Main", "main ", "main\n", "", "release/1"])
-def test_non_main_base_is_rejected(base: str) -> None:
-    assert policy.validate(_event(base=base)) == (policy.BASE_NOT_MAIN,)
+@pytest.mark.parametrize(
+    "base",
+    ["Main", "Develop", "main ", "develop ", "main\n", "develop\n", "", "release/1", "dev_pm"],
+)
+def test_unsupported_base_is_rejected(base: str) -> None:
+    assert policy.validate(_event(base=base)) == (policy.BASE_INVALID,)
+
+
+@pytest.mark.parametrize(
+    ("head", "base"),
+    [
+        ("dev_pm", "develop"),
+        ("docs/team-review-git-flow", "develop"),
+        ("codex/legacy-campaign-7", "develop"),
+        ("develop", "main"),
+        ("release/1.2.0", "main"),
+        ("fix/release-regression", "main"),
+    ],
+)
+def test_allowed_branch_flow_matrix(head: str, base: str) -> None:
+    assert policy.validate(_event(head=head, base=base)) == ()
+
+
+@pytest.mark.parametrize(
+    ("head", "base"),
+    [
+        ("feature/radar-stale-state", "main"),
+        ("docs/collaboration-workflow", "main"),
+        ("test/persistence-restart", "main"),
+        ("refactor/menu-state", "main"),
+        ("chore/tidy-scripts", "main"),
+        ("ci/pin-actions", "main"),
+        ("codex/legacy-campaign-7", "main"),
+        ("dev_pm", "main"),
+        ("main", "develop"),
+        ("main", "main"),
+        ("develop", "develop"),
+    ],
+)
+def test_disallowed_branch_flow_matrix(head: str, base: str) -> None:
+    assert policy.validate(_event(head=head, base=base)) == (policy.BRANCH_FLOW_INVALID,)
+
+
+@pytest.mark.parametrize("base", ["develop", "main"])
+@pytest.mark.parametrize(
+    "head",
+    ["dev_other", "dev_pm_extra", "dev_pm/task", "Dev_pm", "dev-pm", "dev_pm ", "dev_pm\n"],
+)
+def test_named_branch_exception_is_exact(head: str, base: str) -> None:
+    assert policy.validate(_event(head=head, base=base)) == (policy.BRANCH_INVALID,)
+
+
+@pytest.mark.parametrize("branch", ["dev_pm", "feature/self-target"])
+def test_self_targeting_non_integration_branches_are_rejected(branch: str) -> None:
+    assert policy.validate(_event(head=branch, base=branch)) == (policy.BASE_INVALID,)
+
+
+@pytest.mark.parametrize("head", ["fix/", "release/", "fix/task;echo", "release/task\n"])
+def test_release_flow_does_not_bypass_branch_syntax(head: str) -> None:
+    assert policy.validate(_event(head=head, base="main")) == (policy.BRANCH_INVALID,)
 
 
 def test_every_violation_is_reported_in_stable_order() -> None:
-    event = _event(title="nope", head="nope", base="develop")
+    event = _event(title="nope", head="nope", base="unsupported")
     assert policy.validate(event) == (
-        policy.BASE_NOT_MAIN,
+        policy.BASE_INVALID,
         policy.TITLE_INVALID,
         policy.BRANCH_INVALID,
     )
@@ -216,9 +273,10 @@ def test_validation_returns_only_fixed_codes_for_hostile_values() -> None:
     hostile = f"{CANARY}$(touch x)`id`;\n"
     known = {
         policy.EVENT_SHAPE,
-        policy.BASE_NOT_MAIN,
+        policy.BASE_INVALID,
         policy.TITLE_INVALID,
         policy.BRANCH_INVALID,
+        policy.BRANCH_FLOW_INVALID,
     }
     codes = policy.validate(_event(title=hostile, head=hostile, base=hostile))
     assert set(codes) <= known
@@ -318,13 +376,24 @@ def test_cli_hostile_event_is_reported_by_code_only(
     assert policy.main(["--event-file", str(path)], environ={}) == 1
     captured = capsys.readouterr()
     assert captured.err.splitlines() == [
-        "collaboration-policy: BASE_NOT_MAIN",
+        "collaboration-policy: BASE_INVALID",
         "collaboration-policy: TITLE_INVALID",
         "collaboration-policy: BRANCH_INVALID",
     ]
     assert captured.out == ""
     assert not (tmp_path / "pwned").exists()
     assert not Path("pwned").exists()
+
+
+def test_cli_disallowed_flow_does_not_echo_branch(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    event = _event(head="feature/canary-sentinel-9f3a", base="main")
+    path = _write_event(tmp_path, json.dumps(event))
+    assert policy.main(["--event-file", str(path)], environ={}) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "collaboration-policy: BRANCH_FLOW_INVALID\n"
 
 
 def test_cli_usage_errors_do_not_echo_arguments(
@@ -360,7 +429,7 @@ def _active_workflow() -> str:
     return "\n".join(line for line in lines if not line.lstrip().startswith("#")) + "\n"
 
 
-def test_workflow_triggers_only_on_pull_request_to_main() -> None:
+def test_workflow_triggers_only_on_pull_request_to_main_and_develop() -> None:
     active = _active_workflow()
     triggers = re.search(r"^on:\n((?:[ ]+.*\n|\n)+)", active, re.M)
     assert triggers is not None
@@ -369,7 +438,9 @@ def test_workflow_triggers_only_on_pull_request_to_main() -> None:
     assert not re.search(r"^  (?!pull_request:)\S", block, re.M)
     assert "pull_request_target" not in active
     assert "workflow_run" not in active
-    assert re.search(r"^    branches:\n      - main$", block, re.M)
+    branches = re.search(r"^    branches:\n((?:      - .*\n)+)", block, re.M)
+    assert branches is not None
+    assert branches.group(1).splitlines() == ["      - main", "      - develop"]
 
 
 def test_workflow_is_read_only_bounded_and_secret_free() -> None:
