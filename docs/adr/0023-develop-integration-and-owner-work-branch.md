@@ -16,6 +16,14 @@ Preserve long-lived ancestry with merge commits for `dev_pm` → `develop` and
 them afterward. Hotfixes may use a reviewed `fix/` PR into main and must then be
 integrated into develop. There are no direct shared-branch feature pushes.
 
+Capability limitation observed 2026-10-09: the repository currently disallows
+merge commits and allows squash merges. The bounded documentation branch can
+squash into develop before creating dev_pm. Enabling the preferred long-lived
+merge strategy requires a separate owner-authorized repository setting change.
+Until then do not reuse a squashed task/dev_pm branch or force-reset shared work;
+start subsequent task branches from develop. Do not silently substitute squash
+for a long-lived develop promotion.
+
 The metadata validator admits main/develop targets according to this routing,
 and exact dev_pm only into develop. It still uses trusted base code, bounded
 input parsing and fixed errors. It does not inspect author identity, infer owner

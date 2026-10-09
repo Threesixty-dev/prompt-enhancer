@@ -37,6 +37,14 @@ Preserve ancestry for long-lived branches: merge commits for `dev_pm` into
 do not reuse their old branch after squash. Sync a clean `dev_pm` from develop
 with a regular merge, never a force reset of shared or uncommitted work.
 
+Repository capability checked 2026-10-09: merge commits are disabled; squash
+merges are allowed. The current documentation task can squash into develop and
+then create a fresh dev_pm. The long-lived merge-commit strategy above remains
+conditional on an owner-approved setting change. Until then, treat a squashed
+dev_pm as a finished task branch; preserve it and create a new task branch from
+develop instead of force-resetting or repeatedly reusing its old ancestry.
+Do not silently squash a long-lived develop-to-main promotion as a substitute.
+
 The owner remains the final reviewer. A direct owner instruction may authorize
 execution of a specific merge; it is not standing permission for agents to
 self-approve, self-merge future work or bypass protection. See

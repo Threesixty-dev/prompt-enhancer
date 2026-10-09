@@ -23,6 +23,11 @@ Hosted Actions on develop was inspected: jobs had zero executed steps and an
 account billing/spending-limit annotation. This is not passing hosted evidence.
 No billing, branch-protection or release settings were changed.
 
+The first ordinary merge attempt was refused because repository merge commits
+are disabled. Metadata confirmed squash is allowed. The documentation branch is
+short-lived and can use squash; future long-lived promotions need an explicit
+owner decision on merge-method settings. No setting was changed to force it.
+
 ## 2026-10-08 — architecture and collaborator documentation
 
 ### Follow-up: explicit shared-prompt review and storage clarification
