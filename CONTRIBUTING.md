@@ -15,8 +15,10 @@ PNGs use the same exact reviewed-hash gate as synthetic gallery images.
 
 ## Start here
 
-Work happens on your own feature branch and reaches `main` only through a pull
-request that the owner reviews and merges. The short workflow, branch and title
+Work happens on a task branch from `develop`, then reaches `develop` through an
+owner-reviewed PR. A separate promotion PR moves accepted integration to `main`.
+Exact `dev_pm` is the owner's working branch, not a shared integration target.
+The short workflow, branch and title
 naming rules, task partitions, and review expectations are in
 [the collaboration workflow](docs/collaboration-workflow.md). Read it before
 picking up a task.

@@ -22,6 +22,11 @@ native approval or installed update execution with mocks.
 
 ## Architecture corrections to propose, not silently rewrite
 
+Separate product milestone: [team prompt and metric review, TR01–TR08](../work-packages/team-prompt-review.md).
+The owner explicitly added shared-prompt review to the backlog. Its data contract
+and acceptance tests are named; implementation and beta inclusion remain open.
+The existing aggregate dashboard does not implement this requirement.
+
 - Keep the modular monolith. Extract oversized coordinators one tested boundary
   at a time: composition, route translation, Agent use cases, model lifecycle,
   desktop orchestration and SQLite repositories. File length alone is not a bug;

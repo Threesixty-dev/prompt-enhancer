@@ -26,8 +26,12 @@ This is a privacy-sensitive repository for local coding-agent analytics.
 ## Collaboration and architecture
 
 - Work on feature branches and propose changes through pull requests.
+- Task PRs target `develop`; accepted integration sets promote from `develop`
+  to `main`. Exact `dev_pm` is the owner-requested work branch, not merge authority.
 - The repository owner is the final reviewer and merge authority. Contributors
-  and agents never self-merge or force-push the primary branch.
+  and agents never autonomously self-merge or force-push shared branches. A direct
+  owner instruction can authorize execution of one specific merge, not bypass
+  protections or approve unrelated/future changes.
 - Agents and contributors never publish source or releases automatically.
 - Any collaborator may propose an architecture change; accepted decisions change
   only after owner review and acceptance. Record a superseding ADR instead of

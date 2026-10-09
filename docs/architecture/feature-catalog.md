@@ -1825,7 +1825,7 @@ Dependencies: R05
 
 **Gap:** No production account/billing/hosted-team readiness; these features are outside the current beta gate.
 
-**Next:** Preserve code/data, hide unavailable controls, and require a separate product/security decision before production activation.
+**Next:** Preserve code/data and hide unavailable controls. The owner explicitly requested team-leader review of shared prompts plus metrics: see [TR01-TR08](../work-packages/team-prompt-review.md) and proposed [ADR 0022](../adr/0022-consented-session-retention-and-team-review.md). It is not implemented; retention architecture, production activation and beta inclusion require separate owner decisions.
 
 ## WF01
 

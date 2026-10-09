@@ -4,6 +4,8 @@
   subject to owner PR review.
 - Date: 2026-10-08
 - Scope: all contributors, coding agents, architecture changes and release work.
+- Branch-routing amendment: [ADR 0023](0023-develop-integration-and-owner-work-branch.md)
+  introduces develop integration and dev_pm; main-only wording below is historical.
 
 ## Context
 

@@ -65,10 +65,14 @@ gates. Do not loosen a failing gate.
 
 ## Review, record and collaborate
 
-Use a feature branch and the PR conventions in `docs/collaboration-workflow.md`.
+Use a task branch from `develop` and the PR conventions in `docs/collaboration-workflow.md`.
+Exact `dev_pm` is the owner's requested work branch; its PRs target develop.
+Accepted develop changes promote to main through a separate owner-reviewed PR.
 Before committing, inspect the actual staged diff, check public/noreply identity,
 and run relevant tests plus `scripts/privacy_scan.py`. Stage only reviewed files.
-Push only when authorized; never self-merge or force-push the primary branch.
+Push only when authorized; never autonomously self-merge or force-push shared branches.
+An explicit owner instruction can authorize execution of one named merge, not
+future approval authority or bypassing required protection.
 The owner is the final reviewer and merge authority. Written policy and CI
 metadata checks do not themselves enforce repository permissions.
 
