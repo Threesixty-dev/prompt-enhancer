@@ -106,3 +106,79 @@ read/write tokens. A follow-up accepts that redacted update receipt while still
 checking the build-time flag, source pin, deployment commit and running revision.
 An explicitly returned wrong value still prevents deployment. This avoids granting
 sensitive-data read permission to validate a non-secret build revision.
+
+## 2026-10-10 — repair inherited quality-gate fixtures (R26)
+
+Task ID / atlas nodes / beta gates: quality-fixture-repair; R26, MA01, MA04,
+A04, A05, A08, A09, A25; B00/B11 remain open.
+
+Approved source baseline: develop `e47b709`, after the deployment-action merge.
+The owner requested resolving the full quality gate failures blocking deployment.
+The initial frontend run reported 28 failures; Linux backend tests exposed stale
+fixtures before a Windows-platform mock changed process-wide `os.name` and
+crashed pytest's path handling. These are synthetic source-test findings.
+
+Allowed files and preserved contracts: failing frontend/backend tests, shared
+historical-schema and runtime fixtures, bounded MCP cleanup, explicit provider
+compatibility retry, CI execution and this evidence record. Model readiness,
+private route boundaries, native approval and exact checksum validation remain
+required. Every backend test and platform security preflight remains required.
+
+Implementation: isolate the platform mock; reconstruct historical schemas with
+the correct FTS and checksum state; provide explicit synthetic power and regular
+interpreter fixtures; require recoverable-trash refusal on unsupported platforms.
+Frontend assertions cover local drafting with every send path blocked, exact
+localized counts, advertised resume capability and no automatic attachment replay.
+Controller discovery explicitly excludes owner-facing saved-message search.
+
+The complete diagnostic run exposed additional MCP migrations and platform
+assumptions. A virtualenv symlink is resolved to the real interpreter with only
+the explicit installed test dependencies; native absolute temporary paths replace
+Windows-only fixture paths. The scope-router corpus keeps its exact digest with
+LF checkout bytes. The manifest CLI uses its base interpreter plus the locked
+test dependencies, preserving the one-process budget on Windows.
+
+Two runtime defects have synthetic regressions: an owned process status error
+now remains unknown and is retried within the existing cleanup deadline, with
+persistent errors still refusing cleanup verification. An explicit compatibility
+check retries an unavailable primary text surface after onboarding supplies a
+valid folder; cached GETs do not probe, and an unavailable text surface retains
+the event-surface fallback. The onboarding test also isolates its default home
+before clearing the environment override.
+
+Positive, negative, recovery and privacy checks: 149 focused backend tests passed;
+one existing reviewed-tool packaging integration is opt-in and was skipped.
+All 2,912 frontend tests across 201 files passed. Generated API drift and the
+production frontend build passed. These are integration results with fictional
+fixtures. Privacy scanning of the exact staged source export and the architecture
+check passed. The full diagnostic backend census was 6,174 passed, 32 failed and
+56 platform/opt-in skips; its collection predates these follow-up corrections.
+The complete affected selection passes under the CI Python 3.11 runtime:
+558 passed and four existing platform/opt-in skips. Python 3.13
+changes HTTP reason phrases in generated OpenAPI descriptions; the committed
+artifact and CI retain their Python 3.11 binding. Git worktree pointer metadata
+is excluded by scanning the staged source export, without changing the scanner.
+
+The browser census was 183 passed, six failed and six existing skips. All six
+failed readiness scenarios pass after the correction, including keyboard-send
+refusal with a retained draft. The initial repair commit passed hosted frontend
+unit/API/build, repository integrity, policy and container smoke checks; complete
+checks on the final candidate remain pending.
+
+Required evidence / completion: unchanged full quality jobs must pass on the
+candidate; a successful source deployment needs its separate controller and
+running-revision receipts. No native, model, packaged or beta acceptance follows
+from these test repairs.
+
+Process/resource bound: inspect incremental failures, run focused corrections,
+then each full gate; do not raise test timeouts or weaken assertions. The Windows
+baseline reached about 97% before its 60-minute limit. Two required backend
+shards per platform partition the full collection, with an independent synthetic
+CLI proof of exactly-once coverage and failed-test propagation. A local
+browser run that reused an occupied port was stopped after identifying unrelated
+404 responses; its replacement owns a separate loopback port. It is not passing
+browser evidence.
+
+Owner decisions still needed: review this repair cohort and authorize its merge
+and promotion. Result / source commit / artifact digest / cleanup: pending full
+candidate checks; no release artifact or production change in this cohort yet.

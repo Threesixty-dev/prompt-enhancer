@@ -15,6 +15,7 @@ import sys
 import textwrap
 import threading
 import time
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 import pytest
@@ -273,13 +274,17 @@ def test_hardware_and_runtime_identity_probes_are_console_free_on_windows(
         )
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(local_models.os, "name", "nt")
+    host_platform = os.name
+    # Replace this module's platform view, not the process-wide os module used
+    # by pathlib and pytest while constructing paths and reporting failures.
+    monkeypatch.setattr(local_models, "os", SimpleNamespace(name="nt"))
     summary = local_models.probe_hardware(
         llama_server=Path("C:/synthetic/runtime/llama-server.exe"),
         run=run,
     )
 
     assert summary.gpu_name == "Synthetic GPU"
+    assert os.name == host_platform
     assert summary.llama_server_version == "synthetic-llama.cpp-b9000"
     assert calls[0][0][0] == "nvidia-smi"
     assert calls[1][0][0].replace("\\", "/") == "C:/synthetic/runtime/llama-server.exe"

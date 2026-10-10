@@ -386,10 +386,14 @@ def test_task_interface_is_query_only_and_runtime_schema_is_disabled(tmp_path) -
         path for path, operations in paths.items() if "post" in operations
     }
     # The provider/task surface remains query-only. The other POSTs are
-    # authenticated, same-origin local UI capabilities: one opens a native
-    # folder chooser and one requests only a content-free update advisory.
+    # authenticated, same-origin local UI capabilities: native folder selection,
+    # content-free aggregation, and the reviewed update staging lifecycle.
     assert post_paths == {
         "/v1/application-updates/check",
+        "/v1/application-updates/stage",
+        "/v1/application-updates/verify",
+        "/v1/application-updates/cancel",
+        "/v1/application-updates/retry",
         "/v1/local-ui/workspace-folder-picker",
         "/v1/quality-analysis/aggregate",
     }

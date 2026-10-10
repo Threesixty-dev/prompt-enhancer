@@ -26,6 +26,12 @@ from prompt_enhancer.application.providers import (
 from prompt_enhancer.infrastructure.providers.codex_app_server import (
     CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR,
 )
+from prompt_enhancer.infrastructure.providers.claude_code_hooks.adapter import (
+    CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR,
+)
+from prompt_enhancer.infrastructure.providers.claude_code_hooks.text_source import (
+    CLAUDE_CODE_TEXT_WINDOW_DECODER_DESCRIPTOR,
+)
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.database import Database
 from prompt_enhancer.interfaces.http.provider_compatibility_routes import (
@@ -36,8 +42,20 @@ from prompt_enhancer.interfaces.http.provider_compatibility_routes import (
 NOW = datetime(2044, 5, 6, 7, 8, tzinfo=UTC)
 
 
-def _report(state: CompatibilityState) -> ProviderCompatibilityReport:
-    descriptor = CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR
+def _report(state: CompatibilityState, descriptor=CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR) -> ProviderCompatibilityReport:
+    if state is CompatibilityState.UNAVAILABLE:
+        return ProviderCompatibilityReport(
+            descriptor=descriptor,
+            provider_version=None,
+            state=state,
+            capabilities=tuple(CapabilityObservation(
+                key=key, state=CapabilityState.UNKNOWN,
+                reason_code=CompatibilityReasonCode.PROVIDER_UNAVAILABLE,
+            ) for key in descriptor.capabilities),
+            extraction=ExtractionCompleteness(state=ExtractionCompletenessState.NONE, observed_units=0),
+            reasons=(CompatibilityReason(code=CompatibilityReasonCode.PROVIDER_UNAVAILABLE),),
+            checked_at=NOW,
+        )
     if state is CompatibilityState.EXACT:
         return ProviderCompatibilityReport(
             descriptor=descriptor,
@@ -75,17 +93,18 @@ def _report(state: CompatibilityState) -> ProviderCompatibilityReport:
 
 
 class FixedProbe:
-    def __init__(self, state: CompatibilityState) -> None:
+    def __init__(self, state: CompatibilityState, descriptor=CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR) -> None:
         self.state = state
+        self._descriptor = descriptor
         self.calls = 0
 
     @property
     def descriptor(self):
-        return CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR
+        return self._descriptor
 
     def check(self) -> ProviderCompatibilityReport:
         self.calls += 1
-        return _report(self.state)
+        return _report(self.state, self.descriptor)
 
 
 def _catalog(state: CompatibilityState = CompatibilityState.EXACT):
@@ -138,6 +157,32 @@ def test_http_exposes_cached_status_and_refreshes_only_on_explicit_post() -> Non
     assert after.json() == refreshed.json()
     assert probe.calls == 1
     assert client.get("/v1/providers/claude_code/compatibility").status_code == 404
+
+
+@pytest.mark.parametrize("recovered", [False, True])
+def test_explicit_check_reconsiders_an_unavailable_text_surface(recovered: bool) -> None:
+    descriptors = (CLAUDE_CODE_TEXT_WINDOW_DECODER_DESCRIPTOR, CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR)
+    text_probe = FixedProbe(CompatibilityState.UNAVAILABLE, descriptors[0])
+    event_probe = FixedProbe(CompatibilityState.EXACT, descriptors[1])
+    catalog = ProviderCompatibilityCatalog(ProviderCompatibilityService(
+        TrustedProviderRegistry(descriptors), (text_probe, event_probe), clock=lambda: NOW,
+    ), descriptors)
+    catalog.refresh("claude_code", ProviderSurface.TEXT_WINDOW)
+    text_probe.state = CompatibilityState.EXACT if recovered else CompatibilityState.UNAVAILABLE
+    app = FastAPI()
+    app.include_router(create_provider_compatibility_router(lambda: None, catalog))
+    with TestClient(app) as client:
+        cached = client.get("/v1/providers/claude_code/compatibility")
+        assert cached.json()["capability"] == "operational_events"
+        assert (text_probe.calls, event_probe.calls) == (1, 0)
+        checked = client.post("/v1/providers/claude_code/compatibility/check")
+        assert checked.status_code == 200
+        assert checked.json()["capability"] == ("session_text_analysis" if recovered else "operational_events")
+        assert checked.json()["state"] == "exact"
+        assert text_probe.calls == 2
+        assert event_probe.calls == (0 if recovered else 1)
+        assert client.get("/v1/providers/claude_code/compatibility").json() == checked.json()
+        assert text_probe.calls == 2
 
 
 def test_degraded_compatibility_is_visible_but_cannot_authorize_text_read() -> None:

@@ -144,6 +144,12 @@ async def _wait_for_tree(process: _OwnedProcess, timeout: float) -> bool:
         try:
             root_exited = process.poll() is not None
             tree_exited = process.tree_exited()
+        except OSError:
+            # A process group can be temporarily uninspectable during exit.
+            # Keep reaping within the existing deadline; denied/unknown status
+            # never counts as evidence that the owned tree has exited.
+            root_exited = False
+            tree_exited = False
         except Exception:
             return False
         if root_exited and tree_exited:

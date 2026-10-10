@@ -56,6 +56,9 @@ def test_cleanup_preserves_only_unconfirmed_build(monkeypatch,tmp_path,failure_b
     from types import SimpleNamespace
     from prompt_enhancer.infrastructure import application_wheel_preparation as prep
     root,source,dashboard,_fake,python=_inputs(tmp_path)
+    # The runner is mocked; give its identity checks an owned regular fixture,
+    # rather than the host interpreter, which may be a virtualenv symlink.
+    python=tmp_path/'synthetic-python';python.write_bytes(b'synthetic interpreter')
     wheel=tmp_path/'setuptools-84.0.0-py3-none-any.whl';wheel.write_bytes(b'synthetic')
     monkeypatch.setattr(prep,'_verify_python',lambda *args:None)
     monkeypatch.setattr(prep,'_extract_setuptools',lambda *args:None)
