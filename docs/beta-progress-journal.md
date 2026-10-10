@@ -74,3 +74,35 @@ Next finite task: make full-suite evidence incremental and localize unfinished
 frontend cases, then review the separate deferred-loading cohort. Parallel work
 can prepare owner-approved release/model/hardware inputs. New feature work must
 name its baseline and dependencies. The owner controls PR acceptance and merge.
+
+
+## 2026-10-10 — Coolify Actions source deployment (R26)
+
+Task: owner-requested GitHub deployment action. Baseline: imported `develop`
+`cadba09`; task branch `codex/coolify-deployment-action`. Scope: deployment
+workflow, controller client, hosted authentication/readiness, synthetic tests and
+operator documentation. Existing inference feature changes remain outside this
+cohort. No provider sessions, model requests or live production deployment ran.
+
+The existing image-publishing workflow did not match the configured Git-source
+application. The proposal validates configuration, retains the full quality gate,
+builds and smoke-tests the exact source, pins the existing Dockerfile application,
+and verifies both deployment completion and two matching health responses.
+Cloudflare origin verification and the Python health command preserve the hosted
+login/runtime profile. The client checks source/build-argument read-back, refuses
+incompatible application profiles and never retries an uncertain deployment POST.
+The secret-free PR image check is separate from production approval.
+
+Fresh synthetic selection: 85 deployment and Cloudflare tests passed; 258 tests passed including the
+collaboration-policy checks. It includes
+real owned loopback redirect/JWT-handler checks and mocked controller contracts;
+no external controller or provider was contacted. Image CI and live acceptance
+must be recorded separately. No beta gate or full-suite acceptance is claimed.
+Owner review, promotion to main, deployment secrets and the documented Coolify
+build-time/runtime settings remain required before a production run.
+
+The public Coolify API contract omits environment-variable values for ordinary
+read/write tokens. A follow-up accepts that redacted update receipt while still
+checking the build-time flag, source pin, deployment commit and running revision.
+An explicitly returned wrong value still prevents deployment. This avoids granting
+sensitive-data read permission to validate a non-secret build revision.

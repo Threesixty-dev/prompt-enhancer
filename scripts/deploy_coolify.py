@@ -2,7 +2,7 @@
 
 Secrets and response bodies never enter output. A queued deployment is not a
 successful release. Redirects/proxies are disabled and each credential is sent
-only to its configured destination. Run this after the tested image is pushed.
+only to its configured destination. Source deployments pin the tested Git commit.
 """
 
 from __future__ import annotations
@@ -82,6 +82,71 @@ def access_headers(env: Mapping[str, str], prefix: str, *, required: bool = Fals
     return {}
 
 
+def source_configuration(env: Mapping[str, str]) -> dict[str, object] | None:
+    repository = env.get("DEPLOY_REPOSITORY", "")
+    if not repository:
+        return None  # Compatibility with the existing image deployment caller.
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", repository) is None:
+        raise ValueError("deployment_repository_invalid")
+    if env.get("DEPLOY_BRANCH") != "main":
+        raise ValueError("deployment_branch_invalid")
+    return {
+        "git_repository": "https://github.com/" + repository + ".git",
+        "git_branch": "main", "git_commit_sha": env["DEPLOY_REVISION"],
+        "instant_deploy": False, "is_auto_deploy_enabled": False,
+        "is_preview_deployments_enabled": False,
+        "health_check_enabled": True, "health_check_type": "cmd",
+        "health_check_command": "python /app/deploy/healthcheck.py",
+    }
+
+
+def validate_workflow(env: Mapping[str, str]) -> None:
+    webhook, _, _, _ = configuration(env)
+    if source_configuration(env) is None:
+        raise ValueError("deployment_repository_required")
+    access_headers(env, "COOLIFY", required=webhook.startswith("https://"))
+    access_headers(env, "PROMPT_ENHANCER", required=True)
+
+
+def controller_json(opener, url: str, headers: Mapping[str, str], *, method="GET", body=None):
+    request = urllib.request.Request(url, method=method, headers=dict(headers),
+        data=None if body is None else json.dumps(body).encode())
+    if body is not None:
+        request.add_header("Content-Type", "application/json")
+    with opener.open(request, timeout=30) as response:
+        if response.status not in {200, 201, 202}:
+            raise RuntimeError("controller_request_failed")
+        payload = response.read(1_048_577)
+    if len(payload) > 1_048_576:
+        raise RuntimeError("controller_response_invalid")
+    result = json.loads(payload)
+    if not isinstance(result, dict):
+        raise RuntimeError("controller_response_invalid")
+    return result
+
+
+def pin_source(opener, api: str, app: str, headers, source, revision: str) -> None:
+    url = api + "/applications/" + app
+    current = controller_json(opener, url, headers)
+    if (current.get("build_pack") != "dockerfile" or current.get("ports_exposes") != "8080"
+        or current.get("ports_mappings") or current.get("base_directory") != "/"
+        or current.get("dockerfile_location") != "/Dockerfile"):
+        raise RuntimeError("deployment_source_profile_invalid")
+    # Preserve domains, storage and runtime secrets. No configuration dumps.
+    controller_json(opener, url, headers, method="PATCH", body=source)
+    variable = controller_json(opener, url + "/envs", headers, method="PATCH", body={
+        "key": "APP_REVISION", "value": revision, "is_literal": True, "is_preview": False,
+    })
+    # Ordinary read/write tokens receive the variable metadata without its value.
+    # Verify any returned value, then prove the revision through build and health.
+    if (variable.get("key") != "APP_REVISION" or variable.get("is_buildtime") is not True
+        or ("value" in variable and variable["value"] != revision)):
+        raise RuntimeError("deployment_revision_build_argument_required")
+    verified = controller_json(opener, url, headers)
+    if any(verified.get(key) != source[key] for key in ("git_repository", "git_branch", "git_commit_sha")):
+        raise RuntimeError("deployment_source_pin_failed")
+
+
 def deploy(env: Mapping[str, str], *, opener=None, monotonic=time.monotonic, sleep=time.sleep) -> None:
     webhook, token, public_url, revision = configuration(env)
     opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
@@ -92,7 +157,14 @@ def deploy(env: Mapping[str, str], *, opener=None, monotonic=time.monotonic, sle
         "Cache-Control": "no-cache",
         **access_headers(env, "PROMPT_ENHANCER", required=True),
     }
-    request = urllib.request.Request(webhook, headers=headers, method="GET")
+    source = source_configuration(env)
+    endpoint = urllib.parse.urlsplit(webhook)
+    app = urllib.parse.parse_qs(endpoint.query)["uuid"][0]
+    api = urllib.parse.urlunsplit((endpoint.scheme, endpoint.netloc, "/api/v1", "", ""))
+    if source is not None:
+        validate_workflow(env)
+        pin_source(opener, api, app, headers, source, revision)
+    request = urllib.request.Request(webhook, headers=headers, method="POST")
     # Exactly one trigger: retrying a timed-out trigger could deploy twice.
     with opener.open(request, timeout=30) as response:
         if response.status not in {200, 201, 202}:
@@ -103,14 +175,28 @@ def deploy(env: Mapping[str, str], *, opener=None, monotonic=time.monotonic, sle
     try:
         result = json.loads(payload)
         deployments = result.get("deployments", [])
-        if len(deployments) != 1 or not isinstance(deployments[0].get("deployment_uuid"), str) or not deployments[0]["deployment_uuid"]:
+        if (len(deployments) != 1 or not isinstance(deployments[0].get("deployment_uuid"), str)
+            or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", deployments[0]["deployment_uuid"]) is None):
             raise ValueError
     except (ValueError, TypeError, AttributeError, IndexError):
         raise RuntimeError("deployment_response_invalid") from None
     print("Coolify accepted one deployment; waiting for the expected revision.", flush=True)
-    deadline = monotonic() + 600
+    deadline = monotonic() + (1200 if source is not None else 600)
+    deployment_finished = source is None
     consecutive = 0
     while monotonic() < deadline:
+        if not deployment_finished:
+            progress = controller_json(opener, api + "/deployments/" + deployments[0]["deployment_uuid"], headers)
+            status = progress.get("status")
+            if status in {"failed", "cancelled", "cancelled-by-user"}:
+                raise RuntimeError("deployment_build_failed")
+            if status == "finished":
+                if progress.get("commit") != revision:
+                    raise RuntimeError("deployment_commit_mismatch")
+                deployment_finished = True
+            else:
+                sleep(5)
+                continue
         try:
             # Only the app's Access credential belongs on health requests.
             health = urllib.request.Request(public_url + "/health", headers=health_headers)
@@ -131,11 +217,31 @@ def deploy(env: Mapping[str, str], *, opener=None, monotonic=time.monotonic, sle
     raise RuntimeError("deployment_health_timeout")
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    arguments = sys.argv[1:] if argv is None else argv
     try:
-        deploy(os.environ)
+        if arguments == ["--check"]:
+            required = ["COOLIFY_WEBHOOK", "COOLIFY_PUBLIC_URL", "COOLIFY_TOKEN", "DEPLOY_REVISION",
+                "DEPLOY_REPOSITORY", "DEPLOY_BRANCH", "PROMPT_ENHANCER_ACCESS_CLIENT_ID",
+                "PROMPT_ENHANCER_ACCESS_CLIENT_SECRET"]
+            if os.environ.get("COOLIFY_WEBHOOK", "").startswith("https://"):
+                required.extend(["COOLIFY_ACCESS_CLIENT_ID", "COOLIFY_ACCESS_CLIENT_SECRET"])
+            missing = [name for name in required if not os.environ.get(name)]
+            if missing:
+                for name in missing:
+                    print("Missing deployment setting: " + name, file=sys.stderr)
+                return 1
+            validate_workflow(os.environ)
+            print("Deployment configuration is complete; no network request was sent.")
+        elif not arguments:
+            deploy(os.environ)
+        else:
+            raise ValueError("deployment_arguments_invalid")
     except (OSError, ValueError, RuntimeError, urllib.error.URLError):
-        print("Deployment failed or remains unverified; inspect the Coolify deployment privately.", file=sys.stderr)
+        message = ("Deployment configuration is invalid; check the documented Actions settings."
+            if arguments == ["--check"] else
+            "Deployment failed or remains unverified; inspect the Coolify deployment privately.")
+        print(message, file=sys.stderr)
         return 1
     return 0
 

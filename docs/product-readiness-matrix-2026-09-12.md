@@ -1,5 +1,13 @@
 # Product feature and readiness matrix
 
+## Hosted deployment action — 2026-10-10 proposal
+
+R26 gains a proposed manual source-deployment action on imported `develop`
+`cadba09`. The journal records 85 passing synthetic deployment/authentication
+tests. Container CI and a live deployment are separate evidence; B00/B11 and
+all native, model and beta gates retain their existing status. See the
+[operator guide](coolify-deployment.md) for configuration and owner review.
+
 ## Team prompt review requirement — 2026-10-08 follow-up
 
 The owner explicitly requested team-leader review of shared prompts and their

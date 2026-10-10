@@ -1,159 +1,154 @@
-# Private browser deployment with Coolify
+# Deploy to Coolify with GitHub Actions
 
-The publishing workflow is configured for `prompt-enhancer.threesixty.dev`,
-application `v54k3b620pmvofib5itgfsue` on `coolify-02`, managed by
-`coolify.threesixty.dev`. These non-secret deployment targets are explicit in the
-workflow at the owner's request. Credentials remain in GitHub/Coolify secret
-storage. This deployment requires Cloudflare Access on both the controller and
-the application, including its health endpoint. Use the existing Service Auth
-tokens where their policies already authorize these destinations.
+The manual **Deploy to Coolify** workflow deploys the exact tested commit from
+this repository's `main` branch to an existing Coolify Dockerfile application.
+It builds a disposable image on a GitHub runner for validation; Coolify then
+builds the same source revision on the application server. No container registry
+or registry credentials are needed. Dependency versions are locked, but two
+builds are not a claim of identical image digests.
 
-The optional hosted profile serves one owner's workspace behind HTTPS and a
-password. Everyone with that password shares the same data and authority. It is
-not a public multi-user service. Normal CLI/desktop operation remains loopback-only.
+The workflow is implemented in `.github/workflows/publish-coolify.yml`.
+Task PRs target `develop`; owner-reviewed changes must then reach `main` before
+GitHub shows the manual workflow on the default branch. Importing the upstream
+branches alone does not install this proposed workflow on `main`.
 
-The infrastructure repository manages the VM underlay. Application deployment
-belongs to the existing Coolify controller; choose the intended managed server
-as this application's destination. Do not install another controller on it.
-Infrastructure addresses, identities and tokens belong in private configuration.
+## One-time Coolify setup
 
-## Configure the application once
+Use the existing controller and application on the intended managed server.
+Do not create a second controller or a replacement data volume.
 
-1. In the controller, create a **Docker Image** application on the intended
-   managed server. Use `ghcr.io/<repository-owner>/<repository-name>` (lowercase),
-   tag `production`. Leave the digest empty. The first deployment must wait until
-   the workflow has published the image.
-2. Set **Ports Exposes** to `8080`, configure the intended HTTPS domain and its
-   DNS, and let the Coolify proxy terminate TLS. Leave **Ports Mappings** empty.
-   Only the proxy should reach port 8080; it must replace `X-Forwarded-Proto`
-   with the actual public request scheme. Do not expose backend port 8765.
-3. Add the runtime variables below. Store them in Coolify, not in a committed
-   environment file. Password hashes must retain their literal dollar signs;
-   use Coolify's literal/raw variable setting where available.
-4. Mount an application-owned persistent volume at `/data`, writable by UID/GID
-   `10001:10001`. New named volumes inherit the image directory ownership; a
-   pre-existing mount needs that ownership set by its administrator. Use one
-   replica and enable **Consistent Container Name** in the application's advanced
-   settings. This makes Coolify stop the old container before starting its
-   replacement, preventing overlapping processes on the shared SQLite volume.
-5. Use `GET /health` on port 8080 for health checks. The image also defines its own
-   Docker health check. Leave the image entrypoint/start command unchanged.
-6. If the GHCR package is private, configure registry pull authentication on the
-   deployment server as the user Coolify uses. Do not make the package public as
-   a workaround. Do not mount provider homes, personal repositories or the Docker
-   socket into the application.
+1. Use the **Dockerfile** build pack with the public organization repository,
+   branch `main`, base directory `/`, and Dockerfile `/Dockerfile`. The workflow
+   sets the exact commit before each deployment. Disable automatic and preview
+   deployments so a source push cannot skip the workflow checks.
+2. Expose container port `8080`, with no host port mappings. Configure the HTTPS
+   application domain and its Cloudflare tunnel. Only the trusted proxy should
+   reach this gateway and supply the actual HTTPS request scheme. The backend
+   remains on loopback port `8765`.
+3. Keep the application-owned persistent volume at `/data`, writable by
+   UID/GID `10001:10001`. Use one replica and enable **Consistent Container Name**
+   to avoid overlapping SQLite writers during replacement.
+4. Add `APP_REVISION` as a literal **build-time** variable. Initialize it with
+   the intended 40-character commit SHA. The workflow updates its value and
+   refuses to deploy unless Coolify confirms it is available at build time.
+   Do not override the baked runtime `PROMPT_ENHANCER_REVISION` variable.
+5. Use the command health check `python /app/deploy/healthcheck.py`.
+   Keep health checks enabled. This image includes Python, not curl or wget.
+6. Set the following runtime variables in Coolify. Keep them out of build args.
 
 | Runtime variable | Value |
 | --- | --- |
-| `PROMPT_ENHANCER_PUBLIC_HOST` | DNS name only, such as `prompt.example.test`; no scheme, path or port |
-| `PROMPT_ENHANCER_WEB_USER` | A dedicated login name using letters, digits, `_` or `-` |
-| `PROMPT_ENHANCER_WEB_PASSWORD_HASH` | Bcrypt hash from interactive `caddy hash-password` (cost 10–16); never a plaintext password |
+| `PROMPT_ENHANCER_PUBLIC_HOST` | App DNS name only, for example `prompt.example.test` |
+| `PROMPT_ENHANCER_AUTH_MODE` | `cloudflare` |
+| `PROMPT_ENHANCER_ACCESS_ISSUER` | HTTPS team domain, for example `https://example.cloudflareaccess.com` |
+| `PROMPT_ENHANCER_ACCESS_AUDIENCE` | Application audience tag from Cloudflare Access |
 
-Do not override `PROMPT_ENHANCER_REVISION`; the workflow bakes it into the image.
-The container refuses to start with missing or malformed gateway settings.
+Cloudflare performs the browser login; the origin verifies its signed assertion,
+issuer, audience and expiry. This mode does not show another password prompt.
+An optional Basic mode remains for isolated installations; it requires
+`PROMPT_ENHANCER_WEB_USER` and a literal bcrypt
+`PROMPT_ENHANCER_WEB_PASSWORD_HASH` generated by interactive `caddy hash-password`.
+Missing or invalid authentication configuration prevents startup.
 
-## Configure GitHub Actions
+Do not mount provider homes, personal workspaces, credential files or a Docker
+socket into the application. This remains one owner's shared application data,
+without multi-user isolation or access to a visitor's computer.
 
-Create the `production` environment and restrict its deployment branches to
-`main`. Configure required reviewers if your GitHub plan supports them. The
-workflow's branch check complements repository review rules; it does not replace
-branch protection. Publishing requires the repository to permit `GITHUB_TOKEN`
-package writes, and an existing GHCR package must grant this repository access.
+## GitHub configuration
 
-Set these environment secrets:
+Create a `production` environment restricted to the `main` deployment branch.
+Configure required reviewers if desired and supported. These settings complement
+owner-reviewed PRs; the workflow does not grant itself merge authority.
+
+Set these repository variables (the workflow reads them before jobs start):
+
+| Variable | Example / purpose |
+| --- | --- |
+| `COOLIFY_WEBHOOK` | `https://controller.example.test/api/v1/deploy?uuid=example-app&force=false` |
+| `COOLIFY_PUBLIC_URL` | `https://prompt.example.test` |
+| `COOLIFY_RUNNER_LABELS` | Optional JSON runner labels for a private deployment runner |
+
+The webhook must identify exactly one existing application. Its UUID also scopes
+application configuration and deployment-status requests. The repository URL,
+branch and commit come from the trusted GitHub run, rather than user inputs.
+
+Set these secrets in the repository or `production` environment:
 
 | Secret | Purpose |
 | --- | --- |
-| `COOLIFY_TOKEN` | Dedicated, expiring Coolify API token with only `deploy` permission in the appropriate team |
-| `COOLIFY_ACCESS_CLIENT_ID` | Client ID of a Cloudflare Access service token permitted by the controller application's Service Auth policy |
-| `COOLIFY_ACCESS_CLIENT_SECRET` | Corresponding Cloudflare Access service-token secret |
-| `PROMPT_ENHANCER_ACCESS_CLIENT_ID` | Client ID of an existing Access service token authorized for the application's health endpoint |
-| `PROMPT_ENHANCER_ACCESS_CLIENT_SECRET` | Corresponding application Access service-token secret |
+| `COOLIFY_TOKEN` | Expiring Coolify team API token with `read`, `write` and `deploy` permissions; source pinning requires write access |
+| `COOLIFY_ACCESS_CLIENT_ID` | Existing service token permitted by the controller's Access Service Auth policy |
+| `COOLIFY_ACCESS_CLIENT_SECRET` | Corresponding controller service-token secret |
+| `PROMPT_ENHANCER_ACCESS_CLIENT_ID` | Service token allowed through the app's Access policy, including `/health` |
+| `PROMPT_ENHANCER_ACCESS_CLIENT_SECRET` | Corresponding app service-token secret |
 
-The webhook and public app URL are set directly in the workflow. Update those
-values if moving this deployment. The controller credential pair is sent only to
-the controller; the application pair is sent only to `/health`. The Coolify API
-token never reaches the application. An existing service token authorized for
-both destinations can supply both pairs; a new token is not required merely to
-use this workflow. Missing application credentials or an incomplete pair fail
-before a deployment is triggered. Controller Access credentials may be omitted
-when using an authenticated private SSH tunnel to the controller.
+In the Coolify token form, select `deploy` first, then add `read` and `write`.
+Selecting `deploy` last clears the other selections. Verify all three permissions
+on the issued token. Neither `root` nor `read:sensitive` is required. Coolify may
+omit environment-variable values from API responses; the action checks the
+build-time metadata and verifies the actual build commit and running revision.
 
-Keep the human login policies on both Cloudflare Access applications. Add or
-reuse **Service Auth** policies with an **Include → Service Token** rule for the
-existing CI token. Requests must still authenticate as an allowed person or
-service. Keep `/health` protected at Cloudflare; do not add a Bypass policy or
-an Everyone rule. The container's internal health check needs no Cloudflare
-credential because it stays on loopback. Keep the origin reachable only through
-the tunnel or trusted private network so direct Internet traffic cannot avoid
-Access. Cloudflare policy and origin restrictions must be verified in the
-infrastructure; this repository's workflow does not create or replace them.
+Keep human Access policies and Service Auth policies on both applications. A
+single existing service token can fill both pairs if it is authorized for both
+hosts. Do not add a Bypass or Everyone policy. Controller credentials are sent
+only to the controller; application credentials are sent only to `/health`.
+Neither credentials nor response bodies are printed in workflow logs.
 
-Enable controller API access if disabled. The webhook must select exactly one
-application; tag/bulk deployment URLs are rejected. The deploy token remains a
-team credential, so keep its team membership and lifetime appropriately narrow.
+If an existing Access application also covers unrelated hosts, use a dedicated
+Access application for `controller.example.test/api/v1/*` and
+`prompt.example.test/health`. Attach the dedicated deployment Service Auth policy
+and the existing human and automation policies, because more-specific paths do
+not inherit the parent application's policies. The new deployment token then
+applies only to these routes. Keep the browser application's original audience
+configuration; the external health route remains protected at Cloudflare.
 
-For a controller reachable only from the LAN, set the **repository variable**
-`COOLIFY_RUNNER_LABELS` to a JSON array such as
-`["self-hosted", "linux", "x64", "coolify-deploy"]`. Use a dedicated deployment
-runner restricted to trusted workflows. Only the deploy job runs there; builds
-and tests run on GitHub-hosted runners. Never use this runner for untrusted pull
-requests. It needs Python setup support, controller access, and access to the app's
-HTTPS domain. An existing authenticated SSH tunnel may expose the controller at
-`http://127.0.0.1:18000`; plain HTTP is otherwise rejected. Do not expose the
-controller publicly just to make the webhook reachable.
+For a LAN-only controller, set `COOLIFY_RUNNER_LABELS` to a dedicated deployment
+runner's JSON labels, for example `["self-hosted", "linux", "coolify-deploy"]`.
+Only the final deployment job uses that runner. A pre-established authenticated
+SSH tunnel may use a loopback HTTP webhook; all other controller URLs require
+HTTPS. Controller Access credentials are optional only for that loopback route.
+The runner still needs HTTPS access to the app for the authenticated health check.
 
-## Publish and verify
+## Run and verify
 
-After the owner reviews and merges the change, open **Actions → Publish to
-Coolify → Run workflow**, selecting `main`. Publication is manual. The workflow:
+After owner review and promotion to `main`, open **Actions → Deploy to Coolify →
+Run workflow**, selecting `main`.
 
-1. Runs the existing quality gate, including privacy, backend, frontend and
-   synthetic browser checks.
-2. Builds a Linux AMD64 image and starts a disposable container with synthetic
-   inputs. It checks login, host/origin restrictions, CSRF, cookie flags, prompt
-   checks, the dashboard, and the exclusion of local integration endpoints.
-3. Pushes that tested image to GHCR as `sha-<commit>` and `production`.
-4. Calls the webhook once, then waits up to ten minutes for two consecutive
-   healthy responses bearing the expected commit revision. Redirects are refused
-   and controller credentials are never sent to the application health endpoint.
+1. Reject another branch or incomplete configuration before building.
+2. Run the unchanged repository quality gate.
+3. Build the exact commit and smoke-test the disposable container, including
+   revision identity, origin checks, cookies, CSRF and blocked local-only tools.
+4. Confirm the existing app uses the expected Dockerfile profile. Pin its source
+   repository, branch, commit and `APP_REVISION`, then verify the source pin and
+   build-time variable metadata. A returned variable value must also match.
+5. Send one authenticated POST to Coolify's deploy endpoint. A timed-out POST is
+   never retried automatically because the controller may already have queued it.
+6. Wait up to twenty minutes for that deployment to finish with the same commit,
+   then require two consecutive authenticated health checks with the baked
+   revision header. A failed build or an old healthy container is not success.
 
-Runs are serialized. `production` is a moving tag, so a manual restart can pick
-up its newest image. A queued deployment alone is not success; a timeout remains
-unverified and does not automatically retry or roll back. Inspect the deployment
-privately in Coolify. For rollback, select a previously published `sha-<commit>`
-tag and redeploy; also plan for database compatibility and keep private backups.
-Set the image tag back to `production` before the next workflow release.
+Runs are serialized. A timeout remains unverified; inspect the named app's
+Deployments page privately before retrying. Failed configuration updates can
+leave the next build pinned to the requested commit while the old container is
+still running. There is no automatic source rollback or data rollback. To roll
+back, select a known compatible source commit and set its matching `APP_REVISION`
+in Coolify, preserving the volume and considering schema compatibility.
 
-The build context admits only application/build inputs. The image contains no
-provider sessions, models, credentials or seeded demo data. Runtime logs suppress
-request-bearing diagnostics. The `/health` endpoint returns only fixed runtime
-status fields and the image revision. Cloudflare authenticates external health
-requests; other routes also require the hosted gateway login.
+**Verify hosted candidate** also builds and smoke-tests each pull-request head
+without deployment secrets. This is a separate check, not a production release
+or a substitute for the full quality gate.
 
-## Hosted capabilities and limits
+## Scope and references
 
-Manual browser prompt checks and stored application views work against data in
-this container. The container cannot see prompts or provider sessions on a
-visitor's computer. Its provider reader is disabled, its provider home is empty,
-and models/desktop extras are absent. Model-assisted commentary stays unavailable
-until a separately reviewed runtime design exists. No automatic imports or
-provider hooks are configured by deployment.
+The hosted application cannot inspect sessions on a visitor's device. Its
+provider reader is disabled, its provider home is empty, and local model weights
+are absent. This workflow does not restore the archived LiteLLM/inference feature.
+Native workspace approvals remain unavailable from the hosted browser, and the
+gateway blocks remote MCP and provider telemetry endpoints.
 
-The gateway strips API tokens and native-presence headers. Browser cookies and
-CSRF checks remain enforced; native approval stays unavailable. Protected Agent
-effects cannot be approved from this hosted browser. This deployment adds no
-remote MCP, generic SQL interface, or remote transcript ingestion interface.
-
-For a local container check, build with a 40-character revision and run
-`DEPLOY_REVISION=<same-revision> python scripts/smoke_hosted_container.py` against
-the image tagged `prompt-enhancer:candidate`. Docker must be running. This uses
-only temporary container storage and synthetic inputs.
-
-## Reference
-
-- [Coolify GitHub Actions integration](https://coolify.io/docs/applications/sources/github/actions)
-- [Coolify Docker Image applications](https://coolify.io/docs/applications/deployments/docker-image)
-- [Coolify deploy webhooks](https://coolify.io/docs/core/automation/deploy-webhooks)
-- [Caddy password authentication](https://caddyserver.com/docs/caddyfile/directives/basic_auth)
+- [Coolify Dockerfile builds](https://coolify.io/docs/applications/builds/dockerfile)
+- [Coolify application updates](https://coolify.io/docs/api/endpoints/applications/update-application-by-uuid)
+- [Coolify deploy API](https://coolify.io/docs/api/endpoints/deployments/deploy-by-tag-or-uuid)
+- [Coolify API permissions](https://coolify.io/docs/api/permissions)
 - [Cloudflare Access service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
+- [Cloudflare Access path precedence](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/)
