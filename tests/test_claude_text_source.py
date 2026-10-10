@@ -478,10 +478,17 @@ def test_probe_degrades_on_unknown_block_and_unavailable_without_root(tmp_path: 
 def test_default_grants_drive_claude_sessions_through_the_analysis_lane(tmp_path: Path, monkeypatch) -> None:
     """Consent -> index -> default grant -> poll -> the job worker analyses a Claude session."""
 
-    from prompt_enhancer.application.jobs import AnalysisJobState
+    from prompt_enhancer.application.jobs import AnalysisJobState, PowerSourceState
     from prompt_enhancer.application.providers import ProviderSurfaceCompatibilityPolicy
     from prompt_enhancer.bootstrap import bootstrap_local_application
     from prompt_enhancer.config import AppSettings
+    from prompt_enhancer.infrastructure.power import LocalPowerSourceReader
+
+    # This scenario exercises consent and analysis, not the host's battery or
+    # unsupported power API. Unknown/battery refusal has separate coverage.
+    monkeypatch.setattr(
+        LocalPowerSourceReader, "current", lambda _self: PowerSourceState.EXTERNAL_POWER
+    )
 
     claude_home = tmp_path / "claude-home"
     monkeypatch.setenv("PROMPT_ENHANCER_CLAUDE_HOME", str(claude_home))

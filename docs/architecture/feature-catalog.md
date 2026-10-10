@@ -141,7 +141,7 @@ Dependencies: Entry/boundary component; see system map.
 
 **Tests:** [`tests/test_onboarding.py`](../../tests/test_onboarding.py) — identical-lf-normalized<br>[`tests/test_consent_adapter_access.py`](../../tests/test_consent_adapter_access.py) — identical-lf-normalized<br>[`tests/test_ingestion_and_database.py`](../../tests/test_ingestion_and_database.py) — identical-lf-normalized
 
-**Evidence:** Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Ledger October 7: 52 backend onboarding/schema/privacy and six synthetic App browser cases passed on a separate five-file clean cohort.
+**Evidence:** Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Ledger October 7: 52 backend onboarding/schema/privacy and six synthetic App browser cases passed on a separate five-file clean cohort. Follow-up 2026-10-10: synthetic regression proves explicit compatibility retry can recover the primary text surface after a supplied onboarding path, while cached GETs remain non-executing. See the quality-repair task card; native/provider acceptance remains open.
 
 **Gap:** Native first-run/provider ingestion and clean installation remain open. Onboarding source differs from origin/main.
 
@@ -1165,7 +1165,7 @@ Dependencies: A13, A24
 
 **Tests:** [`tests/test_mcp_managed_runtime.py`](../../tests/test_mcp_managed_runtime.py) — different<br>[`tests/test_mcp_managed_host_contracts.py`](../../tests/test_mcp_managed_host_contracts.py) — identical-lf-normalized<br>[`tests/test_mcp_guarded_host.py`](../../tests/test_mcp_guarded_host.py) — identical-lf-normalized
 
-**Evidence:** App-run host ownership, project tool snapshot, prepare/native approve/revision recheck, bounded result and content-free durable receipt exist.
+**Evidence:** App-run host ownership, project tool snapshot, prepare/native approve/revision recheck, bounded result and content-free durable receipt exist. Follow-up 2026-10-10: owned stdio cleanup retries temporarily unavailable process status within the existing deadline and still refuses persistent uncertainty. Synthetic transient/persistent errors and owned-process cases pass; see the quality-repair task card. Curated native acceptance remains open.
 
 **Gap:** Curated native host lifecycle/restart/removal acceptance is open; durable configuration cannot silently restore authority.
 
@@ -1757,7 +1757,7 @@ Dependencies: R24
 
 **Tests:** No executable test/implementation at this level.
 
-**Evidence:** Static review 2026-10-08; pinned CI actions, Linux/Windows backend and frontend jobs exist. Latest clean-cohort full frontend timed out at 600.11s without final failure census. Gate references (not executable tests): Q-PYTEST, Q-NPM-TEST, Q-E2E, Q-PRIVACY-SCAN, Q-CHECK-API. Later proposal (2026-10-10): manual Coolify source deployment on develop cadba09; 85 synthetic deployment/authentication checks passed. See the journal and Coolify guide. Live deployment and full quality qualification remain separate; the frozen October 8 observation is unchanged.
+**Evidence:** Static review 2026-10-08; pinned CI actions, Linux/Windows backend and frontend jobs exist. Latest clean-cohort full frontend timed out at 600.11s without final failure census. Gate references (not executable tests): Q-PYTEST, Q-NPM-TEST, Q-E2E, Q-PRIVACY-SCAN, Q-CHECK-API. Later proposal (2026-10-10): manual Coolify source deployment on develop cadba09; 85 synthetic deployment/authentication checks passed. See the journal and Coolify guide. Live deployment and full quality qualification remain separate; the frozen October 8 observation is unchanged. Follow-up on develop e47b709 repairs inherited fixtures: 558 affected backend and 2,912 frontend tests pass; six corrected browser scenarios pass. Staged-source privacy and architecture checks pass. Two required backend shards retain full collection coverage within the existing job limit; final hosted candidate checks pending. See the journal task card; R26 remains partial.
 
 **Gap:** No complete current clean-candidate quality gate; platform checks and repository plan/billing state are separate evidence.
 

@@ -43,7 +43,7 @@ async function nextFrame(): Promise<void> {
 }
 
 describe("TranscriptEventRows local conversation navigation", () => {
-  it("offers a revision action for an attachment-only source turn", async () => {
+  it("requires an editable branch instead of replaying an attachment-only source turn", async () => {
     const turnId = "a".repeat(32);
     const onReviseTurn = vi.fn();
     const attachment = {
@@ -73,8 +73,13 @@ describe("TranscriptEventRows local conversation navigation", () => {
     ], { onReviseTurn });
 
     fireEvent.click(await screen.findByLabelText("Turn 1 details"));
-    fireEvent.click(screen.getByRole("button", { name: "Prepare regeneration with attachments" }));
-    expect(onReviseTurn).toHaveBeenCalledExactlyOnceWith(turnId, "regenerate");
+    const regenerate = screen.getByRole("button", { name: "Regenerate in branch" });
+    expect(regenerate).toBeDisabled();
+    fireEvent.click(regenerate);
+    expect(onReviseTurn).not.toHaveBeenCalled();
+    expect(screen.getByText(/attachments are never copied into a branch/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Edit in branch" }));
+    expect(onReviseTurn).toHaveBeenCalledExactlyOnceWith(turnId, "edit");
   });
 
   it("finds literal Unicode text in loaded user and stopped assistant messages, excluding other activity", async () => {

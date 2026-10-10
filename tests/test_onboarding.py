@@ -663,6 +663,9 @@ def test_refresh_worker_join_failure_is_content_free() -> None:
 
 
 def test_http_onboarding_routes_and_path_override(tmp_path: Path, monkeypatch) -> None:
+    # The override scenario intentionally clears the environment override;
+    # keep its fallback home fictional too, before composing any provider.
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: tmp_path / "example-user"))
     monkeypatch.delenv("PROMPT_ENHANCER_CLAUDE_HOME", raising=False)
     # Pin PATH detection: this machine may have the real Codex CLI installed.
     monkeypatch.setattr("prompt_enhancer.application.onboarding.shutil.which", lambda name: None)

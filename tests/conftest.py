@@ -86,7 +86,23 @@ def _isolated_provider_homes(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture
-def downgrade_agent_catalog_post_v20() -> Callable[[sqlite3.Connection], None]:
+def downgrade_agent_catalog_post_v29() -> Callable[[sqlite3.Connection], None]:
+    """Remove newer search and checksum state from historical MCP fixtures."""
+
+    def downgrade(connection: sqlite3.Connection) -> None:
+        # Dropping the virtual table also removes its FTS shadow tables.
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_fts")
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_messages")
+        connection.execute("DROP TABLE IF EXISTS agent_catalog_migration_checksums")
+        connection.execute("DELETE FROM agent_catalog_schema_migrations WHERE version>29")
+
+    return downgrade
+
+
+@pytest.fixture
+def downgrade_agent_catalog_post_v20(
+    downgrade_agent_catalog_post_v29,
+) -> Callable[[sqlite3.Connection], None]:
     """Reverse post-v20 additive schemas for exact historical fixtures.
 
     Migration tests start with the current database so they can preserve real
@@ -106,10 +122,7 @@ def downgrade_agent_catalog_post_v20() -> Callable[[sqlite3.Connection], None]:
     def downgrade(connection: sqlite3.Connection) -> None:
         connection.execute("PRAGMA foreign_keys = OFF")
 
-        # Schema 30. Historical fixtures have no checksum provenance sidecar.
-        connection.execute(
-            "DROP TABLE IF EXISTS agent_catalog_migration_checksums"
-        )
+        downgrade_agent_catalog_post_v29(connection)
 
         # Schema 29. Historical fixtures have neither the cross-project claim
         # guards nor immutable call evidence triggers.

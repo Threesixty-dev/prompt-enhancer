@@ -337,6 +337,17 @@ function sessionTransport(...sessions: AgentSessionView[]) {
   };
 }
 
+// Drafting stays local while runtime readiness still blocks every send path.
+function expectDraftOnly(sendAgentMessage: unknown): void {
+  const composer = screen.getByLabelText("Message to the agent");
+  expect(composer).toBeEnabled();
+  fireEvent.change(composer, { target: { value: "Keep this synthetic draft until the model is ready" } });
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  fireEvent.submit(screen.getByRole("form", { name: "Message composer" }));
+  expect(sendAgentMessage).not.toHaveBeenCalled();
+  expect(composer).toHaveValue("Keep this synthetic draft until the model is ready");
+}
+
 function catalogProjectFixture(
   projectId: string,
   name: string,
@@ -2878,7 +2889,7 @@ describe("AgentPage", () => {
     ));
     expect(activateLocalModel).not.toHaveBeenCalled();
     expect(await screen.findByText("No local model is running for this session. Start one on the Models page.")).toBeVisible();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
     expect(screen.getByRole("link", { name: "Open Models" })).toHaveAttribute("href", "/models");
   });
 
@@ -2895,7 +2906,7 @@ describe("AgentPage", () => {
     render(<AgentPage transport={transport} />);
 
     expect(await screen.findByLabelText("Agent activity status")).toHaveTextContent("No model");
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     expect(transport.sendAgentMessage).not.toHaveBeenCalled();
   });
@@ -3052,7 +3063,7 @@ describe("AgentPage", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Local app disconnected");
     const composer = await screen.findByLabelText("Message to the agent");
-    expect(composer).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
     expect(composer).toHaveAttribute("placeholder", expect.stringMatching(/local app is disconnected/i));
     expect(screen.getByRole("button", { name: state === "running" ? "Stop model" : "Start session model" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "New chat" })).toBeDisabled();
@@ -3078,7 +3089,7 @@ describe("AgentPage", () => {
     expect(screen.getByText(/Open New chat and enter a workspace folder/)).toBeVisible();
   });
 
-  it("blocks an existing session while its model is stopped and enables the composer after activation", async () => {
+  it("keeps local drafts while its model is stopped and enables sending after activation", async () => {
     const current = view();
     const stopped = modelStatus("stopped");
     const running = modelStatus("running");
@@ -3096,7 +3107,7 @@ describe("AgentPage", () => {
 
     expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
     const composer = screen.getByLabelText("Message to the agent");
-    expect(composer).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
     expect(composer).toHaveAttribute("placeholder", "Start the session model to write a message");
 
     fireEvent.click(screen.getByRole("button", { name: "Start session model" }));
@@ -3133,7 +3144,7 @@ describe("AgentPage", () => {
     await waitFor(() => expect(transport.deactivateLocalModel).toHaveBeenCalledWith(MODEL_ALIAS));
     expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
     expect(screen.getByText(/sessions using it remain open but cannot send until it is restarted/i)).toBeVisible();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
     expect(screen.getByRole("button", { name: "Start session model" })).toBeEnabled();
     expect(transport.deleteAgentSession).not.toHaveBeenCalled();
   });
@@ -3166,7 +3177,7 @@ describe("AgentPage", () => {
     });
     expect(screen.getByLabelText("Agent activity status")).toHaveTextContent(action === "start" ? "Ready" : "Model stopped");
     if (action === "start") expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
-    else expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    else expectDraftOnly(transport.sendAgentMessage);
   });
 
   it("blocks sends during a model-stop request while preserving the draft", async () => {
@@ -3200,7 +3211,7 @@ describe("AgentPage", () => {
     await act(async () => { newer.resolve(modelsOverview(modelStatus("stopped"))); });
     await act(async () => { older.resolve(modelsOverview(modelStatus("running"))); });
     expect(screen.getByLabelText("Agent activity status")).toHaveTextContent("Model stopped");
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
   });
 
   it("does not continue an old model-stop preflight after the transport is replaced", async () => {
@@ -3275,7 +3286,7 @@ describe("AgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start session model" }));
     await act(async () => { oldStart.resolve(modelStatus("running")); });
     expect(screen.getByRole("button", { name: "Starting model…" })).toBeDisabled();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(replacement.sendAgentMessage);
     expect(replacement.activateLocalModel).toHaveBeenCalledOnce();
     await act(async () => { newStart.resolve(modelStatus("running")); });
     expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
@@ -3306,7 +3317,7 @@ describe("AgentPage", () => {
     expect(screen.getByLabelText("Message to the agent")).toBeEnabled();
     await act(async () => window.dispatchEvent(new Event("focus")));
     expect(screen.getByLabelText("Agent activity status")).toHaveTextContent("Model stopped");
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
   });
 
   it("does not stop a shared model while another session is actively using it", async () => {
@@ -3346,7 +3357,7 @@ describe("AgentPage", () => {
     render(<AgentPage transport={transport} />);
 
     expect(await screen.findByText(/starting · start it before sending/)).toBeVisible();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
     expect(screen.getAllByRole("button", { name: "Refresh model status" }).length).toBeGreaterThan(0);
 
     expect(await screen.findByText(/running · ready for messages/, {}, { timeout: 3000 })).toBeVisible();
@@ -3406,7 +3417,7 @@ describe("AgentPage", () => {
     expect(await screen.findByText(/stopped · start it before sending/)).toBeVisible();
     expect(getLocalModels).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("button", { name: "Start session model" })).toBeEnabled();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
   });
 
   it("keeps the own-window conversation primary while preserving the session rail and runtime controls", async () => {
@@ -3993,7 +4004,7 @@ describe("AgentPage", () => {
     expect(await screen.findByText("No local model is running for this session. Start one on the Models page.")).toBeVisible();
     const recovery = screen.getByRole("link", { name: "Open Models" });
     expect(recovery).toHaveAttribute("href", "/models");
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
   });
 
   it("keeps coordinated model recovery inside Agent and reveals the exact control", async () => {
@@ -4058,7 +4069,7 @@ describe("AgentPage", () => {
 
     expect(await screen.findByText("Synthetic Local Model · stopped · start or switch it in Model & context")).toBeVisible();
     expect(screen.getByRole("button", { name: "Choose or start model" })).toBeEnabled();
-    expect(screen.getByLabelText("Message to the agent")).toBeDisabled();
+    expectDraftOnly(transport.sendAgentMessage);
   });
 
   it("sends an empty coordinated model catalogue to installation instead of a dead selector", async () => {
@@ -5238,6 +5249,7 @@ describe("AgentPage", () => {
       }),
       deleteAgentCatalogSession: vi.fn(async () => undefined),
       getAgentPersistedEvents: persistedEvents,
+      resumeAgentSession: vi.fn(),
     };
 
     render(<AgentPage transport={transport} />);
@@ -5250,6 +5262,7 @@ describe("AgentPage", () => {
       .getByRole("button", { name: "Archive" }));
     expect(await screen.findByRole("button", { name: "Restore chat before resuming" })).toBeDisabled();
     expect(persistedEvents).toHaveBeenCalledOnce();
+    expect(transport.resumeAgentSession).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("button", {
       name: "Chat actions for Archivable retained chat",
     })).toBeNull());
@@ -5260,6 +5273,7 @@ describe("AgentPage", () => {
       .getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Resume chat" })).toBeEnabled());
     expect(persistedEvents).toHaveBeenCalledOnce();
+    expect(transport.resumeAgentSession).not.toHaveBeenCalled();
   }, 15_000);
 
   it("clears a deleted selected retained chat and removes every stale action", async () => {
@@ -6439,7 +6453,7 @@ describe("AgentPage", () => {
     expect(await screen.findByText("example-notes.md")).toBeVisible();
     const list = screen.getByRole("list", { name: "Message attachments" });
     expect(list).toHaveTextContent("Document");
-    expect(list).toHaveTextContent("MARKDOWN · 1024 projected characters · truncated");
+    expect(list).toHaveTextContent(`MARKDOWN · ${(1024).toLocaleString()} projected characters · truncated`);
     expect(list).not.toHaveTextContent("data:");
   });
 
