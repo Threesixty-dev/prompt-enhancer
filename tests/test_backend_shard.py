@@ -14,11 +14,11 @@ from scripts.run_backend_shard import main
 
 def test_backend_shards_cover_every_case_once_and_preserve_failure(tmp_path):
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_backend_shard.py"
-    fixture = "from pathlib import Path\n\n" + "\n".join(
+    fixture = "from pathlib import Path\nfrom tests.example_helpers import FAILING_CASE\n\n" + "\n".join(
         f"def test_case_{index}():\n"
         f"    marker = Path('case-{index}.ran')\n"
         "    marker.write_text(str(int(marker.read_text()) + 1) if marker.exists() else '1')\n"
-        f"    assert {index} != 3\n"
+        f"    assert {index} != FAILING_CASE\n"
         for index in range(6)
     )
     observed = []
@@ -27,9 +27,14 @@ def test_backend_shards_cover_every_case_once_and_preserve_failure(tmp_path):
         root = tmp_path / f"shard-{number}"
         root.mkdir()
         (root / "pytest.ini").write_text("[pytest]\n")
+        (root / "scripts").mkdir()
+        (root / "scripts" / "run_backend_shard.py").write_text(script.read_text())
+        (root / "tests").mkdir()
+        (root / "tests" / "__init__.py").write_text("")
+        (root / "tests" / "example_helpers.py").write_text("FAILING_CASE = 3\n")
         (root / "test_example.py").write_text(fixture)
         result = run_owned_process(
-            (sys._base_executable, str(script), "--shard", str(number), "--shard-count", "2"),
+            (sys._base_executable, "-m", "scripts.run_backend_shard", "--shard", str(number), "--shard-count", "2"),
             cwd=root,
             env={
                 **minimal_environment(),
