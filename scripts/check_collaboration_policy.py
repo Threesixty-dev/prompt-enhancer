@@ -1,4 +1,4 @@
-"""Check pull request metadata against the collaboration naming policy.
+"""Check pull request metadata against the collaboration naming and flow policy.
 
 The tool reads one GitHub ``pull_request`` event JSON file and inspects only
 the target branch, the source branch name, and the title.  It never runs git,
@@ -19,7 +19,8 @@ import unicodedata
 from typing import Any, Mapping, NoReturn, Sequence
 
 
-TARGET_BRANCH = "main"
+TARGET_BRANCHES = frozenset({"main", "develop"})
+_NAMED_BRANCHES = frozenset({"main", "develop", "dev_pm"})
 MAX_EVENT_BYTES = 1024 * 1024
 MAX_TITLE_CHARS = 200
 MAX_BRANCH_CHARS = 100
@@ -29,9 +30,10 @@ EVENT_UNREADABLE = "EVENT_UNREADABLE"
 EVENT_TOO_LARGE = "EVENT_TOO_LARGE"
 EVENT_MALFORMED = "EVENT_MALFORMED"
 EVENT_SHAPE = "EVENT_SHAPE"
-BASE_NOT_MAIN = "BASE_NOT_MAIN"
+BASE_INVALID = "BASE_INVALID"
 TITLE_INVALID = "TITLE_INVALID"
 BRANCH_INVALID = "BRANCH_INVALID"
+BRANCH_FLOW_INVALID = "BRANCH_FLOW_INVALID"
 USAGE_INVALID = "USAGE_INVALID"
 
 _TITLE = re.compile(
@@ -63,8 +65,18 @@ def _branch_valid(branch: str) -> bool:
     return (
         0 < len(branch) <= MAX_BRANCH_CHARS
         and branch.isascii()
-        and _BRANCH.fullmatch(branch) is not None
+        and (branch in _NAMED_BRANCHES or _BRANCH.fullmatch(branch) is not None)
     )
+
+
+def _branch_flow_valid(head: str, base: str) -> bool:
+    if head == base:
+        return False
+    if base == "develop":
+        return head == "dev_pm" or _BRANCH.fullmatch(head) is not None
+    if base == "main":
+        return head == "develop" or head.startswith(("fix/", "release/"))
+    return False
 
 
 def _ref(container: Any) -> str | None:
@@ -87,12 +99,14 @@ def validate(event: Any) -> tuple[str, ...]:
         return (EVENT_SHAPE,)
 
     errors: list[str] = []
-    if base_ref != TARGET_BRANCH:
-        errors.append(BASE_NOT_MAIN)
+    if base_ref not in TARGET_BRANCHES:
+        errors.append(BASE_INVALID)
     if not _title_valid(title):
         errors.append(TITLE_INVALID)
     if not _branch_valid(head_ref):
         errors.append(BRANCH_INVALID)
+    elif base_ref in TARGET_BRANCHES and not _branch_flow_valid(head_ref, base_ref):
+        errors.append(BRANCH_FLOW_INVALID)
     return tuple(errors)
 
 

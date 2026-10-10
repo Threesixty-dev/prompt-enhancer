@@ -16,6 +16,7 @@ from pydantic import SecretStr
 from ....application.analysis.text_contracts import (
     ACTION_CANDIDATE_METADATA_FINGERPRINT_VERSION,
     ACTION_REVIEW_DESCRIPTOR_ALGORITHM_VERSION,
+    MAX_ACTION_REVIEW_PREVIEW_CHARACTERS,
     EphemeralRedactedActionDescriptor,
     EphemeralRedactedMessage,
     P1TextAnalysisInput,
@@ -599,17 +600,35 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
                 if raw.result_or_effect_preview is None
                 else self._redactor.redact(raw.result_or_effect_preview)
             )
+            # Normalization and replacement labels can expand a provider
+            # preview. Enforce its bound after redaction as well, retaining
+            # either source or local truncation in the evidence receipt.
+            invocation_text = invocation.text.get_secret_value()
+            effect_text = None if effect is None else effect.text.get_secret_value()
             descriptors.append(
                 EphemeralRedactedActionDescriptor(
                     source_reference_id=source_reference_id,
                     event_kind=event_kind,
                     tool_name=tool.text,
-                    invocation_preview=invocation.text,
-                    result_or_effect_preview=(
-                        None if effect is None else effect.text
+                    invocation_preview=SecretStr(
+                        invocation_text[:MAX_ACTION_REVIEW_PREVIEW_CHARACTERS]
                     ),
-                    invocation_truncated=raw.invocation_truncated,
-                    result_or_effect_truncated=raw.result_or_effect_truncated,
+                    result_or_effect_preview=(
+                        None if effect_text is None else SecretStr(
+                            effect_text[:MAX_ACTION_REVIEW_PREVIEW_CHARACTERS]
+                        )
+                    ),
+                    invocation_truncated=(
+                        raw.invocation_truncated
+                        or len(invocation_text) > MAX_ACTION_REVIEW_PREVIEW_CHARACTERS
+                    ),
+                    result_or_effect_truncated=(
+                        raw.result_or_effect_truncated
+                        or (
+                            effect_text is not None
+                            and len(effect_text) > MAX_ACTION_REVIEW_PREVIEW_CHARACTERS
+                        )
+                    ),
                     redactor_version=self._redactor.version,
                     candidate_metadata_fingerprint_version=(
                         candidate_metadata_fingerprint_version

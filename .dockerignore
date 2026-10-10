@@ -1,0 +1,27 @@
+# Allowlist the build context; never send local state to a builder.
+**
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!src/prompt_enhancer/
+!src/prompt_enhancer/**/
+!src/prompt_enhancer/**/*.py
+!frontend/
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/.npmrc
+!frontend/index.html
+!frontend/tsconfig*.json
+!frontend/vite.config.ts
+!frontend/src/
+!frontend/src/**
+!deploy/
+!deploy/coolify/
+!deploy/coolify/Caddyfile
+!deploy/coolify/auth-basic.caddy
+!deploy/coolify/auth-cloudflare.caddy
+!deploy/coolify/cloudflare_auth.py
+!deploy/coolify/entrypoint.py
+!deploy/coolify/healthcheck.py

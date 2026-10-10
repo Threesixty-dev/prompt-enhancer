@@ -10,6 +10,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "cryptography>=46,<51",
+  # MIT; pinned Cloudflare Access origin assertion verifier.
+  "PyJWT[crypto]==2.13.0",
   "fastapi>=0.116.1,<1",
   "httpx>=0.28.1,<1",
   # MIT-licensed official MCP SDK. Keep the protocol/runtime revision exact;
@@ -17,6 +19,8 @@ dependencies = [
   "mcp==2.1.1",
   # Managed MCP calls validate the exact reviewed input/output contracts.
   "jsonschema>=4.26,<5",
+  # Apache-2.0/BSD-2-Clause; runtime MCP package validation imports this directly.
+  "packaging==26.3",
   "pydantic>=2.11.7,<3",
   "regex==2026.7.19",
   "uvicorn>=0.35,<1",
