@@ -72,6 +72,8 @@ def test_release_waits_for_two_consecutive_expected_revisions_without_sending_to
     ])
     release.deploy(environment(), opener=opener, sleep=lambda _: None)
     assert len(opener.requests) == 6
+    assert opener.requests[0].get_method() == "POST"
+    assert all(request.get_method() == "GET" for request in opener.requests[1:])
     assert opener.requests[0].get_header("Authorization") == "Bearer example-invalid-deploy-token"
     assert all(request.get_header("Authorization") is None for request in opener.requests[1:])
     assert all(request.full_url == "https://prompt.example.test/health" for request in opener.requests[1:])
@@ -177,8 +179,8 @@ def test_loopback_tunnel_only_allowed_for_controller():
 def test_redirects_do_not_forward_deployment_credentials():
     received = []
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            received.append(self.path)
+        def do_POST(self):
+            received.append((self.command, self.path))
             self.send_response(302)
             self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/unexpected-redirect")
             self.end_headers()
@@ -193,7 +195,7 @@ def test_redirects_do_not_forward_deployment_credentials():
         with pytest.raises(urllib.error.HTTPError) as error:
             release.deploy(env)
         assert error.value.code == 302
-        assert received == ["/api/v1/deploy?uuid=example"]
+        assert received == [("POST", "/api/v1/deploy?uuid=example")]
     finally:
         server.shutdown()
         server.server_close()
@@ -204,7 +206,7 @@ def test_errors_never_print_credentials_or_controller_response(monkeypatch, caps
     def fail(_):
         raise ValueError("example-private-response-and-token")
     monkeypatch.setattr(release, "deploy", fail)
-    assert release.main() == 1
+    assert release.main([]) == 1
     assert "example-private" not in capsys.readouterr().err
 
 
@@ -244,7 +246,7 @@ def test_server_environments_do_not_inherit_provider_or_controller_credentials(m
     assert "COOLIFY_TOKEN" not in backend
     config = gateway_configuration()
     gateway = hosted.gateway_environment({**config, "COOLIFY_TOKEN": "example-invalid-token"})
-    assert set(gateway) == {*config, "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME"}
+    assert set(gateway) == {*config, "PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "PROMPT_ENHANCER_AUTH_CONFIG"}
 
 
 def test_malformed_gateway_never_starts_backend(monkeypatch):
@@ -277,3 +279,147 @@ def test_failed_child_stops_sibling_and_redacts_output(monkeypatch, capsys):
     assert hosted.main() == 1
     assert children[1].terminated
     assert "example" not in capsys.readouterr().err
+
+
+def source_environment():
+    return {**environment(), "DEPLOY_REPOSITORY": "example/example-app", "DEPLOY_BRANCH": "main",
+        "COOLIFY_ACCESS_CLIENT_ID": "example-controller.invalid",
+        "COOLIFY_ACCESS_CLIENT_SECRET": "example-invalid-controller-secret"}
+
+
+def source_profile(**changes):
+    return {"build_pack": "dockerfile", "ports_exposes": "8080", "ports_mappings": None,
+        "base_directory": "/", "dockerfile_location": "/Dockerfile", **changes}
+
+
+def pin_responses(*, buildtime=True, readback=None):
+    source = release.source_configuration(source_environment())
+    return [Response(source_profile()), Response({"uuid": "example-app"}),
+        Response({"key": "APP_REVISION", "value": "a" * 40, "is_buildtime": buildtime}),
+        Response(source if readback is None else readback)]
+
+
+def test_source_pins_exact_revision_and_waits_for_build_before_health():
+    opener = Opener([*pin_responses(), accepted(), Response({"status": "in_progress"}),
+        Response({"status": "finished", "commit": "a" * 40}),
+        Response({"status": "ok"}, revision="a" * 40), Response({"status": "ok"}, revision="a" * 40)])
+    release.deploy(source_environment(), opener=opener, sleep=lambda _: None)
+    assert [r.get_method() for r in opener.requests] == ["GET", "PATCH", "PATCH", "GET", "POST", "GET", "GET", "GET", "GET"]
+    pin = json.loads(opener.requests[1].data)
+    assert pin["git_repository"] == "https://github.com/example/example-app.git"
+    assert pin["git_branch"] == "main" and pin["git_commit_sha"] == "a" * 40
+    assert pin["instant_deploy"] is False and pin["is_auto_deploy_enabled"] is False
+    assert not ({"domains", "ports_exposes", "destination_uuid", "server_uuid", "environment_variables"} & pin.keys())
+    assert json.loads(opener.requests[2].data)["key"] == "APP_REVISION"
+    assert opener.requests[5].full_url.endswith("/deployments/example-deployment")
+    for request in opener.requests[:7]:
+        assert request.get_header("Authorization") == "Bearer example-invalid-deploy-token"
+        assert request.get_header("Cf-access-client-id") == "example-controller.invalid"
+    for request in opener.requests[7:]:
+        assert request.full_url == "https://prompt.example.test/health"
+        assert request.get_header("Authorization") is None
+        assert request.get_header("Cf-access-client-id") == "example-app.invalid"
+
+
+@pytest.mark.parametrize("changes", [
+    {"DEPLOY_BRANCH": "develop"}, {"DEPLOY_REPOSITORY": "example/../example"},
+    {"DEPLOY_REPOSITORY": "https://github.com/example/example"},
+    {"COOLIFY_ACCESS_CLIENT_ID": "", "COOLIFY_ACCESS_CLIENT_SECRET": ""},
+])
+def test_source_configuration_fails_before_any_controller_mutation(changes):
+    opener = Opener([])
+    with pytest.raises(ValueError):
+        release.deploy({**source_environment(), **changes}, opener=opener)
+    assert opener.requests == []
+
+
+@pytest.mark.parametrize("changes", [
+    {"build_pack": "dockerimage"}, {"ports_exposes": "8765"},
+    {"ports_mappings": "8080:8080"}, {"base_directory": "/example"},
+    {"dockerfile_location": "/example/Dockerfile"},
+])
+def test_incompatible_application_stops_before_mutation(changes):
+    opener = Opener([Response(source_profile(**changes))])
+    with pytest.raises(RuntimeError, match="deployment_source_profile_invalid"):
+        release.deploy(source_environment(), opener=opener)
+    assert [r.get_method() for r in opener.requests] == ["GET"]
+
+
+@pytest.mark.parametrize("readback,buildtime,error", [
+    (None, False, "deployment_revision_build_argument_required"),
+    ({"git_commit_sha": "b" * 40}, True, "deployment_source_pin_failed"),
+])
+def test_invalid_build_argument_or_ignored_pin_never_starts_deployment(readback, buildtime, error):
+    opener = Opener(pin_responses(buildtime=buildtime, readback=readback))
+    with pytest.raises(RuntimeError, match=error):
+        release.deploy(source_environment(), opener=opener)
+    assert all(r.get_method() != "POST" for r in opener.requests)
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled", "cancelled-by-user"])
+def test_source_build_failure_is_not_hidden_by_an_old_healthy_container(status):
+    opener = Opener([*pin_responses(), accepted(), Response({"status": status})])
+    with pytest.raises(RuntimeError, match="deployment_build_failed"):
+        release.deploy(source_environment(), opener=opener)
+    assert not any(r.full_url.endswith("/health") for r in opener.requests)
+
+
+def test_source_build_must_report_the_tested_commit():
+    opener = Opener([*pin_responses(), accepted(), Response({"status": "finished", "commit": "b" * 40})])
+    with pytest.raises(RuntimeError, match="deployment_commit_mismatch"):
+        release.deploy(source_environment(), opener=opener)
+
+
+def test_source_queue_has_a_bounded_deadline():
+    clock = iter([0, 1, 1201])
+    opener = Opener([*pin_responses(), accepted(), Response({"status": "queued"})])
+    with pytest.raises(RuntimeError, match="deployment_health_timeout"):
+        release.deploy(source_environment(), opener=opener, monotonic=lambda: next(clock), sleep=lambda _: None)
+
+
+def test_source_trigger_timeout_never_retries_the_post():
+    opener = Opener([*pin_responses(), urllib.error.URLError("example timed out")])
+    with pytest.raises(urllib.error.URLError):
+        release.deploy(source_environment(), opener=opener)
+    assert sum(r.get_method() == "POST" for r in opener.requests) == 1
+
+
+def test_preflight_checks_configuration_without_network(monkeypatch):
+    monkeypatch.setattr(release.os, "environ", source_environment())
+    monkeypatch.setattr(release.urllib.request, "build_opener", lambda *args: pytest.fail("preflight network request"))
+    assert release.main(["--check"]) == 0
+    monkeypatch.setattr(release.os, "environ", {**source_environment(), "DEPLOY_REPOSITORY": ""})
+    assert release.main(["--check"]) == 1
+
+
+def test_preflight_names_missing_settings_without_printing_present_secrets(monkeypatch, capsys):
+    monkeypatch.setattr(release.os, "environ", {**source_environment(), "COOLIFY_ACCESS_CLIENT_SECRET": ""})
+    assert release.main(["--check"]) == 1
+    output = capsys.readouterr().err
+    assert output.strip() == "Missing deployment setting: COOLIFY_ACCESS_CLIENT_SECRET"
+    assert "example-invalid" not in output
+
+
+@pytest.mark.parametrize("status,payload,revision,expected", [
+    (200, {"status": "ok"}, "a" * 40, 0),
+    (503, {"status": "ok"}, "a" * 40, 1),
+    (200, {"status": "starting"}, "a" * 40, 1),
+    (200, {"status": "ok"}, "b" * 40, 1),
+    (200, {"status": "ok", "extra": "x" * 4096}, "a" * 40, 1),
+])
+def test_container_readiness_requires_bounded_healthy_matching_revision(monkeypatch, status, payload, revision, expected):
+    probe = load("coolify_healthcheck", "deploy/coolify/healthcheck.py")
+    monkeypatch.setenv("PROMPT_ENHANCER_REVISION", "a" * 40)
+    opener = Opener([Response(payload, status=status, revision=revision)])
+    monkeypatch.setattr(probe.urllib.request, "build_opener", lambda *handlers: opener)
+    assert probe.main() == expected
+    assert opener.requests == ["http://127.0.0.1:8080/health"]
+
+
+def test_container_readiness_failure_is_quiet(monkeypatch, capsys):
+    probe = load("coolify_healthcheck", "deploy/coolify/healthcheck.py")
+    monkeypatch.setenv("PROMPT_ENHANCER_REVISION", "a" * 40)
+    opener = Opener([OSError("example-private-diagnostic")])
+    monkeypatch.setattr(probe.urllib.request, "build_opener", lambda *handlers: opener)
+    assert probe.main() == 1
+    assert capsys.readouterr() == ("", "")
