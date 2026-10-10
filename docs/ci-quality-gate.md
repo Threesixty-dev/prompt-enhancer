@@ -10,7 +10,7 @@ artifacts. Tests remain subject to the suite-wide non-loopback socket guard.
 | Job | Platform | Required commands and evidence |
 | --- | --- | --- |
 | Repository integrity | Ubuntu | `python scripts/privacy_scan.py`; `python scripts/render_architecture_atlas.py --check`; event-range `git diff --check` |
-| Backend | Ubuntu and Windows | `uv lock --check`; `uv sync --frozen --extra dev`; frozen `uv run` compilation, platform security preflight, and full pytest |
+| Backend | Two required shards each on Ubuntu and Windows | `uv lock --check`; `uv sync --frozen --extra dev`; frozen `uv run` compilation, platform security preflight, and the complete pytest collection split across both shards |
 | Frontend | Ubuntu, Node.js 24 | `npm ci`; `npm test`; `npm run check:api`; `npm run build`; `npx playwright install --with-deps chromium`; `npm run test:e2e` |
 
 Every external GitHub action is pinned to an immutable commit SHA. Adjacent
@@ -20,6 +20,17 @@ sets `persist-credentials: false` in every job. Backend dependency caching and
 installation are keyed by the committed `uv.lock`; uv 0.10.4 refuses lock drift
 through `uv lock --check`, then `--frozen` prevents any gate command from
 updating the lock.
+
+The Windows run on the source baseline reached approximately 97% of its 6,262
+tests before the existing 60-minute job limit. Timestamped progress showed
+several slow files, with the largest observed gap about 153 seconds. The backend
+matrix therefore runs two required shards per platform without raising that
+limit. `scripts/run_backend_shard.py` collects the complete suite in each job and
+selects alternating collection positions; the two selections are disjoint and
+cover every collected case. Each shard propagates pytest's exit status and prints
+its collection count and slowest cases. A synthetic CLI test verifies complete,
+exactly-once execution across the pair and failure propagation. Platform security
+preflights still run without skips before each shard.
 
 The workflow does not pin test totals or platform skip totals. Tests may grow,
 but every command must exit successfully. The explicit security preflights also

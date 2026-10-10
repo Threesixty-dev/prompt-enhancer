@@ -10,6 +10,7 @@ from pathlib import Path
 import socket
 import ssl
 import sys
+import sysconfig
 import threading
 import time
 from types import SimpleNamespace
@@ -114,9 +115,15 @@ def _observation(*tools: McpDiscoveredTool) -> McpHostProbeObservation:
 def _stdio(tmp_path: Path, mode: str, *arguments: str) -> McpStdioConnectionSpec:
     return McpStdioConnectionSpec(
         management_id="1" * 32,
-        executable=sys.executable,
+        # Virtualenv launchers may be symlinks; review the actual test runtime
+        # without weakening the production executable-link refusal.
+        executable=str(Path(sys.executable).resolve(strict=True)),
         arguments=(str(_STDIO_FIXTURE), mode, *arguments),
-        environment={},
+        # Resolving the launcher selects the base interpreter. Give this owned
+        # fixture the same installed dependencies as the parent test runtime.
+        environment={"PYTHONPATH": os.pathsep.join(dict.fromkeys((
+            sysconfig.get_path("purelib"), sysconfig.get_path("platlib"),
+        )))},
         working_directory=str(tmp_path),
     )
 
@@ -143,6 +150,30 @@ def _process_running(pid: int) -> bool:
         return bool(kernel.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
     finally:
         kernel.CloseHandle(handle)
+
+
+@pytest.mark.parametrize("method", ["poll", "tree_exited"])
+@pytest.mark.parametrize("persistent", [False, True])
+def test_owned_stdio_cleanup_retries_unknown_exit_within_the_existing_deadline(
+    method: str, persistent: bool,
+) -> None:
+    from types import SimpleNamespace
+
+    calls = {"poll": 0, "tree_exited": 0}
+
+    def observe(name, result):
+        calls[name] += 1
+        if name == method and (persistent or calls[name] == 1):
+            raise PermissionError("synthetic process status unavailable")
+        return result
+
+    process = SimpleNamespace(
+        poll=lambda: observe("poll", 0),
+        tree_exited=lambda: observe("tree_exited", True),
+    )
+    confirmed = anyio.run(mcp_stdio_transport._wait_for_tree, process, 0.03)
+    assert confirmed is not persistent
+    assert calls[method] >= 2
 
 
 def _has_visible_window(pid: int) -> bool:

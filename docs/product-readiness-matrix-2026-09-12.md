@@ -3,10 +3,12 @@
 ## Quality fixture repair — 2026-10-10 proposal
 
 The [journal task card](beta-progress-journal.md#2026-10-10--repair-inherited-quality-gate-fixtures-r26)
-records repairs against develop `e47b709`: 149 focused backend tests and all
-2,912 frontend tests pass with synthetic fixtures. Full backend, browser, privacy
-and hosted candidate checks remain pending. R26 stays partial; B00/B11 and all
-native, model and beta acceptance states are unchanged.
+records repairs against develop `e47b709`: 558 affected backend tests and all
+2,912 frontend tests pass with synthetic fixtures. Six corrected browser cases,
+staged-source privacy and architecture checks pass. Required backend shards retain
+complete test coverage within the existing CI limit; final hosted candidate checks
+remain pending. R26 stays partial; B00/B11 and all native, model and beta acceptance
+states are unchanged.
 
 ## Hosted deployment action — 2026-10-10 proposal
 
