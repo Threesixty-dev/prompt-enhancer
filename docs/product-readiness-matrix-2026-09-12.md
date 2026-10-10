@@ -1,5 +1,13 @@
 # Product feature and readiness matrix
 
+## Quality fixture repair — 2026-10-10 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-10--repair-inherited-quality-gate-fixtures-r26)
+records repairs against develop `e47b709`: 149 focused backend tests and all
+2,912 frontend tests pass with synthetic fixtures. Full backend, browser, privacy
+and hosted candidate checks remain pending. R26 stays partial; B00/B11 and all
+native, model and beta acceptance states are unchanged.
+
 ## Hosted deployment action — 2026-10-10 proposal
 
 R26 gains a proposed manual source-deployment action on imported `develop`

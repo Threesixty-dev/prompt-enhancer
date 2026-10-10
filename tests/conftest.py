@@ -106,6 +106,11 @@ def downgrade_agent_catalog_post_v20() -> Callable[[sqlite3.Connection], None]:
     def downgrade(connection: sqlite3.Connection) -> None:
         connection.execute("PRAGMA foreign_keys = OFF")
 
+        # Schema 31. Remove the FTS virtual table (and its shadow tables)
+        # before the projection it indexes, so old fixtures can migrate again.
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_fts")
+        connection.execute("DROP TABLE IF EXISTS agent_message_search_messages")
+
         # Schema 30. Historical fixtures have no checksum provenance sidecar.
         connection.execute(
             "DROP TABLE IF EXISTS agent_catalog_migration_checksums"

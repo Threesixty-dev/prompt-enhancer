@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import time
 
@@ -328,17 +329,22 @@ def test_external_directory_and_recoverable_trash_proposals_are_shape_bound_and_
         path="reviewed.txt",
         expected_revision=_revision("synthetic\n"),
     )
-    pending_trash = service.propose_lifecycle(session_id, trash)
-    assert pending_trash.permanent is False
-    assert pending_trash.recovery == "windows_recycle_bin"
-    assert pending_trash.approval_id is not None
-    service.approve(
-        session_id,
-        pending_trash.approval_id,
-        ApprovalDecision(approved=False),
-    )
-    _wait_settled(service, session_id)
-    assert service.propose_lifecycle(session_id, trash).state == "not_approved"
+    if os.name == "nt":
+        pending_trash = service.propose_lifecycle(session_id, trash)
+        assert pending_trash.permanent is False
+        assert pending_trash.recovery == "windows_recycle_bin"
+        assert pending_trash.approval_id is not None
+        service.approve(
+            session_id,
+            pending_trash.approval_id,
+            ApprovalDecision(approved=False),
+        )
+        _wait_settled(service, session_id)
+        assert service.propose_lifecycle(session_id, trash).state == "not_approved"
+    else:
+        with pytest.raises(LocalAgentError, match="^workspace_file_trash_unsupported$"):
+            service.propose_lifecycle(session_id, trash)
+        assert service.get(session_id).pending_approval_id is None
     assert target.read_bytes() == b"synthetic\n"
 
     with pytest.raises(ValueError):

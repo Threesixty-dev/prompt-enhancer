@@ -106,3 +106,47 @@ read/write tokens. A follow-up accepts that redacted update receipt while still
 checking the build-time flag, source pin, deployment commit and running revision.
 An explicitly returned wrong value still prevents deployment. This avoids granting
 sensitive-data read permission to validate a non-secret build revision.
+
+## 2026-10-10 — repair inherited quality-gate fixtures (R26)
+
+Task ID / atlas nodes / beta gates: quality-fixture-repair; R26, A04, A05,
+A08, A09; B00/B11 remain open.
+
+Approved source baseline: develop `e47b709`, after the deployment-action merge.
+The owner requested resolving the full quality gate failures blocking deployment.
+The initial frontend run reported 28 failures; Linux backend tests exposed stale
+fixtures before a Windows-platform mock changed process-wide `os.name` and
+crashed pytest's path handling. These are synthetic source-test findings.
+
+Allowed files and preserved contracts: the failing frontend/backend tests and
+their shared historical-schema fixture, plus this evidence record and atlas.
+Application behavior, readiness checks, private route boundaries, native approval,
+checksum validation and CI requirements remain unchanged.
+
+Implementation: isolate the platform mock; reconstruct historical schemas with
+the correct FTS and checksum state; provide explicit synthetic power and regular
+interpreter fixtures; require recoverable-trash refusal on unsupported platforms.
+Frontend assertions cover local drafting with every send path blocked, exact
+localized counts, advertised resume capability and no automatic attachment replay.
+Controller discovery explicitly excludes owner-facing saved-message search.
+
+Positive, negative, recovery and privacy checks: 149 focused backend tests passed;
+one existing reviewed-tool packaging integration is opt-in and was skipped.
+All 2,912 frontend tests across 201 files passed. Generated API drift and the
+production frontend build passed. These are integration results with fictional
+fixtures; full backend, browser, privacy and hosted results are still pending.
+
+Required evidence / completion: unchanged full quality jobs must pass on the
+candidate; a successful source deployment needs its separate controller and
+running-revision receipts. No native, model, packaged or beta acceptance follows
+from these test repairs.
+
+Process/resource bound: inspect incremental failures, run focused corrections,
+then each full gate; do not raise test timeouts or weaken assertions. A local
+browser run that reused an occupied port was stopped after identifying unrelated
+404 responses; its replacement owns a separate loopback port. It is not passing
+browser evidence.
+
+Owner decisions still needed: review this repair cohort and authorize its merge
+and promotion. Result / source commit / artifact digest / cleanup: pending full
+candidate checks; no release artifact or production change in this cohort yet.
