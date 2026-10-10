@@ -1757,7 +1757,7 @@ Dependencies: R24
 
 **Tests:** No executable test/implementation at this level.
 
-**Evidence:** Static review 2026-10-08; pinned CI actions, Linux/Windows backend and frontend jobs exist. Latest clean-cohort full frontend timed out at 600.11s without final failure census. Gate references (not executable tests): Q-PYTEST, Q-NPM-TEST, Q-E2E, Q-PRIVACY-SCAN, Q-CHECK-API. Later proposal (2026-10-10): manual Coolify source deployment on develop cadba09; 82 synthetic deployment/authentication checks passed. See the journal and Coolify guide. Live deployment and full quality qualification remain separate; the frozen October 8 observation is unchanged.
+**Evidence:** Static review 2026-10-08; pinned CI actions, Linux/Windows backend and frontend jobs exist. Latest clean-cohort full frontend timed out at 600.11s without final failure census. Gate references (not executable tests): Q-PYTEST, Q-NPM-TEST, Q-E2E, Q-PRIVACY-SCAN, Q-CHECK-API. Later proposal (2026-10-10): manual Coolify source deployment on develop cadba09; 85 synthetic deployment/authentication checks passed. See the journal and Coolify guide. Live deployment and full quality qualification remain separate; the frozen October 8 observation is unchanged.
 
 **Gap:** No complete current clean-candidate quality gate; platform checks and repository plan/billing state are separate evidence.
 

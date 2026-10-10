@@ -137,8 +137,10 @@ def pin_source(opener, api: str, app: str, headers, source, revision: str) -> No
     variable = controller_json(opener, url + "/envs", headers, method="PATCH", body={
         "key": "APP_REVISION", "value": revision, "is_literal": True, "is_preview": False,
     })
-    if (variable.get("key") != "APP_REVISION" or variable.get("value") != revision
-        or variable.get("is_buildtime") is not True):
+    # Ordinary read/write tokens receive the variable metadata without its value.
+    # Verify any returned value, then prove the revision through build and health.
+    if (variable.get("key") != "APP_REVISION" or variable.get("is_buildtime") is not True
+        or ("value" in variable and variable["value"] != revision)):
         raise RuntimeError("deployment_revision_build_argument_required")
     verified = controller_json(opener, url, headers)
     if any(verified.get(key) != source[key] for key in ("git_repository", "git_branch", "git_commit_sha")):

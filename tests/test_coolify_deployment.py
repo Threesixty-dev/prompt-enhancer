@@ -321,6 +321,30 @@ def test_source_pins_exact_revision_and_waits_for_build_before_health():
         assert request.get_header("Cf-access-client-id") == "example-app.invalid"
 
 
+def test_redacted_build_argument_response_still_requires_build_and_running_revision():
+    responses = pin_responses()
+    responses[2] = Response({"key": "APP_REVISION", "is_buildtime": True})
+    opener = Opener([*responses, accepted(),
+        Response({"status": "finished", "commit": "a" * 40}),
+        Response({"status": "ok"}, revision="b" * 40),
+        Response({"status": "ok"}, revision="a" * 40),
+        Response({"status": "ok"}, revision="a" * 40)])
+    release.deploy(source_environment(), opener=opener, sleep=lambda _: None)
+    assert json.loads(opener.requests[2].data)["value"] == "a" * 40
+    assert opener.requests[5].full_url.endswith("/deployments/example-deployment")
+    assert len([r for r in opener.requests if r.full_url.endswith("/health")]) == 3
+
+
+@pytest.mark.parametrize("value", [None, "b" * 40])
+def test_incorrect_returned_build_argument_never_starts_deployment(value):
+    responses = pin_responses()
+    responses[2] = Response({"key": "APP_REVISION", "is_buildtime": True, "value": value})
+    opener = Opener(responses)
+    with pytest.raises(RuntimeError, match="deployment_revision_build_argument_required"):
+        release.deploy(source_environment(), opener=opener)
+    assert all(r.get_method() != "POST" for r in opener.requests)
+
+
 @pytest.mark.parametrize("changes", [
     {"DEPLOY_BRANCH": "develop"}, {"DEPLOY_REPOSITORY": "example/../example"},
     {"DEPLOY_REPOSITORY": "https://github.com/example/example"},

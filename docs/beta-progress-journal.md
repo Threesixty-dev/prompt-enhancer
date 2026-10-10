@@ -93,10 +93,16 @@ login/runtime profile. The client checks source/build-argument read-back, refuse
 incompatible application profiles and never retries an uncertain deployment POST.
 The secret-free PR image check is separate from production approval.
 
-Fresh synthetic selection: 82 deployment and Cloudflare tests passed; 255 tests passed including the
+Fresh synthetic selection: 85 deployment and Cloudflare tests passed; 258 tests passed including the
 collaboration-policy checks. It includes
 real owned loopback redirect/JWT-handler checks and mocked controller contracts;
 no external controller or provider was contacted. Image CI and live acceptance
 must be recorded separately. No beta gate or full-suite acceptance is claimed.
 Owner review, promotion to main, deployment secrets and the documented Coolify
 build-time/runtime settings remain required before a production run.
+
+The public Coolify API contract omits environment-variable values for ordinary
+read/write tokens. A follow-up accepts that redacted update receipt while still
+checking the build-time flag, source pin, deployment commit and running revision.
+An explicitly returned wrong value still prevents deployment. This avoids granting
+sensitive-data read permission to validate a non-secret build revision.

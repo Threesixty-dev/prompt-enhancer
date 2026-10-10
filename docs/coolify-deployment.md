@@ -82,11 +82,25 @@ Set these secrets in the repository or `production` environment:
 | `PROMPT_ENHANCER_ACCESS_CLIENT_ID` | Service token allowed through the app's Access policy, including `/health` |
 | `PROMPT_ENHANCER_ACCESS_CLIENT_SECRET` | Corresponding app service-token secret |
 
+In the Coolify token form, select `deploy` first, then add `read` and `write`.
+Selecting `deploy` last clears the other selections. Verify all three permissions
+on the issued token. Neither `root` nor `read:sensitive` is required. Coolify may
+omit environment-variable values from API responses; the action checks the
+build-time metadata and verifies the actual build commit and running revision.
+
 Keep human Access policies and Service Auth policies on both applications. A
 single existing service token can fill both pairs if it is authorized for both
 hosts. Do not add a Bypass or Everyone policy. Controller credentials are sent
 only to the controller; application credentials are sent only to `/health`.
 Neither credentials nor response bodies are printed in workflow logs.
+
+If an existing Access application also covers unrelated hosts, use a dedicated
+Access application for `controller.example.test/api/v1/*` and
+`prompt.example.test/health`. Attach the dedicated deployment Service Auth policy
+and the existing human and automation policies, because more-specific paths do
+not inherit the parent application's policies. The new deployment token then
+applies only to these routes. Keep the browser application's original audience
+configuration; the external health route remains protected at Cloudflare.
 
 For a LAN-only controller, set `COOLIFY_RUNNER_LABELS` to a dedicated deployment
 runner's JSON labels, for example `["self-hosted", "linux", "coolify-deploy"]`.
@@ -105,7 +119,8 @@ Run workflow**, selecting `main`.
 3. Build the exact commit and smoke-test the disposable container, including
    revision identity, origin checks, cookies, CSRF and blocked local-only tools.
 4. Confirm the existing app uses the expected Dockerfile profile. Pin its source
-   repository, branch, commit and `APP_REVISION`, then read the pin back.
+   repository, branch, commit and `APP_REVISION`, then verify the source pin and
+   build-time variable metadata. A returned variable value must also match.
 5. Send one authenticated POST to Coolify's deploy endpoint. A timed-out POST is
    never retried automatically because the controller may already have queued it.
 6. Wait up to twenty minutes for that deployment to finish with the same commit,
@@ -134,4 +149,6 @@ gateway blocks remote MCP and provider telemetry endpoints.
 - [Coolify Dockerfile builds](https://coolify.io/docs/applications/builds/dockerfile)
 - [Coolify application updates](https://coolify.io/docs/api/endpoints/applications/update-application-by-uuid)
 - [Coolify deploy API](https://coolify.io/docs/api/endpoints/deployments/deploy-by-tag-or-uuid)
+- [Coolify API permissions](https://coolify.io/docs/api/permissions)
 - [Cloudflare Access service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
+- [Cloudflare Access path precedence](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/)
