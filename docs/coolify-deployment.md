@@ -94,6 +94,12 @@ hosts. Do not add a Bypass or Everyone policy. Controller credentials are sent
 only to the controller; application credentials are sent only to `/health`.
 Neither credentials nor response bodies are printed in workflow logs.
 
+All controller and health requests identify the client as
+`Prompt-Enhancer-Deployment/1.0` and request JSON. Generic HTTP-library user
+agents can be rejected by Cloudflare Browser Integrity Check before Access
+authentication. For an immediate HTTP 403, inspect the matching security event
+before replacing credentials or changing an Access policy.
+
 If an existing Access application also covers unrelated hosts, use a dedicated
 Access application for `controller.example.test/api/v1/*` and
 `prompt.example.test/health`. Attach the dedicated deployment Service Auth policy

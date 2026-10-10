@@ -1,5 +1,15 @@
 # Product feature and readiness matrix
 
+## Deployment HTTP client identity — 2026-10-11 proposal
+
+The [journal](beta-progress-journal.md#2026-10-11--deployment-http-client-identity-r26)
+records a bounded deployment-client correction on develop `d68f281` after an
+edge browser-integrity rejection. All 85 synthetic deployment/authentication
+checks pass. The earlier reviewed main candidate passed full quality and
+container checks; its live deployment never started. The proposed header fix
+still requires owner review and live verification. R26 and all beta gates keep
+their existing acceptance status.
+
 ## Quality fixture repair — 2026-10-10 proposal
 
 The [journal task card](beta-progress-journal.md#2026-10-10--repair-inherited-quality-gate-fixtures-r26)

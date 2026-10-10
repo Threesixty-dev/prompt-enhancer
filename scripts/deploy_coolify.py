@@ -19,6 +19,12 @@ import urllib.request
 from typing import Mapping
 
 
+HTTP_CLIENT_HEADERS = {
+    "User-Agent": "Prompt-Enhancer-Deployment/1.0",
+    "Accept": "application/json",
+}
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -150,10 +156,11 @@ def pin_source(opener, api: str, app: str, headers, source, revision: str) -> No
 def deploy(env: Mapping[str, str], *, opener=None, monotonic=time.monotonic, sleep=time.sleep) -> None:
     webhook, token, public_url, revision = configuration(env)
     opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    headers = {"Authorization": f"Bearer {token}", **access_headers(env, "COOLIFY")}
+    headers = {**HTTP_CLIENT_HEADERS, "Authorization": f"Bearer {token}", **access_headers(env, "COOLIFY")}
     # Validate health authentication before triggering any deployment. This
     # profile keeps the entire app, including /health, behind Cloudflare Access.
     health_headers = {
+        **HTTP_CLIENT_HEADERS,
         "Cache-Control": "no-cache",
         **access_headers(env, "PROMPT_ENHANCER", required=True),
     }

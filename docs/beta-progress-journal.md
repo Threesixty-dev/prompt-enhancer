@@ -182,3 +182,28 @@ browser evidence.
 Owner decisions still needed: review this repair cohort and authorize its merge
 and promotion. Result / source commit / artifact digest / cleanup: pending full
 candidate checks; no release artifact or production change in this cohort yet.
+
+
+## 2026-10-11 — deployment HTTP client identity (R26)
+
+Task: resolve the remaining failure in the owner-authorized deployment.
+Baseline: develop `d68f281`; task branch `codex/fix-deployment-client-headers`.
+Scope: deployment HTTP headers, their synthetic regression, operator guide and
+bounded evidence records. No architecture or acceptance policy is changed.
+
+The reviewed main candidate passed its full quality and container checks. An
+edge Browser Integrity Check then rejected the generic Python HTTP client before
+controller authentication; no new deployment was started. An unauthenticated
+probe with an explicit application identity reached the Access login boundary.
+No credentials, response content or private records were used in that probe.
+
+The proposed client sends `Prompt-Enhancer-Deployment/1.0` and requests JSON for
+source pinning, the single deployment trigger, status polling and health checks.
+The existing destination-specific authentication, redirect refusal, exact commit
+checks and two consecutive health responses remain required. The regression
+failed before the fix; all 85 synthetic deployment/authentication tests pass after
+it. The worktree privacy check detected Git pointer metadata; staged-source
+privacy and canary checks exclude that worktree-only pointer without changing
+the scanner. This is integration evidence with fictional fixtures, not live
+source-deployment acceptance. Owner review, promotion and authenticated live
+verification remain pending; B00/B11 and native/model gates remain open.
