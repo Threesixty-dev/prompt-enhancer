@@ -60,7 +60,7 @@ Create a `production` environment restricted to the `main` deployment branch.
 Configure required reviewers if desired and supported. These settings complement
 owner-reviewed PRs; the workflow does not grant itself merge authority.
 
-Set these repository or `production` environment variables:
+Set these repository variables (the workflow reads them before jobs start):
 
 | Variable | Example / purpose |
 | --- | --- |
@@ -72,7 +72,7 @@ The webhook must identify exactly one existing application. Its UUID also scopes
 application configuration and deployment-status requests. The repository URL,
 branch and commit come from the trusted GitHub run, rather than user inputs.
 
-Set these secrets in the same repository or `production` environment:
+Set these secrets in the repository or `production` environment:
 
 | Secret | Purpose |
 | --- | --- |
