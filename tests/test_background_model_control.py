@@ -2,6 +2,7 @@
 
 from threading import Event, Thread
 from datetime import timedelta
+import time
 
 import pytest
 
@@ -251,8 +252,11 @@ def test_watch_cleanup_failure_is_durably_quarantined_without_automatic_retry(tm
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("startup_delay", [0.0, 2.25], ids=["ready-start", "delayed-start"])
 @pytest.mark.parametrize("boundary", ["queued-lane", "during-stage", "publication"])
-def test_real_watch_controller_keeps_shutdown_cancelled_without_failure_streak(tmp_path, monkeypatch, boundary):
+def test_real_watch_controller_keeps_shutdown_cancelled_without_failure_streak(
+    tmp_path, monkeypatch, boundary, startup_delay,
+):
     from prompt_enhancer.database import Database
     from tests.test_session_model_ensemble import _persist_api_session
 
@@ -275,7 +279,8 @@ def test_real_watch_controller_keeps_shutdown_cancelled_without_failure_streak(t
         monkeypatch.setattr(service, "_execution_lane", waiting)
     elif boundary == "during-stage":
         def execute(*_args):
-            stopped.set()
+            entered.set()
+            assert stopped.wait(10), "The synthetic stage never received Stop"
             service._runner._heartbeat_callback()
             pytest.fail("A cancelled stage resumed")
 
@@ -285,7 +290,8 @@ def test_real_watch_controller_keeps_shutdown_cancelled_without_failure_streak(t
 
         def finish_then_cancel(*args, **kwargs):
             receipt = original_run(*args, **kwargs)
-            stopped.set()
+            entered.set()
+            assert stopped.wait(10), "The synthetic publication never received Stop"
             return receipt
 
         monkeypatch.setattr(service._runner, "run", finish_then_cancel)
@@ -294,12 +300,17 @@ def test_real_watch_controller_keeps_shutdown_cancelled_without_failure_streak(t
     project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0]["project_id"]
     enabled = watch.enable(provider=Provider.CODEX, project_id=project_id, session_id=SESSION_ID,
         confirmation=MODEL_ENSEMBLE_WATCH_CONFIRMATION)
-    caller = Thread(target=lambda: results.append(watch.run_once(stop_requested=stopped.is_set)), name="example-watch-stop")
+
+    def run():
+        time.sleep(startup_delay)
+        results.append(watch.run_once(stop_requested=stopped.is_set))
+
+    caller = Thread(target=run, name="example-watch-stop")
     caller.start()
     try:
-        if boundary == "queued-lane":
-            assert entered.wait(1)
-            stopped.set()
+        # Setup must reach the selected boundary before measuring cancellation.
+        assert entered.wait(10), "The synthetic cancellation boundary was not reached"
+        stopped.set()
         caller.join(timeout=2)
         assert not caller.is_alive()
         assert len(results) == 1
