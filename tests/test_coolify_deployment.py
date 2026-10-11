@@ -305,6 +305,9 @@ def test_source_pins_exact_revision_and_waits_for_build_before_health():
         Response({"status": "ok"}, revision="a" * 40), Response({"status": "ok"}, revision="a" * 40)])
     release.deploy(source_environment(), opener=opener, sleep=lambda _: None)
     assert [r.get_method() for r in opener.requests] == ["GET", "PATCH", "PATCH", "GET", "POST", "GET", "GET", "GET", "GET"]
+    for request in opener.requests:
+        assert request.get_header("User-agent") == "Prompt-Enhancer-Deployment/1.0"
+        assert request.get_header("Accept") == "application/json"
     pin = json.loads(opener.requests[1].data)
     assert pin["git_repository"] == "https://github.com/example/example-app.git"
     assert pin["git_branch"] == "main" and pin["git_commit_sha"] == "a" * 40

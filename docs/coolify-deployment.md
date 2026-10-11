@@ -94,6 +94,12 @@ hosts. Do not add a Bypass or Everyone policy. Controller credentials are sent
 only to the controller; application credentials are sent only to `/health`.
 Neither credentials nor response bodies are printed in workflow logs.
 
+All controller and health requests identify the client as
+`Prompt-Enhancer-Deployment/1.0` and request JSON. Generic HTTP-library user
+agents can be rejected by Cloudflare Browser Integrity Check before Access
+authentication. For an immediate HTTP 403, inspect the matching security event
+before replacing credentials or changing an Access policy.
+
 If an existing Access application also covers unrelated hosts, use a dedicated
 Access application for `controller.example.test/api/v1/*` and
 `prompt.example.test/health`. Attach the dedicated deployment Service Auth policy
@@ -115,7 +121,10 @@ After owner review and promotion to `main`, open **Actions → Deploy to Coolify
 Run workflow**, selecting `main`.
 
 1. Reject another branch or incomplete configuration before building.
-2. Run the unchanged repository quality gate.
+2. Reuse the successful **Quality gate** run for this exact `main` commit.
+   If it is running, wait for it; do not start the suite again. Require all six
+   quality jobs to pass. Missing, failed, cancelled or skipped evidence blocks
+   deployment. See [CI scheduling and reuse](ci-quality-gate.md#scheduling-and-deployment-reuse).
 3. Build the exact commit and smoke-test the disposable container, including
    revision identity, origin checks, cookies, CSRF and blocked local-only tools.
 4. Confirm the existing app uses the expected Dockerfile profile. Pin its source
