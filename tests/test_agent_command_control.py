@@ -235,22 +235,26 @@ def test_cleanup_quarantine_denies_other_pending_actions_and_manual_apply(tmp_pa
             service.shutdown(timeout=2)
 
 
+@pytest.mark.parametrize("startup_delay", [0.0, 3.25], ids=["ready-start", "delayed-start"])
 @pytest.mark.parametrize("boundary", ["stop", "delete", "shutdown"])
-def test_real_approved_command_is_reaped_before_turn_or_session_finishes(tmp_path, boundary):
+def test_real_approved_command_is_reaped_before_turn_or_session_finishes(
+    tmp_path, boundary, startup_delay,
+):
     ready = tmp_path / "example-approved.ready"
-    command = f'''"{sys.executable}" -I -c "from pathlib import Path; import time; Path('example-approved.ready').touch(); time.sleep(10)"'''
+    command = f'''"{sys.executable}" -I -c "from pathlib import Path; import time; time.sleep({startup_delay}); Path('example-approved.ready').touch(); time.sleep(30)"'''
     chat, calls = _stub_model([{"tool_calls": [{"id": "example-call", "type": "function", "function": {
         "name": "run_command", "arguments": json.dumps({"command": command}),
     }}]}])
     service = LocalAgentService(chat=chat, active_model=lambda: "example-model")
-    view = service.create(AgentSettings(workspace=str(tmp_path), command_timeout_seconds=5))
+    # Cold shell/interpreter startup is fixture setup, outside the cleanup clock.
+    view = service.create(AgentSettings(workspace=str(tmp_path), command_timeout_seconds=20))
     internal = service._session(view.session_id)
     try:
         service.send(view.session_id, SendMessage(text="Run the disposable example command."))
         assert _wait(lambda: service.get(view.session_id).pending_approval_id is not None)
         assert not ready.exists()
         service.approve(view.session_id, service.get(view.session_id).pending_approval_id, ApprovalDecision(approved=True))
-        assert _wait(ready.exists, timeout=3)
+        assert _wait(ready.exists, timeout=10)
         started = time.monotonic()
         if boundary == "shutdown":
             service.shutdown(timeout=2)
@@ -269,7 +273,8 @@ def test_real_approved_command_is_reaped_before_turn_or_session_finishes(tmp_pat
         internal.request_cancelled.set()
         internal.stop_requested = True
         if internal.thread is not None:
-            internal.thread.join(timeout=7)
+            # Failure recovery remains bounded by this fixture's command deadline.
+            internal.thread.join(timeout=22)
             assert not internal.thread.is_alive()
         service.shutdown(timeout=2)
 

@@ -6,6 +6,49 @@ The owner's preserved development checkout contains additional October 6–7
 journal history; this documentation branch does not overwrite or blanket-publish
 that dirty tree. Reconcile those entries when admitting their source cohorts.
 
+## 2026-10-11 — cancellation-test startup synchronization
+
+Task ID / atlas nodes / gates: cancellation-startup-fixtures; MA13, A15, R26;
+B02/B05/B07 and native acceptance retain their existing status.
+
+Approved source baseline: develop `3528f517`, whose tree also reached main
+`bc38d6e` through the reviewed promotion. The main Windows shard first failed a
+watch caller-join assertion; its one targeted retry passed that case but failed
+an approved command's three-second child-readiness assertion. The latter failure
+occurred before the cleanup clock started. No third unchanged retry was started.
+
+Allowed files: the two cancellation test modules, this journal, the readiness
+addendum and affected atlas evidence/catalog. Application behavior, native
+approval, process ownership, CI job/time limits and deployment gates are unchanged.
+
+Reproduction: six new delayed-start cases add bounded synthetic worker or child
+startup delay. All six fail against the original startup assumptions. The watch
+test previously counted setup before reaching its selected boundary inside a
+two-second cancellation join. The command test allowed only three seconds for a
+cold shell/interpreter to create its readiness marker.
+
+Implementation: each watch boundary signals readiness, then the caller requests
+Stop before the original two-second join. The disposable command has a separate
+ten-second readiness window and twenty-second watchdog; it stays alive until
+cancellation rather than racing natural completion. Its original two-second
+shutdown/reaping assertions and three-second elapsed-cleanup assertion remain.
+Failure finalization stays bounded by the fixture watchdog plus two seconds.
+No production timeout, failure/quarantine assertion or required test is relaxed.
+
+Evidence: all twelve ordinary and delayed-start cases pass after the correction.
+The six new cases failed before it. The six-module command/watch ownership and
+cancellation selection passes 74 tests, including those twelve cases, with nine
+platform-specific skips on the local host. Full hosted Linux/Windows candidate
+validation and owner review remain pending. These are source-test fixtures,
+not model, native-window or packaged acceptance.
+
+Process/resource bound: one bounded correction cohort after diagnosing both
+content-free CI failures. Fixtures use fictional data, isolated storage and owned
+processes; no personal sessions, models or unrelated processes are inspected.
+Owner decisions still needed: review and authorize this repair's develop merge
+and corresponding main promotion. The earlier one-time promotion authorization
+is not authority for this new cohort. No production deployment ran.
+
 ## 2026-10-11 — final build-manifest inventory check (R19)
 
 Task: repair the manifest safety failure exposed by the deployment candidate's
