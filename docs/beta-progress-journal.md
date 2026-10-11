@@ -6,6 +6,32 @@ The owner's preserved development checkout contains additional October 6–7
 journal history; this documentation branch does not overwrite or blanket-publish
 that dirty tree. Reconcile those entries when admitting their source cohorts.
 
+## 2026-10-11 — final build-manifest inventory check (R19)
+
+Task: repair the manifest safety failure exposed by the deployment candidate's
+Windows quality shard. Baseline: develop `d68f281`; separate task branch
+`codex/fix-manifest-tree-check`. The already-approved deployment PR is unchanged.
+Scope: build-manifest inventory verification and synthetic regressions; no
+accepted architecture decision or release authority changes.
+
+The existing generator enumerated the staging tree once, hashed known files,
+and checked file/directory metadata afterward. Directory metadata alone did not
+reliably prove that no new entry had appeared. Three deterministic synthetic
+regressions hold directory metadata stable while adding a root file, nested file
+or empty directory after hashing. All three fail before the correction.
+
+The proposal performs a second bounded inventory walk using the same link,
+reparse-point, hard-link, portable-path and collection-limit checks. Both file
+paths and directory paths must match the initial inventory. Existing final file
+and directory metadata checks remain, and source bytes are still hashed once.
+This detects the observed late entries; it does not claim an atomic filesystem
+snapshot under arbitrary concurrent mutation.
+
+All 93 manifest and distribution checks pass, including the new regressions,
+unchanged-source determinism and single-read checks. Full Windows CI and owner
+review remain pending. R19, R26 and all native/build/release acceptance gates
+retain their prior status; no deployment has been authorized by this evidence.
+
 ## 2026-10-09 — develop integration and dev_pm routing
 
 The owner requested integrating the follow-up documentation into develop and

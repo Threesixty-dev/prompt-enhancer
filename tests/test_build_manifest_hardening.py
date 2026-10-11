@@ -255,3 +255,44 @@ def test_hasher_refuses_growth_past_the_enumerated_size(
 
     with pytest.raises(ValueError):
         manifest_module._sha256_file(source, expected=expected)
+
+
+@pytest.mark.parametrize("addition", ["root-file", "nested-file", "empty-directory"])
+def test_generator_rejects_new_entries_with_unchanged_directory_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    addition: str,
+) -> None:
+    root = tmp_path / "stage"
+    root.mkdir()
+    (root / "nested").mkdir()
+    (root / "first.txt").write_bytes(b"synthetic public build artifact")
+    original_directory = manifest_module._ordinary_directory
+    original_hash = manifest_module._sha256_file
+    directory_snapshots: dict[Path, os.stat_result] = {}
+
+    def unchanged_directory_metadata(path: Path) -> os.stat_result:
+        current = original_directory(path)
+        # Model directory metadata that does not reflect a new entry yet.
+        return directory_snapshots.setdefault(path, current)
+
+    def add_after_hash(path: Path, **kwargs: object) -> tuple[str, int]:
+        result = original_hash(path, **kwargs)
+        if addition == "root-file":
+            (root / "late.txt").write_bytes(b"synthetic late artifact")
+        elif addition == "nested-file":
+            (root / "nested" / "late.txt").write_bytes(b"synthetic late artifact")
+        else:
+            (root / "late-directory").mkdir()
+        return result
+
+    monkeypatch.setattr(manifest_module, "_ordinary_directory", unchanged_directory_metadata)
+    monkeypatch.setattr(manifest_module, "_sha256_file", add_after_hash)
+
+    with pytest.raises(ValueError):
+        build_manifest(
+            root,
+            git_revision="b" * 40,
+            tool_versions={"python": "3.11.0"},
+            lockfile_hashes={"uv.lock": "c" * 64},
+        )

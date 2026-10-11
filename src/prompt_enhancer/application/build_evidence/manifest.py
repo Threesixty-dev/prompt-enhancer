@@ -343,6 +343,16 @@ def build_manifest(
     for candidate, relative, metadata in discovered:
         digest, size = _sha256_file(candidate, expected=metadata)
         files.append(StagedFile(relative_path=relative, size_bytes=size, sha256=digest))
+    # Directory metadata can remain unchanged when entries are added. Recheck
+    # the bounded inventory itself, retaining the same link and type checks.
+    final_files, final_directories = _ordinary_staged_files(staging_root)
+    if (
+        [relative for _path, relative, _metadata in final_files]
+        != [relative for _path, relative, _metadata in discovered]
+        or {path for path, _metadata in final_directories}
+        != {path for path, _metadata in directories}
+    ):
+        raise ValueError("staging tree changed while it was hashed")
     for candidate, _relative, metadata in discovered:
         try:
             after = candidate.lstat()
