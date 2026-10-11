@@ -1,5 +1,14 @@
 # Product feature and readiness matrix
 
+## Quality evidence reuse — 2026-10-11 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-11--reuse-validated-main-quality-evidence-r26)
+records removal of duplicate branch-push and deployment quality runs. The
+proposal preserves full PR/main validation and requires successful evidence
+for the exact main commit before deployment. All 50 synthetic checks and a
+read-only verification of an existing main run pass. Owner review and live
+deployment remain pending; R26 and all acceptance gates keep their status.
+
 ## Deployment HTTP client identity — 2026-10-11 proposal
 
 The [journal](beta-progress-journal.md#2026-10-11--deployment-http-client-identity-r26)

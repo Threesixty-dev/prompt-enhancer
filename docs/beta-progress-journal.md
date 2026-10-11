@@ -207,3 +207,27 @@ privacy and canary checks exclude that worktree-only pointer without changing
 the scanner. This is integration evidence with fictional fixtures, not live
 source-deployment acceptance. Owner review, promotion and authenticated live
 verification remain pending; B00/B11 and native/model gates remain open.
+
+## 2026-10-11 — reuse validated main quality evidence (R26)
+
+Task: remove redundant full test runs at the owner's request.
+Baseline: develop `d68f281`; continuation of the deployment-client task branch.
+Scope: quality scheduling, read-only release evidence verification, synthetic
+regressions and operator documentation. The full Linux/Windows/backend/frontend
+suite, container boundary and live revision checks retain their coverage.
+
+PR updates run the full quality workflow once; feature/develop pushes no longer
+start a duplicate. Superseded PR runs are cancelled. Each distinct main commit
+retains its own validation. Manual deployment checks the newest matching main
+push run and all six required jobs instead of invoking the full suite again.
+The verifier waits for an existing pending run, rejects missing or unsuccessful
+evidence and validates repository, workflow, branch, revision and job attempts.
+It uses read-only Actions permission, receives no deployment secrets and can
+only make GET requests. A failed-job-only rerun can reuse earlier passing jobs
+from that same commit; newer failed or skipped evidence cannot be hidden.
+
+All 50 new synthetic verifier/scheduling tests pass. A read-only check against
+an existing successful main run also passed without triggering CI or deployment.
+This is bounded workflow integration evidence. The accompanying HTTP identity
+fix still awaits owner review, promotion and live deployment verification;
+R26 and all beta/native/model acceptance statuses remain unchanged.

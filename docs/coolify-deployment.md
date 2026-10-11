@@ -121,7 +121,10 @@ After owner review and promotion to `main`, open **Actions → Deploy to Coolify
 Run workflow**, selecting `main`.
 
 1. Reject another branch or incomplete configuration before building.
-2. Run the unchanged repository quality gate.
+2. Reuse the successful **Quality gate** run for this exact `main` commit.
+   If it is running, wait for it; do not start the suite again. Require all six
+   quality jobs to pass. Missing, failed, cancelled or skipped evidence blocks
+   deployment. See [CI scheduling and reuse](ci-quality-gate.md#scheduling-and-deployment-reuse).
 3. Build the exact commit and smoke-test the disposable container, including
    revision identity, origin checks, cookies, CSRF and blocked local-only tools.
 4. Confirm the existing app uses the expected Dockerfile profile. Pin its source
