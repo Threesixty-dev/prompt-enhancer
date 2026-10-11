@@ -1645,7 +1645,7 @@ Dependencies: R24, R20
 
 **Tests:** `tests/test_windows_release_staging.py` — absent-on-main<br>`tests/test_windows_launchers.py` — absent-on-main<br>`tests/test_msix_candidate.py` — absent-on-main
 
-**Evidence:** Static review 2026-10-08; explicit file manifests, hashes and no-clobber staging exist; several preparation scripts are absent from origin/main.
+**Evidence:** Static review 2026-10-08; explicit file manifests, hashes and no-clobber staging exist; several preparation scripts are absent from origin/main. Follow-up (2026-10-11): a proposed final manifest inventory check rejects late file/directory additions even when directory metadata is unchanged. Three regressions fail before the fix; 93 manifest/distribution checks pass after it. Owner review and full Windows CI remain pending; see the journal. Acceptance status is unchanged.
 
 **Gap:** A clean private source candidate with complete current dependency custody has not been assembled and qualified.
 
