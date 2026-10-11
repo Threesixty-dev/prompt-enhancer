@@ -1,5 +1,17 @@
 # Product feature and readiness matrix
 
+## Cancellation-test startup synchronization — 2026-10-11 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-11--cancellation-test-startup-synchronization)
+records a bounded test-only correction after two different Windows startup timing
+failures. Six delayed-start regressions fail before the change; all twelve ordinary
+and delayed cases pass after it. Existing cancellation, process-reaping, quarantine
+and no-publication assertions remain, with startup given its own bounded fixture
+budget. The surrounding six-module selection passes 74 tests, including those
+twelve cases, with nine platform-specific local skips. Hosted candidate checks
+and owner review remain pending. MA13, A15, R26 and all native/model/beta gates
+retain their status.
+
 ## Quality evidence reuse — 2026-10-11 proposal
 
 The [journal task card](beta-progress-journal.md#2026-10-11--reuse-validated-main-quality-evidence-r26)
