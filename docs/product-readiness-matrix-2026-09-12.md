@@ -1,5 +1,24 @@
 # Product feature and readiness matrix
 
+## Quality evidence reuse — 2026-10-11 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-11--reuse-validated-main-quality-evidence-r26)
+records removal of duplicate branch-push and deployment quality runs. The
+proposal preserves full PR/main validation and requires successful evidence
+for the exact main commit before deployment. All 50 synthetic checks and a
+read-only verification of an existing main run pass. Owner review and live
+deployment remain pending; R26 and all acceptance gates keep their status.
+
+## Deployment HTTP client identity — 2026-10-11 proposal
+
+The [journal](beta-progress-journal.md#2026-10-11--deployment-http-client-identity-r26)
+records a bounded deployment-client correction on develop `d68f281` after an
+edge browser-integrity rejection. All 85 synthetic deployment/authentication
+checks pass. The earlier reviewed main candidate passed full quality and
+container checks; its live deployment never started. The proposed header fix
+still requires owner review and live verification. R26 and all beta gates keep
+their existing acceptance status.
+
 ## Quality fixture repair — 2026-10-10 proposal
 
 The [journal task card](beta-progress-journal.md#2026-10-10--repair-inherited-quality-gate-fixtures-r26)
@@ -9,6 +28,15 @@ staged-source privacy and architecture checks pass. Required backend shards reta
 complete test coverage within the existing CI limit; final hosted candidate checks
 remain pending. R26 stays partial; B00/B11 and all native, model and beta acceptance
 states are unchanged.
+
+## Build-manifest inventory repair — 2026-10-11 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-11--final-build-manifest-inventory-check-r19)
+records a bounded correction after a Windows quality failure. The generator
+re-enumerates staged paths after hashing instead of relying only on directory
+metadata to reveal additions. Three deterministic regressions fail before the
+fix; all 93 manifest/distribution checks pass after it. Owner review and full
+Windows CI remain pending. Existing acceptance statuses are unchanged.
 
 ## Hosted deployment action — 2026-10-10 proposal
 

@@ -1,9 +1,34 @@
 # CI quality gate
 
 Checkpoint 9A keeps the repository's synthetic release checks reproducible on
-pull requests and pushes. The workflow has read-only repository permission,
+pull requests and pushes to `main`. The workflow has read-only repository permission,
 does not receive repository secrets, and does not upload test or runtime
 artifacts. Tests remain subject to the suite-wide non-loopback socket guard.
+
+## Scheduling and deployment reuse
+
+A pull-request update starts one full quality workflow. Feature and `develop`
+pushes do not start a second copy; their proposals are checked through PRs.
+A newer update cancels the superseded run for the same PR. Each `main` push
+gets its own full validation, because its merge commit is a distinct revision;
+those runs are not cancelled when another main commit arrives.
+
+Manual deployment reads the successful **Quality gate** run for its exact
+`main` commit through `scripts/require_quality_run.py`. It never calls the suite
+again. Only a `push` run of `.github/workflows/quality-gate.yml` in the same
+repository, with the same source repository, branch and SHA, is eligible.
+The newest run must succeed, and repository integrity, frontend and all four
+backend shards must have successful job evidence. Missing or skipped jobs,
+failed or cancelled runs, malformed API responses and different commits block
+deployment. A failed-job-only rerun may retain successes from earlier attempts
+of the same immutable run; a newer unsuccessful attempt takes precedence.
+
+If the eligible run is still pending, deployment waits up to 65 minutes.
+If no run exists, wait for main CI to appear before dispatching deployment.
+A failed main run must be repaired or rerun through its own Actions page.
+The read-only check uses the job's temporary `GITHUB_TOKEN` with `actions: read`;
+it has no deployment secrets and cannot start tests. Container smoke checks
+and authenticated live revision verification still run during deployment.
 
 ## CI ownership
 

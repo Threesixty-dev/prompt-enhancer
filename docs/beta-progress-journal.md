@@ -6,6 +6,32 @@ The owner's preserved development checkout contains additional October 6–7
 journal history; this documentation branch does not overwrite or blanket-publish
 that dirty tree. Reconcile those entries when admitting their source cohorts.
 
+## 2026-10-11 — final build-manifest inventory check (R19)
+
+Task: repair the manifest safety failure exposed by the deployment candidate's
+Windows quality shard. Baseline: develop `d68f281`; separate task branch
+`codex/fix-manifest-tree-check`. The already-approved deployment PR is unchanged.
+Scope: build-manifest inventory verification and synthetic regressions; no
+accepted architecture decision or release authority changes.
+
+The existing generator enumerated the staging tree once, hashed known files,
+and checked file/directory metadata afterward. Directory metadata alone did not
+reliably prove that no new entry had appeared. Three deterministic synthetic
+regressions hold directory metadata stable while adding a root file, nested file
+or empty directory after hashing. All three fail before the correction.
+
+The proposal performs a second bounded inventory walk using the same link,
+reparse-point, hard-link, portable-path and collection-limit checks. Both file
+paths and directory paths must match the initial inventory. Existing final file
+and directory metadata checks remain, and source bytes are still hashed once.
+This detects the observed late entries; it does not claim an atomic filesystem
+snapshot under arbitrary concurrent mutation.
+
+All 93 manifest and distribution checks pass, including the new regressions,
+unchanged-source determinism and single-read checks. Full Windows CI and owner
+review remain pending. R19, R26 and all native/build/release acceptance gates
+retain their prior status; no deployment has been authorized by this evidence.
+
 ## 2026-10-09 — develop integration and dev_pm routing
 
 The owner requested integrating the follow-up documentation into develop and
@@ -182,3 +208,52 @@ browser evidence.
 Owner decisions still needed: review this repair cohort and authorize its merge
 and promotion. Result / source commit / artifact digest / cleanup: pending full
 candidate checks; no release artifact or production change in this cohort yet.
+
+
+## 2026-10-11 — deployment HTTP client identity (R26)
+
+Task: resolve the remaining failure in the owner-authorized deployment.
+Baseline: develop `d68f281`; task branch `codex/fix-deployment-client-headers`.
+Scope: deployment HTTP headers, their synthetic regression, operator guide and
+bounded evidence records. No architecture or acceptance policy is changed.
+
+The reviewed main candidate passed its full quality and container checks. An
+edge Browser Integrity Check then rejected the generic Python HTTP client before
+controller authentication; no new deployment was started. An unauthenticated
+probe with an explicit application identity reached the Access login boundary.
+No credentials, response content or private records were used in that probe.
+
+The proposed client sends `Prompt-Enhancer-Deployment/1.0` and requests JSON for
+source pinning, the single deployment trigger, status polling and health checks.
+The existing destination-specific authentication, redirect refusal, exact commit
+checks and two consecutive health responses remain required. The regression
+failed before the fix; all 85 synthetic deployment/authentication tests pass after
+it. The worktree privacy check detected Git pointer metadata; staged-source
+privacy and canary checks exclude that worktree-only pointer without changing
+the scanner. This is integration evidence with fictional fixtures, not live
+source-deployment acceptance. Owner review, promotion and authenticated live
+verification remain pending; B00/B11 and native/model gates remain open.
+
+## 2026-10-11 — reuse validated main quality evidence (R26)
+
+Task: remove redundant full test runs at the owner's request.
+Baseline: develop `d68f281`; continuation of the deployment-client task branch.
+Scope: quality scheduling, read-only release evidence verification, synthetic
+regressions and operator documentation. The full Linux/Windows/backend/frontend
+suite, container boundary and live revision checks retain their coverage.
+
+PR updates run the full quality workflow once; feature/develop pushes no longer
+start a duplicate. Superseded PR runs are cancelled. Each distinct main commit
+retains its own validation. Manual deployment checks the newest matching main
+push run and all six required jobs instead of invoking the full suite again.
+The verifier waits for an existing pending run, rejects missing or unsuccessful
+evidence and validates repository, workflow, branch, revision and job attempts.
+It uses read-only Actions permission, receives no deployment secrets and can
+only make GET requests. A failed-job-only rerun can reuse earlier passing jobs
+from that same commit; newer failed or skipped evidence cannot be hidden.
+
+All 50 new synthetic verifier/scheduling tests pass. A read-only check against
+an existing successful main run also passed without triggering CI or deployment.
+This is bounded workflow integration evidence. The accompanying HTTP identity
+fix still awaits owner review, promotion and live deployment verification;
+R26 and all beta/native/model acceptance statuses remain unchanged.

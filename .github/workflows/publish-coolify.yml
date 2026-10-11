@@ -41,8 +41,21 @@ jobs:
         run: python3 scripts/deploy_coolify.py --check
 
   quality:
+    name: Reuse validated main commit
     needs: configuration
-    uses: ./.github/workflows/quality-gate.yml
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Require successful quality checks for this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/require_quality_run.py
 
   container:
     needs: quality

@@ -3,10 +3,15 @@ name: Quality gate
 on:
   pull_request:
   push:
-  workflow_call:
+    branches: [main]
 
 permissions:
   contents: read
+
+# Superseded PR candidates can stop; each main commit keeps its release evidence.
+concurrency:
+  group: quality-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   repository-integrity:
