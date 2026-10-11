@@ -10,6 +10,15 @@ complete test coverage within the existing CI limit; final hosted candidate chec
 remain pending. R26 stays partial; B00/B11 and all native, model and beta acceptance
 states are unchanged.
 
+## Build-manifest inventory repair — 2026-10-11 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-11--final-build-manifest-inventory-check-r19)
+records a bounded correction after a Windows quality failure. The generator
+re-enumerates staged paths after hashing instead of relying only on directory
+metadata to reveal additions. Three deterministic regressions fail before the
+fix; all 93 manifest/distribution checks pass after it. Owner review and full
+Windows CI remain pending. Existing acceptance statuses are unchanged.
+
 ## Hosted deployment action — 2026-10-10 proposal
 
 R26 gains a proposed manual source-deployment action on imported `develop`
