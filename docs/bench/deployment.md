@@ -38,6 +38,9 @@ connected through two dedicated Unix-socket volumes. The one-slot policy prevent
 8787 collisions. Restarting/replacing the namespace owner also requires restarting
 the relay so it joins the new namespace; use the Compose project as the
 lifecycle unit. Do not remove its durable data volumes during a restart.
+If the deployment manager rewrites container names, inspect its generated Compose
+and set `BENCH_WORKER_CONTAINER` to the generated worker container name before
+starting services. The core must join that exact namespace owner.
 Compose enables an authenticated consumer-readiness gate before claiming queued
 runs, so initial worker/relay startup does not submit a turn prematurely. Failed
 readiness leaves runs queued. Uncertainty after a submitted turn still requires

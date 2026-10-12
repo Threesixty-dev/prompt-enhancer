@@ -12,7 +12,7 @@ services:
     ports: ["127.0.0.1:8088:8088"]
     volumes: [bench-data:/data]
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,size=32m]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
@@ -58,7 +58,7 @@ services:
         bind:
           create_host_path: false
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,size=32m]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
@@ -80,7 +80,7 @@ services:
       - consumer-data:/runtime/consumer
       - consumer-api:/run/bench-consumer-api
       - consumer-gateway:/run/bench-gateway:ro
-    tmpfs: [/tmp:rw,nosuid,size=256m]
+    tmpfs: ["/tmp:rw,nosuid,size=256m"]
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -108,7 +108,7 @@ services:
       - consumer-api:/run/bench-consumer-api:ro
       - consumer-gateway:/run/bench-gateway
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,size=32m]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
