@@ -1,0 +1,170 @@
+{
+  "baseline": "6fa1100-plus-recorded-inherited-source",
+  "environment": "baseline-frozen-dev",
+  "totals": {
+    "failed": 36,
+    "error": 4
+  },
+  "cases": [
+    {
+      "name": "tests.test_agent_artifacts::test_catalog_v7_artifact_lineage_migrates_to_document_preview_without_rewrite",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_agent_attachments::test_agent_catalog_v7_migration_preserves_existing_attachment_bytes_and_guards",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_agent_catalog::test_catalog_v4_migrates_to_lineage_schema_without_changing_existing_chats",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_agent_catalog::test_every_supported_agent_catalog_schema_upgrades_with_exact_provenance[30]",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_agent_change_set::test_http_change_set_is_private_session_bound_and_strictly_path_scoped",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_agent_command_api::test_http_cleanup_state_and_fixed_refusals_survive_idle_worker",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_agent_controller_client::test_controller_client_completes_real_synthetic_api_lifecycle",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_agent_orchestration::test_orchestration_manifest_covers_every_agent_route_and_only_real_routes",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_agent_orchestration::test_token_controller_completes_a_bounded_project_chat_and_preview_lifecycle",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_agent_write_proposals::test_external_directory_and_recoverable_trash_proposals_are_shape_bound_and_inert_on_denial",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_application_wheel_preparation::test_cleanup_preserves_only_unconfirmed_build[owned_process_cleanup_unconfirmed-2]",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_application_wheel_preparation::test_cleanup_preserves_only_unconfirmed_build[owned_process_timeout-2]",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_claude_text_source::test_default_grants_drive_claude_sessions_through_the_analysis_lane",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_guarded_host::test_owned_stdio_failures_are_content_free_and_leave_no_root_process[crash-2.0-mcp_host_probe_failed]",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_guarded_host::test_owned_stdio_failures_are_content_free_and_leave_no_root_process[hang-0.1-mcp_host_deadline_exceeded]",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_guarded_host::test_owned_stdio_failures_are_content_free_and_leave_no_root_process[malformed-2.0-mcp_host_jsonrpc_invalid]",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_guarded_host::test_owned_stdio_failures_are_content_free_and_leave_no_root_process[oversized-3.0-mcp_host_response_too_large]",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_guarded_host::test_owned_stdio_probe_falls_back_to_legacy_handshake_without_calling_tools",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_guarded_host::test_owned_stdio_probe_is_hidden_calls_no_tool_and_reaps_descendants",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_guarded_host::test_owned_stdio_stderr_flood_stops_the_exact_tree_without_retaining_output",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_managed_runtime::test_schema_24_migrates_once_through_call_and_host_lifecycle_receipts",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_managed_runtime::test_schema_25_migrates_once_to_host_lifecycle_evidence",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_managed_runtime::test_schema_26_migrates_once_through_package_inspection_and_call_claims",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_managed_runtime::test_schema_27_migrates_once_to_immutable_one_use_call_claims",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_managed_runtime::test_schema_29_keeps_call_claim_host_and_package_evidence_content_free",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_server_management::test_configured_mcpb_install_and_start_resolve_vault_values_transiently",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_server_management::test_mcpb_manifest_configuration_requires_nonexecuting_inspection_and_vault_values",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_server_management::test_schema_eighteen_expands_the_bounded_update_evidence_journal",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_server_management::test_schema_eleven_migrates_without_changing_existing_projects",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_server_management::test_schema_nineteen_backfills_current_and_retained_snapshot_manifests",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_mcp_server_management::test_schema_thirteen_backfills_existing_plans_as_uninstalled",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_onboarding::test_http_onboarding_routes_and_path_override",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_task_query_api::test_task_interface_is_query_only_and_runtime_schema_is_disabled",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_windows_distribution_hardening::test_public_build_manifest_cli_compares_two_trees_without_host_paths",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_workspace_discovery::test_http_discovery_is_private_and_replaced_root_fails_closed",
+      "state": "failed"
+    },
+    {
+      "name": "tests.test_workspace_inspection_service::test_http_filesystem_exception_cannot_become_an_empty_tree_or_expose_detail",
+      "state": "error"
+    },
+    {
+      "name": "tests.test_workspace_inspection_service::test_http_inspection_timeout_is_a_retryable_fixed_error",
+      "state": "error"
+    },
+    {
+      "name": "tests.test_workspace_inspection_service::test_http_replaced_root_returns_only_a_fixed_error_and_private_headers",
+      "state": "error"
+    },
+    {
+      "name": "tests.test_workspace_inspection_service::test_http_zero_visible_entries_with_scan_limit_is_not_a_complete_tree",
+      "state": "error"
+    },
+    {
+      "name": "tests.test_workspace_transactions::test_transaction_http_apply_requires_native_confirmation_and_is_private",
+      "state": "failed"
+    }
+  ]
+}

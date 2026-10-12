@@ -1,0 +1,10 @@
+{
+  "BENCH_IMAGE": "registry.example.com/example/bench@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "BENCH_CONSUMER_IMAGE": "registry.example.com/example/consumer@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "BENCH_IMAGE_REPOSITORIES": "registry.example.com/example/enhancer",
+  "BENCH_ORIGIN": "http://127.0.0.1:8088",
+  "BENCH_CORE_CONFIG_SOURCE": "/srv/example/bench/core-config.json",
+  "BENCH_DOCKER_GID": "999",
+  "BENCH_LITELLM_URL": "https://gateway.example.com/v1",
+  "BENCH_CONSUMER_MODEL": "example-qualified-model"
+}

@@ -1,0 +1,8 @@
+{
+  "BENCH_CORE_VARIANT": "models",
+  "BENCH_CORE_MEMORY": "4g",
+  "BENCH_CORE_CPUS": "2",
+  "BENCH_MODEL_CACHE_VOLUME": "enhancement-bench-models-example",
+  "BENCH_MODEL_DEVICE": "cpu",
+  "BENCH_GPU_DEVICE": ""
+}

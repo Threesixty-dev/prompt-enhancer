@@ -2,6 +2,16 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+A later feature-branch proposal, [ADR 0022](../adr/0022-inference-provider-boundary.md),
+separates inference providers from local runtime ownership. Its October 9 tests
+and scope are recorded separately; the October 8 source observation stays frozen.
+
+The October 12 [core/bench integration review](../bench/integration-review.md)
+and proposed [ADR 0023](../adr/0023-enhancement-experiment-boundary.md) add a
+versioned enhancement flow and private experiment bench. They record later
+source, browser and container evidence separately from this dated atlas and do
+not close the general workflow, real-model or release gates.
+
 ## Start here
 
 1. Read the [system map](../images/architecture-overview.png).

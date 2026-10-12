@@ -5,6 +5,14 @@ from pathlib import Path
 from scripts.privacy_scan import scan_repository
 
 
+def test_managed_worktree_git_pointer_is_metadata_but_source_canaries_still_fail(tmp_path):
+    (tmp_path / ".git").write_text("gitdir: /Users/example/worktree-metadata\n")
+    assert scan_repository(tmp_path) == []
+    private_path_canary = "/" + "home/" + "alex/work"
+    (tmp_path / "source.py").write_text(private_path_canary)
+    assert any(finding.path == "source.py" for finding in scan_repository(tmp_path))
+
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 

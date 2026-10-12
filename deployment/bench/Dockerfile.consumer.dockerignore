@@ -1,0 +1,4 @@
+**
+!deployment/
+!deployment/bench/
+!deployment/bench/consumer_start.py

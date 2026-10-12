@@ -1,0 +1,8 @@
+{
+  "name": "enhancement-bench-browser-checks",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {"check": "node --check src/enhancement_bench/static/app.js", "test:browser": "playwright test"},
+  "devDependencies": {"@playwright/test": "1.61.1"}
+}

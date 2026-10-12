@@ -15,6 +15,8 @@ only owner acceptance changes the default.
 | --- | --- |
 | [0019 — Owner-reviewed architecture and contributions](0019-owner-reviewed-architecture-and-contributions.md) | Existing owner policy, documentation under PR review |
 | [0020 — Current product boundaries and beta scope](0020-current-product-boundaries-and-beta-scope.md) | Consolidates approved scope; does not confer implementation acceptance |
+| [0022 — Inference provider boundary](0022-inference-provider-boundary.md) | Proposed reviewed remote-inference exception; owner acceptance pending |
+| [0023 — Enhancement core and experiment bench](0023-enhancement-experiment-boundary.md) | Proposed combined boundary; local integration evidence recorded, live qualification and owner acceptance pending |
 | [0021 — Evidence-bound architecture atlas](0021-evidence-bound-architecture-atlas.md) | Proposed maintenance convention for owner review |
 
 | ADR | Status | Decision |

@@ -1,0 +1,12 @@
+**
+!bench/
+!bench/pyproject.toml
+!bench/uv.lock
+!bench/src/
+!bench/src/enhancement_bench/
+!bench/src/enhancement_bench/**
+!contracts/
+!contracts/enhancement/
+!contracts/enhancement/**
+**/__pycache__/**
+**/*.pyc

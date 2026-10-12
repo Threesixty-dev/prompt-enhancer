@@ -1,0 +1,52 @@
+Baseline: 6fa1100; inherited before core implementation. Do not stage wholesale.
+ M docs/adr/README.md
+ M docs/architecture/README.md
+ M docs/architecture/atlas.json
+ M docs/architecture/feature-catalog.md
+ M docs/beta-progress-journal.md
+ M docs/openapi.json
+ M docs/product-readiness-matrix-2026-09-12.md
+ M frontend/src/features/agent/AgentPage.test.tsx
+ M frontend/src/features/agent/AgentPage.tsx
+ M frontend/src/features/agent/AgentPromptCheck.tsx
+ M frontend/src/features/agent/AgentTurnDetails.tsx
+ M frontend/src/features/local-models/LocalModelsPage.tsx
+ M frontend/src/features/model-judge/ModelJudgePane.tsx
+ M frontend/src/features/prompt-check/PromptCheckPage.test.tsx
+ M frontend/src/features/prompt-check/PromptCheckPage.tsx
+ M frontend/src/shared/api/agentTurnContract.ts
+ M frontend/src/shared/api/contracts.ts
+ M frontend/src/shared/api/generated/openapi.ts
+ M frontend/src/shared/api/httpTransport.ts
+ M scripts/export_openapi.py
+ M src/prompt_enhancer/api.py
+ M src/prompt_enhancer/application/analysis/model_judge.py
+ M src/prompt_enhancer/application/egress/classification.py
+ M src/prompt_enhancer/application/local_agent.py
+ M src/prompt_enhancer/application/local_agent_receipts.py
+ M src/prompt_enhancer/application/prompt_check.py
+ M src/prompt_enhancer/bootstrap.py
+ M src/prompt_enhancer/config.py
+ M src/prompt_enhancer/infrastructure/redaction/deterministic.py
+ M src/prompt_enhancer/interfaces/http/dto.py
+ M src/prompt_enhancer/interfaces/http/local_model_routes.py
+ M src/prompt_enhancer/interfaces/http/model_judge_routes.py
+ M src/prompt_enhancer/interfaces/http/prompt_check_routes.py
+ M tests/test_api_and_cli.py
+ M tests/test_local_agent.py
+ M tests/test_local_redaction.py
+ M tests/test_prompt_check.py
+ M tests/test_windows_distribution_hardening.py
+?? docs/adr/0022-inference-provider-boundary.md
+?? docs/litellm-prompt-check.md
+?? frontend/src/features/inference/
+?? frontend/src/features/prompt-check/PromptCheckReview.tsx
+?? src/prompt_enhancer/application/inference.py
+?? src/prompt_enhancer/application/inference_review.py
+?? src/prompt_enhancer/application/manual_analysis.py
+?? src/prompt_enhancer/infrastructure/litellm.py
+?? src/prompt_enhancer/infrastructure/local_inference.py
+?? src/prompt_enhancer/interfaces/http/inference_routes.py
+?? src/prompt_enhancer/interfaces/http/inference_stream.py
+?? tests/test_inference_providers.py
+?? tests/test_litellm.py

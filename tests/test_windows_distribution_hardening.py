@@ -920,12 +920,12 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
                     "prompt_enhancer."
                     + source_path.relative_to(_SOURCE_ROOT).with_suffix("").as_posix().replace("/", ".")
                 )
-    # Exactly eight modules may touch network primitives directly. Four are
+    # This fixed inventory covers every direct network boundary. Four are
     # owned-loopback services: the desktop overlay (probe + open), the local
     # model runtime manager (free-port bind, health, chat proxy to its child),
     # the Claude Code prompt-check hook (posts to this app's loopback API), and
     # the no-proxy/no-redirect local Agent controller bridge.
-    # Three are explicit external requests: the shared-folder client (ADR 0018)
+    # Explicit external requests include the reviewed inference gateway and the shared-folder client (ADR 0018)
     # dials exactly the URL the person typed when joining a teammate's folder;
     # MCP Store discovery uses the documented Official Registry; a guarded
     # compatibility check dials only the exact reviewed HTTPS origin after
@@ -938,6 +938,7 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
         "prompt_enhancer.infrastructure.agent_controller_http",
     }
     allowed_approved = {
+        "prompt_enhancer.infrastructure.litellm",
         "prompt_enhancer.application.shared_folders",
         "prompt_enhancer.infrastructure.mcp_registry",
         "prompt_enhancer.infrastructure.mcp_guarded_host",
@@ -946,6 +947,7 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
         "prompt_enhancer.infrastructure.updates.https_manifest_source",
         "prompt_enhancer.infrastructure.updates.https_artifact_source",
     }
+    allowed_synthetic_benchmark = {"prompt_enhancer.enhancement.worker"}
     registered_loopback = {
         entry.module
         for entry in EGRESS_REGISTRY
@@ -967,11 +969,18 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
         and entry.egress_class is EgressClass.SIGNED_UPDATE_ADVISORY
         and entry.state is FutureEgressState.IMPLEMENTED_UNCOMPOSED
     }
+    registered_synthetic_benchmark = {
+        entry.module for entry in EGRESS_REGISTRY
+        if entry.module in allowed_synthetic_benchmark
+        and entry.egress_class is EgressClass.SYNTHETIC_BENCHMARK_REQUEST
+        and entry.state is FutureEgressState.ACTIVE_EXPLICIT_APPROVAL
+        and entry.reason_code == "synthetic_only_headless_opt_in"
+    }
 
     assert (
         capable
-        == registered_loopback | registered_approved | registered_uncomposed
-        == allowed_loopback | allowed_approved | allowed_uncomposed
+        == registered_loopback | registered_approved | registered_uncomposed | registered_synthetic_benchmark
+        == allowed_loopback | allowed_approved | allowed_uncomposed | allowed_synthetic_benchmark
     )
 
 

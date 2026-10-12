@@ -1,0 +1,57 @@
+name: Bench checks
+on:
+  pull_request:
+    paths: ["bench/**", "tests/bench/**", "deployment/bench/**", "contracts/enhancement/**", "src/**", "containers/enhancement-core/**", "pyproject.toml", "uv.lock", "scripts/privacy_scan.py", ".github/workflows/bench-*.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.10.4"
+      - name: Locked bench dependencies and synthetic tests
+        run: |
+          uv sync --project bench --frozen --extra dev
+          bench/.venv/bin/python -m pytest -q tests/bench
+          bench/.venv/bin/python -m enhancement_bench.cli validate bench/definitions/*.json
+          python scripts/privacy_scan.py
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Browser checks
+        working-directory: bench
+        run: |
+          npm ci --ignore-scripts
+          npm run check
+          npx playwright install --with-deps chromium
+          npm run test:browser
+      - name: Validate deployment without secrets
+        run: bench/.venv/bin/python tests/bench/check_deployment.py
+      - name: Build core and bench without publication
+        run: |
+          sudo mkdir -p /etc/docker
+          printf '%s\n' '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json >/dev/null
+          sudo systemctl restart docker
+          docker build -f containers/enhancement-core/Dockerfile -t local/enhancement-core:bench-validation .
+          docker build -f deployment/bench/Dockerfile -t local/enhancement-bench:validation .
+      - name: Real core container smoke with synthetic provider simulator
+        run: bench/.venv/bin/python tests/bench/docker_smoke.py
+      - name: Model-enabled image and read-only synthetic cache
+        run: |
+          docker build -f containers/enhancement-core/Dockerfile --build-arg ENHANCEMENT_WITH_MODELS=1 --label example.enhancement.build-variant=models -t local/enhancement-core:bench-models-validation .
+          bench/.venv/bin/python tests/bench/docker_smoke.py --core-image local/enhancement-core:bench-models-validation --model-runtime
+      - name: Build and check isolated static consumer startup
+        run: |
+          docker build -f deployment/bench/Dockerfile.consumer -t local/enhancement-consumer:validation .
+          bench/.venv/bin/python tests/bench/consumer_smoke.py
+          bench/.venv/bin/python tests/bench/relay_smoke.py

@@ -1,0 +1,143 @@
+"""Authenticated same-origin API; no content in access logs or error messages."""
+
+from __future__ import annotations
+
+import hmac
+import json
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import ValidationError
+from typing import Literal
+
+from .definitions import Definition, Overrides, Publication, StrictModel
+from .errors import BenchError
+from .protocol import Contracts
+from .store import Store
+
+
+class RunInput(StrictModel):
+    stableId: str
+    revision: str
+    requestId: str
+    overrides: Overrides
+    retryOf: str | None = None
+
+
+class ReconcileInput(StrictModel):
+    remoteStopped: Literal[True]
+    evidenceReference: str
+
+
+def create_app(store: Store, contracts: Contracts, *, operator_token: str, import_token: str,
+               allowed_repositories: tuple[str, ...], origin="http://127.0.0.1:8088") -> FastAPI:
+    if len(operator_token) < 24 or len(import_token) < 24 or operator_token == import_token:
+        raise BenchError("distinct_operator_and_import_tokens_required", 503)
+    app = FastAPI(title="Enhancement Bench", docs_url=None, redoc_url=None, openapi_url=None)
+    static = Path(__file__).with_name("static")
+
+    @app.middleware("http")
+    async def boundary(request: Request, call_next):
+        if request.headers.get("host") != origin.split("://", 1)[1]:
+            return JSONResponse({"error": {"code": "host_not_allowed"}}, 403)
+        if request.headers.get("origin") not in (None, origin):
+            return JSONResponse({"error": {"code": "origin_not_allowed"}}, 403)
+        if request.url.path.startswith("/api/"):
+            expected = import_token if request.url.path == "/api/publications" else operator_token
+            supplied = request.headers.get("authorization", "").removeprefix("Bearer ")
+            if not hmac.compare_digest(supplied.encode(), expected.encode()):
+                return JSONResponse({"error": {"code": "unauthorized"}}, 401)
+            if request.method == "POST" and request.headers.get("content-type", "").split(";")[0] != "application/json":
+                return JSONResponse({"error": {"code": "json_required"}}, 415)
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > 1_000_000:
+                    return JSONResponse({"error": {"code": "request_too_large"}}, 413)
+            request._body = bytes(body)
+        response = await call_next(request)
+        response.headers.update({"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                                 "Referrer-Policy": "no-referrer",
+                                 "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
+        return response
+
+    @app.exception_handler(BenchError)
+    async def bench_error(_request, error):
+        return JSONResponse({"error": {"code": error.code}}, error.status)
+
+    @app.exception_handler(RequestValidationError)
+    @app.exception_handler(ValidationError)
+    async def invalid(_request, _error):
+        return JSONResponse({"error": {"code": "invalid_request"}}, 422)
+
+    @app.get("/health/ready")
+    def health():
+        return {"ready": True, "schemaVersion": "bench.v1"}
+
+    @app.get("/")
+    def index():
+        return FileResponse(static / "index.html")
+
+    @app.get("/assets/{name}")
+    def asset(name: str):
+        if name not in {"app.js", "app.css"}:
+            raise BenchError("not_found", 404)
+        return FileResponse(static / name)
+
+    @app.post("/api/publications", status_code=202)
+    def publication(value: Publication):
+        if value.image.split("@", 1)[0] not in allowed_repositories:
+            raise BenchError("image_repository_not_allowed", 403)
+        # Exercise the authoritative request schema for every combination before import.
+        from .definitions import effective_settings
+
+        run = {"stable_id": value.definition.stableId, "revision": value.definition.revision,
+               "id": str(uuid4()), "correlation_id": str(uuid4()),
+               "effective": effective_settings(value.definition, Overrides())}
+        for subject in value.definition.subjects:
+            for unit in value.definition.units:
+                contracts.request(run, {"id": str(uuid4()), "subject_id": subject.id, "unit_id": unit.id})
+        return store.import_publication(value)
+
+    @app.get("/api/experiments")
+    def experiments():
+        return {"experiments": store.definitions()}
+
+    @app.get("/api/runs")
+    def runs():
+        return {"runs": store.runs()}
+
+    @app.get("/api/runs/{run_id}")
+    def run(run_id: str):
+        return store.run(run_id)
+
+    @app.post("/api/runs", status_code=202)
+    def enqueue(value: RunInput):
+        from .definitions import effective_settings
+
+        definition = next((d for d in store.definitions() if d["stableId"] == value.stableId and d["revision"] == value.revision), None)
+        if definition is None:
+            raise BenchError("definition_not_found", 404)
+        definition = Definition.model_validate({k: v for k, v in definition.items() if k not in {"image", "specHash"}})
+        effective = effective_settings(definition, value.overrides)
+        request_run = {"stable_id": value.stableId, "revision": value.revision, "id": str(uuid4()),
+                       "correlation_id": str(uuid4()), "effective": effective}
+        for subject in effective["subjects"]:
+            for unit in effective["units"]:
+                contracts.request(request_run, {"id": str(uuid4()), "subject_id": subject["id"], "unit_id": unit["id"]})
+        return {"runId": store.enqueue_ui(value.stableId, value.revision, value.overrides,
+                                          value.requestId, value.retryOf)}
+
+    @app.post("/api/runs/{run_id}/cancel", status_code=202)
+    def cancel(run_id: str):
+        return store.cancel(run_id)
+
+    @app.post("/api/runs/{run_id}/reconcile")
+    def reconcile(run_id: str, value: ReconcileInput):
+        store.acknowledge_remote_stopped(run_id, value.evidenceReference)
+        return store.run(run_id)
+
+    return app

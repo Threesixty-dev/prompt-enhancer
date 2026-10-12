@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "const": "enhancement.v1",
+      "default": "enhancement.v1",
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "core_version": {
+      "default": "0.1.0",
+      "title": "Core Version",
+      "type": "string"
+    },
+    "ready": {
+      "title": "Ready",
+      "type": "boolean"
+    },
+    "active": {
+      "minimum": 0,
+      "title": "Active",
+      "type": "integer"
+    },
+    "retained": {
+      "minimum": 0,
+      "title": "Retained",
+      "type": "integer"
+    },
+    "capacity": {
+      "minimum": 1,
+      "title": "Capacity",
+      "type": "integer"
+    },
+    "reason": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ready",
+    "active",
+    "retained",
+    "capacity",
+    "reason"
+  ],
+  "title": "Readiness",
+  "type": "object"
+}

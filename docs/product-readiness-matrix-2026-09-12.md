@@ -1,5 +1,37 @@
 # Product feature and readiness matrix
 
+## Core and experiment bench candidate - 2026-10-12
+
+The [combined integration review](bench/integration-review.md) joins the core and
+bench on the inherited `6fa1100` development baseline. Proposed [ADR 0023](adr/0023-enhancement-experiment-boundary.md)
+records separate consumer/evaluation roles, code version plus immutable image,
+GitOps/UI runs and the enhancer-owned flow without a separate testing harness.
+
+Fresh scope: 186 core tests, 79 bench tests, six desktop/mobile browser checks,
+real-container synthetic lifecycle checks and a usable local demo with restart
+persistence. Sibling model binding, generated build metadata and local image
+retention were corrected during integration. The preserved source checkouts are
+unchanged. This candidate is uncommitted and unpublished.
+
+The broad suite's 36 inherited failures and four errors remain open. Live static
+consumer/evaluator, genuine model/GPU, hosted CI/registry/Coolify and native/release
+qualification are not established by these checks. Owner acceptance is pending;
+no B/W/WP gate closes and the dated atlas/source bindings remain historical.
+
+## Inference-provider proposal — 2026-10-09
+
+[ADR 0022](adr/0022-inference-provider-boundary.md) proposes reviewed LiteLLM
+inference for chat, Prompt Check, explicit session analysis and Agent steps on
+baseline `main` `6fa1100`. Local runtime ownership, automatic analysis and native
+workspace approval remain separate. The source is a local feature-branch proposal;
+owner acceptance, gateway qualification and deployment remain pending.
+
+The [journal](beta-progress-journal.md#2026-10-09--proposed-inference-provider-separation)
+records bounded synthetic, owned TLS/HTTP loopback, UI, build and privacy checks,
+including the 19 UI failures reproduced on clean main and an environment-blocked
+manifest CLI test. No complete suite, native journey, external model, multi-user
+hosting or beta gate is declared passed. The historical ledger below is unchanged.
+
 ## Architecture audit addendum — 2026-10-08
 
 The [architecture atlas](architecture/README.md) maps 122 components to source,
