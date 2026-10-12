@@ -465,7 +465,12 @@ def create_local_model_router(require_local_auth: Callable[..., None], service: 
 
     @router.post(
         "/openai/v1/chat/completions",
-        responses={413: {"model": LocalModelContextFailureResponse}},
+        responses={
+            413: {
+                "model": LocalModelContextFailureResponse,
+                "description": "Content Too Large",
+            }
+        },
     )
     async def openai_chat_completions(request: Request) -> Response:
         """OpenAI-style chat completion routed by the ``model`` field to a running alias."""
@@ -492,7 +497,12 @@ def create_local_model_router(require_local_auth: Callable[..., None], service: 
 
     @router.post(
         "/{alias}/v1/chat/completions",
-        responses={413: {"model": LocalModelContextFailureResponse}},
+        responses={
+            413: {
+                "model": LocalModelContextFailureResponse,
+                "description": "Content Too Large",
+            }
+        },
     )
     async def chat_completions_openai_base(
         request: Request,
@@ -518,7 +528,12 @@ def create_local_model_router(require_local_auth: Callable[..., None], service: 
 
     @router.post(
         "/{alias}/chat/completions",
-        responses={413: {"model": LocalModelContextFailureResponse}},
+        responses={
+            413: {
+                "model": LocalModelContextFailureResponse,
+                "description": "Content Too Large",
+            }
+        },
     )
     async def chat_completions(
         request: Request,

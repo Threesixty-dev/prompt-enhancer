@@ -23,6 +23,21 @@ historical evidence below remains attributable to its earlier source baseline;
 it is not the current residual-failure count. Hosted full-suite checks and live
 model qualification are separate from these local results.
 
+## Hosted CI portability repairs
+
+The hosted container smoke now resolves the Docker daemon socket group before
+starting the non-root worker. The worker uses a native byte-range lock on Windows
+and POSIX flock elsewhere; local exclusion and exception-release coverage passes
+within all 80 bench tests. The hosted bench container, consumer startup, relay
+and model-enabled smoke workflow passes with synthetic fixtures.
+
+Python versions also supply different default HTTP 413 descriptions. Six chat
+and analysis route declarations now explicitly retain `Content Too Large`.
+A regression exercises both standard-library wording variants. Each variant
+produces the exact committed OpenAPI bytes; no schema/client regeneration or
+relaxation of the byte-exact artifact gate is needed. Full hosted platform
+results must still pass on the final integration commit before merge.
+
 ## Review boundary
 
 The integration checkout combines the completed core and bench workstreams on
