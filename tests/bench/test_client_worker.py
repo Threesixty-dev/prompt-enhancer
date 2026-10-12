@@ -202,6 +202,16 @@ def test_one_worker_process_lock(store):
                 pass
 
 
+def test_worker_lock_is_released_after_failure(store):
+    with pytest.raises(RuntimeError, match="example-worker-failure"):
+        with exclusive_worker(store):
+            raise RuntimeError("example-worker-failure")
+    with exclusive_worker(store):
+        with pytest.raises(BenchError, match="worker_already_active"):
+            with exclusive_worker(store):
+                pass
+
+
 def test_shared_schema_rejects_wrong_provider_before_container_launch(store, publication, contracts, result_template):
     definition = publication.model_dump()
     definition["definition"]["consumerBinding"]["provider"] = "chat_for_every_model"

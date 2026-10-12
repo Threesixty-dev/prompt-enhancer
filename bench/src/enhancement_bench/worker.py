@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import errno
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -14,18 +16,29 @@ from .store import Store
 
 @contextmanager
 def exclusive_worker(store: Store):
-    # Deployment is Linux; flock also allows local macOS integration tests.
-    import fcntl
+    with store.path.with_suffix(".worker-lock").open("a+b") as lock:
+        if sys.platform == "win32":
+            import msvcrt
 
-    with store.path.with_suffix(".worker-lock").open("a") as lock:
+            # Windows permits a byte-range lock beyond the empty file's end.
+            lock.seek(0)
+            acquire = lambda: msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            release = lambda: msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            acquire = lambda: fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            release = lambda: fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise BenchError("worker_already_active", 503) from None
+            acquire()
+        except OSError as error:
+            if error.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                raise BenchError("worker_already_active", 503) from None
+            raise BenchError("worker_lock_unavailable", 503) from None
         try:
             yield
         finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            release()
 
 
 class Worker:
