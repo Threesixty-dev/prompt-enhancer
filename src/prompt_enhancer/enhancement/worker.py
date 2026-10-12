@@ -190,7 +190,11 @@ def openhands(payload):
                         absent = client.get(f"{config.endpoint}/api/conversations/{conversation_id}")
                         if absent.status_code != 404:
                             raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
-                    removed = workspace.execute_command(f"rmdir -- {directory}", cwd="/tmp", timeout=10)
+                    # OpenHands initializes Git in this newly allocated workspace.
+                    # Remove only that metadata; unexpected files still fail cleanup.
+                    removed = workspace.execute_command(
+                        f"test ! -L {directory} && rm -rf -- {directory}/.git && rmdir -- {directory}",
+                        cwd="/tmp", timeout=10)
                     if removed.exit_code != 0:
                         raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
             except Exception:

@@ -89,7 +89,7 @@ class ProcessConsumer:
         self.gateway_access = gateway_access
         self.provider = config.provider
         self.provenance = Provenance(provider=config.provider,
-            adapter_version="openhands-acp-1.49.1.v1" if config.provider == "openhands_acp" else "litellm-chat-v1",
+            adapter_version="openhands-acp-1.49.1.v2" if config.provider == "openhands_acp" else "litellm-chat-v1",
             model=config.model, model_revision=config.model_revision,
             model_license=config.model_license, tokenizer_revision=config.tokenizer_revision,
             rubric_version="enhancement-rewrite.v2", identity_source="configured")

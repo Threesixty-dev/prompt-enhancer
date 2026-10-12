@@ -80,6 +80,10 @@ stops the consumer so Docker can restart the complete unit; health checks exerci
 the actual private transports. It writes only its dedicated runtime Codex configuration
 and uses read-only session mode, disabled web search and no interactive approvals.
 The private synthetic worker is not a general-purpose repository agent.
+OpenHands initializes `.git` in each fresh attempt workspace. After confirmed
+conversation completion and deletion, core 0.1.1 removes that owned metadata and
+then the empty workspace. A replaced workspace symlink or any other remaining
+file still causes uncertain cleanup and requires reconciliation.
 
 Set `BENCH_DOCKER_GID` to the socket's group so UID 10002 can use it, and
 `BENCH_CORE_CONFIG_SOURCE` to the reviewed core configuration's **Docker-host**

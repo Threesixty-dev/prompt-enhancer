@@ -1,10 +1,10 @@
 {
   "schemaVersion": "bench-experiment/v1",
   "stableId": "example-widget",
-  "revision": "1",
-  "generation": 1,
+  "revision": "2",
+  "generation": 2,
   "title": "Clarify a fictional widget request",
-  "enhancerVersion": "0.1.0",
+  "enhancerVersion": "0.1.1",
   "autoRun": true,
   "subjects": [
     {

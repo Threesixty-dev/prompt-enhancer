@@ -202,7 +202,7 @@ def test_process_consumer_forwards_exact_generation_context(monkeypatch, provide
         assert candidate.provenance.operation_id == sent[0]["operation_id"]
 
 
-def fake_sdk(monkeypatch, *, finished=True, cleanup=True):
+def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None):
     import httpx
     import importlib.metadata
     created, agents, sent = [], [], []
@@ -219,7 +219,7 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True):
         commands = []
         def execute(command, **options):
             commands.append(command)
-            return SimpleNamespace(exit_code=0)
+            return SimpleNamespace(exit_code=command_runner(command, kwargs["working_dir"]) if command_runner else 0)
         return SimpleNamespace(reset_client=lambda: None, execute_command=execute, commands=commands,
                                working_dir=kwargs["working_dir"])
     modules = {"openhands.sdk": {"Conversation": conversation},
@@ -258,10 +258,57 @@ def test_acp_allocates_independent_context_and_checks_completion_cleanup(monkeyp
     assert created[0]["conversation_id"] != created[1]["conversation_id"]
     for trial in created:
         workspace = trial["workspace"]
-        assert workspace.commands == [f"mkdir -m 700 -- {workspace.working_dir}", f"rmdir -- {workspace.working_dir}"]
+        assert workspace.commands == [f"mkdir -m 700 -- {workspace.working_dir}",
+            f"test ! -L {workspace.working_dir} && rm -rf -- {workspace.working_dir}/.git && rmdir -- {workspace.working_dir}"]
         assert workspace.working_dir.endswith(str(trial["conversation_id"]))
     assert all(agent["acp_session_mode"] == "read-only" for agent in agents)
     assert json.loads(sent[0])["generation_context"] == json.loads(json.dumps(payload["generation_context"]))
+
+
+@pytest.mark.parametrize("residue", ["git_only", "unexpected_file", "symlink"])
+def test_acp_cleanup_removes_only_owned_git_metadata(monkeypatch, tmp_path, residue):
+    import os
+    import shlex
+    import shutil
+    import subprocess
+
+    if os.name == "nt":
+        pytest.skip("Agent Server cleanup uses a POSIX shell")
+    owned, outside = tmp_path / "owned", tmp_path / "outside"
+    outside.mkdir()
+    (outside / ".git").mkdir()
+    sentinel = outside / ".git" / "example-sentinel"
+    sentinel.write_text("fictional outside data")
+
+    def execute(command, directory):
+        if command.startswith("mkdir "):
+            owned.mkdir()
+            (owned / ".git").mkdir()
+            (owned / ".git" / "HEAD").write_text("ref: refs/heads/example")
+            if residue == "unexpected_file":
+                (owned / "example-artifact").write_text("fictional artifact")
+            elif residue == "symlink":
+                shutil.rmtree(owned)
+                owned.symlink_to(outside, target_is_directory=True)
+            return 0
+        return subprocess.run(command.replace(directory, shlex.quote(str(owned))), shell=True,
+            cwd=tmp_path, env={"PATH": os.defpath}, capture_output=True, timeout=5).returncode
+
+    fake_sdk(monkeypatch, command_runner=execute)
+    item = consumer_request()
+    payload = {"config": config("openhands_acp").model_dump(), "request": item.model_dump(),
+        "generation_context": context_for(item).model_dump(), "credential": "example-invalid-value"}
+    if residue == "git_only":
+        assert openhands(payload)["text"] == "Fictional revised prompt"
+        assert not owned.exists()
+    else:
+        with pytest.raises(CoreError, match="remote_cleanup_unconfirmed") as caught:
+            openhands(payload)
+        assert caught.value.uncertain
+        assert owned.exists()
+        if residue == "unexpected_file":
+            assert (owned / "example-artifact").read_text() == "fictional artifact"
+    assert sentinel.read_text() == "fictional outside data"
 
 
 @pytest.mark.parametrize("finish,cleanup", [(False, True), (True, False)])
