@@ -1,0 +1,125 @@
+name: enhancement-bench
+services:
+  bench-api:
+    image: ${BENCH_IMAGE:?Set a reviewed immutable bench image digest}
+    command: [serve, --host, 0.0.0.0, --port, "8088"]
+    environment:
+      BENCH_DATABASE: /data/bench.sqlite3
+      BENCH_OPERATOR_TOKEN: ${BENCH_OPERATOR_TOKEN:?Set operator token}
+      BENCH_IMPORT_TOKEN: ${BENCH_IMPORT_TOKEN:?Set separate CI import token}
+      BENCH_IMAGE_REPOSITORIES: ${BENCH_IMAGE_REPOSITORIES:?Set exact core repository allowlist}
+      BENCH_ORIGIN: ${BENCH_ORIGIN:-http://127.0.0.1:8088}
+    ports: ["127.0.0.1:8088:8088"]
+    volumes: [bench-data:/data]
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=32m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, "import os,urllib.request,urllib.parse; request=urllib.request.Request('http://127.0.0.1:8088/health/ready',headers={'Host':urllib.parse.urlsplit(os.environ['BENCH_ORIGIN']).netloc}); urllib.request.urlopen(request,timeout=2)"]
+      interval: 20s
+      timeout: 3s
+      retries: 3
+  bench-worker:
+    image: ${BENCH_IMAGE:?Set a reviewed immutable bench image digest}
+    container_name: enhancement-bench-worker
+    command: [worker]
+    environment:
+      BENCH_DATABASE: /data/bench.sqlite3
+      BENCH_WORKER_CONTAINER: enhancement-bench-worker
+      BENCH_CORE_PORT: "8787"
+      BENCH_REQUIRE_CONSUMER_READY: "1"
+      BENCH_IMAGE_REPOSITORIES: ${BENCH_IMAGE_REPOSITORIES:?Set exact core repository allowlist}
+      BENCH_CORE_CONFIG_SOURCE: ${BENCH_CORE_CONFIG_SOURCE:?Set absolute Docker-host path to reviewed core JSON}
+      BENCH_CORE_CONFIG_PATH: /run/secrets/enhancer-config.json
+      BENCH_CORE_VARIANT: ${BENCH_CORE_VARIANT:-default}
+      BENCH_CORE_MEMORY: ${BENCH_CORE_MEMORY:-1g}
+      BENCH_CORE_CPUS: ${BENCH_CORE_CPUS:-1}
+      BENCH_MODEL_CACHE_VOLUME: ${BENCH_MODEL_CACHE_VOLUME:-}
+      BENCH_MODEL_DEVICE: ${BENCH_MODEL_DEVICE:-cpu}
+      BENCH_GPU_DEVICE: ${BENCH_GPU_DEVICE:-}
+      BENCH_CORE_ENV_KEYS: ENHANCEMENT_CONSUMER_TOKEN,ENHANCEMENT_EVALUATOR_TOKEN
+      ENHANCEMENT_CONSUMER_TOKEN: ${BENCH_CONSUMER_API_TOKEN:?Set static Agent Server token}
+      ENHANCEMENT_EVALUATOR_TOKEN: ${BENCH_EVALUATOR_TOKEN:-}
+    group_add: ["${BENCH_DOCKER_GID:?Set the Docker socket group ID}"]
+    volumes:
+      - bench-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: ${BENCH_CORE_CONFIG_SOURCE:?Set absolute Docker-host path to reviewed core JSON}
+        target: /run/secrets/enhancer-config.json
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=32m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    stop_grace_period: 60s
+    restart: unless-stopped
+  consumer:
+    image: ${BENCH_CONSUMER_IMAGE:?Set a reviewed immutable static consumer image digest}
+    network_mode: none
+    environment:
+      BENCH_CONSUMER_API_TOKEN: ${BENCH_CONSUMER_API_TOKEN:?Set static Agent Server token}
+      BENCH_GATEWAY_BRIDGE: "1"
+      BENCH_LITELLM_URL: http://127.0.0.1:4000/v1
+      BENCH_LITELLM_TOKEN: ${BENCH_LITELLM_TOKEN:?Set a model-restricted gateway token}
+      BENCH_CONSUMER_MODEL: ${BENCH_CONSUMER_MODEL:?Set the qualified gateway model}
+    group_add: ["10003"]
+    volumes:
+      - consumer-data:/runtime/consumer
+      - consumer-api:/run/bench-consumer-api
+      - consumer-gateway:/run/bench-gateway:ro
+    tmpfs: [/tmp:rw,nosuid,size=256m]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 512
+    init: true
+    stop_grace_period: 30s
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python3, /opt/bench-consumer/start.py, health]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+  consumer-relay:
+    image: ${BENCH_IMAGE:?Set a reviewed immutable bench image digest}
+    network_mode: service:bench-worker
+    entrypoint: [python, -m, enhancement_bench.relay]
+    environment:
+      BENCH_LITELLM_URL: ${BENCH_LITELLM_URL:?Set existing HTTPS gateway v1 base URL}
+    group_add: ["10003"]
+    volumes:
+      - consumer-api:/run/bench-consumer-api:ro
+      - consumer-gateway:/run/bench-gateway
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,size=32m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    init: true
+    stop_grace_period: 30s
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -m, enhancement_bench.relay, health]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+volumes:
+  bench-data:
+  consumer-data:
+  consumer-api:
+  consumer-gateway:

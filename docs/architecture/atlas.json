@@ -416,9 +416,9 @@
         "tests/test_calibration_report_persistence.py",
         "tests/test_packaged_calibration_receipt.py"
       ],
-      "evidence": "Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Historical packaged synthetic passes d9ff5a/73227d saved three ratings including cannot-judge across reload/export. Ratings source unchanged against origin/main.",
+      "evidence": "Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Historical packaged synthetic passes d9ff5a/73227d saved three ratings including cannot-judge across reload/export. Ratings source unchanged against origin/main. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.",
       "gap": "Saved ratings/UI do not establish model calibration; full module batch, expiry and real-model quality acceptance open.",
-      "next": "Add current review expiry/restart cases and a separately governed calibration dataset/quality gate.",
+      "next": "Add current review expiry/restart cases and a separately governed calibration dataset/quality gate. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.",
       "gate": "B07 V12",
       "depends_on": [
         "MA15"
@@ -440,9 +440,9 @@
         "tests/test_prompt_check.py",
         "frontend/src/features/prompt-check/PromptCheckPage.test.tsx"
       ],
-      "evidence": "Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Core/hook unchanged against origin/main. Six deterministic cue metrics plus optional labeled local-model commentary; source comments/tests prohibit prompt/commentary persistence. Deterministic preflight works without a loaded model; optional commentary/rewrite uses the active A08 runtime.",
+      "evidence": "Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Core/hook unchanged against origin/main. Six deterministic cue metrics plus optional labeled local-model commentary; source comments/tests prohibit prompt/commentary persistence. Deterministic preflight works without a loaded model; optional commentary/rewrite uses the active A08 runtime. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.",
       "gap": "Current full model/hook installed experience and workflow-backed enhancement integration remain unqualified; deterministic cues are limited language/task heuristics.",
-      "next": "Validate user draft retention, explicit apply, local-model unavailable fallback and opt-in hook failure behavior; route future workflow enhancement through same reviewed boundary.",
+      "next": "Validate user draft retention, explicit apply, local-model unavailable fallback and opt-in hook failure behavior; route future workflow enhancement through same reviewed boundary. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.",
       "gate": "B03/B07 V12",
       "depends_on": [
         "MA06"
@@ -1080,9 +1080,9 @@
         "frontend/src/features/agent/AgentPage.closeDraft.test.tsx",
         "frontend/src/features/agent/AgentRuntimeControl.test.tsx"
       ],
-      "evidence": "Source allows model-free chat/drafting, separates runtime selection, capability states and draft retention; inspected October 8.",
+      "evidence": "Source allows model-free chat/drafting, separates runtime selection, capability states and draft retention; inspected October 8. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.",
       "gap": "AgentPage remains a large stateful orchestration component; supported native scaling and all keyboard/focus/viewport paths not accepted. Dirty tree differs substantially from main.",
-      "next": "Finish bounded native composer/picker acceptance; extract controllers only when changing a demonstrated defect.",
+      "next": "Finish bounded native composer/picker acceptance; extract controllers only when changing a demonstrated defect. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.",
       "gate": "B03/B10/V02/V13",
       "depends_on": [
         "A02",
@@ -1107,9 +1107,9 @@
         "tests/test_local_agent_usage_transport.py",
         "frontend/src/features/agent/AgentConversationTimeline.test.tsx"
       ],
-      "evidence": "Monotonic event sequence, stream phase and terminal receipts exist. Historical packaged fixture proves streaming/Stop/recovery without real inference.",
+      "evidence": "Monotonic event sequence, stream phase and terminal receipts exist. Historical packaged fixture proves streaming/Stop/recovery without real inference. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.",
       "gap": "Exact qualified model streaming, crash and cancellation cleanup remain unaccepted; model-provided reasoning is conditional and cannot be manufactured.",
-      "next": "Run response/Stop/crash/restart with the approved CPU and NVIDIA profiles, retaining truthful finish reasons.",
+      "next": "Run response/Stop/crash/restart with the approved CPU and NVIDIA profiles, retaining truthful finish reasons. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.",
       "gate": "B03/B04/V05/V06/V07",
       "depends_on": [
         "A01",
@@ -1153,9 +1153,9 @@
       "tests": [
         "tests/test_local_models.py"
       ],
-      "evidence": "One-runtime coordinator, CPU/GPU/split modes, revision-bound switch, health/capability probing and blocked unknown cleanup are implemented. Synthetic and subprocess-boundary tests exist.",
+      "evidence": "One-runtime coordinator, CPU/GPU/split modes, revision-bound switch, health/capability probing and blocked unknown cleanup are implemented. Synthetic and subprocess-boundary tests exist. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.",
       "gap": "Real CPU/NVIDIA model profiles, measured VRAM release and installed-runtime acceptance remain open. Generic compatibility must not imply any HF model works.",
-      "next": "Freeze exact profiles and qualify inference, switch during generation, crash and owned unload on supported hardware.",
+      "next": "Freeze exact profiles and qualify inference, switch during generation, crash and owned unload on supported hardware. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.",
       "gate": "B04/V05/V06/V07",
       "depends_on": [],
       "domain": "agent"
@@ -1175,9 +1175,9 @@
         "tests/test_local_models.py::test_missing_or_malformed_exact_counter_remains_unknown",
         "frontend/src/shared/api/agentSessionContextContract.test.ts"
       ],
-      "evidence": "Context binds exact turn/model/request preflight. Recovered chats and unsupported counters explicitly remain unmeasured; inspected October 8.",
+      "evidence": "Context binds exact turn/model/request preflight. Recovered chats and unsupported counters explicitly remain unmeasured; inspected October 8. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.",
       "gap": "Actual runtime template/token count behavior on the qualified profiles is not established by contracts alone.",
-      "next": "Verify context number and capacity against exact served runtime, then change model and restart to confirm invalidation.",
+      "next": "Verify context number and capacity against exact served runtime, then change model and restart to confirm invalidation. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.",
       "gate": "B04/V05/V06",
       "depends_on": [
         "A08"
@@ -1268,9 +1268,9 @@
         "tests/test_user_presence.py",
         "tests/test_agent_write_proposals.py"
       ],
-      "evidence": "Keyed exact-request fingerprint, monotonic expiry and separate native capability exist; browser same-origin is only CSRF. Tests exercise refusal paths.",
+      "evidence": "Keyed exact-request fingerprint, monotonic expiry and separate native capability exist; browser same-origin is only CSRF. Tests exercise refusal paths. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.",
       "gap": "Actual native confirmation authorizing exactly the reviewed effect remains a release acceptance requirement.",
-      "next": "Prove approve/reject/cancel/stale review/project-switch paths through the actual installed native host.",
+      "next": "Prove approve/reject/cancel/stale review/project-switch paths through the actual installed native host. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.",
       "gate": "B05/V08/V17",
       "depends_on": [
         "A01",
@@ -1321,9 +1321,9 @@
         "tests/test_agent_command_windows.py",
         "tests/test_agent_command_api.py"
       ],
-      "evidence": "Bounded owned process, command control and Windows policy tests exist; native authority and cleanup truth integrate with Agent state. Follow-up 2026-10-11: disposable command startup is separated from the unchanged two-second shutdown/reaping and three-second elapsed-cleanup assertions. Ordinary and delayed watch/command cases pass together (12 total; six delayed cases fail before correction). Hosted/native acceptance remains pending; see the cancellation-test startup task card.",
+      "evidence": "Bounded owned process, command control and Windows policy tests exist; native authority and cleanup truth integrate with Agent state. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model. Follow-up 2026-10-11: disposable command startup is separated from the unchanged two-second shutdown/reaping and three-second elapsed-cleanup assertions. Ordinary and delayed watch/command cases pass together (12 total; six delayed cases fail before correction). Hosted/native acceptance remains pending; see the cancellation-test startup task card.",
       "gap": "Signed native acceptance, repeated lifecycle cycles and all cleanup failure UX not qualified.",
-      "next": "Verify approved synthetic commands, timeout/cancel, descendant cleanup and unresolved cleanup blocking further work.",
+      "next": "Verify approved synthetic commands, timeout/cancel, descendant cleanup and unresolved cleanup blocking further work. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.",
       "gate": "B02/B05/V08/V17",
       "depends_on": [
         "A13"

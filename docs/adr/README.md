@@ -15,6 +15,8 @@ only owner acceptance changes the default.
 | --- | --- |
 | [0019 — Owner-reviewed architecture and contributions](0019-owner-reviewed-architecture-and-contributions.md) | Existing owner policy, documentation under PR review |
 | [0020 — Current product boundaries and beta scope](0020-current-product-boundaries-and-beta-scope.md) | Consolidates approved scope; does not confer implementation acceptance |
+| [0024 — Inference provider boundary](0024-inference-provider-boundary.md) | Proposed reviewed remote-inference exception; owner acceptance pending |
+| [0025 — Enhancement core and experiment bench](0025-enhancement-experiment-boundary.md) | Proposed combined boundary; local integration evidence recorded, live qualification and owner acceptance pending |
 | [0021 — Evidence-bound architecture atlas](0021-evidence-bound-architecture-atlas.md) | Proposed maintenance convention for owner review |
 | [0022 — Consented session retention and team prompt review](0022-consented-session-retention-and-team-review.md) | Explicit product requirement; retention/deployment design and beta inclusion require owner review |
 | [0023 — Develop integration and owner work branch](0023-develop-integration-and-owner-work-branch.md) | Owner-requested branch routing; specific merge execution never grants autonomous approval |

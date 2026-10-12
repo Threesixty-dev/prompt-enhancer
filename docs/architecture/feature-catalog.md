@@ -397,11 +397,11 @@ Dependencies: MA15
 
 **Tests:** [`tests/test_calibration_cases.py`](../../tests/test_calibration_cases.py) — different<br>[`tests/test_calibration_ratings.py`](../../tests/test_calibration_ratings.py) — identical-lf-normalized<br>[`tests/test_calibration_report_persistence.py`](../../tests/test_calibration_report_persistence.py) — different<br>`tests/test_packaged_calibration_receipt.py` — absent-on-main
 
-**Evidence:** Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Historical packaged synthetic passes d9ff5a/73227d saved three ratings including cannot-judge across reload/export. Ratings source unchanged against origin/main.
+**Evidence:** Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Historical packaged synthetic passes d9ff5a/73227d saved three ratings including cannot-judge across reload/export. Ratings source unchanged against origin/main. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.
 
 **Gap:** Saved ratings/UI do not establish model calibration; full module batch, expiry and real-model quality acceptance open.
 
-**Next:** Add current review expiry/restart cases and a separately governed calibration dataset/quality gate.
+**Next:** Add current review expiry/restart cases and a separately governed calibration dataset/quality gate. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.
 
 ## MA18
 
@@ -413,11 +413,11 @@ Dependencies: MA06
 
 **Tests:** [`tests/test_prompt_check.py`](../../tests/test_prompt_check.py) — identical-lf-normalized<br>[`frontend/src/features/prompt-check/PromptCheckPage.test.tsx`](../../frontend/src/features/prompt-check/PromptCheckPage.test.tsx) — identical-lf-normalized
 
-**Evidence:** Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Core/hook unchanged against origin/main. Six deterministic cue metrics plus optional labeled local-model commentary; source comments/tests prohibit prompt/commentary persistence. Deterministic preflight works without a loaded model; optional commentary/rewrite uses the active A08 runtime.
+**Evidence:** Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Core/hook unchanged against origin/main. Six deterministic cue metrics plus optional labeled local-model commentary; source comments/tests prohibit prompt/commentary persistence. Deterministic preflight works without a loaded model; optional commentary/rewrite uses the active A08 runtime. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.
 
 **Gap:** Current full model/hook installed experience and workflow-backed enhancement integration remain unqualified; deterministic cues are limited language/task heuristics.
 
-**Next:** Validate user draft retention, explicit apply, local-model unavailable fallback and opt-in hook failure behavior; route future workflow enhancement through same reviewed boundary.
+**Next:** Validate user draft retention, explicit apply, local-model unavailable fallback and opt-in hook failure behavior; route future workflow enhancement through same reviewed boundary. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.
 
 ## MA19
 
@@ -845,11 +845,11 @@ Dependencies: A02, A08, A09
 
 **Tests:** [`frontend/src/features/agent/AgentPage.test.tsx`](../../frontend/src/features/agent/AgentPage.test.tsx) — different<br>`frontend/src/features/agent/AgentPage.closeDraft.test.tsx` — absent-on-main<br>[`frontend/src/features/agent/AgentRuntimeControl.test.tsx`](../../frontend/src/features/agent/AgentRuntimeControl.test.tsx) — different
 
-**Evidence:** Source allows model-free chat/drafting, separates runtime selection, capability states and draft retention; inspected October 8.
+**Evidence:** Source allows model-free chat/drafting, separates runtime selection, capability states and draft retention; inspected October 8. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.
 
 **Gap:** AgentPage remains a large stateful orchestration component; supported native scaling and all keyboard/focus/viewport paths not accepted. Dirty tree differs substantially from main.
 
-**Next:** Finish bounded native composer/picker acceptance; extract controllers only when changing a demonstrated defect.
+**Next:** Finish bounded native composer/picker acceptance; extract controllers only when changing a demonstrated defect. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.
 
 ## A06
 
@@ -861,11 +861,11 @@ Dependencies: A01, A03, A08
 
 **Tests:** [`tests/test_local_agent_completion.py`](../../tests/test_local_agent_completion.py) — identical-lf-normalized<br>[`tests/test_local_agent_turn_details.py`](../../tests/test_local_agent_turn_details.py) — identical-lf-normalized<br>[`tests/test_local_agent_usage_transport.py`](../../tests/test_local_agent_usage_transport.py) — identical-lf-normalized<br>[`frontend/src/features/agent/AgentConversationTimeline.test.tsx`](../../frontend/src/features/agent/AgentConversationTimeline.test.tsx) — identical-lf-normalized
 
-**Evidence:** Monotonic event sequence, stream phase and terminal receipts exist. Historical packaged fixture proves streaming/Stop/recovery without real inference.
+**Evidence:** Monotonic event sequence, stream phase and terminal receipts exist. Historical packaged fixture proves streaming/Stop/recovery without real inference. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.
 
 **Gap:** Exact qualified model streaming, crash and cancellation cleanup remain unaccepted; model-provided reasoning is conditional and cannot be manufactured.
 
-**Next:** Run response/Stop/crash/restart with the approved CPU and NVIDIA profiles, retaining truthful finish reasons.
+**Next:** Run response/Stop/crash/restart with the approved CPU and NVIDIA profiles, retaining truthful finish reasons. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.
 
 ## A07
 
@@ -893,11 +893,11 @@ Dependencies: Entry/boundary component; see system map.
 
 **Tests:** [`tests/test_local_models.py`](../../tests/test_local_models.py) — identical-lf-normalized
 
-**Evidence:** One-runtime coordinator, CPU/GPU/split modes, revision-bound switch, health/capability probing and blocked unknown cleanup are implemented. Synthetic and subprocess-boundary tests exist.
+**Evidence:** One-runtime coordinator, CPU/GPU/split modes, revision-bound switch, health/capability probing and blocked unknown cleanup are implemented. Synthetic and subprocess-boundary tests exist. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.
 
 **Gap:** Real CPU/NVIDIA model profiles, measured VRAM release and installed-runtime acceptance remain open. Generic compatibility must not imply any HF model works.
 
-**Next:** Freeze exact profiles and qualify inference, switch during generation, crash and owned unload on supported hardware.
+**Next:** Freeze exact profiles and qualify inference, switch during generation, crash and owned unload on supported hardware. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.
 
 ## A09
 
@@ -909,11 +909,11 @@ Dependencies: A08
 
 **Tests:** [`tests/test_local_models.py::test_exact_chat_context_preflight_refuses_before_inference`](../../tests/test_local_models.py) — identical-lf-normalized<br>[`tests/test_local_models.py::test_missing_or_malformed_exact_counter_remains_unknown`](../../tests/test_local_models.py) — identical-lf-normalized<br>[`frontend/src/shared/api/agentSessionContextContract.test.ts`](../../frontend/src/shared/api/agentSessionContextContract.test.ts) — identical-lf-normalized
 
-**Evidence:** Context binds exact turn/model/request preflight. Recovered chats and unsupported counters explicitly remain unmeasured; inspected October 8.
+**Evidence:** Context binds exact turn/model/request preflight. Recovered chats and unsupported counters explicitly remain unmeasured; inspected October 8. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.
 
 **Gap:** Actual runtime template/token count behavior on the qualified profiles is not established by contracts alone.
 
-**Next:** Verify context number and capacity against exact served runtime, then change model and restart to confirm invalidation.
+**Next:** Verify context number and capacity against exact served runtime, then change model and restart to confirm invalidation. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.
 
 ## A10
 
@@ -973,11 +973,11 @@ Dependencies: A01, A11
 
 **Tests:** [`tests/test_user_presence.py`](../../tests/test_user_presence.py) — different<br>[`tests/test_agent_write_proposals.py`](../../tests/test_agent_write_proposals.py) — identical-lf-normalized
 
-**Evidence:** Keyed exact-request fingerprint, monotonic expiry and separate native capability exist; browser same-origin is only CSRF. Tests exercise refusal paths.
+**Evidence:** Keyed exact-request fingerprint, monotonic expiry and separate native capability exist; browser same-origin is only CSRF. Tests exercise refusal paths. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.
 
 **Gap:** Actual native confirmation authorizing exactly the reviewed effect remains a release acceptance requirement.
 
-**Next:** Prove approve/reject/cancel/stale review/project-switch paths through the actual installed native host.
+**Next:** Prove approve/reject/cancel/stale review/project-switch paths through the actual installed native host. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.
 
 ## A14
 
@@ -1005,11 +1005,11 @@ Dependencies: A13
 
 **Tests:** [`tests/test_agent_command_control.py`](../../tests/test_agent_command_control.py) — identical-lf-normalized<br>[`tests/test_agent_command_process.py`](../../tests/test_agent_command_process.py) — identical-lf-normalized<br>[`tests/test_agent_command_windows.py`](../../tests/test_agent_command_windows.py) — identical-lf-normalized<br>[`tests/test_agent_command_api.py`](../../tests/test_agent_command_api.py) — identical-lf-normalized
 
-**Evidence:** Bounded owned process, command control and Windows policy tests exist; native authority and cleanup truth integrate with Agent state. Follow-up 2026-10-11: disposable command startup is separated from the unchanged two-second shutdown/reaping and three-second elapsed-cleanup assertions. Ordinary and delayed watch/command cases pass together (12 total; six delayed cases fail before correction). Hosted/native acceptance remains pending; see the cancellation-test startup task card.
+**Evidence:** Bounded owned process, command control and Windows policy tests exist; native authority and cleanup truth integrate with Agent state. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model. Follow-up 2026-10-11: disposable command startup is separated from the unchanged two-second shutdown/reaping and three-second elapsed-cleanup assertions. Ordinary and delayed watch/command cases pass together (12 total; six delayed cases fail before correction). Hosted/native acceptance remains pending; see the cancellation-test startup task card.
 
 **Gap:** Signed native acceptance, repeated lifecycle cycles and all cleanup failure UX not qualified.
 
-**Next:** Verify approved synthetic commands, timeout/cancel, descendant cleanup and unresolved cleanup blocking further work.
+**Next:** Verify approved synthetic commands, timeout/cancel, descendant cleanup and unresolved cleanup blocking further work. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.
 
 ## A16
 

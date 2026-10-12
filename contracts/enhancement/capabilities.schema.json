@@ -1,0 +1,293 @@
+{
+  "$defs": {
+    "ConsumerCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "openhands_acp",
+            "inference"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "binding_id",
+        "provider",
+        "provenance"
+      ],
+      "title": "ConsumerCapability",
+      "type": "object"
+    },
+    "EvaluatorCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "deterministic",
+            "classifier",
+            "embedding",
+            "rubric"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "binding_id",
+        "kind",
+        "provenance"
+      ],
+      "title": "EvaluatorCapability",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Provider",
+          "type": "string"
+        },
+        "adapter_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "model_revision": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Revision"
+        },
+        "model_license": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model License"
+        },
+        "tokenizer_revision": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokenizer Revision"
+        },
+        "rubric_version": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rubric Version"
+        },
+        "metric_version": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Version"
+        },
+        "redactor_version": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redactor Version"
+        },
+        "identity_source": {
+          "default": "not_applicable",
+          "enum": [
+            "not_applicable",
+            "configured",
+            "verified_manifest"
+          ],
+          "title": "Identity Source",
+          "type": "string"
+        },
+        "reported_model": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reported Model"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
+        }
+      },
+      "required": [
+        "provider",
+        "adapter_version"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "const": "enhancement.v1",
+      "default": "enhancement.v1",
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "core_version": {
+      "default": "0.1.0",
+      "title": "Core Version",
+      "type": "string"
+    },
+    "strategies": {
+      "items": {
+        "enum": [
+          "script.clarify.v1",
+          "consumer.rewrite.v1"
+        ],
+        "type": "string"
+      },
+      "title": "Strategies",
+      "type": "array"
+    },
+    "consumers": {
+      "items": {
+        "$ref": "#/$defs/ConsumerCapability"
+      },
+      "title": "Consumers",
+      "type": "array"
+    },
+    "evaluators": {
+      "items": {
+        "$ref": "#/$defs/EvaluatorCapability"
+      },
+      "title": "Evaluators",
+      "type": "array"
+    },
+    "request_schema": {
+      "additionalProperties": true,
+      "title": "Request Schema",
+      "type": "object"
+    },
+    "data_policies": {
+      "default": [
+        "synthetic_benchmark"
+      ],
+      "items": {
+        "const": "synthetic_benchmark",
+        "type": "string"
+      },
+      "title": "Data Policies",
+      "type": "array"
+    },
+    "result_storage": {
+      "const": "ephemeral",
+      "default": "ephemeral",
+      "title": "Result Storage",
+      "type": "string"
+    },
+    "max_active": {
+      "maximum": 4,
+      "minimum": 1,
+      "title": "Max Active",
+      "type": "integer"
+    },
+    "max_retained": {
+      "maximum": 128,
+      "minimum": 1,
+      "title": "Max Retained",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "strategies",
+    "consumers",
+    "evaluators",
+    "request_schema",
+    "max_active",
+    "max_retained"
+  ],
+  "title": "Capabilities",
+  "type": "object"
+}

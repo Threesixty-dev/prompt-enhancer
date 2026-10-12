@@ -6642,7 +6642,8 @@
               "runtime_http_error",
               "turn_failed",
               "command_cleanup_unconfirmed",
-              "context_window_exceeded"
+              "context_window_exceeded",
+              "inference_not_authorized"
             ],
             "title": "Reason",
             "type": "string"
@@ -10026,6 +10027,12 @@
             "title": "Arbitrary Sql",
             "type": "boolean"
           },
+          "automatic_session_text_network_inference": {
+            "const": false,
+            "default": false,
+            "title": "Automatic Session Text Network Inference",
+            "type": "boolean"
+          },
           "browser_session": {
             "const": true,
             "title": "Browser Session",
@@ -10070,7 +10077,6 @@
             "type": "boolean"
           },
           "network_inference": {
-            "const": false,
             "title": "Network Inference",
             "type": "boolean"
           },
@@ -10079,9 +10085,19 @@
             "title": "Prompt Check",
             "type": "boolean"
           },
+          "prompt_check_network_inference": {
+            "default": false,
+            "title": "Prompt Check Network Inference",
+            "type": "boolean"
+          },
           "raw_transcripts": {
             "default": false,
             "title": "Raw Transcripts",
+            "type": "boolean"
+          },
+          "reviewed_inference": {
+            "default": false,
+            "title": "Reviewed Inference",
             "type": "boolean"
           },
           "session_model_link_experiment": {
@@ -10107,6 +10123,11 @@
           "session_text_content_persistence": {
             "const": false,
             "title": "Session Text Content Persistence",
+            "type": "boolean"
+          },
+          "session_text_network_inference": {
+            "default": false,
+            "title": "Session Text Network Inference",
             "type": "boolean"
           },
           "shared_folders": {
@@ -10451,6 +10472,32 @@
           "input_tokens"
         ],
         "title": "ChatInputTokenCount",
+        "type": "object"
+      },
+      "ChatMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 28000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "ChatMessage",
         "type": "object"
       },
       "ClaudeCodeLocalSourceStatus": {
@@ -13022,6 +13069,249 @@
         "title": "HardwareSummary",
         "type": "object"
       },
+      "InferenceCatalog": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "inference.v1",
+            "default": "inference.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/InferenceModel"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "unavailable_providers": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Unavailable Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "title": "InferenceCatalog",
+        "type": "object"
+      },
+      "InferenceChatRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval"
+          },
+          "max_tokens": {
+            "default": 1100,
+            "maximum": 4096.0,
+            "minimum": 1.0,
+            "title": "Max Tokens",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "maxItems": 80,
+            "minItems": 1,
+            "title": "Messages",
+            "type": "array"
+          },
+          "model_id": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "temperature": {
+            "default": 0.2,
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "type": "number"
+          }
+        },
+        "required": [
+          "model_id",
+          "messages"
+        ],
+        "title": "InferenceChatRequest",
+        "type": "object"
+      },
+      "InferenceModel": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "availability": {
+            "enum": [
+              "running",
+              "stopped",
+              "configured"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "context_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Tokens"
+          },
+          "id": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "local",
+              "litellm"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "remote": {
+            "title": "Remote",
+            "type": "boolean"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "streaming": {
+            "default": true,
+            "title": "Streaming",
+            "type": "boolean"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "provider",
+          "remote",
+          "available",
+          "availability",
+          "adapter_version"
+        ],
+        "title": "InferenceModel",
+        "type": "object"
+      },
+      "InferencePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "title": "Approval",
+            "type": "string"
+          },
+          "expires_in_seconds": {
+            "default": 600,
+            "title": "Expires In Seconds",
+            "type": "integer"
+          },
+          "model": {
+            "$ref": "#/components/schemas/InferenceModel"
+          },
+          "purpose": {
+            "maxLength": 120,
+            "title": "Purpose",
+            "type": "string"
+          },
+          "redactor_version": {
+            "title": "Redactor Version",
+            "type": "string"
+          },
+          "request": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Request",
+            "type": "object"
+          }
+        },
+        "required": [
+          "model",
+          "purpose",
+          "request",
+          "approval",
+          "redactor_version"
+        ],
+        "title": "InferencePreview",
+        "type": "object"
+      },
+      "InferenceReviewDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "title": "InferenceReviewDecision",
+        "type": "object"
+      },
       "IngestionReport": {
         "additionalProperties": false,
         "properties": {
@@ -13143,6 +13433,7 @@
         "title": "JoinRequest",
         "type": "object"
       },
+      "JsonValue": {},
       "JudgeAgreementReport": {
         "additionalProperties": false,
         "properties": {
@@ -13258,6 +13549,42 @@
           "raw_valid"
         ],
         "title": "JudgeOutcome",
+        "type": "object"
+      },
+      "JudgePreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval"
+          },
+          "kind": {
+            "enum": [
+              "judge",
+              "interpret"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_id": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Model Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "kind"
+        ],
+        "title": "JudgePreviewRequest",
         "type": "object"
       },
       "JudgeSweepStatus": {
@@ -14611,6 +14938,94 @@
           "modified_at"
         ],
         "title": "ManifestEntry",
+        "type": "object"
+      },
+      "ManualAnalysisRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval"
+          },
+          "kind": {
+            "enum": [
+              "interpret",
+              "judge"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_id": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 28000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "kind",
+          "text"
+        ],
+        "title": "ManualAnalysisRequest",
+        "type": "object"
+      },
+      "ManualAnalysisResult": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "interpret",
+              "judge"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/components/schemas/InferenceModel"
+          },
+          "persisted": {
+            "const": false,
+            "default": false,
+            "title": "Persisted",
+            "type": "boolean"
+          },
+          "prompt_version": {
+            "const": "manual-analysis.v1",
+            "default": "manual-analysis.v1",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "redactor_version": {
+            "title": "Redactor Version",
+            "type": "string"
+          },
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "model",
+          "kind",
+          "result",
+          "redactor_version"
+        ],
+        "title": "ManualAnalysisResult",
         "type": "object"
       },
       "ManualDisplayLabelRequest": {
@@ -21505,6 +21920,17 @@
       "ModelCommentary": {
         "additionalProperties": false,
         "properties": {
+          "adapter_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter Version"
+          },
           "caveat": {
             "default": "Commentary and rewrites come from a local model; they are suggestions, not metrics, and may be wrong. The deterministic cues above are what was actually detected.",
             "title": "Caveat",
@@ -21518,6 +21944,15 @@
             "title": "Findings",
             "type": "array"
           },
+          "inference_provider": {
+            "default": "local",
+            "enum": [
+              "local",
+              "litellm"
+            ],
+            "title": "Inference Provider",
+            "type": "string"
+          },
           "model_alias": {
             "anyOf": [
               {
@@ -21528,6 +21963,28 @@
               }
             ],
             "title": "Model Alias"
+          },
+          "model_license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model License"
+          },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Revision"
           },
           "notes": {
             "anyOf": [
@@ -21545,6 +22002,17 @@
             "default": "prompt-check-commentary-v2-complete-json",
             "title": "Prompt Version",
             "type": "string"
+          },
+          "redactor_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redactor Version"
           },
           "reformulated_elements": {
             "default": [],
@@ -24129,7 +24597,7 @@
             "type": "string"
           },
           "model_identity": {
-            "maxLength": 200,
+            "maxLength": 1000,
             "minLength": 1,
             "title": "Model Identity",
             "type": "string"
@@ -26377,6 +26845,24 @@
         "title": "PeerLinkList",
         "type": "object"
       },
+      "PendingInferenceReview": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/InferencePreview"
+          }
+        },
+        "required": [
+          "id",
+          "preview"
+        ],
+        "title": "PendingInferenceReview",
+        "type": "object"
+      },
       "PlacementAdmissionReason": {
         "description": "Closed, content-free reasons behind one placement decision.",
         "enum": [
@@ -27070,6 +27556,38 @@
         "title": "ProjectTimeline",
         "type": "object"
       },
+      "PromptCheckConfiguration": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "default": "local",
+            "enum": [
+              "local",
+              "litellm"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "remote": {
+            "default": false,
+            "title": "Remote",
+            "type": "boolean"
+          }
+        },
+        "title": "PromptCheckConfiguration",
+        "type": "object"
+      },
       "PromptCheckHistory": {
         "additionalProperties": false,
         "properties": {
@@ -27126,6 +27644,79 @@
           "content"
         ],
         "title": "PromptCheckMessage",
+        "type": "object"
+      },
+      "PromptCheckPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "title": "Approval",
+            "type": "string"
+          },
+          "expires_in_seconds": {
+            "default": 600,
+            "title": "Expires In Seconds",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "model_license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model License"
+          },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Revision"
+          },
+          "prompt_version": {
+            "default": "prompt-check-commentary-v2-complete-json",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provider": {
+            "const": "litellm",
+            "default": "litellm",
+            "title": "Provider",
+            "type": "string"
+          },
+          "redactor_version": {
+            "title": "Redactor Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "messages",
+          "approval",
+          "redactor_version"
+        ],
+        "title": "PromptCheckPreview",
         "type": "object"
       },
       "PromptCheckRecord": {
@@ -27272,6 +27863,18 @@
             ],
             "title": "Provider",
             "type": "string"
+          },
+          "remote_approval": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Approval"
           },
           "session_id": {
             "anyOf": [
@@ -32722,6 +33325,33 @@
         "title": "ScanFolderResult",
         "type": "object"
       },
+      "SelectedJudgeModel": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval"
+          },
+          "model_id": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Model Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id"
+        ],
+        "title": "SelectedJudgeModel",
+        "type": "object"
+      },
       "SemanticUnitKind": {
         "description": "Versioned semantic opportunities used by the 20 metric contracts.",
         "enum": [
@@ -33570,6 +34200,17 @@
         "additionalProperties": false,
         "description": "Plain-language reading of one session's metrics by the local model - commentary, never a metric.",
         "properties": {
+          "adapter_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter Version"
+          },
           "caveat": {
             "default": "Written by a local model from the session's metric states and the redacted window; it is an interpretation, not a measurement, and may be wrong. Unknown metrics were reported to it as unknown.",
             "title": "Caveat",
@@ -33589,6 +34230,21 @@
             "title": "Improvements",
             "type": "array"
           },
+          "inference_provider": {
+            "anyOf": [
+              {
+                "enum": [
+                  "local",
+                  "litellm"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inference Provider"
+          },
           "metrics_seen": {
             "minimum": 0.0,
             "title": "Metrics Seen",
@@ -33598,10 +34254,32 @@
             "title": "Model Alias",
             "type": "string"
           },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Revision"
+          },
           "prompt_version": {
             "default": "interpret-v2-complete-json",
             "title": "Prompt Version",
             "type": "string"
+          },
+          "redactor_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redactor Version"
           },
           "reframed_prompt": {
             "anyOf": [
@@ -50535,6 +51213,533 @@
         ]
       }
     },
+    "/v1/inference/agent/{session_id}/reviews": {
+      "get": {
+        "operationId": "pending_v1_inference_agent__session_id__reviews_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PendingInferenceReview"
+                  },
+                  "title": "Response Pending V1 Inference Agent  Session Id  Reviews Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pending",
+        "tags": [
+          "inference"
+        ]
+      }
+    },
+    "/v1/inference/agent/{session_id}/reviews/{review_id}": {
+      "post": {
+        "operationId": "decide_v1_inference_agent__session_id__reviews__review_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "review_id",
+            "required": true,
+            "schema": {
+              "title": "Review Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InferenceReviewDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide",
+        "tags": [
+          "inference"
+        ]
+      }
+    },
+    "/v1/inference/analysis": {
+      "post": {
+        "operationId": "analyze_v1_inference_analysis_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualAnalysisResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze",
+        "tags": [
+          "inference"
+        ]
+      }
+    },
+    "/v1/inference/analysis/preview": {
+      "post": {
+        "operationId": "preview_analysis_v1_inference_analysis_preview_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InferencePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Analysis",
+        "tags": [
+          "inference"
+        ]
+      }
+    },
+    "/v1/inference/chat": {
+      "post": {
+        "operationId": "chat_v1_inference_chat_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InferenceChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chat",
+        "tags": [
+          "inference"
+        ]
+      }
+    },
+    "/v1/inference/chat/preview": {
+      "post": {
+        "operationId": "preview_v1_inference_chat_preview_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InferenceChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InferencePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "inference"
+        ]
+      }
+    },
+    "/v1/inference/models": {
+      "get": {
+        "operationId": "models_v1_inference_models_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InferenceCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Models",
+        "tags": [
+          "inference"
+        ]
+      }
+    },
     "/v1/integrations/agent-mcp/connections": {
       "get": {
         "operationId": "list_connections_v1_integrations_agent_mcp_connections_get",
@@ -54571,7 +55776,7 @@
                 }
               }
             },
-            "description": "Request Entity Too Large"
+            "description": "Content Too Large"
           },
           "422": {
             "content": {
@@ -55530,7 +56735,7 @@
                 }
               }
             },
-            "description": "Request Entity Too Large"
+            "description": "Content Too Large"
           },
           "422": {
             "content": {
@@ -55888,7 +57093,7 @@
                 }
               }
             },
-            "description": "Request Entity Too Large"
+            "description": "Content Too Large"
           },
           "422": {
             "content": {
@@ -57751,6 +58956,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SelectedJudgeModel"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -57876,6 +59098,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SelectedJudgeModel"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -57949,6 +59188,91 @@
           }
         },
         "summary": "Interpret Session",
+        "tags": [
+          "model-judge"
+        ]
+      }
+    },
+    "/v1/model-judge/sessions/{session_id}/preview": {
+      "post": {
+        "operationId": "preview_selected_model_v1_model_judge_sessions__session_id__preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgePreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InferencePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Selected Model",
         "tags": [
           "model-judge"
         ]
@@ -58221,7 +59545,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           },
           "503": {
             "content": {
@@ -58893,6 +60217,147 @@
         ]
       }
     },
+    "/v1/prompt-checks/configuration": {
+      "get": {
+        "operationId": "configuration_v1_prompt_checks_configuration_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptCheckConfiguration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Configuration",
+        "tags": [
+          "prompt-checks"
+        ]
+      }
+    },
+    "/v1/prompt-checks/preview": {
+      "post": {
+        "description": "Ephemeral exact redacted model messages; makes no model call.",
+        "operationId": "preview_v1_prompt_checks_preview_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptCheckPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "prompt-checks"
+        ]
+      }
+    },
     "/v1/prompt-checks/{check_id}": {
       "get": {
         "operationId": "stored_v1_prompt_checks__check_id__get",
@@ -59325,7 +60790,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           },
           "503": {
             "content": {
@@ -61841,7 +63306,7 @@
                 }
               }
             },
-            "description": "Request Entity Too Large"
+            "description": "Content Too Large"
           },
           "422": {
             "content": {
@@ -61859,7 +63324,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           },
           "503": {
             "content": {
@@ -61972,7 +63437,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           },
           "503": {
             "content": {
@@ -62105,7 +63570,7 @@
                 }
               }
             },
-            "description": "Request Entity Too Large"
+            "description": "Content Too Large"
           },
           "422": {
             "content": {
@@ -62123,7 +63588,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           },
           "503": {
             "content": {
@@ -62380,7 +63845,7 @@
                 }
               }
             },
-            "description": "Request Entity Too Large"
+            "description": "Content Too Large"
           },
           "422": {
             "content": {
@@ -62398,7 +63863,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           },
           "503": {
             "content": {

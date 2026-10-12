@@ -378,7 +378,11 @@ def create_session_analysis_command_router(
         responses={
             **{
                 status: {"model": SessionTextAnalysisFailureResponse}
-                for status in (403, 409, 413, 504)
+                for status in (403, 409, 504)
+            },
+            413: {
+                "model": SessionTextAnalysisFailureResponse,
+                "description": "Content Too Large",
             },
             404: {
                 "model": (
@@ -489,7 +493,11 @@ def create_session_analysis_command_router(
         responses={
             **{
                 status: {"model": SessionTextAnalysisFailureResponse}
-                for status in (403, 409, 413, 504)
+                for status in (403, 409, 504)
+            },
+            413: {
+                "model": SessionTextAnalysisFailureResponse,
+                "description": "Content Too Large",
             },
             404: {
                 "model": (

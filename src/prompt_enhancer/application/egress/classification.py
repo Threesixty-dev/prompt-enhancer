@@ -15,6 +15,7 @@ class EgressClass(StrEnum):
     SIGNED_UPDATE_ADVISORY = "signed_update_advisory"
     APPROVED_MODEL_DOWNLOAD = "approved_model_download"
     APPROVED_PROVIDER_REQUEST = "approved_provider_request"
+    SYNTHETIC_BENCHMARK_REQUEST = "synthetic_benchmark_request"
 
 
 class FutureEgressState(StrEnum):
@@ -46,6 +47,8 @@ class EgressRegistration(StrictModel):
             }
         ):
             raise ValueError("signed update transport state is invalid")
+        if self.egress_class is EgressClass.SYNTHETIC_BENCHMARK_REQUEST and self.state is not FutureEgressState.ACTIVE_EXPLICIT_APPROVAL:
+            raise ValueError("synthetic benchmark transport requires explicit opt-in")
         return self
 
 
@@ -81,6 +84,15 @@ EGRESS_REGISTRY: tuple[EgressRegistration, ...] = (
     EgressRegistration(module="prompt_enhancer.infrastructure.updates.https_manifest_source", egress_class=EgressClass.SIGNED_UPDATE_ADVISORY, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="signed_release_manifest_uncomposed"),
     EgressRegistration(module="prompt_enhancer.infrastructure.updates.https_artifact_source", egress_class=EgressClass.SIGNED_UPDATE_ADVISORY, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="signed_release_artifact_uncomposed"),
     EgressRegistration(module="prompt_enhancer.infrastructure.estimator_runners.codex", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="bounded_child_cli_runner_uncomposed"),
+    # A configured gateway receives exact reviewed, redacted requests. Manual
+    # chat/analysis and selected-session reviews use short-lived approvals;
+    # every Agent step pauses for its own review. No background transcript egress.
+    # TLS and optional leaf pinning remain enabled.
+    EgressRegistration(module="prompt_enhancer.infrastructure.litellm", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.ACTIVE_EXPLICIT_APPROVAL, reason_code="reviewed_inference_gateway_request"),
+    # Standalone core only: authenticated callers attest synthetic data and the
+    # server explicitly enables benchmark admission. Never composed into app
+    # ingestion, interactive approval, or metrics-only prompt history.
+    EgressRegistration(module="prompt_enhancer.enhancement.worker", egress_class=EgressClass.SYNTHETIC_BENCHMARK_REQUEST, state=FutureEgressState.ACTIVE_EXPLICIT_APPROVAL, reason_code="synthetic_only_headless_opt_in"),
     # Shared team folders (ADR 0018): the peer client dials exactly the URL the
     # person typed when joining a teammate's folder; the share action on the
     # serving side is the consent to answer that token. No other destination.

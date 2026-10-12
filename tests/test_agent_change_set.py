@@ -458,7 +458,7 @@ def test_http_change_set_is_private_session_bound_and_strictly_path_scoped(
     monkeypatch.setattr(
         type(application),
         "create_local_agent_service",
-        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None: service,
+        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None, inference=None: service,
     )
     session = service._session(session_id)  # noqa: SLF001
     assert service._execute(  # noqa: SLF001

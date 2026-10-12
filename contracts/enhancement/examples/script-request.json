@@ -1,0 +1,51 @@
+{
+  "experiment_id": "example-experiment",
+  "revision": "1",
+  "run_id": "example-run",
+  "correlation_id": "example-correlation",
+  "unit_id": "example-unit",
+  "attempt_id": "1",
+  "protocol_version": "enhancement.v1",
+  "data_policy": "synthetic_benchmark",
+  "subject": {
+    "text": "Add a parser for the fictional example widget. Return a patch and tests.",
+    "context": []
+  },
+  "strategy": "script.clarify.v1",
+  "parameters": {
+    "timeout_seconds": 120,
+    "generation": {
+      "max_output_chars": 20000,
+      "max_tokens": null,
+      "temperature": null
+    }
+  },
+  "consumer": null,
+  "evaluation": {
+    "profile_id": "example-profile",
+    "revision": "1",
+    "evaluators": [
+      {
+        "evaluator_id": "prompt",
+        "kind": "deterministic",
+        "binding_id": "deterministic.v1",
+        "target": null,
+        "rubric": null,
+        "generation": null
+      }
+    ]
+  },
+  "assertions": [],
+  "objective": {
+    "objective_id": "prompt-clarity",
+    "revision": "1",
+    "description": "Improve clarity and testability while preserving intent. Mark unavailable details with placeholders.",
+    "targets": []
+  },
+  "steering": {
+    "profile": "conservative.v1",
+    "style": "preserve",
+    "focus": [],
+    "instructions": null
+  }
+}

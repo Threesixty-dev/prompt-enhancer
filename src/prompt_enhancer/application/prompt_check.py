@@ -22,29 +22,23 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 import hashlib
+import hmac
+import secrets
 import json
 import re
 from typing import Any, Literal, Protocol
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 
-from ..domain import DataTier, PSEUDONYM_PATTERN, Provider, StrictModel
+from ..domain import PSEUDONYM_PATTERN, StrictModel
+from .prompt_evaluation import (
+    DeterministicPromptEvaluator, PROMPT_METRIC_KEYS, CUE_LABELS,
+    PromptCue, PromptMetricReading,
+)
 from .model_reply import completed_chat_content, model_json_object
 from .analysis.coaching_baselines import DEFAULT_COACHING_METRIC_ENGINE
-from .analysis.text_analysis_presets import COACHING_PROFILE_V1
 from .analysis.text_baselines import TextMetricEngine
-from .analysis.text_contracts import (
-    EphemeralRedactedMessage,
-    P1LocalAnalysisGrant,
-    P1TextAnalysisInput,
-    TextAnalysisScope,
-    TextAnalysisScopeKind,
-    TextAnalysisScopeState,
-    TextLanguage,
-    TextMessageKind,
-    TextMetricResult,
-    TextRole,
-)
+from .analysis.text_contracts import TextLanguage
 
 
 PROMPT_CHECK_CONTRACT_VERSION = "prompt-check.v1"
@@ -55,33 +49,6 @@ MAX_CONTEXT_MESSAGE_CHARS = 8_000
 MAX_CONTEXT_TOTAL_CHARS = 40_000
 MAX_COMMENTARY_INPUT_CHARS = 14_000
 MAX_HISTORY_PAGE = 100
-#: The prompt family of the coaching pack; the other families need agent responses (a session).
-PROMPT_METRIC_KEYS: tuple[str, ...] = (
-    "prompt.task_definition_coverage",
-    "prompt.problem_evidence_quality",
-    "prompt.context_sufficiency",
-    "prompt.constraint_precision",
-    "prompt.acceptance_testability",
-    "prompt.deliverable_contract",
-)
-CUE_LABELS: Mapping[str, str] = {
-    "task.action": "what to do (an action verb)",
-    "task.target": "what to act on (the target)",
-    "task.outcome": "the intended result",
-    "problem.observed": "observed behaviour",
-    "problem.expected": "expected behaviour",
-    "problem.reproduction": "how to reproduce",
-    "problem.environment": "environment or version",
-    "context.current_state": "current state",
-    "context.environment": "environment or version",
-    "context.boundary": "relevant boundary (files, modules, scope)",
-    "constraints.detected": "constraint clauses",
-    "constraints.precise": "precise constraints (value, boundary, platform, version, prohibition)",
-    "acceptance.requirements": "requirement clauses",
-    "acceptance.checkable": "checkable requirements (observable check, threshold, pass condition)",
-    "deliverables.detected": "deliverable clauses",
-    "deliverables.detailed": "detailed deliverables (format, interface, location, audience, compatibility)",
-}
 _TASK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("fix", re.compile(r"\b(fix|debug|resolve|repair|bug|error|crash|fail(?:s|ing|ure)?|napraw|błąd|blad|nie działa|nie dziala|crashuje)\b", re.I)),
     ("test", re.compile(r"\b(write|add|create)\s+(unit\s+|integration\s+)?tests?\b|\btest coverage\b|\bnapisz testy\b|\bdodaj testy\b", re.I)),
@@ -156,6 +123,7 @@ class PromptCheckRequest(StrictModel):
     provider: Literal["codex", "claude_code", "other"] = "other"
     agent_model: str | None = Field(default=None, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._:/+-]*$")
     want_commentary: bool = True
+    remote_approval: str | None = Field(default=None, max_length=100, repr=False)
 
     @field_validator("prompt")
     @classmethod
@@ -172,26 +140,6 @@ class PromptCheckRequest(StrictModel):
 
 
 # ----- results -----
-
-
-class PromptCue(StrictModel):
-    code: str
-    label: str
-    status: Literal["detected", "missing", "counted", "unknown"]
-    count: int | None = None
-
-
-class PromptMetricReading(StrictModel):
-    key: str
-    display_name: str
-    description: str
-    state: Literal["known", "unknown", "not_applicable", "abstained", "execution_error"]
-    value: float | None = None
-    numerator: int | None = None
-    denominator: int | None = None
-    higher_is_better: bool = True
-    explanation_code: str
-    cues: tuple[PromptCue, ...] = ()
 
 
 class ContextInference(StrictModel):
@@ -256,6 +204,11 @@ class ModelCommentary(StrictModel):
     state: Literal["ok", "no_active_model", "model_error", "reply_invalid", "skipped"]
     model_alias: str | None = None
     prompt_version: str = PROMPT_CHECK_PROMPT_VERSION
+    inference_provider: Literal["local", "litellm"] = "local"
+    model_revision: str | None = None
+    model_license: str | None = None
+    redactor_version: str | None = None
+    adapter_version: str | None = None
     findings: tuple[CommentaryFinding, ...] = ()
     reformulated_prompt: str | None = Field(default=None, max_length=MAX_PROMPT_CHARS * 2 + 2_000)
     reformulated_elements: tuple[ReformulatedElement, ...] = ()
@@ -264,6 +217,24 @@ class ModelCommentary(StrictModel):
         "Commentary and rewrites come from a local model; they are suggestions, not metrics, and may be wrong. "
         "The deterministic cues above are what was actually detected."
     )
+
+
+class PromptCheckConfiguration(StrictModel):
+    remote: bool = False
+    model: str | None = None
+    provider: Literal["local", "litellm"] = "local"
+
+
+class PromptCheckPreview(StrictModel):
+    model: str
+    provider: Literal["litellm"] = "litellm"
+    messages: tuple[dict[str, str], ...] = Field(repr=False)
+    approval: str = Field(repr=False)
+    expires_in_seconds: int = 600
+    redactor_version: str
+    prompt_version: str = PROMPT_CHECK_PROMPT_VERSION
+    model_revision: str | None = None
+    model_license: str | None = None
 
 
 class PromptCheckResult(StrictModel):
@@ -361,6 +332,9 @@ class PromptCheckService:
         session_context: Callable[[str], tuple[PromptCheckMessage, ...]] | None = None,
         clock: Callable[[], datetime] | None = None,
         dashboard_path: str = "/prompt-checks",
+        remote_model: str | None = None,
+        remote_model_revision: str | None = None,
+        remote_model_license: str | None = None,
     ) -> None:
         self._repository = repository
         self._pseudonymize = pseudonymize
@@ -375,15 +349,69 @@ class PromptCheckService:
             language_detector = DeterministicEnglishPolishDetector()
         self._redactor = redactor
         self._language = language_detector
+        self._evaluator = DeterministicPromptEvaluator(
+            pseudonymize=pseudonymize, redactor=redactor,
+            language_detector=language_detector, engine=engine,
+        )
         self._chat = chat
         self._active_model = active_model or (lambda: None)
         self._session_context = session_context
         self._clock = clock or (lambda: datetime.now(UTC))
         self._dashboard_path = dashboard_path
+        self._remote_model = remote_model
+        self._remote_revision = remote_model_revision
+        self._remote_license = remote_model_license
+        self._preview_key = secrets.token_bytes(32)
 
     # -- public --
 
+    def configuration(self) -> PromptCheckConfiguration:
+        return PromptCheckConfiguration(
+            remote=self._remote_model is not None,
+            model=self._remote_model,
+            provider="litellm" if self._remote_model else "local",
+        )
+
+    def _remote_body(self, request: PromptCheckRequest) -> bytes:
+        if request.session_id is not None:
+            raise PromptCheckError("remote_session_context_forbidden")
+        text = request.prompt.strip()
+        readings = self._deterministic_readings("0" * 64, text, request.prior_messages)
+        context = self._infer_context(text, request.prior_messages, readings)
+        return self._commentary_body(request, text, readings, context)
+
+    def _approval(self, body: bytes, issued: int) -> str:
+        payload = str(issued).encode() + b"\0" + (self._remote_model or "").encode() + b"\0" + body
+        return f"{issued}." + hmac.new(self._preview_key, payload, hashlib.sha256).hexdigest()
+
+    def preview(self, request: PromptCheckRequest) -> PromptCheckPreview:
+        if self._remote_model is None:
+            raise PromptCheckError("remote_model_not_configured")
+        body = self._remote_body(request)
+        issued = int(self._clock().timestamp())
+        return PromptCheckPreview(
+            model=self._remote_model,
+            messages=tuple(json.loads(body)["messages"]),
+            approval=self._approval(body, issued),
+            redactor_version=self._redactor.version,
+            model_revision=self._remote_revision,
+            model_license=self._remote_license,
+        )
+
+    def _require_remote_approval(self, request: PromptCheckRequest) -> None:
+        body = self._remote_body(request)
+        token = request.remote_approval or ""
+        try:
+            issued = int(token.split(".", 1)[0])
+        except ValueError:
+            raise PromptCheckError("remote_preview_required") from None
+        age = int(self._clock().timestamp()) - issued
+        if not 0 <= age <= 600 or not hmac.compare_digest(token, self._approval(body, issued)):
+            raise PromptCheckError("remote_preview_required")
+
     def check(self, request: PromptCheckRequest) -> PromptCheckResult:
+        if self._remote_model is not None and request.want_commentary:
+            self._require_remote_approval(request)
         created_at = self._clock()
         if request.session_id and not request.prior_messages and self._session_context is not None:
             try:
@@ -399,6 +427,16 @@ class PromptCheckService:
         readings = self._deterministic_readings(check_id, prompt_text, request.prior_messages)
         context = self._infer_context(prompt_text, request.prior_messages, readings)
         commentary = self._commentary(request, prompt_text, readings, context)
+        if self._remote_model is not None:
+            commentary = commentary.model_copy(update={
+                "caveat": "Commentary and rewrites come from the configured LiteLLM model; "
+                "they are suggestions, not metrics, and may be wrong.",
+                "inference_provider": "litellm",
+                "model_revision": self._remote_revision,
+                "model_license": self._remote_license,
+                "redactor_version": self._redactor.version,
+                "adapter_version": "litellm-chat-v1",
+            })
         summary = _summary(readings, context, commentary)
         result = PromptCheckResult(
             check_id=check_id,
@@ -450,83 +488,7 @@ class PromptCheckService:
     def _deterministic_readings(
         self, check_id: str, prompt_text: str, prior: tuple[PromptCheckMessage, ...]
     ) -> tuple[PromptMetricReading, ...]:
-        session_id = self._pseudonymize("prompt-check:session", check_id)
-        messages: list[EphemeralRedactedMessage] = []
-        sequence = 0
-        saw_agent = False
-        for item in prior:
-            redacted = self._redactor.redact(SecretStr(item.content))
-            text = redacted.text if isinstance(redacted.text, SecretStr) else SecretStr(str(redacted.text))
-            if item.role == "assistant":
-                role, kind, saw_agent = TextRole.AGENT, TextMessageKind.RESPONSE, True
-            else:
-                role, kind = TextRole.USER, (TextMessageKind.FEEDBACK if saw_agent else TextMessageKind.REQUEST)
-            messages.append(
-                EphemeralRedactedMessage(
-                    message_id=self._pseudonymize("prompt-check:message", f"{check_id}:{sequence}"),
-                    sequence=sequence,
-                    role=role,
-                    kind=kind,
-                    language=self._language.detect(text),
-                    text=text,
-                )
-            )
-            sequence += 1
-        focus_redacted = self._redactor.redact(SecretStr(prompt_text))
-        focus_text = focus_redacted.text if isinstance(focus_redacted.text, SecretStr) else SecretStr(str(focus_redacted.text))
-        focus_id = self._pseudonymize("prompt-check:message", f"{check_id}:{sequence}")
-        messages.append(
-            EphemeralRedactedMessage(
-                message_id=focus_id,
-                sequence=sequence,
-                role=TextRole.USER,
-                kind=TextMessageKind.REQUEST,
-                language=self._language.detect(focus_text),
-                text=focus_text,
-            )
-        )
-        available = frozenset({TextMessageKind.REQUEST, TextMessageKind.FEEDBACK, TextMessageKind.RESPONSE})
-        total_chars = sum(len(m.text.get_secret_value()) for m in messages)
-        scope = TextAnalysisScope(
-            kind=TextAnalysisScopeKind.FULL_AVAILABLE_SESSION,
-            state=TextAnalysisScopeState.COMPLETE,
-            requested_max_messages=max(1, len(messages)),
-            requested_max_characters=max(1, min(total_chars, 100_000)),
-            source_history_complete=True,
-        )
-        fingerprint = self._pseudonymize("prompt-check:window", f"{check_id}:{total_chars}:{len(messages)}")
-        context = P1TextAnalysisInput(
-            provider=Provider.SYNTHETIC,
-            session_id=session_id,
-            provider_version="prompt-check-1",
-            adapter_version="prompt-check-adapter-1",
-            source_schema_version="prompt-check-source-1",
-            content_schema_version="prompt-check-content-1",
-            redactor_version=self._redactor.version,
-            analysis_scope=scope,
-            text_extraction_complete=True,
-            available_message_kinds=available,
-            analysis_window_fingerprint=fingerprint,
-            focus_message_id=focus_id,
-            observed_message_count=len(messages),
-            eligible_message_count=len(messages),
-            messages=tuple(messages),
-            task_profile=COACHING_PROFILE_V1.task_profile,
-        )
-        grant = P1LocalAnalysisGrant(
-            provider=Provider.SYNTHETIC,
-            session_id=session_id,
-            analysis_window_fingerprint=fingerprint,
-            data_tier=DataTier.REDACTED_CONTENT,
-            consent_active=True,
-            local_only=True,
-            content_persistence_allowed=False,
-        )
-        results = self._engine.compute(
-            context, grant, pack_key=self._engine.pack_key, pack_version=self._engine.pack_version
-        )
-        by_key = {result.observation.key: result for result in results}
-        return tuple(_reading(by_key[key]) for key in PROMPT_METRIC_KEYS if key in by_key)
+        return self._evaluator.evaluate(check_id, prompt_text, prior)
 
     # -- context inference (content-free outputs) --
 
@@ -604,18 +566,7 @@ class PromptCheckService:
         alias = self._active_model()
         if alias is None or self._chat is None:
             return ModelCommentary(state="no_active_model")
-        user_message = _commentary_input(request, prompt_text, readings, context)
-        body = json.dumps(
-            {
-                "messages": [
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message},
-                ],
-                "temperature": 0.2,
-                "max_tokens": 1_100,
-                "chat_template_kwargs": {"enable_thinking": False},
-            }
-        ).encode("utf-8")
+        body = self._commentary_body(request, prompt_text, readings, context)
         try:
             status, payload, _ = self._chat(alias, body)
         except Exception:
@@ -628,43 +579,35 @@ class PromptCheckService:
             return ModelCommentary(state="reply_invalid", model_alias=alias)
         return parsed.model_copy(update={"model_alias": alias})
 
+    def _commentary_body(
+        self, request: PromptCheckRequest, prompt_text: str,
+        readings: tuple[PromptMetricReading, ...], context: ContextInference,
+    ) -> bytes:
+        user_message = _commentary_input(request, prompt_text, readings, context)
+        if self._remote_model is not None:
+            from ..infrastructure.redaction import LocalRedactionError
+            try:
+                user_message = self._redactor.redact(SecretStr(user_message)).text.get_secret_value()
+            except LocalRedactionError:
+                raise PromptCheckError("remote_redaction_failed") from None
+        payload = {
+            "messages": [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 1_100,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        if self._remote_model is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "prompt_commentary", "schema": _CommentaryReply.model_json_schema()},
+            }
+        return json.dumps(payload).encode("utf-8")
+
 
 # ----- helpers -----
-
-
-def _reading(result: TextMetricResult) -> PromptMetricReading:
-    fraction = result.fraction
-    value = result.observation.numeric_value
-    definition_name = getattr(result.observation, "display_name", None)
-    description = ""
-    display_name = definition_name or result.observation.key
-    from .analysis.coaching_baselines import COACHING_METRIC_DEFINITIONS
-
-    for definition in COACHING_METRIC_DEFINITIONS:
-        if definition.key == result.observation.key:
-            display_name, description = definition.display_name, definition.description
-            break
-    cues = tuple(
-        PromptCue(
-            code=signal.code,
-            label=CUE_LABELS.get(signal.code, signal.code.replace(".", " ").replace("_", " ")),
-            status=signal.status.value,  # type: ignore[arg-type]
-            count=signal.count,
-        )
-        for signal in result.signals
-    )
-    return PromptMetricReading(
-        key=result.observation.key,
-        display_name=display_name,
-        description=description,
-        state=result.value_state.value,  # type: ignore[arg-type]
-        value=value,
-        numerator=fraction.numerator if fraction else None,
-        denominator=fraction.denominator if fraction else None,
-        higher_is_better=result.direction.value != "lower_is_better",
-        explanation_code=result.explanation_code,
-        cues=cues,
-    )
 
 
 def _commentary_input(

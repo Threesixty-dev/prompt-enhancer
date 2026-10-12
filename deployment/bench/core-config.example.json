@@ -1,0 +1,21 @@
+{
+  "consumers": [
+    {
+      "binding_id": "example-consumer",
+      "provider": "openhands_acp",
+      "endpoint": "http://127.0.0.1:8000",
+      "credential_env": "ENHANCEMENT_CONSUMER_TOKEN",
+      "model": "example-qualified-model",
+      "model_revision": "example-immutable-revision",
+      "model_license": "example-reviewed-license",
+      "tokenizer_revision": null,
+      "acp_command": ["codex-acp"],
+      "acp_server": "codex",
+      "acp_session_mode": "read-only"
+    }
+  ],
+  "evaluators": [],
+  "rubric_evaluators": [],
+  "max_active": 1,
+  "max_retained": 8
+}

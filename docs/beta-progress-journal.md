@@ -6,6 +6,30 @@ The owner's preserved development checkout contains additional October 6–7
 journal history; this documentation branch does not overwrite or blanket-publish
 that dirty tree. Reconcile those entries when admitting their source cohorts.
 
+## 2026-10-12 - reconcile enhancement candidate for PR promotion
+
+Task: owner-requested source integration, PR and promotion to main, followed by
+live provider qualification and closure of the inherited failure set. The source
+candidate combines the core, bench and inherited provider boundary, then merges
+current main `4b4efba`. The original dirty checkout and both workstream checkouts
+remain preserved. Repository routing is feature PR to develop, then a separate
+develop-to-main promotion; merge authority is limited to this direct request.
+
+Main contains repairs for 30 of the 40 inherited failing/error cases. The remaining
+ten share seven stale HTTP factory fixtures, corrected by accepting the explicit
+inference argument with all assertions unchanged. All 40 now pass within the
+affected-module run: 621 passed, six unrelated platform/tooling skips. The combined
+core/provider/bench selection passes 265 tests. Dependency locks, privacy and
+generated architecture consistency pass. All 2,920 frontend tests, generated API
+consistency and production build pass; the existing chunk-size advisory remains.
+Full hosted checks remain to be recorded.
+
+Conflicting evidence entries and dependencies retain both branches' changes.
+The new inference and experiment ADRs are renumbered 0024 and 0025 to avoid
+collisions with main's accepted identifiers. Live consumer/evaluator checks still
+require a task-specific authenticated route; credentials remain outside source
+and chat. No real model inference is claimed by the local synthetic receipts.
+
 ## 2026-10-11 — cancellation-test startup synchronization
 
 Task ID / atlas nodes / gates: cancellation-startup-fixtures; MA13, A15, R26;
@@ -144,6 +168,73 @@ frontend cases, then review the separate deferred-loading cohort. Parallel work
 can prepare owner-approved release/model/hardware inputs. New feature work must
 name its baseline and dependencies. The owner controls PR acceptance and merge.
 
+## 2026-10-09 — proposed inference-provider separation
+
+Baseline: clean `main` at `6fa1100`; local feature branch
+`feature/inference-providers`. No source publication, deployment, merge or
+real provider/session access occurred during this change.
+
+[ADR 0024](adr/0024-inference-provider-boundary.md) proposes a shared inference
+port with local-runtime and LiteLLM adapters. Chat, Prompt Check (including its
+Agent shortcut), explicit indexed/supplied-text analysis and Agent model steps
+can use reviewed remote requests. Local lifecycle and native workspace approval
+remain separate. Automatic session analysis stays local. Operational variables
+and the useful local-application/shared-model topology are in the gateway guide.
+
+Fresh bounded evidence, using only fictional data:
+
+- Backend compatibility selection: **373 passed, 3 Windows-only skips** across
+  local models, Agent, model judging, Prompt Check, bootstrap, API, cancellation
+  units and redaction. The sandbox initially prevented loopback fixture binding;
+  the successful run allowed owned loopback test servers.
+- Final inference-provider selection: **22 passed**. TLS adapter selection:
+  **14 passed**, including real generated-certificate loopback cancellation
+  before headers and during close-delimited streamed/ordinary bodies.
+- Shared HTTP cancellation plus inference selection: **40 passed**. Stop joins
+  owned workers; Agent tool-result egress needs a new review.
+- Privacy/configuration/text-metric/distribution selection: **59 passed**.
+  One independent manifest CLI test remains environment-blocked: its child uses
+  the base interpreter, which lacks `pydantic`. That test was not weakened and
+  no full-suite pass is claimed.
+- Core affected UI selection: **89 passed**. Agent gateway/inline-check selection:
+  **5 passed**. These include local-catalog failure, stale preview invalidation,
+  stream abort and separate inference-versus-tool approval.
+- Broader UI regression checkpoint: **392 passed, 19 failed**. Clean `main`
+  independently reproduced the identical 19 Agent test failure names
+  (**149 passed, 19 failed** in that file). Most concern existing composer
+  disabled-state expectations; archive reconciliation and projected-document
+  metadata also fail. These remain open baseline issues.
+- TypeScript, Vite production build, generated API consistency and Python
+  compilation passed. Vite retains its large-chunk advisory. Privacy scan,
+  architecture rendering check and whitespace check passed.
+
+Synthetic and owned-loopback evidence does not qualify a real gateway model,
+tool-call capability, model revision, retention policy, hosted multi-user
+isolation or a native/release journey. No B/W/WP gate closes. Next: owner review
+of the proposed egress exception, followed by fictional-input gateway validation
+before any deployment. Existing source-observation bindings remain frozen.
+
+## 2026-10-12 - combined enhancement core and bench review
+
+The owner commissioned a third temporary integration worktree and a usable local
+demo after the two implementation workstreams. The candidate uses `6fa1100` plus
+the 55 inherited source changes and both scoped implementations. All imported
+files were privacy-scanned and byte-verified. The original checkout and both
+workstream checkouts remain unchanged; nothing was committed, pushed or deployed.
+
+Integration corrected missing sibling consumer-model selection, build fingerprints
+affected by generated package metadata, and retention of local demo images.
+Fresh validation: 186 focused core tests, 79 bench tests, six desktop/mobile
+browser tests, final core-container smoke and the interactive GitOps/UI/rerun
+demonstration. Restart preserves all six historical run records and creates no
+duplicate automatic run. One earlier missing-image failure remains visible.
+
+The [integration review](bench/integration-review.md) records exact evidence and
+demo controls. Proposed [ADR 0025](adr/0025-enhancement-experiment-boundary.md)
+consolidates the workstreams without accepting or silently superseding earlier
+decisions. The live consumer/evaluator, model/GPU, hosted delivery and deployment
+gates remain open. The broad suite's 36 baseline failures and four errors are
+unchanged; no general workflow/native/release acceptance is claimed.
 
 ## 2026-10-10 — Coolify Actions source deployment (R26)
 

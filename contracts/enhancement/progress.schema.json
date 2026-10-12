@@ -1,0 +1,96 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "experiment_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "correlation_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "unit_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Unit Id",
+      "type": "string"
+    },
+    "attempt_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": "enhancement.v1",
+      "default": "enhancement.v1",
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "execution_id": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Execution Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "cancelling",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "timed_out",
+        "uncertain"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "stage": {
+      "enum": [
+        "queued",
+        "evaluate_original",
+        "generate",
+        "evaluate_candidate",
+        "compare",
+        "finished"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
+    "sequence": {
+      "minimum": 0,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "result_available": {
+      "title": "Result Available",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "revision",
+    "run_id",
+    "correlation_id",
+    "unit_id",
+    "attempt_id",
+    "execution_id",
+    "status",
+    "stage",
+    "sequence",
+    "result_available"
+  ],
+  "title": "Progress",
+  "type": "object"
+}
