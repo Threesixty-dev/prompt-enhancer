@@ -125,6 +125,47 @@ def test_local_rubric_rejects_unsupported_generation_controls():
             rubric="task_definition", generation=GenerationSettings(max_tokens=64)))
 
 
+def test_gateway_access_binding_resolves_only_named_credentials_and_keeps_unknown_identity(monkeypatch):
+    from prompt_enhancer.enhancement.adapters import InferenceRubricEvaluation
+    from prompt_enhancer.enhancement.cli import _gateway_access
+    from prompt_enhancer.enhancement import adapters
+    from prompt_enhancer.infrastructure import litellm
+    value = config().model_dump()
+    value.update(model_revision=None, model_license=None,
+        access_client_id_env="ENHANCEMENT_EXAMPLE_ACCESS_ID",
+        access_client_secret_env="ENHANCEMENT_EXAMPLE_ACCESS_SECRET")
+    binding = ConsumerConfig.model_validate(value)
+    environment = {"ENHANCEMENT_EXAMPLE_ACCESS_ID": "example-access-id",
+                   "ENHANCEMENT_EXAMPLE_ACCESS_SECRET": "example-access-secret",
+                   "UNRELATED_SECRET": "example-unrelated"}
+    with pytest.raises(ValueError, match="gateway_access_credential_invalid"):
+        _gateway_access(binding, {})
+    captured = []
+    def chat(settings):
+        captured.append(settings)
+        return lambda *args: (200, json.dumps({"model": "example-model", "choices": [{
+            "finish_reason": "stop", "message": {"role": "assistant", "content": '{"label":"present"}'}}]}).encode(), "application/json")
+    monkeypatch.setattr(litellm, "LiteLLMChat", chat)
+    async def worker(payload, **kwargs):
+        assert "example-unrelated" not in json.dumps(payload)
+        return rubric_inference(payload)
+    monkeypatch.setattr(adapters, "run_worker", worker)
+    adapter = InferenceRubricEvaluation(binding, SecretStr("example-model-key"),
+        gateway_access=_gateway_access(binding, environment))
+    spec = Evaluator(evaluator_id="example", kind="rubric", binding_id="example", rubric="task_definition")
+    result = asyncio.run(adapter.evaluate(Subject(text="Fictional widget request"), spec))
+    assert result.metrics[0].label == "present"
+    assert result.provenance.model_revision is None and result.provenance.model_license is None
+    assert captured[0].access_client_id.get_secret_value() == "example-access-id"
+    assert captured[0].access_client_secret.get_secret_value() == "example-access-secret"
+    assert captured[0].credential.get_secret_value() == "example-model-key"
+    assert "example-access" not in json.dumps(binding.model_dump())
+    for changes in ({"access_client_secret_env": None}, {"provider": "openhands_acp"},
+                    {"access_client_id_env": binding.credential_env}):
+        with pytest.raises(ValidationError):
+            ConsumerConfig.model_validate({**value, **changes})
+
+
 def test_acp_rejects_unsupported_generation_before_process(monkeypatch):
     adapter = ProcessConsumer(config("openhands_acp"), SecretStr("example-invalid-value"))
     with pytest.raises(CoreError, match="acp_generation_parameter_unsupported"):

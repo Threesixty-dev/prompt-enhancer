@@ -27,7 +27,7 @@ consumer acceptance.
 | Bench worker | No HTTP listener | Single durable executor; owns only labelled enhancer containers |
 | Ephemeral enhancer | Loopback 8787 in worker namespace | Its own versioned enhancement/evaluation API |
 | Static OpenHands/Codex consumer | Its own loopback 8000, bridged to a private Unix socket | Agent Server API and fresh ACP rewrite conversations; no network interface |
-| Consumer relay | Worker loopback 8000 and private gateway Unix socket | Agent API transport and bounded HTTPS model requests; no gateway credential of its own |
+| Consumer relay | Worker loopback 8000 and private gateway Unix socket | Agent API transport and bounded HTTPS model requests; optional deployment-only Access credentials |
 | Existing LiteLLM | Configured HTTPS gateway | Consumer model access; model-restricted credential |
 
 `consumer-relay` shares `bench-worker`'s network namespace. Each enhancer is launched
@@ -109,6 +109,32 @@ core-supported `rubric` key and optional evaluator `generation` controls.
 Consumer and evaluator generation settings remain separate. This wiring is
 implemented; a gateway/model profile, real inference, retention policy and loaded
 model identity still require live qualification.
+
+If the gateway uses Cloudflare Access, provide the paired
+`BENCH_CF_ACCESS_CLIENT_ID` and `BENCH_CF_ACCESS_CLIENT_SECRET` deployment secrets
+for a service token scoped to that gateway. The relay sends these only to its
+fixed HTTPS endpoint, alongside the consumer's separate restricted Bearer key.
+It rejects redirects and never accepts Access credentials from incoming headers.
+No Access credentials reach the isolated OpenHands/Codex consumer.
+For the evaluator binding, add these non-secret environment references:
+
+```json
+{
+  "access_client_id_env": "ENHANCEMENT_CF_ACCESS_CLIENT_ID",
+  "access_client_secret_env": "ENHANCEMENT_CF_ACCESS_CLIENT_SECRET"
+}
+```
+
+Compose passes the named values to the core; the adapter resolves them only from
+its injected environment. Missing pairs and invalid header values fail closed.
+Keep Access policies, TLS verification and model-key restrictions enabled.
+Browser login alone does not authenticate these service requests; verify the
+gateway's machine-access policy before submitting an experiment.
+
+When a hosted gateway does not report a model revision or license, leave the
+corresponding binding fields `null`. Results preserve those unknown values;
+an alias, successful reply or container version does not prove a model revision.
+Local model manifests still require their pinned revision and reviewed license.
 
 Classifier and embedding adapters use reviewed local manifests and offline
 caches. They cannot use this chat/rubric endpoint. The operator-configured local

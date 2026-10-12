@@ -61,7 +61,7 @@ def inference(payload):
     request = ExecuteRequest.model_validate(payload["request"])
     settings = LiteLLMSettings(base_url=config.endpoint, model=config.model,
         credential=SecretStr(payload["credential"]), model_revision=config.model_revision,
-        model_license=config.model_license)
+        model_license=config.model_license, **payload.get("gateway_access", {}))
     generation = request.parameters.generation
     body = {"model": config.model, "stream": False, "messages": [
         {"role": "system", "content": REWRITE_INSTRUCTION},
@@ -92,7 +92,7 @@ def rubric_inference(payload):
     spec, subject = Evaluator.model_validate(payload["spec"]), Subject.model_validate(payload["subject"])
     settings = LiteLLMSettings(base_url=config.endpoint, model=config.model,
         credential=SecretStr(payload["credential"]), model_revision=config.model_revision,
-        model_license=config.model_license)
+        model_license=config.model_license, **payload.get("gateway_access", {}))
     # Identical rubric meanings to the typed local backend. Context is explicit
     # request data, never fetched from a prior consumer conversation.
     body = {"model": config.model, "stream": False,

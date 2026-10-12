@@ -26,6 +26,19 @@ class CoreConfiguration(WireModel):
     max_retained: int = Field(default=32, ge=1, le=128)
 
 
+def _gateway_access(config: ConsumerConfig, environment: dict[str, str]):
+    if config.access_client_id_env is None:
+        return None
+    result = {}
+    for key, name in (("access_client_id", config.access_client_id_env),
+                      ("access_client_secret", config.access_client_secret_env)):
+        value = environment.get(name, "")
+        if not 1 <= len(value) <= 4096 or any(not 33 <= ord(c) <= 126 for c in value):
+            raise ValueError("gateway_access_credential_invalid")
+        result[key] = SecretStr(value)
+    return result
+
+
 def compose(config: CoreConfiguration, *, enabled: bool, environment: dict[str, str]):
     consumers = {}
     evaluators = {"deterministic.v1": DeterministicEvaluation()}
@@ -37,7 +50,8 @@ def compose(config: CoreConfiguration, *, enabled: bool, environment: dict[str, 
             raise ValueError("consumer_credential_missing")
         if item.provider == "openhands_acp" and importlib.metadata.version("openhands-sdk") != "1.49.1":
             raise ValueError("openhands_sdk_version_unsupported")
-        consumers[item.binding_id] = ProcessConsumer(item, SecretStr(credential))
+        consumers[item.binding_id] = ProcessConsumer(item, SecretStr(credential),
+            gateway_access=_gateway_access(item, environment))
     for item in config.evaluators:
         if item.binding_id in evaluators:
             raise ValueError("duplicate_evaluator_binding")
@@ -50,7 +64,8 @@ def compose(config: CoreConfiguration, *, enabled: bool, environment: dict[str, 
         credential = environment.get(item.credential_env)
         if not credential:
             raise ValueError("evaluator_credential_missing")
-        evaluators[item.binding_id] = InferenceRubricEvaluation(item, SecretStr(credential))
+        evaluators[item.binding_id] = InferenceRubricEvaluation(item, SecretStr(credential),
+            gateway_access=_gateway_access(item, environment))
     manager = ExecutionManager(EnhancementEngine(consumers, evaluators), enabled=enabled,
         max_active=config.max_active, max_retained=config.max_retained)
     return create_app(manager, api_token=environment.get("ENHANCEMENT_API_TOKEN", ""))

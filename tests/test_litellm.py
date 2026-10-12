@@ -70,6 +70,7 @@ def test_adapter_uses_fixed_model_verified_tls_and_no_content_logging(monkeypatc
     assert "chat_template_kwargs" not in payload
     assert payload["model"] == "example-qwen" and payload["no-log"] is True and payload["stream"] is False
     assert headers["Authorization"] == "Bearer example-invalid-key"
+    assert headers["User-Agent"] == "prompt-enhancer-bench/1.0"
     assert headers["x-litellm-enable-message-redaction"] == "true"
     assert created[0][1]["context"].verify_mode == ssl.CERT_REQUIRED
     assert created[0][1]["context"].check_hostname
@@ -129,6 +130,27 @@ def test_private_address_retains_url_hostname_for_verified_tls(monkeypatch):
     dial.assert_called_once_with(("192.0.2.10", 443), 90)
     context.wrap_socket.assert_called_once_with(raw, server_hostname="gateway.example.test")
     assert context._mock_wraps.check_hostname and context._mock_wraps.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_access_credentials_require_a_pair_and_are_sent_only_after_tls_pin(monkeypatch, certificate):
+    kwargs = {"access_client_id": "example-access-id", "access_client_secret": "example-access-secret"}
+    for pair in ({"access_client_id": "example-id"}, {"access_client_secret": "example-secret"},
+                 {**kwargs, "access_client_secret": "example\r\nInjected: value"}):
+        with pytest.raises(ValueError):
+            settings(**pair)
+    configured = settings(tls_cert_pem=certificate, **kwargs)
+    assert "example-access" not in repr(configured)
+    for matches in (False, True):
+        connection = Connection(peer=ssl.PEM_cert_to_DER_cert(certificate) if matches else b"different-example-cert")
+        install(monkeypatch, connection)
+        result = LiteLLMChat(configured)("example-qwen", b'{"messages":[]}')
+        assert result[0] == (200 if matches else 502)
+        assert len(connection.requests) == int(matches)
+        if matches:
+            headers = connection.requests[0][3]
+            assert headers["CF-Access-Client-Id"] == "example-access-id"
+            assert headers["CF-Access-Client-Secret"] == "example-access-secret"
+            assert headers["Authorization"] == "Bearer example-invalid-key"
 
 
 def test_streaming_preserves_chunks_and_closes_owned_connection(monkeypatch):
