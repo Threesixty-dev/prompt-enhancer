@@ -268,7 +268,7 @@ def main():
                         "import pathlib,os; p=pathlib.Path('/fixture'); os.chmod(p,0o777); (p/'example-fixture.txt').write_text('synthetic-cache-fixture')"])
             docker(["run", "-d", "--name", namespace, "--label", "enhancement-bench.test=synthetic-smoke",
                     "--network", "none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
-                    "--group-add", "0", "--tmpfs", "/tmp:rw,nosuid,size=32m,mode=1777", "--tmpfs", "/data:rw,nosuid,size=32m,mode=1777",
+                    "--group-add", os.environ.get("BENCH_DOCKER_GID", "0"), "--tmpfs", "/tmp:rw,nosuid,size=32m,mode=1777", "--tmpfs", "/data:rw,nosuid,size=32m,mode=1777",
                     "--mount", "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock",
                     "--env", "SMOKE_CORE_IMAGE=" + image, "--env", "SMOKE_NAMESPACE=" + namespace,
                     "--env", "SMOKE_CONFIG_SOURCE=" + str(config),

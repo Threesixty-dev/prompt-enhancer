@@ -96,6 +96,12 @@ bench/.venv/bin/python bench/local_demo.py status
 bench/.venv/bin/python bench/local_demo.py stop
 ```
 
+On a Linux Docker host, set `BENCH_DOCKER_GID` to the group that owns the
+daemon's `/var/run/docker.sock` before starting the demo or container smoke.
+Hosted CI resolves that group after starting Docker and supplies it to both
+smoke variants. The default remains group `0` for Docker Desktop; a host-side
+socket symlink can have a different group from the socket inside its daemon VM.
+
 The completed review leaves the demo running at `http://127.0.0.1:8098`.
 Use the synthetic token `example-review-operator-not-a-secret` in the local UI.
 This fixture token is only for the loopback demonstration, not a deployment

@@ -128,7 +128,8 @@ def start(args):
                     raise DemoError("demo_readiness_timeout") from None
                 time.sleep(0.25)
         # The namespace has no external network; only scripted core work is configured.
-        docker("run", "-d", "--name", state["worker"], *common, "--network", "none", "--group-add", "0",
+        docker("run", "-d", "--name", state["worker"], *common, "--network", "none",
+               "--group-add", os.environ.get("BENCH_DOCKER_GID", "0"),
                "--mount", "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock",
                "--env", "BENCH_WORKER_CONTAINER=" + state["worker"], state["bench_image"], "worker")
         imported = request(state, "POST", "/api/publications", data=state["publication"], importer=True)

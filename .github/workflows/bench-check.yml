@@ -42,6 +42,8 @@ jobs:
           sudo mkdir -p /etc/docker
           printf '%s\n' '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json >/dev/null
           sudo systemctl restart docker
+          bench_docker_gid="$(stat -c '%g' /var/run/docker.sock)"
+          echo "BENCH_DOCKER_GID=${bench_docker_gid}" >> "$GITHUB_ENV"
           docker build -f containers/enhancement-core/Dockerfile -t local/enhancement-core:bench-validation .
           docker build -f deployment/bench/Dockerfile -t local/enhancement-bench:validation .
       - name: Real core container smoke with synthetic provider simulator
