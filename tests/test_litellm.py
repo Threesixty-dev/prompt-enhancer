@@ -89,8 +89,15 @@ def test_private_pin_verified_before_authorization_is_sent(monkeypatch, certific
     assert connection.closed
 
 
-@pytest.mark.parametrize("status,data", [(302, b"example-location"), (401, b"example-secret-error"),
-                                            (200, b"x" * (MAX_RESPONSE_BYTES + 1))])
+@pytest.mark.parametrize(
+    "status,data",
+    [
+        (302, b"example-location"),
+        (401, b"example-secret-error"),
+        (200, b"x" * (MAX_RESPONSE_BYTES + 1)),
+    ],
+    ids=("redirect", "upstream-error", "oversized-response"),
+)
 def test_redirects_errors_and_oversized_responses_are_not_returned(monkeypatch, status, data):
     connection = Connection(status=status, data=data)
     install(monkeypatch, connection)
