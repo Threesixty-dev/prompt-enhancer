@@ -2,7 +2,26 @@
 
 Date: 2026-10-12. Branch: `codex/enhancer-integration-review`.
 Disposition: local review candidate; architecture acceptance and live deployment
-remain pending. See [ADR 0023](../adr/0023-enhancement-experiment-boundary.md).
+remain pending. See [ADR 0025](../adr/0025-enhancement-experiment-boundary.md).
+
+## Reconciliation with current main
+
+The owner subsequently requested a PR and promotion to main. Main had advanced
+to `4b4efba`, including separate quality-gate repairs. The candidate now retains
+those changes and the enhancement implementation. Conflicting evidence entries
+were combined, both dependency sets retained, and the two new proposals were
+renumbered 0024/0025 to preserve main's existing ADR identities.
+
+Of the original 36 failures and four errors, main's repairs clear 30. Updating
+seven HTTP test factory signatures to accept the explicit `inference` argument
+clears the remaining ten without changing their assertions. All 40 cases now
+pass within an affected-module run of **621 passed, six platform/tooling skips**.
+The combined core/provider/bench selection also passes **265 tests**. The
+complete frontend suite passes **2,920 tests**; generated API consistency and the
+production frontend build pass, retaining the existing chunk-size advisory. The
+historical evidence below remains attributable to its earlier source baseline;
+it is not the current residual-failure count. Hosted full-suite checks and live
+model qualification are separate from these local results.
 
 ## Review boundary
 
@@ -114,8 +133,9 @@ left in place. After Docker pruning, restore the referenced image before rerun.
 - Deliberately authorize CI/registry publication and Coolify deployment. The
   recipes are implemented; neither hosted delivery nor deployment was executed.
 
-The broad repository suite is not green. The core workstream recorded 6,134
+At the initial review checkpoint, the broad repository suite was not green.
+The core workstream recorded 6,134
 passes, 37 failures, 56 skips and four errors, fixed one new inventory regression,
 and reproduced all remaining 36 failures plus four errors on the actual inherited
-baseline. This integration does not claim to repair those baseline failures or
+baseline. The reconciliation above closes those 40 specific cases. It does not
 close native, release or general workflow beta gates.

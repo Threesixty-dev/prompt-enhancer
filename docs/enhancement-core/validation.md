@@ -89,6 +89,13 @@ loaded in this integrated smoke.
 
 ## Broad suite classification
 
+Follow-up on 2026-10-12: reconciliation with main `4b4efba` and seven explicit
+HTTP factory-fixture signature updates clear all 40 residual cases below.
+The affected-module run passes 621 tests with six unrelated platform/tooling
+skips; the combined core/provider/bench selection passes 265. Exact renamed-case
+mapping is retained in `baseline-failures.json`. The historical run and baseline
+reproduction below are preserved; full hosted and live-model gates remain separate.
+
 The full repository suite ran once: **6,134 passed, 37 failed, 56 skipped,
 4 errors** in 19m16s. The full suite was not rerun wholesale.
 

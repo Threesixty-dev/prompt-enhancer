@@ -166,5 +166,20 @@
       "name": "tests.test_workspace_transactions::test_transaction_http_apply_requires_native_confirmation_and_is_private",
       "state": "failed"
     }
-  ]
+  ],
+  "followup": {
+    "date": "2026-10-12",
+    "main_baseline": "4b4efba",
+    "result": "all_40_previously_failing_or_error_cases_pass",
+    "affected_modules": {
+      "passed": 621,
+      "skipped": 6,
+      "failed": 0,
+      "errors": 0
+    },
+    "renamed_cases": {
+      "tests.test_agent_orchestration::test_orchestration_manifest_covers_every_agent_route_and_only_real_routes": "tests.test_agent_orchestration::test_orchestration_manifest_covers_controller_routes_and_excludes_private_search"
+    },
+    "remaining_change": "Seven HTTP test factory signatures accept the explicit inference keyword; assertions are unchanged."
+  }
 }

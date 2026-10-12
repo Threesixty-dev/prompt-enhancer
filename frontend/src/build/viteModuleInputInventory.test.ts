@@ -324,6 +324,6 @@ describe("Vite/Rolldown module input inventory", () => {
     const raw = readFileSync(resolve(process.cwd(), "package-lock.json"));
     const sha256 = createHash("sha256").update(raw).digest("hex");
     expect(parseLock(raw, sha256, (value) => createHash("sha256").update(value).digest("hex")).size)
-      .toBe(287);
+      .toBe(289);
   });
 });

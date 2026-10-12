@@ -2,7 +2,7 @@
 
 Status: proposed, owner acceptance required. Date: 2026-10-12.
 This is Workstream B's architecture proposal for central ADR/atlas integration.
-It does not silently supersede ADR 0015 or accept proposed ADR 0022.
+It does not silently supersede ADR 0015 or accept proposed ADR 0024.
 
 ## Problem and resulting behavior
 

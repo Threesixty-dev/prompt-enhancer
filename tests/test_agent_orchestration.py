@@ -210,7 +210,7 @@ def test_orchestration_manifest_is_content_free_and_marks_native_boundaries() ->
     assert "session transcript" not in serialized.casefold()
 
 
-def test_orchestration_manifest_covers_every_agent_route_and_only_real_routes(
+def test_orchestration_manifest_covers_controller_routes_and_excludes_private_search(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -237,8 +237,13 @@ def test_orchestration_manifest_covers_every_agent_route_and_only_real_routes(
         for endpoint in manifest.endpoints
         if endpoint.path_template.startswith("/v1/agent")
     }
-    assert len(actual_agent_routes) == 72
-    assert declared_agent_routes == actual_agent_routes
+    assert len(actual_agent_routes) == 73
+    # Saved-message search is an owner-facing privacy surface, deliberately
+    # excluded from external-controller discovery (architecture component A04).
+    private_routes = {("POST", "/v1/agent/catalog/sessions/message-search")}
+    assert private_routes <= actual_agent_routes
+    assert declared_agent_routes.isdisjoint(private_routes)
+    assert declared_agent_routes == actual_agent_routes - private_routes
 
     actual_routes = {
         (method.upper(), path)
@@ -371,7 +376,7 @@ def test_token_controller_completes_a_bounded_project_chat_and_preview_lifecycle
     monkeypatch.setattr(
         type(application),
         "create_local_agent_service",
-        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None: service,
+        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None, inference=None: service,
     )
 
     try:

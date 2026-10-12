@@ -955,7 +955,7 @@ def test_transaction_http_apply_requires_native_confirmation_and_is_private(
     monkeypatch.setattr(
         type(application),
         "create_local_agent_service",
-        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None: service,
+        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None, inference=None: service,
     )
     client = TestClient(
         application.create_http_app(

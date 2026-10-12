@@ -301,6 +301,18 @@ def create_provider_compatibility_router(
     ) -> ProviderCompatibilityStatusDto:
         descriptor, surface = descriptor_for(provider)
         try:
+            if surface is ProviderSurface.OPERATIONAL_EVENTS:
+                # An explicit retry must reconsider the primary text surface:
+                # onboarding may have supplied a valid path since the cache
+                # recorded it as unavailable. Cached GETs remain read-only.
+                try:
+                    text_descriptor = catalog.descriptor(provider, ProviderSurface.TEXT_WINDOW)
+                except ProviderCompatibilityCatalogError:
+                    text_descriptor = None
+                if text_descriptor is not None:
+                    text_report = catalog.refresh(provider, ProviderSurface.TEXT_WINDOW)
+                    if text_report.state is not CompatibilityState.UNAVAILABLE:
+                        return provider_compatibility_status(text_descriptor, text_report)
             report = catalog.refresh(provider, surface)
         except Exception:
             raise HTTPException(

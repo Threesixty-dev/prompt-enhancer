@@ -2,12 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
-A later feature-branch proposal, [ADR 0022](../adr/0022-inference-provider-boundary.md),
+A later feature-branch proposal, [ADR 0024](../adr/0024-inference-provider-boundary.md),
 separates inference providers from local runtime ownership. Its October 9 tests
 and scope are recorded separately; the October 8 source observation stays frozen.
 
 The October 12 [core/bench integration review](../bench/integration-review.md)
-and proposed [ADR 0023](../adr/0023-enhancement-experiment-boundary.md) add a
+and proposed [ADR 0025](../adr/0025-enhancement-experiment-boundary.md) add a
 versioned enhancement flow and private experiment bench. They record later
 source, browser and container evidence separately from this dated atlas and do
 not close the general workflow, real-model or release gates.
@@ -21,6 +21,9 @@ not close the general workflow, real-model or release gates.
 5. Take one [bounded task](remaining-work.md), with owner review before merge.
 
 Designers should also read the [journey/state handoff](design-handoff.md).
+For prompts, tool payloads and storage, read the [session-data lifecycle](session-data-lifecycle.md).
+The explicit [team prompt-review requirement](../work-packages/team-prompt-review.md)
+belongs to R30's planned product milestone, not delivered functionality.
 
 The [readiness matrix](../product-readiness-matrix-2026-09-12.md) remains the
 authority for requirement acceptance. This atlas is a dated projection of code,

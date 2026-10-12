@@ -113,6 +113,15 @@ def _write_supported_agent_schema(path: Path, source_version: int) -> None:
                         "memory_only",
                     ),
                 )
+        if source_version >= 30:
+            connection.executemany(
+                "INSERT INTO agent_catalog_migration_checksums(version, checksum) VALUES (?, ?)",
+                (
+                    (version, checksum)
+                    for version, checksum in agent_catalog_sqlite._AGENT_CATALOG_MIGRATION_CHECKSUMS.items()
+                    if version <= source_version
+                ),
+            )
         connection.execute(f"PRAGMA user_version={source_version}")
         connection.execute("COMMIT")
 

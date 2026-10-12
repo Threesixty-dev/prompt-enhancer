@@ -1,7 +1,7 @@
 # Independently runnable enhancement core
 
 Core `0.1.0`, protocol `enhancement.v1`. This feature-branch implementation is
-proposed for owner review; it does not accept ADR 0022 or close the general
+proposed for owner review; it does not accept ADR 0024 or close the general
 workflow/real-model roadmap gates. See [protocol](protocol.md),
 [proposal](proposal.md), and [task card](task-card.md).
 

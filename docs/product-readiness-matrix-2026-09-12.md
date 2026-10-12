@@ -1,9 +1,21 @@
 # Product feature and readiness matrix
 
+## Enhancement candidate reconciliation - 2026-10-12
+
+The owner requested PR integration and promotion. The combined candidate now
+includes current main `4b4efba` and its separate quality repairs. All 40 previously
+failing/error cases pass: 30 are repaired by main, and ten by seven HTTP factory
+fixture updates for the explicit inference argument. No assertions are weakened.
+The affected-module run reports 621 passed and six platform/tooling skips; the
+core/provider/bench selection reports 265 passed. See the [combined review](bench/integration-review.md)
+for source reconciliation and [historical case mapping](enhancement-core/baseline-failures.json).
+These results supersede the residual-failure count in the earlier checkpoint,
+without changing live model, hosted full-suite, native or release acceptance.
+
 ## Core and experiment bench candidate - 2026-10-12
 
 The [combined integration review](bench/integration-review.md) joins the core and
-bench on the inherited `6fa1100` development baseline. Proposed [ADR 0023](adr/0023-enhancement-experiment-boundary.md)
+bench on the inherited `6fa1100` development baseline. Proposed [ADR 0025](adr/0025-enhancement-experiment-boundary.md)
 records separate consumer/evaluation roles, code version plus immutable image,
 GitOps/UI runs and the enhancer-owned flow without a separate testing harness.
 
@@ -20,7 +32,7 @@ no B/W/WP gate closes and the dated atlas/source bindings remain historical.
 
 ## Inference-provider proposal — 2026-10-09
 
-[ADR 0022](adr/0022-inference-provider-boundary.md) proposes reviewed LiteLLM
+[ADR 0024](adr/0024-inference-provider-boundary.md) proposes reviewed LiteLLM
 inference for chat, Prompt Check, explicit session analysis and Agent steps on
 baseline `main` `6fa1100`. Local runtime ownership, automatic analysis and native
 workspace approval remain separate. The source is a local feature-branch proposal;
@@ -31,6 +43,77 @@ records bounded synthetic, owned TLS/HTTP loopback, UI, build and privacy checks
 including the 19 UI failures reproduced on clean main and an environment-blocked
 manifest CLI test. No complete suite, native journey, external model, multi-user
 hosting or beta gate is declared passed. The historical ledger below is unchanged.
+## Cancellation-test startup synchronization — 2026-10-11 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-11--cancellation-test-startup-synchronization)
+records a bounded test-only correction after two different Windows startup timing
+failures. Six delayed-start regressions fail before the change; all twelve ordinary
+and delayed cases pass after it. Existing cancellation, process-reaping, quarantine
+and no-publication assertions remain, with startup given its own bounded fixture
+budget. The surrounding six-module selection passes 74 tests, including those
+twelve cases, with nine platform-specific local skips. Hosted candidate checks
+and owner review remain pending. MA13, A15, R26 and all native/model/beta gates
+retain their status.
+
+## Quality evidence reuse — 2026-10-11 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-11--reuse-validated-main-quality-evidence-r26)
+records removal of duplicate branch-push and deployment quality runs. The
+proposal preserves full PR/main validation and requires successful evidence
+for the exact main commit before deployment. All 50 synthetic checks and a
+read-only verification of an existing main run pass. Owner review and live
+deployment remain pending; R26 and all acceptance gates keep their status.
+
+## Deployment HTTP client identity — 2026-10-11 proposal
+
+The [journal](beta-progress-journal.md#2026-10-11--deployment-http-client-identity-r26)
+records a bounded deployment-client correction on develop `d68f281` after an
+edge browser-integrity rejection. All 85 synthetic deployment/authentication
+checks pass. The earlier reviewed main candidate passed full quality and
+container checks; its live deployment never started. The proposed header fix
+still requires owner review and live verification. R26 and all beta gates keep
+their existing acceptance status.
+
+## Quality fixture repair — 2026-10-10 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-10--repair-inherited-quality-gate-fixtures-r26)
+records repairs against develop `e47b709`: 558 affected backend tests and all
+2,912 frontend tests pass with synthetic fixtures. Six corrected browser cases,
+staged-source privacy and architecture checks pass. Required backend shards retain
+complete test coverage within the existing CI limit; final hosted candidate checks
+remain pending. R26 stays partial; B00/B11 and all native, model and beta acceptance
+states are unchanged.
+
+## Build-manifest inventory repair — 2026-10-11 proposal
+
+The [journal task card](beta-progress-journal.md#2026-10-11--final-build-manifest-inventory-check-r19)
+records a bounded correction after a Windows quality failure. The generator
+re-enumerates staged paths after hashing instead of relying only on directory
+metadata to reveal additions. Three deterministic regressions fail before the
+fix; all 93 manifest/distribution checks pass after it. Owner review and full
+Windows CI remain pending. Existing acceptance statuses are unchanged.
+
+## Hosted deployment action — 2026-10-10 proposal
+
+R26 gains a proposed manual source-deployment action on imported `develop`
+`cadba09`. The journal records 85 passing synthetic deployment/authentication
+tests. Container CI and a live deployment are separate evidence; B00/B11 and
+all native, model and beta gates retain their existing status. See the
+[operator guide](coolify-deployment.md) for configuration and owner review.
+
+## Team prompt review requirement — 2026-10-08 follow-up
+
+The owner explicitly requested team-leader review of shared prompts and their
+metrics. [TR01–TR08](work-packages/team-prompt-review.md) now name the data
+contract, retention, grants, reviewed sharing, leader views, deletion/audit and
+end-to-end acceptance. **Not implemented; all TR results: not run.** Existing
+development foundations are not a pass.
+
+[ADR 0022](adr/0022-consented-session-retention-and-team-review.md) is proposed;
+the content-free team policy stays in force. Teams remain deferred from the local
+beta unless the owner changes its scope. No capture, raw vault, remote sharing or
+broader manager authority is enabled. See [current data lifecycle](architecture/session-data-lifecycle.md)
+before assuming imported prompts/tool payloads are durably retained.
 
 ## Architecture audit addendum — 2026-10-08
 

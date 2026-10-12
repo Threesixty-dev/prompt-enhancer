@@ -1,4 +1,4 @@
-# ADR 0022 — Separate inference providers from owned model runtimes
+# ADR 0024 — Separate inference providers from owned model runtimes
 
 Status: proposed for owner review. Implemented on a feature branch based on
 `main` at `6fa1100`; neither merge nor live deployment is implied.

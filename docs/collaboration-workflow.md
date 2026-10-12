@@ -1,19 +1,61 @@
 # Collaboration workflow
 
 How invited contributors and the owner work together. The owner keeps final
-control: contributors propose changes on feature branches, and only the owner
-merges to `main`. This page is a working guide, not a status ledger; progress
+control: contributors propose changes on feature branches, and the owner reviews
+and authorizes merges into `develop` and `main`. This page is a working guide, not a status ledger; progress
 and approvals live in GitHub issues and pull requests.
 
 Read [CONTRIBUTING.md](../CONTRIBUTING.md) and `AGENTS.md` first. The privacy
 rules there apply to every branch, commit, issue, comment, and pull request.
 
-## Read this before starting: the baseline
+## Branch flow adopted 2026-10-09
+
+```text
+dev_pm or feature/fix/docs/test/... branches
+                   |
+             owner-reviewed PR
+                   v
+                develop
+                   |
+          owner-reviewed promotion PR
+                   v
+                  main
+```
+
+- `main`: reviewed release/promotion line. Its existence is not beta acceptance,
+  and a push does not publish an installer or update users automatically.
+- `develop`: integration line for independently reviewed work; it can be ahead
+  of main and is not the place for direct shared editing.
+- `dev_pm`: the exact owner-requested working branch, created from the successfully
+  integrated `develop` head. It has no automatic merge or publication authority.
+  Its PRs target `develop`, not `main`; other `dev_*` names are not an exception.
+- Other contributors use one short-lived, task-named branch from `develop`.
+  Avoid accumulating unrelated work on any one branch.
+
+Preserve ancestry for long-lived branches: merge commits for `dev_pm` into
+`develop` and for `develop` into `main`. Short-lived task PRs may be squash-merged;
+do not reuse their old branch after squash. Sync a clean `dev_pm` from develop
+with a regular merge, never a force reset of shared or uncommitted work.
+
+Repository capability checked 2026-10-09: merge commits are disabled; squash
+merges are allowed. The current documentation task can squash into develop and
+then create a fresh dev_pm. The long-lived merge-commit strategy above remains
+conditional on an owner-approved setting change. Until then, treat a squashed
+dev_pm as a finished task branch; preserve it and create a new task branch from
+develop instead of force-resetting or repeatedly reusing its old ancestry.
+Do not silently squash a long-lived develop-to-main promotion as a substitute.
+
+The owner remains the final reviewer. A direct owner instruction may authorize
+execution of a specific merge; it is not standing permission for agents to
+self-approve, self-merge future work or bypass protection. See
+[ADR 0023](adr/0023-develop-integration-and-owner-work-branch.md).
+
+### Baseline check
 
 `main` may not contain all of the latest reviewed pilot work. Do not assume a
 partial `main` includes every recent feature, fix, or test. Before you begin a
 task, the task card names the baseline it depends on; if that baseline is not
-yet on `main`, stop and ask the owner. Do not copy files from anywhere other
+yet on `develop`, identify the prerequisite PR before starting. Do not copy files from anywhere other
 than the task card's baseline.
 
 ## Roles
@@ -30,8 +72,8 @@ or commit messages.
 
 ## Start workflow
 
-1. Work in your own clone (or fork). Never work directly on `main`.
-2. Fetch `main` and branch from it: `feature/<task-slug>`.
+1. Work in your own clone or isolated worktree. Never work directly on `main` or `develop`.
+2. Fetch `develop` and branch from it: `feature/<task-slug>`. The owner's `dev_pm` is the explicit alternative.
 3. Make small, scoped commits. Do not reformat files unrelated to the task.
 4. Open a draft pull request early if drafts are available. If they are not on
    the current plan, open a normal pull request marked WIP (in the description,
@@ -40,9 +82,11 @@ or commit messages.
 5. Add tests as proof, using only synthetic fixtures (see below).
 6. Mark the pull request ready only after the owner has accepted the work
    against the acceptance criteria.
-7. The owner reviews and squash-merges. Address review comments with new
+7. The owner reviews and authorizes a merge into `develop`. Address review comments with new
    commits on the same branch.
-8. After the merge, sync your clone with `main` and delete the finished branch.
+8. After the merge, sync with `develop`; retire short-lived branches after verifying the merge. Keep `dev_pm` only while in active use.
+9. Promote an accepted integration set through a separate `develop` → `main` PR.
+   Release/package/signing gates remain separate from Git integration.
 
 Reference the task in the pull request as `Refs #<issue number>`. Do not use
 closing keywords; the owner updates status and closes the task.
@@ -51,11 +95,15 @@ closing keywords; the owner updates status and closes the task.
 
 The `Collaboration policy` check validates only metadata, never content:
 
-- the pull request targets `main`;
+- ordinary task PRs target `develop`;
 - the branch is `<prefix>/<slug>` with prefix `feature`, `fix`, `docs`, `test`,
   `refactor`, `chore`, `ci`, or `release`, and a lowercase slug of letters,
   digits, `-`, and `.` (no spaces, leading dash, or shell characters). The
   legacy `codex/` prefix is accepted for existing campaign work only;
+- exact `dev_pm` is additionally accepted only into `develop`;
+- `main` accepts promotion from `develop`, or reviewed `release/` and `fix/`
+  branches. Hotfixes made against main must be integrated back into develop;
+- self-targets and other branch/target combinations are rejected;
 - the title is a single line of at most 200 characters in Conventional Commits
   form: `type(optional-scope)!: description`, with type `feat`, `fix`, `docs`,
   `test`, `refactor`, `chore`, `ci`, `build`, `perf`, or `style`.
@@ -67,7 +115,7 @@ decide whether a task was approved, or judge quality; those are human decisions.
 ## Hard limits for every contributor
 
 - Keep the pull request narrow: one task, only the files the task allows.
-- Do not force-push `main`, and do not rewrite history others have fetched.
+- Do not force-push `main`, `develop` or shared `dev_pm`, and do not rewrite history others have fetched.
 - Do not change tests, golden files, unknown/missing-value handling, approval
   behavior, or model budgets unless the task card says so. A failing test is a
   finding to report, not something to loosen.
@@ -79,7 +127,8 @@ decide whether a task was approved, or judge quality; those are human decisions.
 - No auto-merge, no personal or account tokens in workflows, no secrets in the
   repository.
 - AI coding agents follow `AGENTS.md`, the same branch naming, and the same
-  scope as human contributors, and do not merge their own work.
+  scope as human contributors. No autonomous merge or approval is permitted;
+  executing one directly owner-authorized merge does not grant future authority.
 
 ## Evidence levels
 
@@ -168,21 +217,20 @@ task template, assigns people, and may adjust scope.
 
 ## Owner configuration
 
-The repository is private and personal. GitHub Free is enough for ordinary
-feature branches and pull requests. Private-repository protections need a
-personal Pro plan or an organization Team plan. The branch protection and
-ruleset interfaces currently refuse these settings on the free plan, so **no
-remote protection is active today**. The workflow files here run as normal CI,
-but on a private repository without protection they are advisory: a branch can
-edit a workflow and push to `main` directly. Nothing in this repository
-enforces owner-only merge until the settings below are applied.
+The source repository remains private. Earlier setup reported that available
+repository controls could not enforce the requested restrictions. That is a
+historical observation, not evidence of today's settings or subscription.
+Inspect current branch/ruleset metadata before claiming protection is active.
+Without enforced protection, repository files and CI are advisory: contributors
+with sufficient platform permissions may still be able to push shared branches.
+Nothing in this document itself establishes owner-only merge permissions.
 
-Prerequisite (currently blocked): a plan or repository arrangement that
+Prerequisite: a plan or repository arrangement that
 supports enforced branch rules for this repository. Purchasing a plan, changing
 repository visibility, or transferring the repository is the owner's deliberate
 decision. Agents never do any of these.
 
-When the prerequisite is met, the intended settings for `main` are:
+When the prerequisite is met, the intended settings for `main` and `develop` are:
 
 - require a pull request, with at least one approving review;
 - dismiss stale approvals on new commits, and require review of the most recent
@@ -205,6 +253,13 @@ Keep two rules apart:
    the owner skip a failing check.
 
 ### Bootstrap limitation for the first pull request
+
+The following describes the historical initial bootstrap. The October 9 flow
+change has a similar boundary: the trusted base validator is main-only until the
+new policy is admitted. Validate the proposed flow locally; never switch CI to
+execute untrusted PR-head policy merely to make its own metadata pass. An Actions
+account restriction is an unexecuted gate, not a passing test. Report it to the
+owner and do not use admin bypass or alter billing/protection to force a merge.
 
 `Collaboration policy` runs the validator from the pull request's base commit,
 never from the pull request's own code. The base-only validator does not yet

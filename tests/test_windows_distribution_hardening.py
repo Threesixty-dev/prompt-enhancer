@@ -10,6 +10,7 @@ from pathlib import Path
 import sqlite3
 import socket
 import sys
+import sysconfig
 
 from pydantic import SecretBytes, SecretStr
 import pytest
@@ -105,11 +106,17 @@ def _owned_child_environment() -> dict[str, str]:
 
 def _run_test_process(
     arguments: tuple[str, ...], *, cwd: Path, stdin_payload: bytes = b"",
+    with_test_dependencies: bool = False,
 ):
+    environment = _owned_child_environment()
+    if with_test_dependencies:
+        environment["PYTHONPATH"] = os.pathsep.join(dict.fromkeys((
+            sysconfig.get_path("purelib"), sysconfig.get_path("platlib"),
+        )))
     return run_owned_process(
         arguments,
         cwd=cwd,
-        env=_owned_child_environment(),
+        env=environment,
         stdin_payload=stdin_payload,
         stdout_limit=_PROCESS_STDOUT_LIMIT,
         stderr_limit=_PROCESS_STDERR_LIMIT,
@@ -489,6 +496,7 @@ def test_public_build_manifest_cli_compares_two_trees_without_host_paths(
             "uv.lock=" + "b" * 64,
         ),
         cwd=Path(__file__).parents[1],
+        with_test_dependencies=True,
     )
 
     assert completed.returncode == 0

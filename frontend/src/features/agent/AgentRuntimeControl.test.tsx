@@ -397,7 +397,7 @@ describe("AgentRuntimeControl", () => {
     expect(within(panel).getByRole("progressbar", { name: "Exact context use" }))
       .toHaveAttribute("aria-valuenow", "8");
     expect(within(panel).getByText("Context use").parentElement)
-      .toHaveTextContent("640 input / 8192 · 7552 available · turn 2");
+      .toHaveTextContent(`640 input / ${(8192).toLocaleString()} · ${(7552).toLocaleString()} available · turn 2`);
 
     fireEvent.change(within(chooser).getByLabelText("Model"), { target: { value: MODEL_B } });
     expect(within(panel).getByText("Pending change")).toBeVisible();
@@ -460,7 +460,7 @@ describe("AgentRuntimeControl", () => {
     });
     const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
     expect(within(panel).getByText("Context use").parentElement).toHaveTextContent(
-      "640 input / 8192 · 7552 available · turn 2",
+      `640 input / ${(8192).toLocaleString()} · ${(7552).toLocaleString()} available · turn 2`,
     );
     fireEvent.click(within(panel).getByText("Runtime details"));
     expect(within(panel).getByText("This chat · turn 2")).toBeVisible();
@@ -512,7 +512,7 @@ describe("AgentRuntimeControl", () => {
     const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
 
     expect(within(panel).getByText("Context use").parentElement)
-      .toHaveTextContent("8500 input / 8192 · 308 over limit · refused · turn 2");
+      .toHaveTextContent(`${(8500).toLocaleString()} input / ${(8192).toLocaleString()} · 308 over limit · refused · turn 2`);
     expect(within(panel).getByRole("alert")).toHaveTextContent(
       "The exact preflight refused this request because it exceeded the context limit.",
     );
@@ -543,7 +543,7 @@ describe("AgentRuntimeControl", () => {
     const panel = await screen.findByRole("region", { name: "Shared local model runtime" });
 
     expect(within(panel).getByText("Context use").parentElement)
-      .toHaveTextContent("Unknown · no token estimate / 8192 limit · turn 2");
+      .toHaveTextContent(`Unknown · no token estimate / ${(8192).toLocaleString()} limit · turn 2`);
     expect(within(panel).queryByRole("progressbar", { name: "Exact context use" })).toBeNull();
     expect(within(panel).getByText(/No tokenizer estimate was substituted/u)).toBeVisible();
     expect(within(panel).getByText("Context use").parentElement).not.toHaveTextContent("0 input");
@@ -626,7 +626,7 @@ describe("AgentRuntimeControl", () => {
     fireEvent(window, new Event("focus"));
     await waitFor(() => expect(getAgentSessionContext).toHaveBeenCalledTimes(2));
     expect(within(panel).getByText("Context use").parentElement)
-      .toHaveTextContent("640 input / 8192 · 7552 available · turn 2 · checking latest");
+      .toHaveTextContent(`640 input / ${(8192).toLocaleString()} · ${(7552).toLocaleString()} available · turn 2 · checking latest`);
     expect(within(panel).getByText(/Showing last-confirmed context evidence while checking/u)).toBeVisible();
 
     await act(async () => latest.resolve({
@@ -639,7 +639,7 @@ describe("AgentRuntimeControl", () => {
       },
     }));
     await waitFor(() => expect(within(panel).getByText("Context use").parentElement)
-      .toHaveTextContent("700 input / 8192 · 7492 available · turn 2"));
+      .toHaveTextContent(`700 input / ${(8192).toLocaleString()} · ${(7492).toLocaleString()} available · turn 2`));
     expect(within(panel).getByText("Context use").parentElement).not.toHaveTextContent("checking latest");
   });
 
@@ -697,7 +697,7 @@ describe("AgentRuntimeControl", () => {
       .toHaveTextContent("Measuring exact context · turn 2…"));
     await waitFor(() => expect(getAgentSessionContext).toHaveBeenCalledTimes(2), { timeout: 1_500 });
     await waitFor(() => expect(within(panel).getByText("Context use").parentElement)
-      .toHaveTextContent("640 input / 8192 · 7552 available · turn 2"));
+      .toHaveTextContent(`640 input / ${(8192).toLocaleString()} · ${(7552).toLocaleString()} available · turn 2`));
   });
 
   it("rejects context evidence bound to a different model than the current chat", async () => {
@@ -771,12 +771,12 @@ describe("AgentRuntimeControl", () => {
       },
     }));
     await waitFor(() => expect(within(panel).getByText("Context use").parentElement)
-      .toHaveTextContent("900 input / 8192 · 7292 available · turn 2"));
+      .toHaveTextContent(`900 input / ${(8192).toLocaleString()} · ${(7292).toLocaleString()} available · turn 2`));
 
     await act(async () => oldRead.resolve(measuredChatContext()));
     expect(oldSignal.aborted).toBe(true);
     expect(within(panel).getByText("Context use").parentElement)
-      .toHaveTextContent("900 input / 8192 · 7292 available · turn 2");
+      .toHaveTextContent(`900 input / ${(8192).toLocaleString()} · ${(7292).toLocaleString()} available · turn 2`);
   });
 
   it("switches placement and context revision-safely, then rebinds the existing chat", async () => {

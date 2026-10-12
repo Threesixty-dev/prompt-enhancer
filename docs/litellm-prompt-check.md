@@ -1,7 +1,7 @@
 # Reviewed inference through an owner-managed LiteLLM gateway
 
 The proposed provider boundary supports Prompt Check, chat, explicitly selected
-session interpretation/judging and Agent model requests. See [ADR 0022](adr/0022-inference-provider-boundary.md)
+session interpretation/judging and Agent model requests. See [ADR 0024](adr/0024-inference-provider-boundary.md)
 for owner-review status and hosting tradeoffs. Deterministic metrics and automatic
 session analysis retain local behavior. `/v1/capabilities` distinguishes reviewed
 external inference from automatic session-text egress, which remains disabled.

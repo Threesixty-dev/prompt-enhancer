@@ -1,4 +1,4 @@
-# ADR 0023: Enhancement core and experiment bench boundary
+# ADR 0025: Enhancement core and experiment bench boundary
 
 Status: proposed for owner review. Date: 2026-10-12.
 
@@ -13,7 +13,7 @@ workstreams, followed by a combined local review.
 
 This proposal consolidates the [core proposal](../enhancement-core/proposal.md)
 and [bench proposal](../bench/architecture-proposal.md). It does not accept ADR
-0022, reverse ADR 0015's interactive retention policy, or close the beta workflow
+0024, reverse ADR 0015's interactive retention policy, or close the beta workflow
 gates. Owner acceptance remains separate from implementation authorization.
 
 ## Proposed decision

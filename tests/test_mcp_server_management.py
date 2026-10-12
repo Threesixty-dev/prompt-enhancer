@@ -3093,7 +3093,7 @@ def test_mcpb_manifest_configuration_requires_nonexecuting_inspection_and_vault_
     token = next(
         item for item in inspected.requirements if item.name == "ACCESS_TOKEN"
     )
-    workspace_value = "X:\\example\\mcpb-workspace"
+    workspace_value = str(tmp_path / "example-mcpb-workspace")
     token_value = "synthetic-mcpb-inspection-token"
     configured = service.store_configuration(
         inspected.management_id,
@@ -3188,7 +3188,7 @@ def test_configured_mcpb_install_and_start_resolve_vault_values_transiently(
     credential = next(
         item for item in created.server.requirements if item.name == "EXAMPLE_TOKEN"
     )
-    workspace_value = "X:\\example\\configured-workspace"
+    workspace_value = str(tmp_path / "example-configured-workspace")
     credential_value = "synthetic-configured-token"
     assert created.server.install_action == "unavailable_configuration_required"
     configured = service.store_configuration(
