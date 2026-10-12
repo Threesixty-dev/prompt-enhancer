@@ -1,0 +1,30 @@
+{
+  "max_active": 1,
+  "max_retained": 32,
+  "consumers": [
+    {
+      "binding_id": "example-consumer",
+      "provider": "openhands_acp",
+      "endpoint": "https://consumer.example.invalid",
+      "credential_env": "ENHANCEMENT_CONSUMER_CREDENTIAL",
+      "model": "example-consumer-model",
+      "model_revision": "example-consumer-revision-1",
+      "model_license": "Apache-2.0",
+      "acp_command": ["codex-acp"],
+      "acp_server": "codex",
+      "acp_session_mode": "read-only"
+    }
+  ],
+  "evaluators": [],
+  "rubric_evaluators": [
+    {
+      "binding_id": "example-rubric",
+      "provider": "inference",
+      "endpoint": "https://gateway.example.invalid",
+      "credential_env": "ENHANCEMENT_EVALUATOR_CREDENTIAL",
+      "model": "example-evaluation-model",
+      "model_revision": "example-evaluation-revision-1",
+      "model_license": "Apache-2.0"
+    }
+  ]
+}

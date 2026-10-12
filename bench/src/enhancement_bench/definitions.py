@@ -1,0 +1,158 @@
+"""GitOps definitions; execution messages are owned by contracts/enhancement."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from typing import Annotated, Any, Literal
+
+from jsonschema import Draft202012Validator, SchemaError, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
+from .errors import BenchError
+
+Identifier = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$")]
+IMAGE = re.compile(r"^[a-z0-9][a-z0-9./:_-]{0,240}@sha256:[a-f0-9]{64}$")
+
+
+def canonical(value: Any) -> str:
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except (ValueError, TypeError):
+        raise BenchError("invalid_json") from None
+
+
+def fingerprint(value: Any) -> str:
+    return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class Subject(StrictModel):
+    id: Identifier
+    text: str = Field(min_length=1, max_length=32000)
+    context: list[dict[str, str]] = Field(default_factory=list, max_length=8)
+
+
+class Unit(StrictModel):
+    id: Identifier
+    title: str = Field(min_length=1, max_length=120)
+    strategy: str = Field(min_length=1, max_length=80)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    assertions: list[dict[str, Any]] = Field(default_factory=list, max_length=32)
+    objective: dict[str, Any] = Field(default_factory=dict)
+    steering: dict[str, Any] = Field(default_factory=dict)
+    consumerBinding: dict[str, Any] = Field(default_factory=dict)
+
+
+class Definition(StrictModel):
+    schemaVersion: Literal["bench-experiment/v1"]
+    stableId: Identifier
+    revision: Identifier
+    generation: int = Field(ge=1, le=2**53 - 1)
+    title: str = Field(min_length=1, max_length=120)
+    enhancerVersion: str = Field(min_length=1, max_length=80)
+    autoRun: bool = True
+    subjects: list[Subject] = Field(min_length=1, max_length=32)
+    units: list[Unit] = Field(min_length=1, max_length=16)
+    consumerBinding: dict[str, Any] | None
+    evaluatorProfile: dict[str, Any]
+    baseParameters: dict[str, Any] = Field(default_factory=dict)
+    parameterSchema: dict[str, Any]
+    objective: dict[str, Any]
+    baseSteering: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_definition(self):
+        for values in (self.subjects, self.units):
+            if len({item.id for item in values}) != len(values):
+                raise ValueError("duplicate_identifier")
+        schema = self.parameterSchema
+        if schema.get("type") != "object" or schema.get("additionalProperties") is not False:
+            raise ValueError("closed_parameter_schema_required")
+        # Definitions cannot resolve remote schemas or run arbitrary validators.
+        if "$ref" in canonical(schema) or "$dynamicRef" in canonical(schema):
+            raise ValueError("parameter_schema_refs_forbidden")
+        try:
+            Draft202012Validator.check_schema(schema)
+            for unit in self.units:
+                Draft202012Validator(schema).validate(self.baseParameters | unit.parameters)
+        except (SchemaError, ValidationError):
+            raise ValueError("invalid_parameters") from None
+        return self
+
+
+class Publication(StrictModel):
+    schemaVersion: Literal["bench-publication/v1"]
+    definition: Definition
+    image: str
+    coreVersion: str
+
+    @model_validator(mode="after")
+    def validate_image(self):
+        if not IMAGE.fullmatch(self.image):
+            raise ValueError("immutable_image_required")
+        if self.coreVersion != self.definition.enhancerVersion:
+            raise ValueError("core_version_mismatch")
+        return self
+
+
+class Overrides(StrictModel):
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    unitParameters: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
+    subjectIds: list[Identifier] | None = Field(default=None, min_length=1)
+    unitIds: list[Identifier] | None = Field(default=None, min_length=1)
+    objective: dict[str, Any] = Field(default_factory=dict)
+    steering: dict[str, Any] = Field(default_factory=dict)
+    unitObjectives: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
+    unitSteering: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
+    unitConsumerBindings: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
+
+
+def definition_payload(definition: Definition) -> dict:
+    value = definition.model_dump()
+    # Preserve the identity of v1 publications that predate per-unit bindings.
+    for unit in value["units"]:
+        if not unit["consumerBinding"]:
+            del unit["consumerBinding"]
+    return value
+
+
+def effective_settings(definition: Definition, overrides: Overrides) -> dict:
+    known_units = {u.id for u in definition.units}
+    known_subjects = {s.id for s in definition.subjects}
+    selected_units = set(overrides.unitIds or known_units)
+    selected_subjects = set(overrides.subjectIds or known_subjects)
+    if (not selected_units <= known_units or not selected_subjects <= known_subjects
+            or not (set(overrides.unitParameters) | set(overrides.unitObjectives) | set(overrides.unitSteering)
+                    | set(overrides.unitConsumerBindings)) <= selected_units):
+        raise BenchError("unknown_selection")
+    result = definition.model_dump()
+    result["subjects"] = [s for s in result["subjects"] if s["id"] in selected_subjects]
+    result["units"] = [u for u in result["units"] if u["id"] in selected_units]
+    validator = Draft202012Validator(definition.parameterSchema)
+    for unit in result["units"]:
+        binding = unit["consumerBinding"] | overrides.unitConsumerBindings.get(unit["id"], {})
+        if unit["strategy"].startswith("consumer."):
+            unit["consumerBinding"] = (definition.consumerBinding or {}) | binding
+        else:
+            if binding:
+                raise BenchError("consumer_binding_requires_consumer_strategy")
+            unit["consumerBinding"] = None
+        parameters = (definition.baseParameters | unit["parameters"] | overrides.parameters
+                      | overrides.unitParameters.get(unit["id"], {}))
+        try:
+            validator.validate(parameters)
+        except ValidationError:
+            raise BenchError("invalid_override_parameters") from None
+        unit["parameters"] = parameters
+        unit["objective"] = (definition.objective | unit["objective"] | overrides.objective
+                             | overrides.unitObjectives.get(unit["id"], {}))
+        unit["steering"] = (definition.baseSteering | unit["steering"] | overrides.steering
+                            | overrides.unitSteering.get(unit["id"], {}))
+    result["overrides"] = overrides.model_dump()
+    canonical(result)
+    return result

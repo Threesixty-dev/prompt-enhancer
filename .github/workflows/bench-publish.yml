@@ -1,0 +1,67 @@
+name: Bench publish and deliver
+on:
+  workflow_dispatch:
+    inputs:
+      image_repository:
+        description: Reviewed image repository without a tag
+        required: true
+        type: string
+      core_variant:
+        description: Reviewed core dependency variant; models includes offline typed model runtimes
+        required: true
+        default: default
+        type: choice
+        options: [default, models]
+permissions:
+  contents: read
+concurrency:
+  group: bench-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    environment: bench-publication
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.10.4"
+      - name: Validate before publication
+        run: |
+          uv sync --project bench --frozen --extra dev
+          bench/.venv/bin/python -m pytest -q tests/bench
+          bench/.venv/bin/python -m enhancement_bench.cli validate bench/definitions/*.json
+          python scripts/privacy_scan.py
+      - name: Authenticate to approved registry
+        env:
+          REGISTRY: ${{ vars.BENCH_REGISTRY }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+      - name: Build or reuse code-owned version and immutable digest
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          CORE_VARIANT: ${{ inputs.core_variant }}
+        run: bench/.venv/bin/python bench/ci.py --repository "$IMAGE_REPOSITORY" --variant "$CORE_VARIANT" --allow-publish --output "$RUNNER_TEMP/bench-publications"
+      - name: Idempotently deliver validated envelopes
+        env:
+          BENCH_DELIVERY_URL: ${{ vars.BENCH_DELIVERY_URL }}
+          BENCH_IMPORT_TOKEN: ${{ secrets.BENCH_IMPORT_TOKEN }}
+        run: |
+          for publication in "$RUNNER_TEMP"/bench-publications/*.json; do
+            bench/.venv/bin/python -m enhancement_bench.cli deliver "$publication"
+          done
+      - name: Remove job registry credentials
+        if: always()
+        env:
+          REGISTRY: ${{ vars.BENCH_REGISTRY }}
+        run: docker logout "$REGISTRY"

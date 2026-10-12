@@ -1,0 +1,15 @@
+{
+  "consumers": [],
+  "evaluators": [
+    {
+      "binding_id": "example-local-embedding",
+      "kind": "embedding",
+      "manifest_key": "multilingual_e5_small",
+      "cache_root": "/opt/enhancement/runtime/model-eval",
+      "device": "cpu"
+    }
+  ],
+  "rubric_evaluators": [],
+  "max_active": 1,
+  "max_retained": 8
+}

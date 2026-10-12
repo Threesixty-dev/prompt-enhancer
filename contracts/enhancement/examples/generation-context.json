@@ -1,0 +1,101 @@
+{
+  "experiment_id": "example-experiment",
+  "revision": "1",
+  "run_id": "example-run",
+  "correlation_id": "example-correlation",
+  "unit_id": "example-unit",
+  "attempt_id": "1",
+  "protocol_version": "enhancement-generation.v1",
+  "prompt_version": "enhancement-rewrite.v2",
+  "before": [
+    {
+      "evaluator_id": "prompt",
+      "kind": "deterministic",
+      "provenance": {
+        "provider": "deterministic",
+        "adapter_version": "prompt-evaluation.v1",
+        "model": null,
+        "model_revision": null,
+        "model_license": null,
+        "tokenizer_revision": null,
+        "rubric_version": "coaching-observables-rubric-2",
+        "metric_version": "coaching-rules-en-pl-2",
+        "redactor_version": "deterministic-local-redactor-v2",
+        "identity_source": "not_applicable",
+        "reported_model": null,
+        "operation_id": null
+      },
+      "metrics": [
+        {
+          "key": "prompt.task_definition_coverage",
+          "state": "known",
+          "value": 0.6666666666666666,
+          "label": null,
+          "reason": "task_definition_cues"
+        },
+        {
+          "key": "prompt.problem_evidence_quality",
+          "state": "unknown",
+          "value": null,
+          "label": null,
+          "reason": "diagnostic_task_not_detected"
+        },
+        {
+          "key": "prompt.context_sufficiency",
+          "state": "known",
+          "value": 0.3333333333333333,
+          "label": null,
+          "reason": "context_cues"
+        },
+        {
+          "key": "prompt.constraint_precision",
+          "state": "unknown",
+          "value": null,
+          "label": null,
+          "reason": "constraints_unobserved"
+        },
+        {
+          "key": "prompt.acceptance_testability",
+          "state": "known",
+          "value": 0.0,
+          "label": null,
+          "reason": "acceptance_check_cues"
+        },
+        {
+          "key": "prompt.deliverable_contract",
+          "state": "unknown",
+          "value": null,
+          "label": null,
+          "reason": "deliverables_unobserved"
+        }
+      ]
+    }
+  ],
+  "evaluation_profile": {
+    "profile_id": "example-profile",
+    "revision": "1",
+    "evaluators": [
+      {
+        "evaluator_id": "prompt",
+        "kind": "deterministic",
+        "binding_id": "deterministic.v1",
+        "target": null,
+        "rubric": null,
+        "generation": null
+      }
+    ]
+  },
+  "objective": {
+    "objective_id": "prompt-clarity",
+    "revision": "1",
+    "description": "Improve clarity and testability while preserving intent. Mark unavailable details with placeholders.",
+    "targets": []
+  },
+  "steering": {
+    "profile": "conservative.v1",
+    "style": "preserve",
+    "focus": [],
+    "instructions": null
+  },
+  "output_contract": "enhanced-prompt.v1"
+}

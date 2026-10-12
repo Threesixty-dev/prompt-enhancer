@@ -1,0 +1,664 @@
+{
+  "$defs": {
+    "CategoricalTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "categorical",
+          "default": "categorical",
+          "title": "Kind",
+          "type": "string"
+        },
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "metric_key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Metric Key",
+          "type": "string"
+        },
+        "desired_label": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Desired Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "metric_key",
+        "desired_label"
+      ],
+      "title": "CategoricalTarget",
+      "type": "object"
+    },
+    "Evaluation": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "deterministic",
+            "classifier",
+            "embedding",
+            "rubric"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/Metric"
+          },
+          "title": "Metrics",
+          "type": "array"
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "kind",
+        "provenance",
+        "metrics"
+      ],
+      "title": "Evaluation",
+      "type": "object"
+    },
+    "EvaluationProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "profile_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "evaluators": {
+          "items": {
+            "$ref": "#/$defs/Evaluator"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Evaluators",
+          "type": "array"
+        }
+      },
+      "required": [
+        "profile_id",
+        "revision",
+        "evaluators"
+      ],
+      "title": "EvaluationProfile",
+      "type": "object"
+    },
+    "Evaluator": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "deterministic",
+            "classifier",
+            "embedding",
+            "rubric"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "binding_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "rubric": {
+          "anyOf": [
+            {
+              "enum": [
+                "task_definition",
+                "constraint_precision",
+                "acceptance_testability",
+                "deliverable_contract"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rubric"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "kind",
+        "binding_id"
+      ],
+      "title": "Evaluator",
+      "type": "object"
+    },
+    "GenerationSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "max_output_chars": {
+          "default": 20000,
+          "maximum": 20000,
+          "minimum": 256,
+          "title": "Max Output Chars",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "maximum": 8192,
+              "minimum": 16,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        }
+      },
+      "title": "GenerationSettings",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Key",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "known",
+            "unknown",
+            "not_applicable",
+            "abstained",
+            "execution_error"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "reason": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "state",
+        "reason"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "NumericTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "numeric",
+          "default": "numeric",
+          "title": "Kind",
+          "type": "string"
+        },
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "metric_key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Metric Key",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "increase",
+            "decrease"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "desired_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desired Value"
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "metric_key",
+        "direction"
+      ],
+      "title": "NumericTarget",
+      "type": "object"
+    },
+    "Objective": {
+      "additionalProperties": false,
+      "properties": {
+        "objective_id": {
+          "default": "prompt-clarity",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Objective Id",
+          "type": "string"
+        },
+        "revision": {
+          "default": "1",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "description": {
+          "default": "Improve clarity and testability while preserving intent. Mark unavailable details with placeholders.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "targets": {
+          "default": [],
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "categorical": "#/$defs/CategoricalTarget",
+                "numeric": "#/$defs/NumericTarget"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/NumericTarget"
+              },
+              {
+                "$ref": "#/$defs/CategoricalTarget"
+              }
+            ]
+          },
+          "maxItems": 16,
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "title": "Objective",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Provider",
+          "type": "string"
+        },
+        "adapter_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "model_revision": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Revision"
+        },
+        "model_license": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model License"
+        },
+        "tokenizer_revision": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokenizer Revision"
+        },
+        "rubric_version": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rubric Version"
+        },
+        "metric_version": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Version"
+        },
+        "redactor_version": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redactor Version"
+        },
+        "identity_source": {
+          "default": "not_applicable",
+          "enum": [
+            "not_applicable",
+            "configured",
+            "verified_manifest"
+          ],
+          "title": "Identity Source",
+          "type": "string"
+        },
+        "reported_model": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reported Model"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
+        }
+      },
+      "required": [
+        "provider",
+        "adapter_version"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "Steering": {
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "default": "conservative.v1",
+          "enum": [
+            "conservative.v1",
+            "targeted.v1"
+          ],
+          "title": "Profile",
+          "type": "string"
+        },
+        "style": {
+          "default": "preserve",
+          "enum": [
+            "preserve",
+            "concise",
+            "structured"
+          ],
+          "title": "Style",
+          "type": "string"
+        },
+        "focus": {
+          "default": [],
+          "items": {
+            "enum": [
+              "goal",
+              "scope",
+              "context",
+              "constraints",
+              "acceptance",
+              "deliverable"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Focus",
+          "type": "array"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instructions"
+        }
+      },
+      "title": "Steering",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "experiment_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "correlation_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "unit_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Unit Id",
+      "type": "string"
+    },
+    "attempt_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": "enhancement-generation.v1",
+      "default": "enhancement-generation.v1",
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "prompt_version": {
+      "const": "enhancement-rewrite.v2",
+      "default": "enhancement-rewrite.v2",
+      "title": "Prompt Version",
+      "type": "string"
+    },
+    "before": {
+      "items": {
+        "$ref": "#/$defs/Evaluation"
+      },
+      "title": "Before",
+      "type": "array"
+    },
+    "evaluation_profile": {
+      "$ref": "#/$defs/EvaluationProfile"
+    },
+    "objective": {
+      "$ref": "#/$defs/Objective"
+    },
+    "steering": {
+      "$ref": "#/$defs/Steering"
+    },
+    "output_contract": {
+      "const": "enhanced-prompt.v1",
+      "default": "enhanced-prompt.v1",
+      "title": "Output Contract",
+      "type": "string"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "revision",
+    "run_id",
+    "correlation_id",
+    "unit_id",
+    "attempt_id",
+    "before",
+    "evaluation_profile",
+    "objective",
+    "steering"
+  ],
+  "title": "GenerationContext",
+  "type": "object"
+}

@@ -1,5 +1,48 @@
 # Product feature and readiness matrix
 
+## Enhancement candidate reconciliation - 2026-10-12
+
+The owner requested PR integration and promotion. The combined candidate now
+includes current main `4b4efba` and its separate quality repairs. All 40 previously
+failing/error cases pass: 30 are repaired by main, and ten by seven HTTP factory
+fixture updates for the explicit inference argument. No assertions are weakened.
+The affected-module run reports 621 passed and six platform/tooling skips; the
+core/provider/bench selection reports 265 passed. See the [combined review](bench/integration-review.md)
+for source reconciliation and [historical case mapping](enhancement-core/baseline-failures.json).
+These results supersede the residual-failure count in the earlier checkpoint,
+without changing live model, hosted full-suite, native or release acceptance.
+
+## Core and experiment bench candidate - 2026-10-12
+
+The [combined integration review](bench/integration-review.md) joins the core and
+bench on the inherited `6fa1100` development baseline. Proposed [ADR 0025](adr/0025-enhancement-experiment-boundary.md)
+records separate consumer/evaluation roles, code version plus immutable image,
+GitOps/UI runs and the enhancer-owned flow without a separate testing harness.
+
+Fresh scope: 186 core tests, 79 bench tests, six desktop/mobile browser checks,
+real-container synthetic lifecycle checks and a usable local demo with restart
+persistence. Sibling model binding, generated build metadata and local image
+retention were corrected during integration. The preserved source checkouts are
+unchanged. This candidate is uncommitted and unpublished.
+
+The broad suite's 36 inherited failures and four errors remain open. Live static
+consumer/evaluator, genuine model/GPU, hosted CI/registry/Coolify and native/release
+qualification are not established by these checks. Owner acceptance is pending;
+no B/W/WP gate closes and the dated atlas/source bindings remain historical.
+
+## Inference-provider proposal — 2026-10-09
+
+[ADR 0024](adr/0024-inference-provider-boundary.md) proposes reviewed LiteLLM
+inference for chat, Prompt Check, explicit session analysis and Agent steps on
+baseline `main` `6fa1100`. Local runtime ownership, automatic analysis and native
+workspace approval remain separate. The source is a local feature-branch proposal;
+owner acceptance, gateway qualification and deployment remain pending.
+
+The [journal](beta-progress-journal.md#2026-10-09--proposed-inference-provider-separation)
+records bounded synthetic, owned TLS/HTTP loopback, UI, build and privacy checks,
+including the 19 UI failures reproduced on clean main and an environment-blocked
+manifest CLI test. No complete suite, native journey, external model, multi-user
+hosting or beta gate is declared passed. The historical ledger below is unchanged.
 ## Cancellation-test startup synchronization — 2026-10-11 proposal
 
 The [journal task card](beta-progress-journal.md#2026-10-11--cancellation-test-startup-synchronization)

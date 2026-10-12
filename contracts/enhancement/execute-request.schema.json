@@ -1,0 +1,566 @@
+{
+  "$defs": {
+    "Assertion": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "metric_key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Metric Key",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "minimum_value",
+            "minimum_delta"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "metric_key",
+        "operator",
+        "threshold"
+      ],
+      "title": "Assertion",
+      "type": "object"
+    },
+    "CategoricalTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "categorical",
+          "default": "categorical",
+          "title": "Kind",
+          "type": "string"
+        },
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "metric_key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Metric Key",
+          "type": "string"
+        },
+        "desired_label": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Desired Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "metric_key",
+        "desired_label"
+      ],
+      "title": "CategoricalTarget",
+      "type": "object"
+    },
+    "ConsumerBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "openhands_acp",
+            "inference"
+          ],
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "provider"
+      ],
+      "title": "ConsumerBinding",
+      "type": "object"
+    },
+    "ContextMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": [
+            "user",
+            "assistant"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 8000,
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "content"
+      ],
+      "title": "ContextMessage",
+      "type": "object"
+    },
+    "EvaluationProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "profile_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "evaluators": {
+          "items": {
+            "$ref": "#/$defs/Evaluator"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Evaluators",
+          "type": "array"
+        }
+      },
+      "required": [
+        "profile_id",
+        "revision",
+        "evaluators"
+      ],
+      "title": "EvaluationProfile",
+      "type": "object"
+    },
+    "Evaluator": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "deterministic",
+            "classifier",
+            "embedding",
+            "rubric"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "binding_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "rubric": {
+          "anyOf": [
+            {
+              "enum": [
+                "task_definition",
+                "constraint_precision",
+                "acceptance_testability",
+                "deliverable_contract"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rubric"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "kind",
+        "binding_id"
+      ],
+      "title": "Evaluator",
+      "type": "object"
+    },
+    "GenerationSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "max_output_chars": {
+          "default": 20000,
+          "maximum": 20000,
+          "minimum": 256,
+          "title": "Max Output Chars",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "maximum": 8192,
+              "minimum": 16,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        }
+      },
+      "title": "GenerationSettings",
+      "type": "object"
+    },
+    "NumericTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "numeric",
+          "default": "numeric",
+          "title": "Kind",
+          "type": "string"
+        },
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "metric_key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Metric Key",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "increase",
+            "decrease"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "desired_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desired Value"
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "metric_key",
+        "direction"
+      ],
+      "title": "NumericTarget",
+      "type": "object"
+    },
+    "Objective": {
+      "additionalProperties": false,
+      "properties": {
+        "objective_id": {
+          "default": "prompt-clarity",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Objective Id",
+          "type": "string"
+        },
+        "revision": {
+          "default": "1",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "description": {
+          "default": "Improve clarity and testability while preserving intent. Mark unavailable details with placeholders.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "targets": {
+          "default": [],
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "categorical": "#/$defs/CategoricalTarget",
+                "numeric": "#/$defs/NumericTarget"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/NumericTarget"
+              },
+              {
+                "$ref": "#/$defs/CategoricalTarget"
+              }
+            ]
+          },
+          "maxItems": 16,
+          "title": "Targets",
+          "type": "array"
+        }
+      },
+      "title": "Objective",
+      "type": "object"
+    },
+    "Parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "timeout_seconds": {
+          "default": 120,
+          "maximum": 600,
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "generation": {
+          "$ref": "#/$defs/GenerationSettings"
+        }
+      },
+      "title": "Parameters",
+      "type": "object"
+    },
+    "Steering": {
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "default": "conservative.v1",
+          "enum": [
+            "conservative.v1",
+            "targeted.v1"
+          ],
+          "title": "Profile",
+          "type": "string"
+        },
+        "style": {
+          "default": "preserve",
+          "enum": [
+            "preserve",
+            "concise",
+            "structured"
+          ],
+          "title": "Style",
+          "type": "string"
+        },
+        "focus": {
+          "default": [],
+          "items": {
+            "enum": [
+              "goal",
+              "scope",
+              "context",
+              "constraints",
+              "acceptance",
+              "deliverable"
+            ],
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Focus",
+          "type": "array"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instructions"
+        }
+      },
+      "title": "Steering",
+      "type": "object"
+    },
+    "Subject": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "context": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ContextMessage"
+          },
+          "maxItems": 24,
+          "title": "Context",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Subject",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "experiment_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "revision": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "correlation_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "unit_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Unit Id",
+      "type": "string"
+    },
+    "attempt_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "protocol_version": {
+      "const": "enhancement.v1",
+      "default": "enhancement.v1",
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "data_policy": {
+      "const": "synthetic_benchmark",
+      "title": "Data Policy",
+      "type": "string"
+    },
+    "subject": {
+      "$ref": "#/$defs/Subject"
+    },
+    "strategy": {
+      "enum": [
+        "script.clarify.v1",
+        "consumer.rewrite.v1"
+      ],
+      "title": "Strategy",
+      "type": "string"
+    },
+    "parameters": {
+      "$ref": "#/$defs/Parameters"
+    },
+    "consumer": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConsumerBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "evaluation": {
+      "$ref": "#/$defs/EvaluationProfile"
+    },
+    "assertions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Assertion"
+      },
+      "maxItems": 32,
+      "title": "Assertions",
+      "type": "array"
+    },
+    "objective": {
+      "$ref": "#/$defs/Objective"
+    },
+    "steering": {
+      "$ref": "#/$defs/Steering"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "revision",
+    "run_id",
+    "correlation_id",
+    "unit_id",
+    "attempt_id",
+    "data_policy",
+    "subject",
+    "strategy",
+    "evaluation"
+  ],
+  "title": "ExecuteRequest",
+  "type": "object"
+}

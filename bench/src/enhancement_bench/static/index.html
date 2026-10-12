@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Experiment Bench | Prompt Enhancer</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/">Prompt Enhancer <span>Experiment Bench</span></a><span class="private-label">Private workspace</span></header>
+  <main>
+    <section id="connect" class="connection" aria-labelledby="connect-title">
+      <div><p class="eyebrow">Controlled experiments</p><h1 id="connect-title">Make every change measurable.</h1><p>Compare sibling strategies against one evaluator profile. Inspect the evidence, retain the unknowns.</p></div>
+      <form id="connect-form"><label for="operator-token">Operator access token</label><input id="operator-token" type="password" autocomplete="off" required minlength="24"><button type="submit">Open bench</button><small>The token stays in this tab's memory.</small></form>
+    </section>
+    <p id="notice" role="status" aria-live="polite"></p>
+    <div id="workspace" hidden>
+      <div class="page-heading"><div><p class="eyebrow">Versioned evidence</p><h1>Experiment bench</h1></div><button id="refresh" class="secondary">Refresh</button></div>
+      <div class="workspace-grid">
+        <aside aria-labelledby="experiments-title"><h2 id="experiments-title">Experiments</h2><div id="experiments"></div><p class="hint">GitOps delivers definitions and immutable images. Each eligible revision runs once.</p></aside>
+        <section aria-labelledby="experiment-title"><div id="experiment"></div><div class="section-heading"><h2>Runs</h2><span id="run-count" class="hint"></span></div><div id="runs"></div></section>
+      </div>
+      <section id="run-detail" aria-live="polite"></section>
+    </div>
+  </main>
+  <footer>Execution status and assertion outcome are separate. Unknown values stay unknown.</footer>
+</body>
+</html>

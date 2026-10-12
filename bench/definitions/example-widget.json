@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "bench-experiment/v1",
+  "stableId": "example-widget",
+  "revision": "1",
+  "generation": 1,
+  "title": "Clarify a fictional widget request",
+  "enhancerVersion": "0.1.0",
+  "autoRun": true,
+  "subjects": [
+    {
+      "id": "example-prompt",
+      "text": "Add a parser for the fictional example widget. Return a patch and tests.",
+      "context": []
+    }
+  ],
+  "units": [
+    {
+      "id": "script",
+      "title": "Packaged clarification",
+      "strategy": "script.clarify.v1",
+      "parameters": {},
+      "assertions": []
+    },
+    {
+      "id": "consumer",
+      "title": "Consumer rewrite",
+      "strategy": "consumer.rewrite.v1",
+      "parameters": {},
+      "assertions": [],
+      "steering": {
+        "profile": "targeted.v1",
+        "style": "structured",
+        "focus": [
+          "acceptance",
+          "deliverable"
+        ]
+      },
+      "objective": {
+        "targets": [
+          {
+            "kind": "numeric",
+            "evaluator_id": "prompt",
+            "metric_key": "prompt.acceptance_testability",
+            "direction": "increase",
+            "desired_value": null
+          }
+        ]
+      }
+    }
+  ],
+  "consumerBinding": {
+    "binding_id": "example-consumer",
+    "provider": "openhands_acp"
+  },
+  "evaluatorProfile": {
+    "profile_id": "example-profile",
+    "revision": "1",
+    "evaluators": [
+      {
+        "evaluator_id": "prompt",
+        "kind": "deterministic",
+        "binding_id": "deterministic.v1",
+        "target": null,
+        "rubric": null,
+        "generation": null
+      }
+    ]
+  },
+  "baseParameters": {
+    "timeout_seconds": 120,
+    "generation": {
+      "max_output_chars": 20000,
+      "max_tokens": null,
+      "temperature": null
+    }
+  },
+  "parameterSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "timeout_seconds",
+      "generation"
+    ],
+    "properties": {
+      "timeout_seconds": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600
+      },
+      "generation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "max_output_chars",
+          "max_tokens",
+          "temperature"
+        ],
+        "properties": {
+          "max_output_chars": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 20000
+          },
+          "max_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 16,
+            "maximum": 8192
+          },
+          "temperature": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    }
+  },
+  "objective": {
+    "objective_id": "prompt-clarity",
+    "revision": "1",
+    "description": "Improve clarity and testability while preserving intent. Mark unavailable details with placeholders.",
+    "targets": []
+  },
+  "baseSteering": {
+    "profile": "conservative.v1",
+    "style": "preserve",
+    "focus": [],
+    "instructions": null
+  }
+}

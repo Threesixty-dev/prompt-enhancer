@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   PromptCheckRecord,
+  PromptCheckConfiguration,
+  PromptCheckPreview,
   PromptCheckRequest,
   PromptCheckResult,
   PromptEnhancerTransport,
@@ -8,6 +10,7 @@ import type {
 import { TransportError } from "../../shared/api/httpTransport";
 import type { AppRoute } from "../../shared/platform/platform";
 import { PromptMetricRadar, PromptMetricTrend, promptMetricQualityValue } from "./promptCheckPlots";
+import { PromptCheckReview } from "./PromptCheckReview";
 import "./PromptCheckPage.css";
 
 type Reading = PromptCheckResult["metrics"][number];
@@ -76,8 +79,23 @@ export function PromptCheckPage({
   checkId?: string;
   navigate: (route: AppRoute) => void;
   sessionId?: string;
-  transport: Pick<PromptEnhancerTransport, "checkPrompt" | "getPromptCheckHistory" | "getPromptCheck">;
+  transport: Pick<PromptEnhancerTransport, "checkPrompt" | "getPromptCheckHistory" | "getPromptCheck" | "getPromptCheckConfiguration" | "previewPrompt">;
 }) {
+  const [configuration, setConfiguration] = useState<PromptCheckConfiguration | null>(
+    transport.getPromptCheckConfiguration ? null : { remote: false, provider: "local", model: null });
+  const [configurationError, setConfigurationError] = useState(false);
+  const [preview, setPreview] = useState<{ value: PromptCheckPreview; request: PromptCheckRequest } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setConfigurationError(false);
+    if (transport.getPromptCheckConfiguration) {
+      setConfiguration(null);
+      transport.getPromptCheckConfiguration(controller.signal).then((value) => {
+        if (!controller.signal.aborted) setConfiguration(value);
+      }).catch(() => { if (!controller.signal.aborted) setConfigurationError(true); });
+    }
+    return () => controller.abort();
+  }, [transport]);
   const [prompt, setPrompt] = useState("");
   const [prior, setPrior] = useState("");
   const [wantCommentary, setWantCommentary] = useState(true);
@@ -132,6 +150,7 @@ export function PromptCheckPage({
   }, [checkId, sessionId, transport]);
 
   useEffect(() => { setResult(null); }, [sessionId, transport]);
+  useEffect(() => { setPreview(null); }, [checkId, sessionId, transport]);
 
   useEffect(() => {
     if (!checkId) {
@@ -155,7 +174,7 @@ export function PromptCheckPage({
     return () => controller.abort();
   }, [checkId, storedRetry, transport]);
 
-  async function run() {
+  async function run(approved?: { value: PromptCheckPreview; request: PromptCheckRequest }) {
     const text = prompt.trim();
     if (!text || checkRequest.current) return;
     const controller = new AbortController();
@@ -167,18 +186,32 @@ export function PromptCheckPage({
     setCopied(false);
     setCopyError("");
     try {
-      const value = await transport.checkPrompt({
+      const request: PromptCheckRequest = approved?.request ?? {
         prompt: text,
         prior_messages: sessionId ? [] : parsePriorMessages(prior),
         session_id: sessionId ?? null,
         provider: "other",
-        want_commentary: wantCommentary,
-      }, controller.signal);
+        want_commentary: wantCommentary && !(configuration?.remote && sessionId),
+      };
+      if (configuration?.remote && request.want_commentary && !approved) {
+        if (!transport.previewPrompt) throw new Error("Preview unavailable");
+        const value = await transport.previewPrompt(request, controller.signal);
+        if (owns()) setPreview({ value, request });
+        return;
+      }
+      const value = await transport.checkPrompt(approved
+        ? { ...request, remote_approval: approved.value.approval } : request, controller.signal);
       if (!owns()) return;
       setResult(value);
+      setPreview(null);
       await loadHistory();
     } catch (caught) {
       if (!owns()) return;
+      if (caught instanceof TransportError && caught.status === 428) {
+        setPreview(null);
+        setError("The preview expired or changed. Check the prompt again to review a new preview.");
+        return;
+      }
       setError(caught instanceof TransportError && caught.status === 422
         ? "The prompt or the earlier turns are too long or empty."
         : "The check could not be confirmed. Your draft is still here. Retry history to check whether metrics were saved.");
@@ -226,39 +259,43 @@ export function PromptCheckPage({
           <h1 id="prompt-check-title">Check a prompt</h1>
           <p className="prompt-check__lede">
             Paste the prompt you are about to give Claude Code, Codex or any model. You get the same deterministic cues the dashboard
-            measures for whole sessions, what the local model would change, and a reformulated version - on this machine only. Agents can
-            call the same check themselves (MCP tool <code>check_prompt</code>, Claude Code hook); only metrics are kept for the plots below.
+            measures for whole sessions, with optional model commentary and a reformulated version. Only metrics are kept for the plots below.
+            {configuration?.remote ? ` Commentary uses ${configuration.model} through your configured LiteLLM gateway. Review the redacted text before sending it.`
+              : " Model commentary runs locally when a local model is active."}
           </p>
         </div>
       </header>
 
+      {configurationError && <p role="alert">Model configuration could not be loaded. Reopen this page to retry.</p>}
       <form
         className="prompt-check__form"
         onSubmit={(event) => { event.preventDefault(); void run(); }}
       >
         {sessionId && (
           <p className="prompt-check__session-banner">
-            Using the last turns of the selected session as context - the model sees where that conversation stands.
+            {configuration?.remote ? "Automatic session context is unavailable for LiteLLM. Check a manually supplied prompt instead."
+              : "Using the last turns of the selected session as context - the model sees where that conversation stands."}
             <button className="link-button" onClick={() => navigate({ name: "prompt_checks" })} type="button">Check without session context instead</button>
           </p>
         )}
         <label>
           <span>Prompt</span>
-          <textarea aria-label="Prompt to check" maxLength={20000} onChange={(e) => setPrompt(e.currentTarget.value)} placeholder="The prompt you are about to send…" rows={6} value={prompt} />
+          <textarea aria-label="Prompt to check" maxLength={20000} disabled={busy} onChange={(e) => { setPrompt(e.currentTarget.value); setPreview(null); }} placeholder="The prompt you are about to send…" rows={6} value={prompt} />
         </label>
         <label hidden={Boolean(sessionId)}>
           <span>Earlier turns (optional - one per line as <code>user: …</code> / <code>assistant: …</code>; the check reads them as context)</span>
-          <textarea aria-label="Earlier turns" maxLength={40000} onChange={(e) => setPrior(e.currentTarget.value)} placeholder={"user: We looked at the uploader yesterday\nassistant: The retry loop is in client.py"} rows={3} value={prior} />
+          <textarea aria-label="Earlier turns" maxLength={40000} disabled={busy} onChange={(e) => { setPrior(e.currentTarget.value); setPreview(null); }} placeholder={"user: We looked at the uploader yesterday\nassistant: The retry loop is in client.py"} rows={3} value={prior} />
         </label>
         <div className="prompt-check__controls">
           <label className="prompt-check__toggle">
-            <input checked={wantCommentary} onChange={(e) => setWantCommentary(e.currentTarget.checked)} type="checkbox" />
-            <span>Ask the local model for commentary and a reformulation (slower)</span>
+            <input disabled={busy || Boolean(configuration?.remote && sessionId)} checked={wantCommentary && !(configuration?.remote && Boolean(sessionId))} onChange={(e) => { setWantCommentary(e.currentTarget.checked); setPreview(null); }} type="checkbox" />
+            <span>{configuration?.remote ? `Ask ${configuration.model} via LiteLLM for commentary and a reformulation` : "Ask the local model for commentary and a reformulation (slower)"}</span>
           </label>
-          <button aria-describedby={busy || !prompt.trim() ? "prompt-check-submit-requirement" : undefined} className="button button--primary" disabled={busy || !prompt.trim()} type="submit">{busy ? "Checking…" : "Check prompt"}</button>
+          <button aria-describedby={busy || !prompt.trim() ? "prompt-check-submit-requirement" : undefined} className="button button--primary" disabled={busy || !prompt.trim() || !configuration} type="submit">{busy ? "Checking…" : "Check prompt"}</button>
         </div>
         <span className="sr-only" id="prompt-check-submit-requirement">{busy ? "Wait for the current prompt check to finish." : "Enter a prompt before running the check."}</span>
       </form>
+      {preview && <PromptCheckReview preview={preview.value} busy={busy} onSend={() => void run(preview)} onCancel={() => setPreview(null)} />}
       {error && <p className="prompt-check__error" role="alert">{error}</p>}
 
       {result && (
@@ -315,7 +352,7 @@ export function PromptCheckPage({
           </div>
 
           <article className="prompt-check__card prompt-check__commentary" data-state={result.commentary.state}>
-            <h3>What the local model would change <small>· model output, not a metric</small></h3>
+            <h3>{result.commentary.inference_provider === "litellm" ? `What ${result.commentary.model_alias} would change` : "What the local model would change"} <small>· model output, not a metric</small></h3>
             {result.commentary.state === "ok" ? (
               <>
                 {result.commentary.findings.length > 0 && (

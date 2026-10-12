@@ -308,7 +308,9 @@ def _candidate_files(root: Path, paths: Iterable[Path] | None) -> Iterable[Path]
             continue
         folded_relative_parts = tuple(part.casefold() for part in relative.parts)
         directory_parts = {part.casefold() for part in relative.parts[:-1]}
-        if directory_parts & _ALWAYS_SKIPPED_PARTS:
+        if directory_parts & _ALWAYS_SKIPPED_PARTS or (
+            folded_relative_parts == (".git",) and not path.is_symlink()
+        ):
             continue
         if (
             ignore_generated_directories

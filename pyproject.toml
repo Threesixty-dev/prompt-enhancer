@@ -27,6 +27,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+enhancement-acp = [
+  # MIT; isolated static-worker client, never required by desktop composition.
+  "openhands-sdk==1.49.1; python_version >= '3.12'",
+]
 dev = [
   "huggingface-hub>=0.36.2,<1",
   "pytest>=8.4.1,<9",
@@ -46,6 +50,7 @@ desktop = [
 
 [project.scripts]
 prompt-enhancer = "prompt_enhancer.cli:main"
+prompt-enhancement-core = "prompt_enhancer.enhancement.cli:main"
 
 [project.gui-scripts]
 prompt-enhancer-desktop = "prompt_enhancer.desktop_overlay:desktop_main"

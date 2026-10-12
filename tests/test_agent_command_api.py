@@ -38,7 +38,7 @@ def test_http_cleanup_state_and_fixed_refusals_survive_idle_worker(tmp_path, mon
     monkeypatch.setattr(
         type(application),
         "create_local_agent_service",
-        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None: service,
+        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None, inference=None: service,
     )
     client = TestClient(application.create_http_app(), base_url="http://127.0.0.1")
     headers = {API_TOKEN_HEADER: settings.api_token_path.read_text(encoding="utf-8").strip()}

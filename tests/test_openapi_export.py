@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import http.client
 import json
 from pathlib import Path
+
+import pytest
 
 from scripts.export_openapi import build_openapi_schema, export_openapi
 
@@ -941,6 +944,33 @@ def test_local_model_lifecycle_failures_are_declared_in_openapi() -> None:
         assert ref(operation, 404).endswith("/LocalModelDownloadNotFoundFailureResponse")
         assert ref(operation, 409).endswith("/LocalModelDownloadConflictFailureResponse")
         assert ref(operation, 503).endswith("/LocalModelDownloadUnavailableFailureResponse")
+
+
+@pytest.mark.parametrize(
+    "status_description", ("Request Entity Too Large", "Content Too Large")
+)
+def test_http_413_descriptions_are_independent_of_python_version(
+    monkeypatch: pytest.MonkeyPatch, status_description: str
+) -> None:
+    monkeypatch.setitem(http.client.responses, 413, status_description)
+    paths = build_openapi_schema()["paths"]
+    responses = {
+        path: operation["responses"]["413"]
+        for path, methods in paths.items()
+        for operation in methods.values()
+        if "413" in operation.get("responses", {})
+    }
+
+    assert set(responses) == {
+        "/v1/local-models/openai/v1/chat/completions",
+        "/v1/local-models/{alias}/v1/chat/completions",
+        "/v1/local-models/{alias}/chat/completions",
+        "/v1/sessions/{session_id}/model-link-experiments",
+        "/v1/sessions/{session_id}/quality-analysis-previews",
+        "/v1/sessions/{session_id}/quality-analysis-runs",
+    }
+    for path, response in responses.items():
+        assert response["description"] == "Content Too Large", path
 
 
 def test_committed_openapi_artifact_is_byte_exact_to_current_schema() -> None:

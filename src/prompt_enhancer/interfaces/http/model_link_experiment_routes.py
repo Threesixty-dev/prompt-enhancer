@@ -286,7 +286,11 @@ def create_model_link_experiment_router(
         responses={
             **{
                 status: {"model": ModelLinkFailureResponse}
-                for status in (403, 409, 413, 504)
+                for status in (403, 409, 504)
+            },
+            413: {
+                "model": ModelLinkFailureResponse,
+                "description": "Content Too Large",
             },
             404: {
                 "model": ModelLinkFailureResponse | SessionProviderFailureResponse

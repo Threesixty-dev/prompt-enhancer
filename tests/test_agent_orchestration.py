@@ -376,7 +376,7 @@ def test_token_controller_completes_a_bounded_project_chat_and_preview_lifecycle
     monkeypatch.setattr(
         type(application),
         "create_local_agent_service",
-        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None: service,
+        lambda self, local_model_service=None, *, mcp_managed_runtime_service=None, inference=None: service,
     )
 
     try:
