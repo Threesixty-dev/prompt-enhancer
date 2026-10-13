@@ -10,13 +10,13 @@ this does not implement or accept the general workflow engine gates.
 ## User journey
 
 - `/experiments` lists experiments. Cards are ordinary links to experiment pages.
-- `/experiments/{id}?revision={revision}` shows one revision, its strategies,
-  prompts and recent runs. New run opens a separate form.
+- `/experiments/{id}?revision={revision}` shows one revision, its units,
+  subjects and recent runs. New run opens a separate form.
 - `/experiments/{id}/runs/new?revision={revision}` configures a run. An optional
   `from` run identity prefills the saved effective settings for a reconciled
   terminal run. Submission retains `retryOf` and a stable request identity for
   retries of the same submitted settings.
-- `/experiments/{id}/runs/{runId}` shows that run's status and result evidence.
+- `/experiments/{id}/runs/{runId}` shows that run's status, attempts and results.
   Rerun with changes opens the form; it does not immediately execute a run.
 
 The server serves the shell at these exact routes, so reloads and deep links
@@ -29,11 +29,11 @@ Late responses from an abandoned page cannot replace the active page.
 Experiment parameter schemas drive number, text, boolean, enum, object and array
 controls. Objective, steering and consumer fields use the authoritative execution
 schema through the authenticated, read-only `/api/run-form-schema` endpoint.
-No JSON input editor is needed. Read-only JSON evidence remains available in
-collapsed provenance sections.
+No JSON input editor is needed. Read-only JSON results and run settings remain available in collapsed
+detail sections.
 
-Each selected strategy has its own effective parameters, objective, steering and
-model alias. Prompt and strategy checkboxes retain the saved subset on rerun.
+Each selected unit has its own effective parameters, objective, steering and
+model alias. Subject and unit checkboxes retain the saved subset on rerun.
 Nullable controls distinguish provider defaults/unknowns from explicit numbers,
 including zero. Absent optional values remain omitted. Schema limits are applied
 in the form; the existing API and execution contracts remain authoritative.
@@ -44,7 +44,7 @@ replace controls, overwrite a draft or silently select a newly published revisio
 
 The previous client recreated every result panel every three seconds and each
 new panel replayed its fade-in animation. This client skips unchanged snapshots
-and removes that panel animation. Changed evidence preserves each disclosure by
+and removes that panel animation. Changed run data preserves each disclosure by
 a stable run/attempt key. Reconciliation input retains its existing focus guard.
 
 ## Evidence scope

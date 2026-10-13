@@ -31,7 +31,7 @@ async function cancel(page) {
   await expect(page.locator('#run-detail .badge.cancelled').first()).toBeVisible();
 }
 async function settings(page) {
-  await page.getByText('Immutable effective settings', { exact: true }).click();
+  await page.getByText('Effective run settings', { exact: true }).click();
   return JSON.parse(await page.locator('#run-detail pre').first().textContent());
 }
 
@@ -143,14 +143,14 @@ test('invalid numbers and empty selections never submit a run', async ({ page })
   await strategy(page, 'script').getByRole('checkbox', { name: 'Packaged clarification', exact: true }).uncheck();
   await strategy(page, 'consumer').getByRole('checkbox', { name: 'Consumer rewrite', exact: true }).uncheck();
   await page.getByRole('button', { name: 'Start run', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Select at least one strategy');
+  await expect(page.getByRole('status')).toContainText('Select at least one unit and one subject.');
   expect(submissions).toBe(0);
 });
 
 test('polling preserves completed result nodes, open disclosures, and form input', async ({ page }) => {
   await openExperiment(page);
   await page.getByRole('link', { name: /Automatic run/ }).first().click();
-  await page.getByText('Immutable effective settings', { exact: true }).click();
+  await page.getByText('Effective run settings', { exact: true }).click();
   await page.evaluate(() => {
     window.resultNode = document.querySelector('.run-panel');
     window.resultMutations = 0;
