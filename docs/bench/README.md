@@ -94,8 +94,12 @@ the remote operation stopped. The UI then permits a fresh retry. This records an
 operator attestation, not an automatically verified model success.
 
 The bench retains complete results in its private volume until the operator
-performs a reviewed retention operation. This MWE has no automatic deletion or
-public export endpoint. Back up SQLite with its backup API while the worker is
+performs a reviewed retention operation. There is no automatic deletion of Bench
+results or public export endpoint. Dedicated OpenHands conversation history has
+a separate configurable seven-day default; successful runtime cleanup no longer
+deletes it immediately. Uncertain conversations remain held for reconciliation.
+See the [deployment policy](deployment.md#operator-configuration).
+Back up SQLite with its backup API while the worker is
 stopped, and verify the backup in a separate private location. Preserve WAL files
 when moving a live database; copying just the main file is not a valid backup.
 Never include database contents, prompts, response logs or worker homes in issues

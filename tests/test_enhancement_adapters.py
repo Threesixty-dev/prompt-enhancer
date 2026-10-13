@@ -277,16 +277,20 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, r
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.setattr(importlib.metadata, "version", lambda name: "1.49.1")
     class Client:
-        deleted = False
         def __init__(self, **kwargs): pass
         def __enter__(self): return self
         def __exit__(self, *args): pass
         def get(self, path):
-            return SimpleNamespace(status_code=404 if self.deleted and cleanup else 200,
+            if path.endswith("/api/bench/retention"):
+                return SimpleNamespace(status_code=200, json=lambda: {"version": "bench-retention.v1"})
+            return SimpleNamespace(status_code=200,
                 raise_for_status=lambda: None, json=lambda: {"execution_status": "finished", "current_model_id": "example-model"})
+        def post(self, path):
+            assert path.endswith(("/release", "/retain"))
+            return SimpleNamespace(status_code=200 if cleanup else 409,
+                json=lambda: {"runtime_released": cleanup, "cleanup_confirmed": cleanup})
         def delete(self, path):
-            self.deleted = True
-            return SimpleNamespace(status_code=204)
+            pytest.fail("completed OpenHands history must be retained")
     monkeypatch.setattr(httpx, "Client", Client)
     return created, agents, sent
 

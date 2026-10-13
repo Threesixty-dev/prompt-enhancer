@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Bench consumer retention candidate - 2026-10-13
+
+The owner requested bounded retention of the dedicated OpenHands conversation
+history. Core 0.1.3 releases the runtime while the consumer retains native history
+for a configurable seven-day default after confirmed cleanup. Failed/uncertain
+attempts remain held. Focused synthetic and pinned-container restart/expiry
+evidence is recorded in the [integration review](bench/integration-review.md).
+No new inference, public OpenHands UI, general workflow or release qualification
+is claimed. Live rollout remains a separate step; existing Bench results retain
+their independent policy and the previously deleted pilot is not recovered.
+
 ## Bounded live bench pilot - 2026-10-13
 
 One fictional end-to-end pilot completed through the deployed core 0.1.2,

@@ -142,6 +142,12 @@ def openhands(payload):
         working_dir=directory)
     conversation, confirmed = None, False
     try:
+        with httpx.Client(timeout=10, follow_redirects=False, trust_env=False,
+                          headers={"X-Session-API-Key": key}) as client:
+            policy = client.get(f"{config.endpoint}/api/bench/retention")
+            if (policy.status_code != 200 or policy.json().get("version") != "bench-retention.v1"
+                    or policy.json().get("sweep_error") is True):
+                raise CoreError("remote_cleanup_unconfirmed")
         prepared = workspace.execute_command(f"mkdir -m 700 -- {directory}", cwd="/tmp", timeout=10)
         if prepared.exit_code != 0:
             raise CoreError("consumer_workspace_unavailable")
@@ -183,16 +189,18 @@ def openhands(payload):
     finally:
         if conversation is not None:
             try:
-                # Failed or cancelled conversations are retained for reconciliation.
-                # Finished attempts (including invalid replies) release remote state.
+                # Release the runtime without deleting its native OpenHands history.
+                # Failed/cancelled attempts remain held for explicit reconciliation.
                 if confirmed:
-                    with httpx.Client(timeout=10, follow_redirects=False, trust_env=False,
+                    conversation.close()
+                    with httpx.Client(timeout=30, follow_redirects=False, trust_env=False,
                             headers={"X-Session-API-Key": payload["credential"]}) as client:
-                        deleted = client.delete(f"{config.endpoint}/api/conversations/{conversation_id}")
-                        if deleted.status_code not in {200, 204, 404}:
+                        released = client.post(f"{config.endpoint}/api/bench/conversations/{conversation_id}/release")
+                        if (released.status_code != 200
+                                or released.json().get("runtime_released") is not True):
                             raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
-                        absent = client.get(f"{config.endpoint}/api/conversations/{conversation_id}")
-                        if absent.status_code != 404:
+                        retained = client.get(f"{config.endpoint}/api/conversations/{conversation_id}")
+                        if retained.status_code != 200 or retained.json().get("execution_status") != "finished":
                             raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
                     # OpenHands initializes Git in this newly allocated workspace.
                     # Remove only that metadata; unexpected files still fail cleanup.
@@ -201,6 +209,11 @@ def openhands(payload):
                         cwd="/tmp", timeout=10)
                     if removed.exit_code != 0:
                         raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
+                    with httpx.Client(timeout=10, follow_redirects=False, trust_env=False,
+                            headers={"X-Session-API-Key": key}) as client:
+                        receipt = client.post(f"{config.endpoint}/api/bench/conversations/{conversation_id}/retain")
+                        if receipt.status_code != 200 or receipt.json().get("cleanup_confirmed") is not True:
+                            raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
             except Exception:
                 raise CoreError("remote_cleanup_unconfirmed", uncertain=True) from None
             finally:

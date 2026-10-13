@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends socat && rm -rf
     && chown openhands:10003 /run/bench-gateway /run/bench-consumer-api \
     && chmod 2770 /run/bench-gateway /run/bench-consumer-api
 COPY deployment/bench/consumer_start.py /opt/bench-consumer/start.py
+COPY deployment/bench/consumer_retention.py /opt/bench-consumer/consumer_retention.py
 USER openhands
 WORKDIR /runtime/consumer
 ENTRYPOINT ["python3", "/opt/bench-consumer/start.py"]

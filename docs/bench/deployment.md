@@ -80,10 +80,38 @@ stops the consumer so Docker can restart the complete unit; health checks exerci
 the actual private transports. It writes only its dedicated runtime Codex configuration
 and uses read-only session mode, disabled web search and no interactive approvals.
 The private synthetic worker is not a general-purpose repository agent.
-OpenHands initializes `.git` in each fresh attempt workspace. After confirmed
-conversation completion and deletion, core 0.1.1 removes that owned metadata and
-then the empty workspace. A replaced workspace symlink or any other remaining
-file still causes uncertain cleanup and requires reconciliation.
+OpenHands initializes `.git` in each fresh attempt workspace. Core 0.1.3 closes
+the client subscription, asks the dedicated consumer to release the finished
+runtime while retaining native history, then removes the owned metadata and
+empty workspace. A replaced workspace symlink or other remaining file still
+causes uncertain cleanup and requires reconciliation.
+
+Completed native OpenHands conversations remain in `consumer-data` for seven
+days by default. `BENCH_CONSUMER_RETENTION_DAYS` accepts 1 through 90 days. The
+expiry clock begins only after core confirms workspace cleanup. Failed,
+interrupted and cleanup-held conversations have no automatic expiry; reconcile
+them explicitly. Complete Bench results have their own retention policy and are
+unaffected by conversation expiry. Already-deleted conversations cannot be
+recovered by enabling this policy.
+
+The authenticated `/api/bench/retention` endpoint reports the policy and sweep
+health. `/api/bench/conversations/{id}/release` unloads a completed owned runtime;
+`/retain` acknowledges workspace cleanup and durably records its expiry. Native
+OpenHands conversation and event GET endpoints remain usable after restart;
+retained conversations reject HTTP mutation and both interactive WebSocket
+connections; historical inspection uses the native REST event API. The expiry sweep runs every
+minute and skips loaded conversations. Native event inspection can temporarily
+reload idle metadata; the server's idle eviction releases that state without
+executing another turn. Expiry also removes any empty owned workspace recreated
+by inspection. A failed sweep blocks new core consumer calls until repaired.
+
+This is the bench's separate Agent Server, with no public consumer port or
+separately published OpenHands UI. The retention adapter is version-gated to
+SDK/server 1.49.1 because that version has no unload-without-delete HTTP method.
+Its small compatibility boundary uses the server's lifecycle lock and close
+operation; it does not ingest or mutate external provider sessions. Deploy the
+consumer retention adapter before using core 0.1.3, which checks the capability
+before any model call. Keep the existing consumer volume when replacing images.
 
 Set `BENCH_DOCKER_GID` to the socket's group so UID 10002 can use it, and
 `BENCH_CORE_CONFIG_SOURCE` to the reviewed core configuration's **Docker-host**

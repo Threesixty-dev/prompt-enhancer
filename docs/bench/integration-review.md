@@ -1,5 +1,20 @@
 # Combined core and bench review
 
+## Consumer retention follow-up - 2026-10-13
+
+The owner requested retained OpenHands history after the successful pilot was
+deleted by completion cleanup. Core 0.1.3 and the dedicated consumer adapter now
+separate process release from history expiry. The configurable default is seven
+days after confirmed cleanup; uncertain attempts remain held. Native history is
+read-only and survives restart. Complete Bench results keep their existing
+independent retention. See the [task and policy](consumer-retention.md).
+
+Initial focused validation: 46 synthetic tests passed. The pinned 1.49.1 consumer
+container also preserved a fictional native conversation and its events across
+server restart, rejected unauthenticated access and replay, and expired the
+acknowledged history. Networking was disabled and no inference was performed.
+Live rollout and a future consumer run remain separate evidence.
+
 Date: 2026-10-12. Branch: `codex/enhancer-integration-review`.
 Initial disposition: local review candidate. The October 13 addendum records a
 later live synthetic deployment; architecture acceptance remains pending.

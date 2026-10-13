@@ -75,6 +75,7 @@ services:
       BENCH_LITELLM_URL: http://127.0.0.1:4000/v1
       BENCH_LITELLM_TOKEN: ${BENCH_LITELLM_TOKEN:?Set a model-restricted gateway token}
       BENCH_CONSUMER_MODEL: ${BENCH_CONSUMER_MODEL:?Set the qualified gateway model}
+      BENCH_CONSUMER_RETENTION_DAYS: ${BENCH_CONSUMER_RETENTION_DAYS:-7}
     group_add: ["10003"]
     volumes:
       - consumer-data:/runtime/consumer

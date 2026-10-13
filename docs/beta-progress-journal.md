@@ -1,5 +1,22 @@
 # Beta progress journal: published handoff
 
+## 2026-10-13 - Dedicated bench conversation retention
+
+The owner requested inspection history after successful OpenHands cleanup had
+deleted the pilot conversation. Core 0.1.3 and a version-gated consumer adapter
+now separate runtime release from native history retention. The default is seven
+days after confirmed workspace cleanup, configurable 1-90 days. Uncertain and
+cleanup-held attempts do not expire automatically. Native REST history survives
+restart; retained HTTP and WebSocket mutation/replay are rejected. Complete Bench
+results keep their independent retention policy.
+
+The [task card](bench/consumer-retention.md) binds source `2ab65bb`, paths and
+W05/W07/WP05/WP07 scope. Forty-six focused synthetic tests and the privacy scanner
+pass. A network-isolated pinned 1.49.1 container verified native history, restart,
+authentication, replay refusal and expiry with zero model calls. No full suite or
+CI wait was run. Live activation remains separate; the already-deleted pilot is
+not recovered and the historical architecture atlas is unchanged.
+
 This is the shared execution handoff, not a second readiness ledger. Requirement
 acceptance remains in [the product-readiness matrix](product-readiness-matrix-2026-09-12.md).
 The owner's preserved development checkout contains additional October 6–7

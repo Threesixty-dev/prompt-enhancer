@@ -81,8 +81,13 @@ def main():
                    "CODEX_HOME": str(directory), "SESSION_API_KEY": os.environ["BENCH_CONSUMER_API_TOKEN"],
                    "LITELLM_API_KEY": os.environ["BENCH_LITELLM_TOKEN"],
                    "OH_DISABLE_TELEMETRY": "true", "OPENHANDS_SUPPRESS_BANNER": "1",
-                   "OH_CONVERSATION_IDLE_TTL_SECONDS": "60", "LITELLM_LOCAL_MODEL_COST_MAP": "True"}
-    command = ["python3", "-m", "openhands.agent_server", "--host", "127.0.0.1", "--port", "8000"]
+                   "OH_CONVERSATION_IDLE_TTL_SECONDS": "60", "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+                   "OH_CONVERSATIONS_PATH": "/runtime/consumer/workspace/conversations",
+                   "OH_INTERNAL_SERVER_URL": "http://127.0.0.1:8000",
+                   "BENCH_CONSUMER_RETENTION_DAYS": os.environ.get("BENCH_CONSUMER_RETENTION_DAYS", "7")}
+    command = ["python3", "-m", "uvicorn", "consumer_retention:create_app", "--factory",
+               "--app-dir", "/opt/bench-consumer", "--host", "127.0.0.1", "--port", "8000",
+               "--no-access-log"]
     if not bridge_mode:
         os.execvpe("python3", command, environment)
     stop = threading.Event()
