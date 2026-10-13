@@ -1,5 +1,22 @@
 # Beta progress journal: published handoff
 
+## 2026-10-13 - Bench builds from pinned source on Coolify
+
+Replaced the deployment Action's GHCR build/push/pull path with the existing
+Coolify service's commit-pinned Git build context. The Action updates one
+nonsecret source-revision variable and the API's local image tag, then requests
+a cached build for that API only. Gateway preflight, exact baked revision checks,
+redirect rejection and content-free failure diagnostics remain in place.
+
+Local evidence: 142 Bench tests passed, including 21 deployment tests; the privacy
+scanner and diff whitespace check passed. No UI code changed. These tests prove
+the request boundaries and failure handling, not a successful hosted deployment.
+The one-time hosted build configuration was saved and read back; unrelated
+Compose service definitions were unchanged. Hosted completion still requires
+the existing gateway identity to reach readiness and the Action to verify main.
+The broader desktop quality gate was not run for this bounded deployment change.
+
+
 ## 2026-10-13 - source reconciliation and Bench deployment Action
 
 Reconciled the gateway/consumer-retention and Experiment publication branches
