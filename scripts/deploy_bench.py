@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.request
 
-from deploy_coolify import NoRedirect, access_headers, checked_url, controller_json
+from deploy_coolify import HTTP_CLIENT_HEADERS, NoRedirect, access_headers, checked_url, controller_json
 
 
 def revision(env):
@@ -37,7 +37,7 @@ def controller(env):
     token = env.get("COOLIFY_TOKEN", "")
     if not 16 <= len(token) <= 1024 or not token.isascii() or any(ord(c) <= 32 or ord(c) >= 127 for c in token):
         raise ValueError("controller_token_invalid")
-    headers = {"Authorization": "Bearer " + token, "Accept": "application/json",
+    headers = {**HTTP_CLIENT_HEADERS, "Authorization": "Bearer " + token,
                **access_headers(env, "COOLIFY", required=True)}
     return origin + "/api/v1/services/" + ids[0] + "/applications/" + ids[1], headers
 
@@ -79,7 +79,7 @@ def deploy(env, client):
 def health_settings(env):
     revision(env)
     origin = checked_url(env.get("BENCH_PUBLIC_URL", ""), webhook=False)
-    headers = {"Accept": "application/json", "Cache-Control": "no-cache",
+    headers = {**HTTP_CLIENT_HEADERS, "Cache-Control": "no-cache",
                **access_headers(env, "BENCH_CF", required=True)}
     return origin + "/health/ready", headers
 
