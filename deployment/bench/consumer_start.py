@@ -18,7 +18,8 @@ def write_codex_config(directory: Path, model: str, endpoint: str):
         "slug": model, "display_name": model,
         "description": "Bench text-only gateway binding; upstream capabilities unverified.",
         "default_reasoning_level": None, "supported_reasoning_levels": [],
-        "shell_type": "disabled", "visibility": "none", "supported_in_api": True,
+        # ACP initializes its session from Codex's selectable model list.
+        "shell_type": "disabled", "visibility": "list", "supported_in_api": True,
         "priority": 99, "availability_nux": None, "upgrade": None,
         "model_messages": {"instructions_template": (
             "You are the bench prompt-rewriting consumer. Follow the supplied rewrite "
