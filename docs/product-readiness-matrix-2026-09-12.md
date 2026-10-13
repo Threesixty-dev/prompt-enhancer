@@ -1,5 +1,21 @@
 # Product feature and readiness matrix
 
+## Bounded live bench pilot - 2026-10-13
+
+One fictional end-to-end pilot completed through the deployed core 0.1.2,
+OpenHands/Codex consumer and separate Qwen evaluator bindings via LiteLLM.
+The consumer produced a strictly parsed rewrite; all eight rubric responses
+were valid, with one original abstention preserved and seven known labels.
+Ten comparison records were saved, retaining unknown/non-comparable states.
+The run completed in approximately 41 seconds; assertions were not evaluated.
+Owned conversation, workspace, process and core cleanup was verified, with no
+queue or reconciliation holds. Automatic runs remain disabled.
+
+The [integration review](bench/integration-review.md) records the fixes and
+evidence limits. This establishes one bounded completion path, not prompt-quality
+improvement, pinned upstream model identity, live cancellation qualification,
+general workflow acceptance or a beta/release gate. The dated atlas is unchanged.
+
 ## Enhancement candidate reconciliation - 2026-10-12
 
 The owner requested PR integration and promotion. The combined candidate now

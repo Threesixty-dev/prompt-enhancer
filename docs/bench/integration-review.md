@@ -1,8 +1,9 @@
 # Combined core and bench review
 
 Date: 2026-10-12. Branch: `codex/enhancer-integration-review`.
-Disposition: local review candidate; architecture acceptance and live deployment
-remain pending. See [ADR 0025](../adr/0025-enhancement-experiment-boundary.md).
+Initial disposition: local review candidate. The October 13 addendum records a
+later live synthetic deployment; architecture acceptance remains pending.
+See [ADR 0025](../adr/0025-enhancement-experiment-boundary.md).
 
 ## Reconciliation with current main
 
@@ -58,6 +59,37 @@ upstream model identity or capability claim. No arbitrary preamble is stripped.
 Only finite package-owned error codes cross the worker boundary; arbitrary
 exception text remains suppressed. Automatic runs stay disabled. This diagnosis
 does not by itself qualify an end-to-end experiment or close any beta gate.
+
+## October 13 live synthetic completion
+
+The deployed consumer catalog must expose its configured alias in Codex's
+selectable model list. Hiding its sole entry caused ACP initialization to fail
+before generation. The corrected image passes an offline initialization and
+model-list check using the pinned Codex executable, with no inference submitted.
+The failed operation was removed and independently checked before its
+reconciliation hold was released. A separate core-startup failure was traced to
+configuration-file ownership and repaired without widening its read permissions.
+
+Manual pilot revision 7 completed in approximately 41 seconds on core 0.1.2.
+All four original Qwen rubric responses parsed: three labels were known and one
+explicitly abstained. OpenHands/Codex returned a valid rewritten prompt; all four
+candidate rubric responses parsed as known labels. Ten comparison records were
+saved, including honest unknown and non-comparable outcomes. No provider error
+was recorded. Assertions remain `not_evaluated`, so this is execution evidence,
+not a demonstrated prompt-quality improvement.
+
+The deployment retains the separately delivered portal runtime and routing,
+with updated shared schemas on its pinned image. The final consumer image binds
+source `a653b2d`; the core and shared schemas bind `42de206`. The retained core
+archive checksum was verified. Final checks found the synthetic conversation
+absent, no owned Codex process or workspace, no ephemeral core, and no queued
+runs, cleanup holds or reconciliation holds. Receipts remain outside the repo.
+Automatic runs stay disabled.
+
+Validation includes the earlier 69 focused synthetic tests, the affected
+consumer-config regression rerun after the final visibility correction, and the
+privacy scan. No complete suite or CI wait was added. Hosted model revisions and
+licenses remain unknown; live cancellation and wider qualification remain open.
 
 ## Review boundary
 
@@ -165,15 +197,14 @@ left in place. After Docker pruning, restore the referenced image before rerun.
 ## Remaining acceptance
 
 - Review this combined candidate and the proposed ADR before source integration.
-- Bind and qualify the dedicated static OpenHands/Codex consumer with fictional
-  inputs, pinned model identity, real completion/cancellation and cleanup evidence.
-- Independently qualify the evaluator aliases through the intended LiteLLM/local
-  inference route, including genuine model revision, typed metrics, failure and
-  timeout behavior. The consumer cannot substitute for evaluation models.
+- Extend the bounded live completion evidence with pinned upstream model identity
+  and live cancellation qualification for the dedicated OpenHands/Codex consumer.
+- Extend the Qwen rubric qualification with genuine model revision, typed metrics,
+  and broader failure/timeout coverage. Consumer and evaluator roles stay separate.
 - Supply reviewed offline snapshots and selected hardware for actual local
   model/GPU qualification. Connectors and advanced GPU scheduling remain deferred.
-- Deliberately authorize CI/registry publication and Coolify deployment. The
-  recipes are implemented; neither hosted delivery nor deployment was executed.
+- Qualify CI/registry delivery separately from the authorized live deployment
+  recorded above; the latter does not certify release delivery.
 
 At the initial review checkpoint, the broad repository suite was not green.
 The core workstream recorded 6,134

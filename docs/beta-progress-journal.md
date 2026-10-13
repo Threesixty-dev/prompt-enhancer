@@ -6,6 +6,23 @@ The owner's preserved development checkout contains additional October 6–7
 journal history; this documentation branch does not overwrite or blanket-publish
 that dirty tree. Reconcile those entries when admitting their source cohorts.
 
+## 2026-10-13 - complete one live synthetic bench pilot
+
+Task: repair Qwen rubric completion and OpenHands/Codex generation, preserving
+the separately deployed portal. Core `42de206` and consumer `a653b2d` qualify one
+manual end-to-end run: eight valid rubric replies (seven known labels and one
+original abstention), a strictly parsed rewrite, and ten saved comparison records
+in approximately 41 seconds. Assertions were not evaluated. The deployment
+receipt verifies conversation, workspace, process and ephemeral-core cleanup,
+no queue/reconciliation holds, and the retained core archive checksum.
+
+The fixes keep strict parsing, operator-bound reasoning control and explicit
+provenance. Codex's custom alias must be selectable for ACP initialization;
+an offline metadata check verifies this without inference. Automatic runs stay
+off, the PR stays draft for owner review, and no full suite or CI wait was added.
+This does not establish quality improvement or close any beta gate. See the
+[integration evidence](bench/integration-review.md#october-13-live-synthetic-completion).
+
 ## 2026-10-12 - reconcile enhancement candidate for PR promotion
 
 Task: owner-requested source integration, PR and promotion to main, followed by
