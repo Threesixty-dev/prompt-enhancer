@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Bench run overview - 2026-10-13
+
+The local [bench client](bench/client-navigation.md#all-runs-and-labels---2026-10-13)
+shows paginated run history above experiments, with direct result links and
+stronger metadata labels. History covers all experiments and revisions and can
+continue beyond the previous 100-run response limit. Experiment detail history
+remains revision-specific. Local evidence: 98 backend tests, 20 desktop/mobile
+browser checks and JavaScript syntax pass. Synthetic cases cover stable cursor
+pagination, new arrivals, invalid bounds, navigation, empty states and polling.
+These changes are local and do not alter B/W/WP or release acceptance.
+
 ## Bench client navigation - 2026-10-13
 
 The [client navigation candidate](bench/client-navigation.md) separates the

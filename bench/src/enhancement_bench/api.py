@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
@@ -114,8 +114,9 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
         }}
 
     @app.get("/api/runs")
-    def runs():
-        return {"runs": store.runs()}
+    def runs(limit: int = Query(100, ge=1, le=100), before: str | None = Query(None, max_length=80)):
+        rows = store.runs(limit + 1, before=before)
+        return {"runs": rows[:limit], "nextCursor": rows[limit - 1]["id"] if len(rows) > limit else None}
 
     @app.get("/api/runs/{run_id}")
     def run(run_id: str):
