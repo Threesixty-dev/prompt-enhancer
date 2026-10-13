@@ -23,6 +23,10 @@ checks and observed automatic Run establish bounded publication evidence. The
 Action ends at import acknowledgement; Test Bench owns execution and results.
 Broader CI and owner review remain open. The dated atlas observation is unchanged.
 
+The October 13 [Bench deployment Action](../bench/continuous-deployment.md)
+reconciles the pending Bench source and deploys only the API/client from main.
+Its focused evidence is recorded in the journal; broader acceptance is unchanged.
+
 ## Start here
 
 1. Read the [system map](../images/architecture-overview.png).

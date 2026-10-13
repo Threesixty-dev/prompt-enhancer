@@ -1,5 +1,8 @@
 # Bench deployment recipe
 
+For repeatable API/client releases from main, use the
+[Bench deployment Action](continuous-deployment.md).
+
 Status: reviewable configuration, not a live deployment. Use Coolify's Compose
 application type with `deployment/bench/compose.yaml`. The dedicated Docker host
 must be approved for benchmark execution; the worker's Docker socket is powerful

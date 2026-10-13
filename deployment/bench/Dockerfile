@@ -4,6 +4,7 @@ FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134
 WORKDIR /build
 RUN pip install --no-cache-dir uv==0.10.4
 COPY bench/pyproject.toml bench/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 COPY bench/src ./src
 RUN uv sync --frozen --no-dev --no-editable
 
@@ -20,6 +21,9 @@ COPY --from=build /build/.venv /opt/bench/.venv
 COPY contracts/enhancement /opt/bench/contracts/enhancement
 ENV PATH="/opt/bench/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 \
     BENCH_CONTRACTS=/opt/bench/contracts/enhancement BENCH_DATABASE=/data/bench.sqlite3
+ARG BENCH_REVISION=unknown
+LABEL org.opencontainers.image.revision=$BENCH_REVISION
+RUN printf '%s' "$BENCH_REVISION" > /opt/bench/.venv/lib/python3.12/site-packages/enhancement_bench/revision.txt
 USER 10002:10002
 ENTRYPOINT ["/opt/bench/.venv/bin/python", "-m", "enhancement_bench.cli"]
 CMD ["serve"]

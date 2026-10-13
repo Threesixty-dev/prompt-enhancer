@@ -1,0 +1,135 @@
+name: Deploy Bench to Coolify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bench/**"
+      - "contracts/enhancement/**"
+      - "deployment/bench/Dockerfile*"
+      - "scripts/deploy_bench.py"
+      - "scripts/deploy_coolify.py"
+      - "scripts/smoke_bench_image.py"
+      - "tests/bench/**"
+      - ".github/workflows/bench-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-coolify-production
+  cancel-in-progress: false
+
+env:
+  DEPLOY_REVISION: ${{ github.sha }}
+  DEPLOY_BRANCH: ${{ github.ref_name }}
+
+jobs:
+  health-access:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: bench-publication
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Check Bench gateway access before changing deployment
+        env:
+          BENCH_PUBLIC_URL: ${{ vars.BENCH_DELIVERY_URL }}
+          BENCH_CF_ACCESS_CLIENT_ID: ${{ secrets.BENCH_CF_ACCESS_CLIENT_ID }}
+          BENCH_CF_ACCESS_CLIENT_SECRET: ${{ secrets.BENCH_CF_ACCESS_CLIENT_SECRET }}
+        run: python3 scripts/deploy_bench.py check-health
+
+  build-deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: health-access
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    env:
+      BENCH_COOLIFY_URL: ${{ vars.BENCH_COOLIFY_URL }}
+      BENCH_COOLIFY_SERVICE_UUID: ${{ vars.BENCH_COOLIFY_SERVICE_UUID }}
+      BENCH_COOLIFY_API_UUID: ${{ vars.BENCH_COOLIFY_API_UUID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Validate the scoped Coolify target
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_ACCESS_CLIENT_ID: ${{ secrets.COOLIFY_ACCESS_CLIENT_ID }}
+          COOLIFY_ACCESS_CLIENT_SECRET: ${{ secrets.COOLIFY_ACCESS_CLIENT_SECRET }}
+        run: python3 scripts/deploy_bench.py check-controller
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.10.4"
+      - name: Focused Bench checks
+        run: |
+          uv sync --project bench --frozen --extra dev
+          bench/.venv/bin/python -m pytest -q tests/bench
+          python scripts/privacy_scan.py
+          node --check bench/src/enhancement_bench/static/app.js
+      - name: Select repository-owned image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "BENCH_IMAGE_REPOSITORY=ghcr.io/${REPOSITORY,,}/bench" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Build once with the shared layer cache
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: deployment/bench/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.BENCH_IMAGE_REPOSITORY }}:${{ github.sha }}
+          build-args: BENCH_REVISION=${{ github.sha }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=bench-api
+          cache-to: type=gha,mode=max,scope=bench-api
+      - name: Verify the packaged API and client
+        env:
+          BENCH_CANDIDATE_IMAGE: ${{ env.BENCH_IMAGE_REPOSITORY }}:${{ github.sha }}
+        run: python scripts/smoke_bench_image.py
+      - name: Publish tested image and resolve its immutable digest
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
+          docker push "$BENCH_IMAGE_REPOSITORY:$DEPLOY_REVISION"
+          IMAGE=$(docker image inspect "$BENCH_IMAGE_REPOSITORY:$DEPLOY_REVISION" --format '{{index .RepoDigests 0}}')
+          echo "BENCH_DEPLOY_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Deploy only the Bench API container
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_ACCESS_CLIENT_ID: ${{ secrets.COOLIFY_ACCESS_CLIENT_ID }}
+          COOLIFY_ACCESS_CLIENT_SECRET: ${{ secrets.COOLIFY_ACCESS_CLIENT_SECRET }}
+        run: python scripts/deploy_bench.py deploy
+      - name: Remove temporary registry authentication
+        if: always()
+        run: docker logout ghcr.io
+
+  verify:
+    needs: build-deploy
+    runs-on: ubuntu-latest
+    environment: bench-publication
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Verify the running source revision
+        env:
+          BENCH_PUBLIC_URL: ${{ vars.BENCH_DELIVERY_URL }}
+          BENCH_CF_ACCESS_CLIENT_ID: ${{ secrets.BENCH_CF_ACCESS_CLIENT_ID }}
+          BENCH_CF_ACCESS_CLIENT_SECRET: ${{ secrets.BENCH_CF_ACCESS_CLIENT_SECRET }}
+        run: python3 scripts/deploy_bench.py verify

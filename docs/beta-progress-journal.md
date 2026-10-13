@@ -1,5 +1,25 @@
 # Beta progress journal: published handoff
 
+## 2026-10-13 - source reconciliation and Bench deployment Action
+
+Reconciled the gateway/consumer-retention and Experiment publication branches
+with the accepted Bench routes, forms, labels and paginated run overview. The
+integrated publisher keeps gateway-only access and validates its acknowledgement.
+Regenerated protocol schemas to match core 0.1.3 and reconciled the moved example
+fixture used by browser tests.
+
+Added the [Bench API deployment Action](bench/continuous-deployment.md): relevant
+main pushes build a source image, run a packaged smoke, publish a digest and
+redeploy only the selected API container through Coolify. Readiness must report
+the baked source commit twice. Worker/consumer lifecycles remain separate.
+
+Local evidence: 137 Bench tests, 108 focused core/consumer/gateway tests, 20
+desktop/mobile browser checks, privacy scanning, JavaScript syntax, definition
+validation and Compose validation pass. The source-derived container passes the
+empty-database API/client smoke. No full desktop quality gate or new model run
+is claimed. Hosted deployment remains subject to registry pull and gateway
+configuration; local tests are not live deployment evidence.
+
 ## 2026-10-13 - JSON-only Experiment publication
 
 The owner requested the agreed Experiment JSON push workflow and domain language.
