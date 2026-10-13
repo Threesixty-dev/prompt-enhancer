@@ -140,6 +140,49 @@ a.attempt-cell:hover { border-color: var(--teal); }
 .attempt-state { font-size: 12px; text-transform: capitalize; }
 .run-panel { scroll-margin-top: 20px; }
 #run-preview > .model-summary { padding: 0 4px; }
+.filter-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.filter-heading h3 { margin: 0; }
+.filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.filter-grid > div { min-width: 0; }
+.filter-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.filter-actions p { flex: 1; margin: 0; min-width: 200px; }
+.history-totals { display: flex; gap: 36px; padding: 8px 4px; }
+.history-totals > div { display: grid; gap: 4px; }
+.history-totals strong { color: var(--teal); font-size: 36px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.history-totals span { font-size: 13px; }
+.history-insights > .hint { margin: 8px 4px 20px; max-width: 720px; }
+.history-chart-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; }
+.history-chart-grid .surface { margin-bottom: 20px; }
+.chart-window { margin: 0 0 12px; }
+.activity-chart svg { width: 100%; height: 155px; }
+.chart-gridline { stroke: var(--line); stroke-dasharray: 3 4; }
+.activity-bar { fill: var(--teal); }
+.chart-scale { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+.daily-counts { max-height: 240px; overflow: auto; }
+.status-bars { display: grid; gap: 4px; }
+.status-bar { display: grid; grid-template-columns: 92px minmax(0, 1fr) 40px; align-items: center; gap: 12px; padding: 8px 6px; min-height: 38px; text-decoration: none; color: inherit; border-radius: 5px; font-size: 12px; }
+.status-bar:hover, .status-bar[aria-current] { background: #e5f2ee; }
+.status-name { text-transform: capitalize; }
+.status-bar strong { text-align: right; font-variant-numeric: tabular-nums; }
+.status-track { height: 8px; background: #eff3f2; border-radius: 2px; }
+.status-fill { display: block; height: 100%; background: #718782; border-radius: 2px; }
+[data-status=succeeded] .status-fill { background: var(--teal); }
+[data-status=running] .status-fill, [data-status=queued] .status-fill { background: #4e7c9f; }
+[data-status=failed] .status-fill { background: #b65760; }
+[data-status=interrupted] .status-fill { background: #b78632; }
+.metric-comparisons h4 { margin: 20px 0 12px; }
+.metric-comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.metric-comparison-grid > * { min-width: 0; }
+.metric-bars { display: grid; gap: 20px; }
+.metric-row { display: grid; gap: 8px; font-size: 13px; overflow-wrap: anywhere; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.metric-row > .hint { font-size: 12px; }
+.metric-bar-line { display: grid; grid-template-columns: 44px minmax(0, 1fr) 65px; align-items: center; gap: 10px; }
+.metric-bar-line > strong { text-align: right; font-variant-numeric: tabular-nums; }
+.metric-track { display: block; position: relative; height: 12px; background: #f2f5f4; }
+.metric-fill { position: absolute; top: 0; height: 100%; background: #809aa4; }
+.metric-fill.after { background: var(--teal); }
+.metric-zero { position: absolute; height: 16px; top: -2px; width: 1px; background: #516b68; }
+.comparison-overall { max-width: 700px; }
 [hidden] { display: none !important; }
 @media(max-width: 800px) {
   header { padding: 18px 20px; }
@@ -166,4 +209,11 @@ a.attempt-cell:hover { border-color: var(--teal); }
   .variation-factor span { font-size: 11px; }
   .variation-operator { font-size: 18px; }
   .variation-matrix th { width: 205px; }
+  .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filter-heading { display: block; }
+  .history-chart-grid, .metric-comparison-grid { grid-template-columns: 1fr; gap: 0; }
+  .filter-actions p { flex-basis: 100%; }
+  .filter-actions .button, .filter-actions button { flex: 1; }
+  .history-totals { gap: 24px; }
+  .status-bar { min-height: 44px; }
 }

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { historyResponse } from './history-fixture.mjs';
 
 const title = 'Clarify a fictional widget request';
 
@@ -72,7 +73,7 @@ test('revision selection scopes run history and experiment status', async ({ pag
     { id: '00000000-0000-4000-8000-000000000002', stable_id: definition.stableId, revision: '2', status: 'succeeded', origin: 'gitops', created: 2 },
   ];
   await page.route('**/api/experiments', route => route.fulfill({ json: { experiments } }));
-  await page.route('**/api/runs', route => route.fulfill({ json: { runs } }));
+  await page.route(/\/api\/runs(?:\?.*)?$/, route => route.fulfill({ json: historyResponse(runs, new URL(route.request().url()).searchParams) }));
   await connect(page, '/experiments/example-widget?revision=3');
   await expect(page.locator('#runs .run-card')).toHaveCount(0);
   await expect(page.locator('#runs')).toContainText('No runs yet for this revision.');
@@ -239,10 +240,7 @@ test('all runs precede experiments, include every revision, and paginate without
   await page.route('**/api/experiments', route => route.fulfill({ json: { experiments } }));
   await page.route(/\/api\/runs(?:\?.*)?$/, route => {
     const query = new URL(route.request().url()).searchParams;
-    const start = query.has('before') ? runs.findIndex(run => run.id === query.get('before')) + 1 : 0;
-    const end = start + Number(query.get('limit') || 100);
-    const visible = runs.slice(start, end);
-    return route.fulfill({ json: { runs: visible, nextCursor: end < runs.length ? visible.at(-1).id : null } });
+    return route.fulfill({ json: historyResponse(runs, query) });
   });
   await connect(page);
   const cards = page.locator('#all-runs .run-card');
@@ -279,7 +277,7 @@ test('global run links open results and empty history keeps experiments availabl
   await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
   await expect(page.locator('#run-detail')).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Before', exact: true }).first()).toBeVisible();
-  await page.route('**/api/runs', route => route.fulfill({ json: { runs: [], nextCursor: null } }));
+  await page.route(/\/api\/runs(?:\?.*)?$/, route => route.fulfill({ json: historyResponse([], new URL(route.request().url()).searchParams) }));
   await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
   await expect(page.locator('#all-runs')).toContainText('No runs yet. Choose an experiment below to start a run.');
   await expect(page.locator('.experiment-card')).toBeVisible();

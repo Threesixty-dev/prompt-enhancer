@@ -35,6 +35,12 @@ Its focused evidence is recorded in the journal; broader acceptance is unchanged
 
 ## Start here
 
+The October 14 [Bench history filters and charts](../bench/client-navigation.md#history-filters-and-charts---2026-10-14)
+add bounded metadata filters, activity/status charts and paired metric summaries
+to the standalone Bench. The readiness ledger records local synthetic evidence;
+this later W02/W05 presentation work does not alter the dated atlas observation
+or accept the general workflow gates.
+
 1. Read the [system map](../images/architecture-overview.png).
 2. Find the component ID in the [feature catalog](feature-catalog.md).
 3. Check its evidence level, source publication state and next acceptance step.
