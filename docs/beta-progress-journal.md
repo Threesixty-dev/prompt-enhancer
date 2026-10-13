@@ -6,6 +6,16 @@ The owner's preserved development checkout contains additional October 6–7
 journal history; this documentation branch does not overwrite or blanket-publish
 that dirty tree. Reconcile those entries when admitting their source cohorts.
 
+## 2026-10-13 - all runs above experiments
+
+Added the local run overview, ten rows per page, with experiment/revision labels
+and links to results. Added bounded cursor pagination so older history remains
+reachable beyond 100 runs, while revision pages retain their existing scope.
+Preserved the stronger labels and unchanged-snapshot polling behavior.
+Local checks pass: 98 backend tests, 20 desktop/mobile browser checks and
+JavaScript syntax. The built-in browser displays the synthetic preview. Changes
+remain local; there is no publication or deployment in this iteration.
+
 ## 2026-10-13 - bench pages and run forms
 
 Implemented [dedicated bench routes](bench/client-navigation.md) on a feature

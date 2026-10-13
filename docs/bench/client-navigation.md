@@ -9,7 +9,10 @@ this does not implement or accept the general workflow engine gates.
 
 ## User journey
 
-- `/experiments` lists experiments. Cards are ordinary links to experiment pages.
+- `/experiments` shows All runs above the experiment cards. Run rows open
+  results; experiment cards open experiment pages. The run list includes every
+  experiment and revision, newest first, with ten rows per page. Older runs
+  continues the history; Newest runs returns to the beginning.
 - `/experiments/{id}?revision={revision}` shows one revision, its units,
   subjects and runs for that revision. New run opens a separate form.
 - `/experiments/{id}/runs/new?revision={revision}` configures a run. An optional
@@ -21,8 +24,8 @@ this does not implement or accept the general workflow engine gates.
 
 The server serves the shell at these exact routes, so reloads and deep links
 work. Browser Back/Forward and modified link clicks retain normal navigation.
-Run identities are checked against the selected experiment and revision. Both
-the run list and experiment-card status are scoped to the displayed revision;
+Run identities are checked against the selected experiment and revision. Experiment-page
+run lists and experiment-card status are scoped to the displayed revision;
 a revision with no runs does not inherit another revision's history or status.
 Late responses from an abandoned page cannot replace the active page.
 
@@ -61,3 +64,21 @@ Local validation: 92 backend tests and 14 desktop/mobile browser checks pass;
 JavaScript syntax passes. Chrome inspection opens the synthetic form directly
 without a login. Results are recorded in the readiness ledger and progress
 journal. Owner review and deployment remain separate from local verification.
+
+
+## All runs and labels - 2026-10-13
+
+Run rows identify the experiment, revision, run, trigger, status and creation
+time. Metadata labels have stronger weight and contrast throughout the client.
+The read-only run endpoint accepts a bounded `limit` (1-100) and a `before` run
+identity, returning `nextCursor` when more history exists. Ordering by creation
+time and identity keeps equal timestamps stable and avoids shifting older pages
+when a new run arrives. The overview URL preserves its cursor across reloads;
+polling updates that page and leaves unchanged rows in place.
+
+Local synthetic checks: 98 backend tests and 20 desktop/mobile browser checks
+pass, including history beyond 100 runs, equal timestamps, concurrent insertion,
+invalid page bounds, cross-experiment/revision listing, empty history, direct
+result navigation and unchanged DOM identity during polling. JavaScript syntax
+passes. This is local UI evidence; it does not establish deployment or model
+qualification.

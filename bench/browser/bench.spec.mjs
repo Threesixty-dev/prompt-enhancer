@@ -221,3 +221,67 @@ test('late result response cannot replace another page and wrong experiment run 
   await expect(page.getByText('This run does not belong to the selected experiment revision.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel run' })).toHaveCount(0);
 });
+
+
+test('all runs precede experiments, include every revision, and paginate without resetting on refresh', async ({ page }) => {
+  const definition = JSON.parse(await readFile(new URL('../definitions/example-widget.json', import.meta.url), 'utf8'));
+  const experiments = [
+    { ...definition, revision: '2', generation: 2, title: 'Updated fictional widget request' },
+    definition,
+    { ...definition, stableId: 'example-other', title: 'Another fictional experiment' },
+  ];
+  const runs = Array.from({ length: 12 }, (_, index) => ({
+    id: '00000000-0000-4000-8000-' + String(index + 1).padStart(12, '0'),
+    stable_id: index % 3 === 2 ? 'example-other' : definition.stableId,
+    revision: index % 3 === 0 ? '2' : '1',
+    status: index === 0 ? 'running' : 'succeeded', origin: index % 2 ? 'ui' : 'gitops', created: 1000 - index,
+  }));
+  await page.route('**/api/experiments', route => route.fulfill({ json: { experiments } }));
+  await page.route(/\/api\/runs(?:\?.*)?$/, route => {
+    const query = new URL(route.request().url()).searchParams;
+    const start = query.has('before') ? runs.findIndex(run => run.id === query.get('before')) + 1 : 0;
+    const end = start + Number(query.get('limit') || 100);
+    const visible = runs.slice(start, end);
+    return route.fulfill({ json: { runs: visible, nextCursor: end < runs.length ? visible.at(-1).id : null } });
+  });
+  await connect(page);
+  const cards = page.locator('#all-runs .run-card');
+  await expect(page.getByRole('heading', { name: 'All runs', exact: true })).toBeVisible();
+  await expect(cards).toHaveCount(10);
+  await expect(cards.nth(0)).toContainText('Updated fictional widget request');
+  await expect(cards.nth(1)).toContainText(title);
+  await expect(cards.nth(2)).toContainText('Another fictional experiment');
+  await expect(cards.nth(2)).toHaveAttribute('href', '/experiments/example-other/runs/' + runs[2].id);
+  expect(await page.evaluate(() => Boolean(document.querySelector('#all-runs').compareDocumentPosition(document.querySelector('#experiments')) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.evaluate(() => { window.firstRunCard = document.querySelector('#all-runs .run-card'); });
+  await page.waitForTimeout(3500);
+  expect(await page.evaluate(() => window.firstRunCard === document.querySelector('#all-runs .run-card'))).toBe(true);
+  runs[0].status = 'succeeded';
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(cards.nth(0).locator('.badge')).toHaveText('succeeded');
+  await page.getByRole('link', { name: 'Older runs', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp('before=' + runs[9].id + '$'));
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).toHaveAttribute('href', '/experiments/example-widget/runs/' + runs[10].id);
+  await expect(page.getByRole('link', { name: 'Older runs', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(cards).toHaveCount(2);
+  await page.reload();
+  await expect(cards).toHaveCount(2);
+  await page.getByRole('link', { name: 'Newest runs', exact: true }).click();
+  await expect(cards).toHaveCount(10);
+  await expect(cards.first()).toHaveAttribute('href', '/experiments/example-widget/runs/' + runs[0].id);
+});
+
+test('global run links open results and empty history keeps experiments available', async ({ page }) => {
+  await connect(page);
+  await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
+  await expect(page.locator('#run-detail')).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Before', exact: true }).first()).toBeVisible();
+  await page.route('**/api/runs', route => route.fulfill({ json: { runs: [], nextCursor: null } }));
+  await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
+  await expect(page.locator('#all-runs')).toContainText('No runs yet. Choose an experiment below to start a run.');
+  await expect(page.locator('.experiment-card')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Older runs', exact: true })).toHaveCount(0);
+});

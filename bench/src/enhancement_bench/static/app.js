@@ -2,12 +2,12 @@ import { node, schemaField, validateForm } from './forms.js';
 
 const $ = id => document.getElementById(id);
 const json = value => JSON.stringify(value, null, 2);
-const countLabel = (count, label) => count + ' ' + label + (count === 1 ? '' : 's');
 const badge = value => node('span', value || 'unknown', 'badge ' + (value || 'unknown'));
 const tell = message => { $('notice').textContent = message; };
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted', 'superseded']);
 let connected = false, experiments = [], runs = [], routeEpoch = 0;
-let activeRoute, definition, runSchema, polling = false, refreshVersion = 0;
+let activeRoute, definition, runSchema, runPage, polling = false, refreshVersion = 0;
+const runPageSize = 10;
 const snapshots = new WeakMap();
 
 async function api(path, body) {
@@ -25,7 +25,16 @@ function link(text, href, className) {
 const experimentPath = d => '/experiments/' + encodeURIComponent(d.stableId) + '?revision=' + encodeURIComponent(d.revision);
 const newRunPath = (d, from) => '/experiments/' + encodeURIComponent(d.stableId) + '/runs/new?revision=' + encodeURIComponent(d.revision) + (from ? '&from=' + encodeURIComponent(from) : '');
 const runPath = r => '/experiments/' + encodeURIComponent(r.stable_id) + '/runs/' + encodeURIComponent(r.id);
-function metadata(values) { const element = node('div', undefined, 'meta'); for (const value of values.filter(Boolean)) element.append(node('span', value)); return element; }
+function labeledValue(label, value, tag = 'span', className) {
+  const element = node(tag, undefined, className);
+  element.append(node('strong', label + ': ', 'meta-label'), node('span', String(value)));
+  return element;
+}
+function metadata(values) {
+  const element = node('div', undefined, 'meta');
+  for (const value of values.filter(Boolean)) element.append(Array.isArray(value) ? labeledValue(...value) : node('span', value));
+  return element;
+}
 function disclosure(title, content, key) {
   const element = node('details'); if (key) element.dataset.key = key;
   element.append(node('summary', title), content); return element;
@@ -41,7 +50,7 @@ function patch(container, value, build) {
 }
 function parseRoute() {
   const segments = location.pathname.split('/').filter(Boolean).map(decodeURIComponent), query = new URLSearchParams(location.search);
-  if (!segments.length || (segments.length === 1 && segments[0] === 'experiments')) return { kind: 'list' };
+  if (!segments.length || (segments.length === 1 && segments[0] === 'experiments')) return { kind: 'list', before: query.get('before') };
   if (segments[0] !== 'experiments' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(segments[1] || '')) return { kind: 'missing' };
   const base = { id: segments[1], revision: query.get('revision'), from: query.get('from') };
   if (segments.length === 2) return { ...base, kind: 'experiment' };
@@ -78,10 +87,40 @@ function renderExperiments() {
     for (const d of newest.values()) {
       const card = link(undefined, experimentPath(d), 'experiment-card');
       const latest = runs.find(r => r.stable_id === d.stableId && r.revision === d.revision);
-      card.append(node('p', d.stableId, 'eyebrow'), node('h2', d.title), metadata(['Revision ' + d.revision, countLabel(d.units.length, 'unit'), countLabel(d.subjects.length, 'subject')]));
+      card.append(node('p', d.stableId, 'eyebrow'), node('h3', d.title), metadata([['Revision', d.revision], ['Units', d.units.length], ['Subjects', d.subjects.length]]));
       const bottom = node('div', undefined, 'card-bottom'); bottom.append(latest ? badge(latest.status) : node('span', 'No runs yet', 'hint'), node('span', 'Open experiment >', 'card-action')); card.append(bottom); fragment.append(card);
     }
     if (!newest.size) fragment.append(node('p', 'No experiments yet. Published experiment definitions will appear here.', 'empty'));
+    return fragment;
+  });
+}
+function firstRunPage(response) {
+  const visible = response.runs.slice(0, runPageSize);
+  return { runs: visible, nextCursor: response.runs.length > runPageSize ? visible.at(-1).id : response.nextCursor };
+}
+const olderRunsPath = cursor => '/api/runs?limit=' + runPageSize + '&before=' + encodeURIComponent(cursor);
+function renderAllRuns() {
+  const container = $('all-runs'); if (!container) return;
+  patch(container, [runPage, experiments], () => {
+    const fragment = document.createDocumentFragment();
+    for (const r of runPage.runs) {
+      const d = experiments.find(item => item.stableId === r.stable_id && item.revision === r.revision);
+      const card = link(undefined, runPath(r), 'run-card');
+      const title = node('div');
+      title.append(node('strong', d?.title || r.stable_id), metadata([
+        ['Experiment', r.stable_id], ['Revision', r.revision], ['Run', r.id.slice(0, 8)],
+        (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run',
+      ]));
+      card.append(title, badge(r.status), labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
+      fragment.append(card);
+    }
+    if (!runPage.runs.length) fragment.append(node('p', 'No runs yet. Choose an experiment below to start a run.', 'empty'));
+    return fragment;
+  });
+  patch($('run-pagination'), [activeRoute.before, runPage.nextCursor], () => {
+    const fragment = document.createDocumentFragment();
+    if (activeRoute.before) fragment.append(link('Newest runs', '/experiments', 'button secondary'));
+    if (runPage.nextCursor) fragment.append(link('Older runs', '/experiments?before=' + encodeURIComponent(runPage.nextCursor), 'button secondary'));
     return fragment;
   });
 }
@@ -101,16 +140,16 @@ function renderRuns() {
 }
 function experimentPage(d) {
   pageHeading(d.title, 'Review the experiment and open a run to inspect its results.', [[d.title]], [refreshButton(), link('New run', newRunPath(d), 'button')]);
-  const overview = node('section', undefined, 'surface'); overview.append(metadata(['Revision ' + d.revision, 'Enhancer ' + d.enhancerVersion, countLabel(d.subjects.length, 'subject'), countLabel(d.units.length, 'unit')]));
+  const overview = node('section', undefined, 'surface'); overview.append(metadata([['Revision', d.revision], ['Enhancer version', d.enhancerVersion], ['Subjects', d.subjects.length], ['Units', d.units.length]]));
   const revisionLabel = node('label', 'Revision'); revisionLabel.htmlFor = 'revision'; const select = node('select'); select.id = 'revision';
   for (const version of experiments.filter(item => item.stableId === d.stableId)) { const option = node('option', 'Revision ' + version.revision); option.value = version.revision; select.append(option); }
   select.value = d.revision; select.onchange = () => navigate(experimentPath({ ...d, revision: select.value }));
   const revisionField = node('div', undefined, 'revision-field'); revisionField.append(revisionLabel, select); overview.append(revisionField);
   const grid = node('div', undefined, 'overview-grid'); const strategyBox = node('div'); strategyBox.append(node('h2', 'Units'));
-  for (const unit of d.units) { const row = node('div', undefined, 'strategy-summary'); row.append(node('strong', unit.title), node('p', 'Strategy: ' + unit.strategy, 'hint')); strategyBox.append(row); }
+  for (const unit of d.units) { const row = node('div', undefined, 'strategy-summary'); row.append(node('strong', unit.title), labeledValue('Strategy', unit.strategy, 'p', 'hint')); strategyBox.append(row); }
   const prompts = node('div'); prompts.append(node('h2', 'Subjects'));
   for (const subject of d.subjects) prompts.append(disclosure(subject.id, node('p', subject.text, 'prompt')));
-  grid.append(strategyBox, prompts); overview.append(grid, node('p', 'Evaluator profile: ' + d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision, 'hint'), evidence('Experiment definition', d, 'definition'));
+  grid.append(strategyBox, prompts); overview.append(grid, labeledValue('Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision, 'p', 'hint'), evidence('Experiment definition', d, 'definition'));
   const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Runs'), node('span', 'Runs for revision ' + d.revision, 'hint'));
   const list = node('div'); list.id = 'runs'; $('page-content').replaceChildren(overview, heading, list); renderRuns();
 }
@@ -131,12 +170,12 @@ function renderRun(r) {
   const container = $('run-detail'); if (!container || document.activeElement?.closest('#run-detail form')) return;
   patch(container, r, () => {
     const fragment = document.createDocumentFragment(), intro = node('section', undefined, 'surface');
-    const actions = node('div', undefined, 'actions'); actions.append(badge(r.status), node('span', 'Assertions:', 'hint'), badge(r.assertion_outcome));
+    const actions = node('div', undefined, 'actions'); actions.append(badge(r.status), node('strong', 'Assertions:', 'hint meta-label'), badge(r.assertion_outcome));
     if (['queued', 'running'].includes(r.status)) {
       const cancel = node('button', r.cancel_requested ? 'Cancellation requested' : 'Cancel run', 'danger'); cancel.disabled = Boolean(r.cancel_requested);
       cancel.onclick = async () => { cancel.disabled = true; try { await api('/api/runs/' + encodeURIComponent(r.id) + '/cancel', {}); await refresh(); } catch (error) { tell(error.message); cancel.disabled = false; } }; actions.append(cancel);
     } else if (terminal.has(r.status) && !r.cleanup_pending && !r.reconciliation_required) actions.append(link('Rerun with changes', newRunPath(definition, r.id), 'button'));
-    intro.append(actions, metadata(['Run ' + r.id, 'Correlation ' + r.correlation_id, r.error_code, r.cleanup_pending ? 'Cleanup unconfirmed: execution slot held' : '']), evidence('Effective run settings', r.effective, 'effective'), evidence('Run history', r.events, 'events'));
+    intro.append(actions, metadata([['Run', r.id], ['Correlation', r.correlation_id], r.error_code ? ['Error', r.error_code] : null, r.cleanup_pending ? ['Cleanup', 'Unconfirmed: execution slot held'] : null]), evidence('Effective run settings', r.effective, 'effective'), evidence('Run history', r.events, 'events'));
     if (r.reconciliation_required) {
       const form = node('form'); form.append(node('p', 'Verify that the remote consumer has stopped before releasing the execution slot.', 'hint'));
       const label = node('label', 'Reconciliation evidence reference'); label.htmlFor = 'reconcile-reference'; const reference = node('input'); reference.id = 'reconcile-reference'; reference.required = true; reference.pattern = '[A-Za-z0-9][A-Za-z0-9._-]{0,95}';
@@ -148,7 +187,7 @@ function renderRun(r) {
       const panel = node('article', undefined, 'run-panel'), unit = r.effective.units.find(u => u.id === attempt.unit_id), subject = r.effective.subjects.find(s => s.id === attempt.subject_id);
       panel.dataset.attempt = attempt.id;
       const title = node('div', undefined, 'run-heading'); title.append(node('h2', 'Attempt: ' + unit.title + ' / ' + subject.id), badge(attempt.status));
-      panel.append(title, metadata(['Strategy: ' + unit.strategy, attempt.progress ? 'Stage: ' + attempt.progress.stage : 'Not started']));
+      panel.append(title, metadata([['Strategy', unit.strategy], ['Stage', attempt.progress ? attempt.progress.stage : 'Not started']]));
       const comparison = node('div', undefined, 'comparison');
       for (const [label, text, cls] of [['Original prompt', subject.text, 'prompt'], ['Enhanced prompt', attempt.result?.enhanced_prompt ?? 'No enhanced prompt available.', 'prompt candidate']]) { const column = node('div'); column.append(node('h3', label), node('div', text, cls)); comparison.append(column); }
       panel.append(comparison);
@@ -162,7 +201,7 @@ function renderRun(r) {
 function newRunPage(d, source) {
   pageHeading(source ? 'Rerun experiment' : 'New run', d.title + ' / revision ' + d.revision + '. Adjust settings for this run.', [[d.title, experimentPath(d)], [source ? 'Rerun' : 'New run']]);
   const form = node('form'); form.id = 'run-form'; form.noValidate = true;
-  const intro = node('section', undefined, 'surface'); intro.append(node('h2', 'Run configuration'), node('p', source ? 'Prefilled from run ' + source.id.slice(0, 8) + '. The original result stays unchanged.' : 'Start from the experiment defaults. Each selected unit has its own settings.', 'hint'), metadata(['Enhancer ' + d.enhancerVersion, 'Evaluator profile: ' + d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision]));
+  const intro = node('section', undefined, 'surface'); intro.append(node('h2', 'Run configuration'), node('p', source ? 'Prefilled from run ' + source.id.slice(0, 8) + '. The original result stays unchanged.' : 'Start from the experiment defaults. Each selected unit has its own settings.', 'hint'), metadata([['Enhancer version', d.enhancerVersion], ['Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision]]));
   const subjects = node('fieldset', undefined, 'field-group'); subjects.append(node('legend', 'Subjects'));
   const subjectInputs = d.subjects.map(subject => {
     const label = node('label', undefined, 'check-option'), input = node('input'); input.type = 'checkbox'; input.checked = !source || source.effective.subjects.some(s => s.id === subject.id);
@@ -173,7 +212,7 @@ function newRunPage(d, source) {
     const settings = saved || { parameters: { ...d.baseParameters, ...unit.parameters }, objective: { ...d.objective, ...unit.objective }, steering: { ...d.baseSteering, ...unit.steering }, consumerBinding: { ...d.consumerBinding, ...unit.consumerBinding } };
     const card = node('section', undefined, 'surface strategy-editor'); card.dataset.unit = unit.id;
     const title = node('label', undefined, 'check-option strategy-toggle'), enabled = node('input'); enabled.type = 'checkbox'; enabled.checked = !source || Boolean(saved);
-    title.append(enabled, node('span', unit.title)); card.append(title, node('p', 'Strategy: ' + unit.strategy, 'hint'));
+    title.append(enabled, node('span', unit.title)); card.append(title, labeledValue('Strategy', unit.strategy, 'p', 'hint'));
     const fields = node('fieldset', undefined, 'strategy-fields'); fields.disabled = !enabled.checked; fields.hidden = !enabled.checked;
     enabled.onchange = () => { fields.disabled = !enabled.checked; fields.hidden = !enabled.checked; };
     const parameters = schemaField(d.parameterSchema, settings.parameters, { id: unit.id + '-parameters', label: 'Parameters' });
@@ -219,12 +258,18 @@ async function loadRoute(focus = false) {
     if (activeRoute.kind === 'missing') throw new Error('Page not found.');
     const route = activeRoute;
     $('page-content').replaceChildren(node('p', 'Loading...', 'empty'));
-    const [a, b] = await Promise.all([api('/api/experiments'), api('/api/runs')]);
+    const [a, b, page] = await Promise.all([api('/api/experiments'), api('/api/runs'), route.kind === 'list' && route.before ? api(olderRunsPath(route.before)) : null]);
     if (epoch !== routeEpoch) return;
     experiments = a.experiments; runs = b.runs; connected = true; $('workspace').hidden = false;
     if (route.kind === 'list') {
-      pageHeading('Experiments', 'Choose an experiment to review its runs or start a new run.', [], [refreshButton()]);
-      const cards = node('div', undefined, 'experiment-grid'); cards.id = 'experiments'; $('page-content').replaceChildren(cards); renderExperiments();
+      pageHeading('All runs', 'Runs across all experiments and revisions, newest first.', [], [refreshButton()]);
+      runPage = page || firstRunPage(b);
+      const runList = node('section'); runList.id = 'all-runs'; runList.setAttribute('aria-labelledby', 'page-title');
+      const pagination = node('nav', undefined, 'run-pagination'); pagination.id = 'run-pagination'; pagination.setAttribute('aria-label', 'Run history');
+      const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Experiments'));
+      const description = node('p', 'Choose an experiment to review its revisions or start a new run.', 'hint');
+      const cards = node('div', undefined, 'experiment-grid'); cards.id = 'experiments';
+      $('page-content').replaceChildren(runList, pagination, heading, description, cards); renderAllRuns(); renderExperiments();
     } else {
       let source;
       if (route.kind === 'run' || route.from) {
@@ -258,10 +303,10 @@ async function loadRoute(focus = false) {
 async function refresh() {
   if (!connected || activeRoute?.kind === 'new') return;
   const epoch = routeEpoch, route = activeRoute, version = ++refreshVersion;
-  const [a, b, r] = await Promise.all([api('/api/experiments'), api('/api/runs'), route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null]);
+  const [a, b, r, page] = await Promise.all([api('/api/experiments'), api('/api/runs'), route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, route.kind === 'list' && route.before ? api(olderRunsPath(route.before)) : null]);
   if (epoch !== routeEpoch || version !== refreshVersion) return;
   experiments = a.experiments; runs = b.runs;
-  if (route.kind === 'list') renderExperiments();
+  if (route.kind === 'list') { runPage = page || firstRunPage(b); renderAllRuns(); renderExperiments(); }
   if (route.kind === 'experiment') renderRuns();
   if (route.kind === 'run') renderRun(r);
 }

@@ -120,3 +120,50 @@ def test_invalid_generation_controls_are_rejected_before_persistence(store, publ
     assert response.status_code == 502
     assert response.json() == {"error": {"code": "core_contract_violation"}}
     assert store.runs() == original_runs
+
+
+def test_run_history_paginates_beyond_default_limit_without_skips(store, publication, contracts):
+    from conftest import changed
+    from enhancement_bench.definitions import Overrides
+
+    store.import_publication(publication)
+    store.import_publication(changed(publication, revision="2", generation=2))
+    store.import_publication(changed(publication, stableId="example-other"))
+    for _ in range(102):
+        store.enqueue_ui("example-widget", "1", Overrides(), str(uuid4()))
+    with store.transaction() as db:
+        db.execute("UPDATE runs SET created=1000")
+    expected = [run["id"] for run in store.runs(500)]
+    with client_for(store, contracts) as client:
+        first = client.get("/api/runs").json()
+        assert len(first["runs"]) == 100
+        assert first["nextCursor"] == first["runs"][-1]["id"]
+        # New runs must not shift the boundary of an already-open history page.
+        inserted = store.enqueue_ui("example-widget", "2", Overrides(), str(uuid4()))
+        seen = first["runs"]
+        cursor = first["nextCursor"]
+        while cursor:
+            response = client.get("/api/runs", params={"limit": 3, "before": cursor})
+            assert response.status_code == 200
+            page = response.json()
+            assert 0 < len(page["runs"]) <= 3
+            seen.extend(page["runs"])
+            cursor = page["nextCursor"]
+        assert [run["id"] for run in seen] == expected
+        assert inserted not in expected
+        assert {(run["stable_id"], run["revision"]) for run in seen} == {
+            ("example-widget", "1"), ("example-widget", "2"), ("example-other", "1")}
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=101", "limit=invalid", "before=" + "x" * 81])
+def test_run_history_rejects_invalid_page_bounds(store, contracts, query):
+    with client_for(store, contracts) as client:
+        assert client.get("/api/runs?" + query).status_code == 422
+
+
+def test_run_history_handles_empty_list_and_unknown_cursor(store, contracts):
+    with client_for(store, contracts) as client:
+        assert client.get("/api/runs?limit=10").json() == {"runs": [], "nextCursor": None}
+        response = client.get("/api/runs?before=example-missing")
+        assert response.status_code == 400
+        assert response.json() == {"error": {"code": "invalid_run_cursor"}}
