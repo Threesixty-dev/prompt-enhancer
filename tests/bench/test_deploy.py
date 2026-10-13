@@ -142,3 +142,18 @@ def test_workflow_scopes_deployment_and_does_not_wait_for_unrelated_quality():
     assert config["jobs"]["verify"]["needs"] == "build-deploy"
     assert "require_quality_run" not in str(config)
     assert "docker push" in str(config) and "smoke_bench_image.py" in str(config)
+
+
+@pytest.mark.parametrize("failure,expected", [
+    (urllib.error.HTTPError("https://example.com/private", 403, "example-sensitive-body", {}, None), "HTTP 403"),
+    (ValueError("example-sensitive-body"), "request_unconfirmed"),
+    (RuntimeError("bench_health_access_unconfirmed"), "bench_health_access_unconfirmed"),
+])
+def test_cli_reports_safe_failure_reason_without_response_data(monkeypatch, capsys, failure, expected):
+    def fail(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(deploy, "ready", fail)
+    assert deploy.main(["check-health"]) == 1
+    output = capsys.readouterr().err
+    assert expected in output
+    assert "example-sensitive-body" not in output and "example.com" not in output

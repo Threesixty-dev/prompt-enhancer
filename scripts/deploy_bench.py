@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.request
 
-from deploy_coolify import NoRedirect, access_headers, checked_url, controller_json
+from deploy_coolify import HTTP_CLIENT_HEADERS, NoRedirect, access_headers, checked_url, controller_json
 
 
 def revision(env):
@@ -37,7 +37,7 @@ def controller(env):
     token = env.get("COOLIFY_TOKEN", "")
     if not 16 <= len(token) <= 1024 or not token.isascii() or any(ord(c) <= 32 or ord(c) >= 127 for c in token):
         raise ValueError("controller_token_invalid")
-    headers = {"Authorization": "Bearer " + token, "Accept": "application/json",
+    headers = {**HTTP_CLIENT_HEADERS, "Authorization": "Bearer " + token,
                **access_headers(env, "COOLIFY", required=True)}
     return origin + "/api/v1/services/" + ids[0] + "/applications/" + ids[1], headers
 
@@ -79,7 +79,7 @@ def deploy(env, client):
 def health_settings(env):
     revision(env)
     origin = checked_url(env.get("BENCH_PUBLIC_URL", ""), webhook=False)
-    headers = {"Accept": "application/json", "Cache-Control": "no-cache",
+    headers = {**HTTP_CLIENT_HEADERS, "Cache-Control": "no-cache",
                **access_headers(env, "BENCH_CF", required=True)}
     return origin + "/health/ready", headers
 
@@ -129,8 +129,19 @@ def main(argv=None):
             deploy(os.environ, client)
         else:
             verify(os.environ, client)
-    except (OSError, ValueError, RuntimeError, urllib.error.URLError):
-        print("Bench deployment step failed: " + mode + ". Check the configured target, registry pull access and gateway policy privately.", file=sys.stderr)
+    except urllib.error.HTTPError as error:
+        # Status is useful for policy diagnosis; URLs, headers and bodies are not.
+        print(f"Bench deployment step failed: {mode} (HTTP {error.code}).", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, RuntimeError, urllib.error.URLError) as error:
+        known = {"revision_invalid", "main_required", "deployment_url_invalid",
+                 "bench_target_required", "controller_token_invalid",
+                 "cloudflare_access_credentials_incomplete", "cloudflare_access_credentials_invalid",
+                 "cloudflare_access_credentials_required", "immutable_ghcr_image_required",
+                 "image_repository_mismatch", "bench_api_target_mismatch", "image_pin_unconfirmed",
+                 "bench_health_access_unconfirmed", "bench_revision_health_timeout"}
+        reason = str(error) if type(error) in {ValueError, RuntimeError} and str(error) in known else "request_unconfirmed"
+        print(f"Bench deployment step failed: {mode} ({reason}).", file=sys.stderr)
         return 1
     return 0
 
