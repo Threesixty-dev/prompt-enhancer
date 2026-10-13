@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 const title = 'Clarify a fictional widget request';
 
@@ -31,7 +32,7 @@ async function cancel(page) {
   await expect(page.locator('#run-detail .badge.cancelled').first()).toBeVisible();
 }
 async function settings(page) {
-  await page.getByText('Immutable effective settings', { exact: true }).click();
+  await page.getByText('Effective run settings', { exact: true }).click();
   return JSON.parse(await page.locator('#run-detail pre').first().textContent());
 }
 
@@ -61,6 +62,39 @@ test('experiment, run form, and result have separate routes with back, forward, 
   await expect(page.locator('#run-detail')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test('revision selection scopes run history and experiment status', async ({ page }) => {
+  const definition = JSON.parse(await readFile(new URL('../definitions/example-widget.json', import.meta.url), 'utf8'));
+  let experiments = [3, 2, 1].map(generation => ({ ...definition, revision: String(generation), generation }));
+  const runs = [
+    { id: '00000000-0000-4000-8000-000000000001', stable_id: definition.stableId, revision: '1', status: 'failed', origin: 'ui', created: 3 },
+    { id: '00000000-0000-4000-8000-000000000002', stable_id: definition.stableId, revision: '2', status: 'succeeded', origin: 'gitops', created: 2 },
+  ];
+  await page.route('**/api/experiments', route => route.fulfill({ json: { experiments } }));
+  await page.route('**/api/runs', route => route.fulfill({ json: { runs } }));
+  await connect(page, '/experiments/example-widget?revision=3');
+  await expect(page.locator('#runs .run-card')).toHaveCount(0);
+  await expect(page.locator('#runs')).toContainText('No runs yet for this revision.');
+  await page.getByLabel('Revision', { exact: true }).selectOption('2');
+  await expect(page).toHaveURL(/revision=2$/);
+  await expect(page.locator('#runs .run-card')).toHaveCount(1);
+  await expect(page.locator('#runs .run-card')).toHaveAttribute('href', /000000000002$/);
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.locator('#runs .run-card')).toHaveCount(1);
+  await expect(page.locator('#runs .run-card')).toHaveAttribute('href', /000000000002$/);
+  await page.getByLabel('Revision', { exact: true }).selectOption('1');
+  await expect(page.locator('#runs .run-card')).toHaveCount(1);
+  await expect(page.locator('#runs .run-card')).toHaveAttribute('href', /000000000001$/);
+  await page.reload();
+  await expect(page.getByLabel('Revision', { exact: true })).toHaveValue('1');
+  await expect(page.locator('#runs .run-card')).toHaveAttribute('href', /000000000001$/);
+  await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
+  await expect(page.locator('.experiment-card')).toContainText('No runs yet');
+  await expect(page.locator('.experiment-card .badge')).toHaveCount(0);
+  experiments = experiments.filter(experiment => experiment.revision !== '3');
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.locator('.experiment-card .badge')).toHaveText('succeeded');
 });
 
 test('normal fields create typed overrides and rerun edits preserve saved settings', async ({ page }) => {
@@ -143,14 +177,14 @@ test('invalid numbers and empty selections never submit a run', async ({ page })
   await strategy(page, 'script').getByRole('checkbox', { name: 'Packaged clarification', exact: true }).uncheck();
   await strategy(page, 'consumer').getByRole('checkbox', { name: 'Consumer rewrite', exact: true }).uncheck();
   await page.getByRole('button', { name: 'Start run', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Select at least one strategy');
+  await expect(page.getByRole('status')).toContainText('Select at least one unit and one subject.');
   expect(submissions).toBe(0);
 });
 
 test('polling preserves completed result nodes, open disclosures, and form input', async ({ page }) => {
   await openExperiment(page);
   await page.getByRole('link', { name: /Automatic run/ }).first().click();
-  await page.getByText('Immutable effective settings', { exact: true }).click();
+  await page.getByText('Effective run settings', { exact: true }).click();
   await page.evaluate(() => {
     window.resultNode = document.querySelector('.run-panel');
     window.resultMutations = 0;

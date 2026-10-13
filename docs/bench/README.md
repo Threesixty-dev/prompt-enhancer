@@ -10,7 +10,28 @@ see the [integration review](integration-review.md).
 The [client navigation](client-navigation.md) separates experiment browsing,
 experiment details, run setup and results. Open an experiment and choose **New
 run**, or choose **Rerun with changes** on a result. Edit parameters, objectives,
-steering and model aliases using form controls; saved evidence remains read-only.
+steering and model aliases using form controls; saved results remain read-only.
+
+## Domain language
+
+Client labels follow the experiment definition and execution contracts:
+
+| Term | Meaning |
+| --- | --- |
+| Experiment | Definition with a stable identity, subjects and units. |
+| Revision | An immutable version of an experiment definition. |
+| Run | Execution of a revision with its effective settings and overrides saved. |
+| Unit | A strategy with parameters, objective, steering, assertions and any consumer binding. |
+| Subject | An input prompt and any explicitly supplied context. |
+| Attempt | Execution of one unit for one subject within a run. |
+| Result | The enhanced prompt, evaluations, deltas, assertions, timings and provenance from an attempt. |
+| Enhancer | The engine that evaluates, generates and reevaluates a prompt. |
+| Consumer | The generation role used by consumer-backed strategies. |
+| Evaluator profile | The evaluators and settings shared by units for before/after comparisons. |
+
+A strategy is a property of a unit. A prompt is part of a subject. Use **Units**,
+**Subjects** and **Results** for those entities in navigation, headings and forms;
+use **Strategy**, **Original prompt** and **Enhanced prompt** for their properties.
 
 ## Local development
 
@@ -63,7 +84,7 @@ readable, and omitted unit bindings preserve existing publication identities.
 The definition's versioned `objective` and `baseSteering` are inherited by each
 unit; a unit can replace individual fields with `objective` and `steering`.
 UI/API overrides apply after these defaults. The UI exposes an objective editor
-and per-strategy steering; the API also accepts `unitObjectives`. Targets guide
+and per-unit steering; the API also accepts `unitObjectives`. Targets guide
 generation and remain separate from assertions. Every run freezes the merged
 objective and steering for each unit. Rerun copies those effective settings.
 The measured baseline, evaluator profile and generation context/prompt versions
