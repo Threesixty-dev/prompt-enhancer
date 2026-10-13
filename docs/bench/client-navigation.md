@@ -7,6 +7,41 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Model details and run variations - 2026-10-14
+
+- Task / scope: Bench model visibility and case-by-variant explanation; W05
+  presentation and W02 immutable run evidence within the existing Bench only.
+- Approved baseline: owner-selected `develop` at `97b128f`.
+- User outcome: experiment cards, run cards and detail pages expose generation
+  and evaluation model aliases separately. Attempt results show recorded provider,
+  model, reported model, model revision and identity source for generation and
+  both evaluation passes. Scripted and deterministic work explicitly uses no
+  model; absent provenance remains unknown.
+- Change: a data-derived cases x variants matrix numbers each attempt. For the
+  clarification example it reads `2 cases / 2 variants / 4 attempts`. Both
+  variants retain `script.clarify.v1`, with their distinct clarification focus.
+  Before/After is explained as comparison inside an attempt, not extra cases.
+  The form updates the matrix when selections, steering or model aliases change;
+  reruns retain the saved subset and aliases. Result cells show recorded status
+  and provide keyboard-accessible links to the matching attempt.
+- Boundary: run lists receive a bounded `configuration` projection of each
+  immutable run snapshot. It includes counts and model bindings, never subject
+  text/context, instructions, evaluator targets, requests or result bodies.
+  Experiment defaults cannot replace run overrides. No schema migration or model
+  execution behavior changes.
+- Verification: 162 Bench backend tests and 28 desktop/mobile browser checks
+  pass. Synthetic coverage includes model overrides and legacy inheritance,
+  summary content exclusion, the two-by-two matrix, selection changes, empty
+  selections, reruns, keyboard navigation, status refresh, missing attempts and
+  provenance, separate before/after evaluator identities, and viewport overflow.
+  JavaScript syntax, repository privacy scanning and whitespace checks pass. Desktop/mobile layout was also
+  visually inspected using synthetic data outside the repository.
+- Resource bound: one owned loopback fixture server and one browser test worker;
+  installed Chrome was selected because bundled Chromium was unavailable. An
+  alternate loopback port avoided an existing listener. No provider/model calls,
+  deployment or publication were performed. Owner review remains open; no
+  general workflow or release gate changes.
+
 ## User journey
 
 - `/experiments` shows All runs above the experiment cards. Run rows open

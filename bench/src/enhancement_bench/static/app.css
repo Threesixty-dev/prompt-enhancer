@@ -103,6 +103,43 @@ fieldset { min-width: 0; }
 .array-row { border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
 .form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 0; }
 .form-actions p { margin-right: auto; max-width: 550px; }
+.model-summary { display: grid; gap: 8px; margin: 12px 0 18px; font-size: 13px; line-height: 1.5; }
+.model-summary > div { min-width: 0; }
+.model-summary dt { color: var(--muted); font-size: 11px; font-weight: 650; }
+.model-summary dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.model-evidence { margin: 22px 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.model-evidence > h3 { grid-column: 1 / -1; margin: 0; }
+.model-evidence-card { min-width: 0; border: 1px solid var(--line); padding: 16px; border-radius: 8px; }
+.model-evidence-card h4 { margin: 0; font-size: 13px; }
+.model-evidence-card .model-summary { margin-bottom: 0; }
+.variation-overview { background: radial-gradient(ellipse at top right, #e0f3ed, transparent 70%), var(--surface); }
+.variation-overview h2 { margin-bottom: 8px; }
+.variation-count { color: var(--teal); font-weight: 650; margin: 0 0 22px; }
+.variation-equation { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; }
+.variation-factor { display: grid; gap: 6px; padding: 20px; border: 1px solid #bdd8d2; border-radius: 10px; background: #ffffffb0; }
+.variation-factor:last-child { color: white; background: var(--teal); border-color: var(--teal); }
+.variation-factor strong { font-size: 38px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+.variation-factor span { font-size: 12px; }
+.variation-operator { font-size: 24px; color: var(--muted); }
+.variation-scroll { border: 1px solid var(--line); border-radius: 10px; background: #ffffffc9; margin-top: 20px; }
+.variation-matrix { table-layout: fixed; width: max-content; min-width: 100%; }
+.variation-matrix caption { text-align: left; padding: 14px; color: var(--muted); font-size: 12px; }
+.variation-matrix th { width: 240px; text-transform: none; letter-spacing: 0; font-size: 13px; }
+.variation-matrix th strong { color: #17272f; overflow-wrap: anywhere; }
+.variation-matrix th small { font-weight: 400; font-size: 12px; overflow-wrap: anywhere; }
+.variation-matrix th, .variation-matrix td { border-right: 1px solid var(--line); padding: 14px; }
+.variation-matrix tr > :last-child { border-right: 0; }
+.variation-matrix tbody tr:last-child > * { border-bottom: 0; }
+.variation-matrix tbody tr:has(a:hover, a:focus-visible) { background: #edf8f5; }
+.case-preview { display: block; font-weight: 400; font-size: 12px; line-height: 1.6; margin-top: 8px; overflow-wrap: anywhere; }
+.attempt-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 72px; padding: 12px; background: #f1f6f5; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: #17272f; }
+a.attempt-cell:hover { border-color: var(--teal); }
+.attempt-cell[data-status=succeeded] { background: #e3f3ed; border-color: #9dcebf; }
+.attempt-cell[data-status=running] { background: #e4f0fa; border-color: #87b0d0; }
+.attempt-cell[data-status=failed], .attempt-cell[data-status=interrupted] { background: #fff1e8; border-color: #e6b496; }
+.attempt-state { font-size: 12px; text-transform: capitalize; }
+.run-panel { scroll-margin-top: 20px; }
+#run-preview > .model-summary { padding: 0 4px; }
 [hidden] { display: none !important; }
 @media(max-width: 800px) {
   header { padding: 18px 20px; }
@@ -123,4 +160,10 @@ fieldset { min-width: 0; }
   .form-actions .button, .form-actions button { flex: 1; }
   .meta { gap: 8px; }
   th, td { padding: 10px 7px; }
+  .variation-equation { gap: 6px; }
+  .variation-factor { padding: 12px 9px; }
+  .variation-factor strong { font-size: 30px; }
+  .variation-factor span { font-size: 11px; }
+  .variation-operator { font-size: 18px; }
+  .variation-matrix th { width: 205px; }
 }
