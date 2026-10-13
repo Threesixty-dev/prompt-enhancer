@@ -75,6 +75,8 @@ class LiteLLMSettings(BaseModel):
     model: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/+-]*$")
     connect_address: str | None = Field(default=None, repr=False)
     tls_cert_pem: SecretStr | None = Field(default=None, repr=False)
+    access_client_id: SecretStr | None = Field(default=None, repr=False, min_length=1, max_length=4096)
+    access_client_secret: SecretStr | None = Field(default=None, repr=False, min_length=1, max_length=4096)
     reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
     model_revision: str | None = Field(default=None, max_length=160)
     model_license: str | None = Field(default=None, max_length=120)
@@ -95,6 +97,11 @@ class LiteLLMSettings(BaseModel):
                 ipaddress.ip_address(self.connect_address)
             if any(c.isspace() for c in self.credential.get_secret_value()):
                 raise ValueError
+            if (self.access_client_id is None) != (self.access_client_secret is None):
+                raise ValueError
+            for value in (self.access_client_id, self.access_client_secret):
+                if value is not None and any(not 33 <= ord(c) <= 126 for c in value.get_secret_value()):
+                    raise ValueError
             if self.tls_cert_pem is not None:
                 # A pinned private-origin leaf is trusted only for this client.
                 ssl.PEM_cert_to_DER_cert(self.tls_cert_pem.get_secret_value())

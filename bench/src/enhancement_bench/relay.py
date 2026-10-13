@@ -30,8 +30,15 @@ def gateway_url(value: str) -> str:
     return value.rstrip("/")
 
 
-def create_app(endpoint: str, *, transport=None):
+def create_app(endpoint: str, *, transport=None, access_client_id=None, access_client_secret=None):
     endpoint = gateway_url(endpoint)
+    access_headers = {}
+    if access_client_id is not None or access_client_secret is not None:
+        for name, value in (("CF-Access-Client-Id", access_client_id),
+                            ("CF-Access-Client-Secret", access_client_secret)):
+            if not isinstance(value, str) or not 1 <= len(value) <= 4096 or any(not 33 <= ord(c) <= 126 for c in value):
+                raise ValueError("gateway_access_credential_invalid")
+            access_headers[name] = value
     slots = asyncio.Semaphore(8)
 
     @asynccontextmanager
@@ -67,10 +74,12 @@ def create_app(endpoint: str, *, transport=None):
             return JSONResponse({"error": {"code": "relay_capacity"}}, 429)
         response = None
         try:
-            # Only the caller's restricted key is forwarded; no relay credential exists.
+            # Deployment credentials cannot be replaced by caller-supplied headers.
             upstream = app.state.client.build_request(request.method, endpoint + "/" + operation,
                 content=bytes(body), headers={"Authorization": authorization, "Content-Type": "application/json",
-                                             "Accept": request.headers.get("accept", "application/json")})
+                                             "User-Agent": "prompt-enhancer-bench/1.0",
+                                             "Accept": request.headers.get("accept", "application/json"),
+                                             **access_headers})
             response = await app.state.client.send(upstream, stream=True)
             if response.status_code != 200:
                 await response.aclose()
@@ -125,7 +134,9 @@ def main():
             raise SystemExit(1) from None
         return
     try:
-        app = create_app(os.environ["BENCH_LITELLM_URL"])
+        app = create_app(os.environ["BENCH_LITELLM_URL"],
+            access_client_id=os.environ.get("BENCH_CF_ACCESS_CLIENT_ID") or None,
+            access_client_secret=os.environ.get("BENCH_CF_ACCESS_CLIENT_SECRET") or None)
     except (KeyError, ValueError):
         raise SystemExit("relay_configuration_invalid") from None
     # The transport process does not inherit injected application credentials.

@@ -1,8 +1,35 @@
 # Combined core and bench review
 
+## Consumer retention follow-up - 2026-10-13
+
+The owner requested retained OpenHands history after the successful pilot was
+deleted by completion cleanup. Core 0.1.3 and the dedicated consumer adapter now
+separate process release from history expiry. The configurable default is seven
+days after confirmed cleanup; uncertain attempts remain held. Native history is
+read-only and survives restart. Complete Bench results keep their existing
+independent retention. See the [task and policy](consumer-retention.md).
+
+Initial focused validation: 46 synthetic tests passed. The pinned 1.49.1 consumer
+container also preserved a fictional native conversation and its events across
+server restart, rejected unauthenticated access and replay, and expired the
+acknowledged history. Networking was disabled and no inference was performed.
+Source `6530fd0` was deployed to the dedicated consumer using an immutable image
+derived from its existing pinned image. Only that image reference changed in the
+live Compose definition; the portal, routing and volumes were preserved. The
+live authenticated retention endpoint reports seven days and a healthy sweep.
+An isolated startup check also verified the actual consumer entrypoint and core
+0.1.3 without inference. A checksummed core archive was retained.
+
+Manual pilot generation 8 (`pilot-retention-v8`) binds the new immutable core;
+import returned no run ID and automatic execution remains disabled for this
+revision. No new live inference was started. A future manual consumer run will
+provide end-to-end model/process retention evidence; the previous deleted
+conversation cannot be recovered.
+
 Date: 2026-10-12. Branch: `codex/enhancer-integration-review`.
-Disposition: local review candidate; architecture acceptance and live deployment
-remain pending. See [ADR 0025](../adr/0025-enhancement-experiment-boundary.md).
+Initial disposition: local review candidate. The October 13 addendum records a
+later live synthetic deployment; architecture acceptance remains pending.
+See [ADR 0025](../adr/0025-enhancement-experiment-boundary.md).
 
 ## Reconciliation with current main
 
@@ -37,6 +64,58 @@ A regression exercises both standard-library wording variants. Each variant
 produces the exact committed OpenAPI bytes; no schema/client regeneration or
 relaxation of the byte-exact artifact gate is needed. Full hosted platform
 results must still pass on the final integration commit before merge.
+
+## October 13 pilot failure diagnosis
+
+Core 0.1.2 adds an operator-bound `reasoning_effort` setting, recorded in provider provenance.
+The Qwen gateway pilot exhausted its 1,024-token budget in reasoning, with
+`finish_reason: length` and empty answer text. A bounded diagnostic using the
+same fictional input and budget with `reasoning_effort: none` returned completed
+rubric JSON in 12 tokens. Truncated and malformed replies still remain unknown.
+
+The pinned OpenHands SDK 1.49.1 emits the completed ACP answer in a typed
+`FinishAction`, which the old MessageEvent-only reader ignored. The adapter now
+requires exactly one matching finish event after both completion checks. A
+second failure was a Codex startup warning prepended to the valid JSON because
+the gateway alias had no catalog entry. The static consumer now writes an
+explicit text-only client catalog for its configured alias, with tools disabled
+and unknown context limits left null. This is client policy, not a verified
+upstream model identity or capability claim. No arbitrary preamble is stripped.
+
+Only finite package-owned error codes cross the worker boundary; arbitrary
+exception text remains suppressed. Automatic runs stay disabled. This diagnosis
+does not by itself qualify an end-to-end experiment or close any beta gate.
+
+## October 13 live synthetic completion
+
+The deployed consumer catalog must expose its configured alias in Codex's
+selectable model list. Hiding its sole entry caused ACP initialization to fail
+before generation. The corrected image passes an offline initialization and
+model-list check using the pinned Codex executable, with no inference submitted.
+The failed operation was removed and independently checked before its
+reconciliation hold was released. A separate core-startup failure was traced to
+configuration-file ownership and repaired without widening its read permissions.
+
+Manual pilot revision 7 completed in approximately 41 seconds on core 0.1.2.
+All four original Qwen rubric responses parsed: three labels were known and one
+explicitly abstained. OpenHands/Codex returned a valid rewritten prompt; all four
+candidate rubric responses parsed as known labels. Ten comparison records were
+saved, including honest unknown and non-comparable outcomes. No provider error
+was recorded. Assertions remain `not_evaluated`, so this is execution evidence,
+not a demonstrated prompt-quality improvement.
+
+The deployment retains the separately delivered portal runtime and routing,
+with updated shared schemas on its pinned image. The final consumer image binds
+source `a653b2d`; the core and shared schemas bind `42de206`. The retained core
+archive checksum was verified. Final checks found the synthetic conversation
+absent, no owned Codex process or workspace, no ephemeral core, and no queued
+runs, cleanup holds or reconciliation holds. Receipts remain outside the repo.
+Automatic runs stay disabled.
+
+Validation includes the earlier 69 focused synthetic tests, the affected
+consumer-config regression rerun after the final visibility correction, and the
+privacy scan. No complete suite or CI wait was added. Hosted model revisions and
+licenses remain unknown; live cancellation and wider qualification remain open.
 
 ## Review boundary
 
@@ -144,15 +223,14 @@ left in place. After Docker pruning, restore the referenced image before rerun.
 ## Remaining acceptance
 
 - Review this combined candidate and the proposed ADR before source integration.
-- Bind and qualify the dedicated static OpenHands/Codex consumer with fictional
-  inputs, pinned model identity, real completion/cancellation and cleanup evidence.
-- Independently qualify the evaluator aliases through the intended LiteLLM/local
-  inference route, including genuine model revision, typed metrics, failure and
-  timeout behavior. The consumer cannot substitute for evaluation models.
+- Extend the bounded live completion evidence with pinned upstream model identity
+  and live cancellation qualification for the dedicated OpenHands/Codex consumer.
+- Extend the Qwen rubric qualification with genuine model revision, typed metrics,
+  and broader failure/timeout coverage. Consumer and evaluator roles stay separate.
 - Supply reviewed offline snapshots and selected hardware for actual local
   model/GPU qualification. Connectors and advanced GPU scheduling remain deferred.
-- Deliberately authorize CI/registry publication and Coolify deployment. The
-  recipes are implemented; neither hosted delivery nor deployment was executed.
+- Qualify CI/registry delivery separately from the authorized live deployment
+  recorded above; the latter does not certify release delivery.
 
 At the initial review checkpoint, the broad repository suite was not green.
 The core workstream recorded 6,134

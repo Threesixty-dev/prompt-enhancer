@@ -65,7 +65,7 @@ def new_state(args):
     if digest is None:
         raise DemoError("demo_requires_local_manifest_digest")
     bench_image = docker("image", "inspect", args.bench_image, "--format", "{{.Id}}")
-    definition = json.loads((ROOT / "bench/definitions/example-widget.json").read_text())
+    definition = json.loads((ROOT / "bench/examples/example-widget.json").read_text())
     definition.update(stableId="example-local-demo", title="Local review: two scripted prompt variants",
                       enhancerVersion=core_version(), consumerBinding=None)
     first = definition["units"][0]

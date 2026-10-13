@@ -1,4 +1,4 @@
-# Experiment bench
+# Test Bench
 
 Standalone private benchmark storage and UI for `enhancement.v1`. Only explicitly
 authored synthetic subjects are supported in this MWE. Definitions and responses
@@ -43,7 +43,7 @@ does not maintain copied or alternate execution schemas.
 ```sh
 uv sync --project bench --frozen --extra dev
 bench/.venv/bin/python -m pytest -q tests/bench
-bench/.venv/bin/python -m enhancement_bench.cli validate bench/definitions/*.json
+bench/.venv/bin/python -m enhancement_bench.cli validate experiments/*.json bench/examples/*.json
 cd bench
 npm ci --ignore-scripts
 npx playwright install chromium
@@ -61,11 +61,38 @@ process with an exclusive file lock. Production runs the worker in its named
 container so ephemeral cores can share its network namespace. Do not start two
 workers against the same SQLite database or duplicate the static worker namespace.
 
-## Definitions and delivery
+## Domain language
 
-`bench/definitions/example-widget.json` is a reserved fictional example with a
+- An **Experiment** is a versioned definition with defaults and sibling Experiment Units.
+- An **Experiment Unit** is one configuration being compared. Strategy is a setting on it.
+- A **Subject** is an input prompt shared by the selected Experiment Units.
+- A **Run** executes an Experiment revision with immutable effective settings.
+  UI Runs may override the defaults without editing the Experiment.
+- **Prompt Enhancer core** evaluates, enhances, reevaluates and compares.
+- A **Consumer** supplies enhancement inference; OpenHands or Codex owns its runtime.
+- An **Evaluator** measures the before/after prompts independently of the Consumer.
+- **Test Bench** imports Experiments, schedules Runs, starts core containers and
+  stores/presents results. There is no separate testing harness.
+
+## Experiments and delivery
+
+Author a new JSON file directly in `experiments/` and push it to the configured
+publication branch. The `Publish Experiments` GitHub Action validates the files,
+resolves each Experiment's `enhancerVersion` to an immutable core image, and
+delivers it to Test Bench. `autoRun: true` queues a Run automatically on import;
+its status and results appear in the UI. No manual import or UI Run is needed.
+
+Keep `stableId` for later revisions and change both `revision` and `generation`.
+An existing revision is immutable. The publisher imports newest generations
+first, and repeated delivery does not create another Run. Older revisions may
+remain in the folder, with their own core versions. Disabling `autoRun` leaves
+an Experiment available for UI Runs. Deleting a file does not delete its stored
+Runs or imported revision.
+
+`bench/examples/example-widget.json` is a reserved fictional example with a
 packaged script and a consumer-backed rewrite. Its evaluator profile is identical
-for both siblings. Parameter overrides are shallow property replacement; provide
+for both sibling Experiment Units. This development fixture is outside the
+publication folder. Parameter overrides are shallow property replacement; provide
 the whole `generation` object when changing its settings. Null temperature and
 token limits mean provider-managed/unknown; they are not replaced with numbers.
 The ACP adapter rejects settings that its pinned worker cannot enforce.
@@ -122,8 +149,12 @@ the remote operation stopped. The UI then permits a fresh retry. This records an
 operator attestation, not an automatically verified model success.
 
 The bench retains complete results in its private volume until the operator
-performs a reviewed retention operation. This MWE has no automatic deletion or
-public export endpoint. Back up SQLite with its backup API while the worker is
+performs a reviewed retention operation. There is no automatic deletion of Bench
+results or public export endpoint. Dedicated OpenHands conversation history has
+a separate configurable seven-day default; successful runtime cleanup no longer
+deletes it immediately. Uncertain conversations remain held for reconciliation.
+See the [deployment policy](deployment.md#operator-configuration).
+Back up SQLite with its backup API while the worker is
 stopped, and verify the backup in a separate private location. Preserve WAL files
 when moving a live database; copying just the main file is not a valid backup.
 Never include database contents, prompts, response logs or worker homes in issues
@@ -131,20 +162,51 @@ or build contexts. There is no provider-session ingestion in this application.
 
 ## CI and deployment
 
-`bench-check.yml` validates tests, privacy, the UI, Compose and local image smoke
-without publishing. `bench-publish.yml` is manually dispatched and binds to an
-owner-configured `bench-publication` environment. Environment review requirements
-must actually be configured; naming the environment does not enforce them.
+`bench-check.yml` validates tests, privacy, the UI, Compose and local image smoke.
+`bench-publish.yml` runs on JSON changes in `experiments/` on
+`BENCH_PUBLICATION_BRANCH` (the repository default branch when unset). Explicit
+manual dispatch remains available for recovery. All publication jobs share one
+serial concurrency group and bind to the `bench-publication` environment.
+Configure that environment's allowed branches and any required review in GitHub;
+its name alone enforces neither.
 
-The publication job reads B's code-owned `CORE_VERSION`, verifies definitions,
-reuses a matching version image when its build-input hash matches, or builds with
-B's Docker recipe and publishes it. Changed code under an existing core version
-fails instead of replacing the tag. Definitions are delivered only after the
-immutable digest is known. Rerunning delivery is safe. The workflow uses the job's
-registry token and optional `BENCH_CF_ACCESS_CLIENT_ID` / `BENCH_CF_ACCESS_CLIENT_SECRET`
-secrets for a Cloudflare service token allowed by the Bench route's Access policy.
-Bench has no separate login or import token. Delivery supplies the same-origin
-header and never follows redirects carrying gateway credentials.
+The one-time operator configuration is:
+
+| Setting | Location | Purpose |
+| --- | --- | --- |
+| `BENCH_PUBLICATION_BRANCH` | Repository variable | Branch permitted to publish automatically |
+| `BENCH_DELIVERY_URL` | Environment variable | HTTPS Test Bench origin, without an API path |
+| `BENCH_CF_ACCESS_CLIENT_ID`, `BENCH_CF_ACCESS_CLIENT_SECRET` | Environment secrets, when needed | Existing machine access through the access gateway |
+| `BENCH_CORE_IMAGES` | Environment variable | Optional reviewed catalog of retained immutable core artifacts |
+| `BENCH_IMAGE_REPOSITORY`, `BENCH_REGISTRY` | Environment variables, when needed | Registry for versions outside the retained catalog |
+| `BENCH_CORE_VARIANT` | Environment variable, optional | `default` or `models`; defaults to `default` |
+
+The retained artifact catalog is JSON keyed by core version, for example:
+
+```json
+{
+  "0.1.4": {
+    "image": "registry.example.com/example/enhancer@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "variant": "default"
+  }
+}
+```
+
+Register an artifact only after verifying its runtime core version, build variant
+and availability to the Test Bench worker. The digest identifies the exact bytes.
+`buildInputSha256` may be recorded when the complete build-input fingerprint is
+known; do not invent it from a stale image label. Reusing the checkout's current
+core version requires that fingerprint to match the current source. Other
+retained versions do not claim source equivalence to this checkout.
+
+For versions outside the catalog, the publisher reuses a verified registry image
+or builds the checkout's code-owned `CORE_VERSION`. It never builds a different
+requested version from current source. Changed source under an existing version
+fails instead of replacing the tag. All Experiments validate and all images
+resolve before delivery begins. Delivery sends the required Origin and optional gateway
+credentials, refuses redirects, and emits only a content-free acknowledgement.
+Bench has no application login or import token. Registry access uses the job
+token; no personal credential is committed.
 
 The publication workflow's operator-selected `models` variant installs B's locked
 optional runtimes and uses its own tag, build fingerprint and image label. The

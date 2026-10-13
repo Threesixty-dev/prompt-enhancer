@@ -14,7 +14,7 @@ from pydantic import SecretStr
 
 from .adapters import ConsumerConfig, TextEvaluatorConfig
 from .contracts import ExecuteRequest, Evaluator, GenerationContext, Subject
-from .ports import CoreError
+from .ports import CoreError, WORKER_ERROR_CODES
 
 REWRITE_INSTRUCTION = (
     "Rewrite the supplied fictional prompt while preserving its intent and language. "
@@ -59,10 +59,11 @@ def inference(payload):
 
     config = ConsumerConfig.model_validate(payload["config"])
     request = ExecuteRequest.model_validate(payload["request"])
+    generation = request.parameters.generation
     settings = LiteLLMSettings(base_url=config.endpoint, model=config.model,
         credential=SecretStr(payload["credential"]), model_revision=config.model_revision,
-        model_license=config.model_license)
-    generation = request.parameters.generation
+        model_license=config.model_license, reasoning_effort=config.reasoning_effort,
+        **payload.get("gateway_access", {}))
     body = {"model": config.model, "stream": False, "messages": [
         {"role": "system", "content": REWRITE_INSTRUCTION},
         {"role": "user", "content": generation_input(payload)},
@@ -92,7 +93,9 @@ def rubric_inference(payload):
     spec, subject = Evaluator.model_validate(payload["spec"]), Subject.model_validate(payload["subject"])
     settings = LiteLLMSettings(base_url=config.endpoint, model=config.model,
         credential=SecretStr(payload["credential"]), model_revision=config.model_revision,
-        model_license=config.model_license)
+        model_license=config.model_license,
+        reasoning_effort=config.reasoning_effort,
+        **payload.get("gateway_access", {}))
     # Identical rubric meanings to the typed local backend. Context is explicit
     # request data, never fetched from a prior consumer conversation.
     body = {"model": config.model, "stream": False,
@@ -124,6 +127,8 @@ def openhands(payload):
     from openhands.sdk import Conversation
     from openhands.sdk.agent import ACPAgent
     from openhands.sdk.context import AgentContext
+    from openhands.sdk.event import ActionEvent
+    from openhands.sdk.tool.builtins.finish import FinishAction
     from openhands.sdk.workspace import RemoteWorkspace
     import httpx
 
@@ -137,6 +142,12 @@ def openhands(payload):
         working_dir=directory)
     conversation, confirmed = None, False
     try:
+        with httpx.Client(timeout=10, follow_redirects=False, trust_env=False,
+                          headers={"X-Session-API-Key": key}) as client:
+            policy = client.get(f"{config.endpoint}/api/bench/retention")
+            if (policy.status_code != 200 or policy.json().get("version") != "bench-retention.v1"
+                    or policy.json().get("sweep_error") is True):
+                raise CoreError("remote_cleanup_unconfirmed")
         prepared = workspace.execute_command(f"mkdir -m 700 -- {directory}", cwd="/tmp", timeout=10)
         if prepared.exit_code != 0:
             raise CoreError("consumer_workspace_unavailable")
@@ -162,15 +173,14 @@ def openhands(payload):
             confirmed = True
         messages = []
         for event in conversation.state.events:
-            if getattr(event, "source", None) == "agent" and hasattr(event, "llm_message"):
-                message = event.llm_message
-                if getattr(message, "role", None) == "assistant":
-                    text = "".join(getattr(part, "text", "") for part in message.content)
-                    if text:
-                        messages.append(text)
-        if not messages:
+            # SDK 1.49.1 closes an ACP turn with FinishAction; streamed chunks
+            # and MessageEvents are not its completed response receipt.
+            if (isinstance(event, ActionEvent) and event.source == "agent"
+                    and event.tool_name == "finish" and isinstance(event.action, FinishAction)):
+                messages.append(event.action.message)
+        if len(messages) != 1:
             raise CoreError("consumer_reply_invalid")
-        text = parse_candidate(messages[-1], request.parameters.generation.max_output_chars)
+        text = parse_candidate(messages[0], request.parameters.generation.max_output_chars)
         return {"text": text, "reported_model": info.get("current_model_id")}
     except CoreError:
         raise
@@ -179,20 +189,31 @@ def openhands(payload):
     finally:
         if conversation is not None:
             try:
-                # Failed or cancelled conversations are retained for reconciliation.
-                # Finished attempts (including invalid replies) release remote state.
+                # Release the runtime without deleting its native OpenHands history.
+                # Failed/cancelled attempts remain held for explicit reconciliation.
                 if confirmed:
-                    with httpx.Client(timeout=10, follow_redirects=False, trust_env=False,
+                    conversation.close()
+                    with httpx.Client(timeout=30, follow_redirects=False, trust_env=False,
                             headers={"X-Session-API-Key": payload["credential"]}) as client:
-                        deleted = client.delete(f"{config.endpoint}/api/conversations/{conversation_id}")
-                        if deleted.status_code not in {200, 204, 404}:
+                        released = client.post(f"{config.endpoint}/api/bench/conversations/{conversation_id}/release")
+                        if (released.status_code != 200
+                                or released.json().get("runtime_released") is not True):
                             raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
-                        absent = client.get(f"{config.endpoint}/api/conversations/{conversation_id}")
-                        if absent.status_code != 404:
+                        retained = client.get(f"{config.endpoint}/api/conversations/{conversation_id}")
+                        if retained.status_code != 200 or retained.json().get("execution_status") != "finished":
                             raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
-                    removed = workspace.execute_command(f"rmdir -- {directory}", cwd="/tmp", timeout=10)
+                    # OpenHands initializes Git in this newly allocated workspace.
+                    # Remove only that metadata; unexpected files still fail cleanup.
+                    removed = workspace.execute_command(
+                        f"test ! -L {directory} && rm -rf -- {directory}/.git && rmdir -- {directory}",
+                        cwd="/tmp", timeout=10)
                     if removed.exit_code != 0:
                         raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
+                    with httpx.Client(timeout=10, follow_redirects=False, trust_env=False,
+                            headers={"X-Session-API-Key": key}) as client:
+                        receipt = client.post(f"{config.endpoint}/api/bench/conversations/{conversation_id}/retain")
+                        if receipt.status_code != 200 or receipt.json().get("cleanup_confirmed") is not True:
+                            raise CoreError("remote_cleanup_unconfirmed", uncertain=True)
             except Exception:
                 raise CoreError("remote_cleanup_unconfirmed", uncertain=True) from None
             finally:
@@ -237,7 +258,8 @@ def main():
                 "typed_evaluation": typed_evaluation, "rubric_inference": rubric_inference}[payload["operation"]]
             value = operation(payload)
     except CoreError as exc:
-        value = {"error": "provider_failed", "uncertain": exc.uncertain}
+        value = {"error": exc.code if exc.code in WORKER_ERROR_CODES else "provider_failed",
+                 "uncertain": exc.uncertain}
     except BaseException:
         value = {"error": "provider_failed", "uncertain": True}
     output.write(json.dumps(value))

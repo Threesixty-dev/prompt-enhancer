@@ -65,7 +65,7 @@ test('experiment, run form, and result have separate routes with back, forward, 
 });
 
 test('revision selection scopes run history and experiment status', async ({ page }) => {
-  const definition = JSON.parse(await readFile(new URL('../definitions/example-widget.json', import.meta.url), 'utf8'));
+  const definition = JSON.parse(await readFile(new URL('../examples/example-widget.json', import.meta.url), 'utf8'));
   let experiments = [3, 2, 1].map(generation => ({ ...definition, revision: String(generation), generation }));
   const runs = [
     { id: '00000000-0000-4000-8000-000000000001', stable_id: definition.stableId, revision: '1', status: 'failed', origin: 'ui', created: 3 },
@@ -224,7 +224,7 @@ test('late result response cannot replace another page and wrong experiment run 
 
 
 test('all runs precede experiments, include every revision, and paginate without resetting on refresh', async ({ page }) => {
-  const definition = JSON.parse(await readFile(new URL('../definitions/example-widget.json', import.meta.url), 'utf8'));
+  const definition = JSON.parse(await readFile(new URL('../examples/example-widget.json', import.meta.url), 'utf8'));
   const experiments = [
     { ...definition, revision: '2', generation: 2, title: 'Updated fictional widget request' },
     definition,

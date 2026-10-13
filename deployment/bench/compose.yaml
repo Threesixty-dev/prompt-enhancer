@@ -10,7 +10,7 @@ services:
     ports: ["127.0.0.1:8088:8088"]
     volumes: [bench-data:/data]
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,size=32m]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
@@ -40,9 +40,11 @@ services:
       BENCH_MODEL_CACHE_VOLUME: ${BENCH_MODEL_CACHE_VOLUME:-}
       BENCH_MODEL_DEVICE: ${BENCH_MODEL_DEVICE:-cpu}
       BENCH_GPU_DEVICE: ${BENCH_GPU_DEVICE:-}
-      BENCH_CORE_ENV_KEYS: ENHANCEMENT_CONSUMER_TOKEN,ENHANCEMENT_EVALUATOR_TOKEN
+      BENCH_CORE_ENV_KEYS: ENHANCEMENT_CONSUMER_TOKEN,ENHANCEMENT_EVALUATOR_TOKEN,ENHANCEMENT_CF_ACCESS_CLIENT_ID,ENHANCEMENT_CF_ACCESS_CLIENT_SECRET
       ENHANCEMENT_CONSUMER_TOKEN: ${BENCH_CONSUMER_API_TOKEN:?Set static Agent Server token}
       ENHANCEMENT_EVALUATOR_TOKEN: ${BENCH_EVALUATOR_TOKEN:-}
+      ENHANCEMENT_CF_ACCESS_CLIENT_ID: ${BENCH_CF_ACCESS_CLIENT_ID:-}
+      ENHANCEMENT_CF_ACCESS_CLIENT_SECRET: ${BENCH_CF_ACCESS_CLIENT_SECRET:-}
     group_add: ["${BENCH_DOCKER_GID:?Set the Docker socket group ID}"]
     volumes:
       - bench-data:/data
@@ -54,7 +56,7 @@ services:
         bind:
           create_host_path: false
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,size=32m]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
@@ -71,12 +73,13 @@ services:
       BENCH_LITELLM_URL: http://127.0.0.1:4000/v1
       BENCH_LITELLM_TOKEN: ${BENCH_LITELLM_TOKEN:?Set a model-restricted gateway token}
       BENCH_CONSUMER_MODEL: ${BENCH_CONSUMER_MODEL:?Set the qualified gateway model}
+      BENCH_CONSUMER_RETENTION_DAYS: ${BENCH_CONSUMER_RETENTION_DAYS:-7}
     group_add: ["10003"]
     volumes:
       - consumer-data:/runtime/consumer
       - consumer-api:/run/bench-consumer-api
       - consumer-gateway:/run/bench-gateway:ro
-    tmpfs: [/tmp:rw,nosuid,size=256m]
+    tmpfs: ["/tmp:rw,nosuid,size=256m"]
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -97,12 +100,14 @@ services:
     entrypoint: [python, -m, enhancement_bench.relay]
     environment:
       BENCH_LITELLM_URL: ${BENCH_LITELLM_URL:?Set existing HTTPS gateway v1 base URL}
+      BENCH_CF_ACCESS_CLIENT_ID: ${BENCH_CF_ACCESS_CLIENT_ID:-}
+      BENCH_CF_ACCESS_CLIENT_SECRET: ${BENCH_CF_ACCESS_CLIENT_SECRET:-}
     group_add: ["10003"]
     volumes:
       - consumer-api:/run/bench-consumer-api:ro
       - consumer-gateway:/run/bench-gateway
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,size=32m]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 256m

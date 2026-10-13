@@ -21,8 +21,11 @@ class ConsumerConfig(WireModel):
     endpoint: str = Field(repr=False)
     credential_env: str = Field(pattern=r"^ENHANCEMENT_[A-Z0-9_]+$")
     model: str = Field(min_length=1, max_length=160)
-    model_revision: str = Field(min_length=1, max_length=160)
-    model_license: str = Field(min_length=1, max_length=100)
+    model_revision: str | None = Field(default=None, min_length=1, max_length=160)
+    model_license: str | None = Field(default=None, min_length=1, max_length=100)
+    reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
+    access_client_id_env: str | None = Field(default=None, pattern=r"^ENHANCEMENT_[A-Z0-9_]+$")
+    access_client_secret_env: str | None = Field(default=None, pattern=r"^ENHANCEMENT_[A-Z0-9_]+$")
     tokenizer_revision: str | None = None
     # The static worker must already expose this reviewed command. The core
     # never launches a new worker host or accesses a local provider account.
@@ -50,8 +53,16 @@ class ConsumerConfig(WireModel):
 
     @model_validator(mode="after")
     def inference_uses_verified_tls(self):
+        if self.provider != "inference" and self.reasoning_effort is not None:
+            raise ValueError("reasoning_effort_requires_inference")
         if self.provider == "inference" and not self.endpoint.startswith("https://"):
             raise ValueError("inference_https_required")
+        if (self.access_client_id_env is None) != (self.access_client_secret_env is None):
+            raise ValueError("gateway_access_pair_required")
+        if self.access_client_id_env is not None:
+            if self.provider != "inference" or len({self.credential_env, self.access_client_id_env,
+                                                    self.access_client_secret_env}) != 3:
+                raise ValueError("gateway_access_binding_invalid")
         return self
 
 
@@ -76,14 +87,16 @@ class TextEvaluatorConfig(WireModel):
 
 
 class ProcessConsumer:
-    def __init__(self, config: ConsumerConfig, credential: SecretStr):
+    def __init__(self, config: ConsumerConfig, credential: SecretStr, *, gateway_access=None):
         self.config, self.credential = config, credential
+        self.gateway_access = gateway_access
         self.provider = config.provider
         self.provenance = Provenance(provider=config.provider,
-            adapter_version="openhands-acp-1.49.1.v1" if config.provider == "openhands_acp" else "litellm-chat-v1",
+            adapter_version="openhands-acp-1.49.1.v4" if config.provider == "openhands_acp" else "litellm-chat-v1",
             model=config.model, model_revision=config.model_revision,
             model_license=config.model_license, tokenizer_revision=config.tokenizer_revision,
-            rubric_version="enhancement-rewrite.v2", identity_source="configured")
+            rubric_version="enhancement-rewrite.v2", identity_source="configured",
+            reasoning_effort=config.reasoning_effort)
 
     def validate(self, request: ExecuteRequest):
         if self.provider == "openhands_acp":
@@ -100,7 +113,8 @@ class ProcessConsumer:
             payload = await run_worker({"operation": self.provider, "request": request.model_dump(),
                 "operation_id": operation_id, "config": self.config.model_dump(mode="json"),
                 "generation_context": context.model_dump(),
-                "credential": self.credential.get_secret_value()}, remote=True)
+                "credential": self.credential.get_secret_value(),
+                "gateway_access": _access_payload(self.gateway_access)}, remote=True)
         except CoreError as exc:
             raise CoreError(exc.code, uncertain=exc.uncertain, operation_id=operation_id) from None
         text = payload.get("text")
@@ -157,18 +171,24 @@ class ProcessTextEvaluation:
         return Evaluation.model_validate(payload)
 
 
+def _access_payload(access):
+    return {key: value.get_secret_value() for key, value in access.items()} if access else {}
+
+
 class InferenceRubricEvaluation:
     """Only structured rubric interpretation uses the chat gateway evaluator."""
     kind = "rubric"
 
-    def __init__(self, config: ConsumerConfig, credential: SecretStr):
+    def __init__(self, config: ConsumerConfig, credential: SecretStr, *, gateway_access=None):
         if config.provider != "inference":
             raise CoreError("rubric_gateway_provider_unsupported")
         self.config, self.credential = config, credential
-        self.provenance = Provenance(provider="litellm", adapter_version="litellm-rubric.v1",
+        self.gateway_access = gateway_access
+        self.provenance = Provenance(provider="litellm", adapter_version="litellm-rubric.v2",
             model=config.model, model_revision=config.model_revision, model_license=config.model_license,
             tokenizer_revision=config.tokenizer_revision, rubric_version="structured-rubric.v1",
-            metric_version="typed-text.v1", identity_source="configured")
+            metric_version="typed-text.v1", identity_source="configured",
+            reasoning_effort=config.reasoning_effort)
 
     def validate(self, spec: Evaluator):
         if spec.kind != "rubric":
@@ -178,7 +198,8 @@ class InferenceRubricEvaluation:
         self.validate(spec)
         payload = await run_worker({"operation": "rubric_inference", "subject": subject.model_dump(),
             "spec": spec.model_dump(), "config": self.config.model_dump(mode="json"),
-            "credential": self.credential.get_secret_value()}, remote=True)
+            "credential": self.credential.get_secret_value(),
+            "gateway_access": _access_payload(self.gateway_access)}, remote=True)
         reported = payload.get("reported_model")
         if reported is not None and reported != self.config.model:
             raise CoreError("evaluator_model_mismatch")

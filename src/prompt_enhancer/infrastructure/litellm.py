@@ -131,13 +131,18 @@ class LiteLLMChat:
             payload.update({"model": config.model, "stream": stream, "no-log": True})
             if not stream:
                 payload.pop("stream_options", None)
-            connection.request("POST", "/v1/chat/completions", json.dumps(payload).encode(), {
+            headers = {
                 "Host": url.netloc,
+                "User-Agent": "prompt-enhancer-bench/1.0",
                 "Authorization": "Bearer " + config.credential.get_secret_value(),
                 "Content-Type": "application/json",
                 "Accept": "text/event-stream" if stream else "application/json",
                 "x-litellm-enable-message-redaction": "true",
-            })
+            }
+            if config.access_client_id is not None and config.access_client_secret is not None:
+                headers["CF-Access-Client-Id"] = config.access_client_id.get_secret_value()
+                headers["CF-Access-Client-Secret"] = config.access_client_secret.get_secret_value()
+            connection.request("POST", "/v1/chat/completions", json.dumps(payload).encode(), headers)
             response = connection.getresponse()
             # Never follow redirects or propagate gateway errors/headers.
             if response.status != 200:

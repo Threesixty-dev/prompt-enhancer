@@ -17,6 +17,12 @@ adds dedicated experiment/run pages and schema-driven run forms, with local
 synthetic evidence recorded in the readiness ledger. It preserves gateway-only
 access and leaves this dated atlas and general workflow acceptance unchanged.
 
+The October 13 [Experiment publication task](../bench/experiment-publication.md)
+records the JSON push workflow and domain terminology correction. Its local
+checks and observed automatic Run establish bounded publication evidence. The
+Action ends at import acknowledgement; Test Bench owns execution and results.
+Broader CI and owner review remain open. The dated atlas observation is unchanged.
+
 ## Start here
 
 1. Read the [system map](../images/architecture-overview.png).
