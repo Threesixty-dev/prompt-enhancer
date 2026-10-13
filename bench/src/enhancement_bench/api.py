@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import date
 import re
 import time
 from uuid import uuid4
@@ -15,6 +16,7 @@ from typing import Literal
 
 from .definitions import Definition, Overrides, Publication, StrictModel
 from .errors import BenchError
+from .history import RunFilters, RunStatus
 from .protocol import Contracts
 from .store import Store
 
@@ -94,7 +96,7 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
 
     @app.get("/assets/{name}")
     def asset(name: str):
-        if name not in {"app.js", "app.css", "forms.js", "overview.js"}:
+        if name not in {"app.js", "app.css", "forms.js", "overview.js", "history.js"}:
             raise BenchError("not_found", 404)
         return FileResponse(static / name)
 
@@ -125,8 +127,17 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
         }}
 
     @app.get("/api/runs")
-    def runs(limit: int = Query(100, ge=1, le=100), before: str | None = Query(None, max_length=80)):
-        rows = store.runs(limit + 1, before=before)
+    def runs(limit: int = Query(100, ge=1, le=100), before: str | None = Query(None, max_length=80),
+             status: RunStatus | None = None, origin: Literal["gitops", "ui"] | None = None,
+             experiment: str | None = Query(None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$"),
+             revision: str | None = Query(None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$"),
+             model: str | None = Query(None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"),
+             fromDate: date | None = None, toDate: date | None = None, summary: bool = False):
+        filters = RunFilters(status=status, origin=origin, experiment=experiment, revision=revision,
+                             model=model, fromDate=fromDate, toDate=toDate)
+        if summary:
+            return store.run_history(limit, before, filters)
+        rows = store.runs(limit + 1, before=before, filters=filters)
         return {"runs": rows[:limit], "nextCursor": rows[limit - 1]["id"] if len(rows) > limit else None}
 
     @app.get("/api/runs/{run_id}")

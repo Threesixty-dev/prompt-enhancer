@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { historyResponse } from './history-fixture.mjs';
 
 const definitionFile = new URL('../../experiments/example-clarification-focus.json', import.meta.url);
 const resultFile = new URL('../../contracts/enhancement/examples/result.json', import.meta.url);
@@ -23,7 +24,7 @@ async function fixture(page, { consumer = false } = {}) {
   }
   const configuration = { enhancerVersion: effective.enhancerVersion, caseCount: effective.subjects.length, units: effective.units.map(({ id, strategy, consumerBinding }) => ({ id, strategy, consumerBinding })), evaluatorProfile: effective.evaluatorProfile };
   await page.route('**/api/experiments', route => route.fulfill({ json: { experiments: [definition] } }));
-  await page.route('**/api/runs', route => route.fulfill({ json: { runs: [{ id: run.id, stable_id: run.stable_id, revision: run.revision, origin: run.origin, created: run.created, status: run.status, configuration }], nextCursor: null } }));
+  await page.route(/\/api\/runs(?:\?.*)?$/, route => route.fulfill({ json: historyResponse([{ id: run.id, stable_id: run.stable_id, revision: run.revision, origin: run.origin, created: run.created, status: run.status, configuration }], new URL(route.request().url()).searchParams) }));
   await page.route('**/api/runs/example-matrix-run', route => route.fulfill({ json: run }));
   return { definition, run, configuration };
 }

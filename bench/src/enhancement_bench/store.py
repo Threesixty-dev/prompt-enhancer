@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .definitions import Definition, Overrides, Publication, canonical, configuration_summary, definition_payload, effective_settings, fingerprint
 from .errors import BenchError
+from .history import RunFilters, model_options, predicate, summarize
 
 TERMINAL = {"succeeded", "failed", "cancelled", "interrupted", "superseded"}
 
@@ -133,17 +134,30 @@ class Store:
             rows = db.execute("SELECT * FROM definitions ORDER BY stable_id,generation DESC").fetchall()
         return [{**json.loads(r["body"]), "image": r["image"], "specHash": r["spec_hash"]} for r in rows]
 
-    def runs(self, limit: int = 100, *, before: str | None = None) -> list[dict]:
+    def runs(self, limit: int = 100, *, before: str | None = None, filters: RunFilters | None = None) -> list[dict]:
         with self.connection() as db:
-            where, parameters = "", []
-            if before is not None:
-                cursor = db.execute("SELECT created,id FROM runs WHERE id=?", (before,)).fetchone()
-                if cursor is None:
-                    raise BenchError("invalid_run_cursor")
-                where, parameters = " WHERE (created,id) < (?,?)", [cursor["created"], cursor["id"]]
-            rows = db.execute("SELECT id,correlation_id,stable_id,revision,generation,origin,retry_of,status,assertion_outcome,cancel_requested,cleanup_pending,reconciliation_required,error_code,created,started,finished,effective FROM runs"
-                              + where + " ORDER BY created DESC,id DESC LIMIT ?",
-                              (*parameters, min(max(limit, 1), 500))).fetchall()
+            return self._runs(db, limit, before, filters or RunFilters())
+
+    def run_history(self, limit: int, before: str | None, filters: RunFilters) -> dict:
+        with self.connection() as db:
+            db.execute("BEGIN")
+            rows = self._runs(db, limit + 1, before, filters)
+            where, parameters = predicate(filters)
+            return {"runs": rows[:limit], "nextCursor": rows[limit - 1]["id"] if len(rows) > limit else None,
+                    "summary": summarize(db, filters, where, parameters),
+                    "modelOptions": model_options(db, filters)}
+
+    def _runs(self, db, limit, before, filters):
+        where, parameters = predicate(filters)
+        if before is not None:
+            cursor = db.execute("SELECT created,id FROM runs WHERE id=?", (before,)).fetchone()
+            if cursor is None:
+                raise BenchError("invalid_run_cursor")
+            where += " AND (r.created,r.id) < (?,?)"
+            parameters.extend([cursor["created"], cursor["id"]])
+        rows = db.execute("SELECT r.id,r.correlation_id,r.stable_id,r.revision,r.generation,r.origin,r.retry_of,r.status,r.assertion_outcome,r.cancel_requested,r.cleanup_pending,r.reconciliation_required,r.error_code,r.created,r.started,r.finished,r.effective FROM runs r WHERE "
+                          + where + " ORDER BY r.created DESC,r.id DESC LIMIT ?",
+                          (*parameters, min(max(limit, 1), 500))).fetchall()
         result = []
         for row in rows:
             item = dict(row)

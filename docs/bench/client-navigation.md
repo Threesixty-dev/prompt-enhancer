@@ -7,6 +7,51 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## History filters and charts - 2026-10-14
+
+- Task / atlas scope: full-history filters and descriptive charts on the Bench
+  homepage and experiment-revision run list; bounded W02/W05 presentation.
+- Approved baseline: owner-selected `develop` at `56ddc38`, on feature branch
+  `codex/bench-filters-charts`. Existing privacy and execution contracts remain.
+- User outcome: filter execution status, experiment/revision, trigger, saved
+  generation/evaluation model alias and inclusive UTC creation dates. The
+  experiment page fixes its experiment and selected revision. Apply/Reset,
+  pagination, reload and Back/Forward preserve the selected scope; applying a
+  filter starts at the newest matching page. Polling preserves draft controls.
+- Charts: run totals, planned case-by-variant attempts, execution status and
+  daily creation counts. Totals/statuses cover every matching run, independently
+  of pagination. Daily activity covers up to 30 UTC days ending on the selected
+  end date (otherwise today, or a future selected start date). Daily values are
+  available as a table; status bars are keyboard-accessible filter links.
+- Metric comparisons: selectable metric and evaluation scope, paired Before/
+  After means, paired delta, variant/model breakdown and generation-model
+  breakdown on a shared scale. Groups separate experiment revision, core
+  version, evaluator identity/kind/provenance, metric, variant, model alias and
+  generation provenance. Numeric observations require known values, identical
+  before/after evaluator provenance and a recorded comparable delta. Zero stays
+  zero; missing, categorical and non-comparable values are excluded and counted.
+  Attempts without results do not contribute. Counts and limitations appear
+  beside the charts; these descriptive averages do not rank models or infer
+  task success. Case subsets and run overrides may differ.
+- API boundary: optional `summary=true` extends the existing bounded `/api/runs`
+  read. Parameterized filters precede stable cursor pagination; one read
+  transaction supplies the page and summaries. Only counts, numeric metrics and
+  allowed identity fields are returned, excluding prompt/context text, target
+  text, instructions, request bodies and operation identities. Model suggestions
+  are capped at 200; metric groups are capped at 200, with a visible truncation
+  notice directing users to narrow filters. Legacy requests retain their shape.
+- Evidence: 182 Bench backend tests and 36 desktop/mobile browser checks pass;
+  syntax, privacy and whitespace checks pass. Synthetic visual inspection covers
+  desktop/mobile layouts. Tests cover history beyond 100 runs, scoped cursor
+  pagination, model overrides, date boundaries and invalid ranges, extreme dates,
+  paired weighting, unknown/zero values, evaluator version separation, bounded
+  output, content exclusion, filters across navigation, empty recovery, keyboard
+  chart navigation, stale responses and polling preservation.
+- Resource / completion boundary: one browser test worker and owned loopback
+  fixture servers, with installed Chrome. No provider calls, deployment, source
+  publication or production data inspection. Owner review and release remain
+  separate; general B/W/WP gates are unchanged.
+
 ## Model details and run variations - 2026-10-14
 
 - Task / scope: Bench model visibility and case-by-variant explanation; W05
