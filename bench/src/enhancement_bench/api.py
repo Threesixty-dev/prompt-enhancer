@@ -1,9 +1,7 @@
-"""Authenticated same-origin API; no content in access logs or error messages."""
+"""Same-origin API behind an authenticating gateway; content-free access logs/errors."""
 
 from __future__ import annotations
 
-import hmac
-import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -32,10 +30,8 @@ class ReconcileInput(StrictModel):
     evidenceReference: str
 
 
-def create_app(store: Store, contracts: Contracts, *, operator_token: str, import_token: str,
-               allowed_repositories: tuple[str, ...], origin="http://127.0.0.1:8088") -> FastAPI:
-    if len(operator_token) < 24 or len(import_token) < 24 or operator_token == import_token:
-        raise BenchError("distinct_operator_and_import_tokens_required", 503)
+def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tuple[str, ...],
+               origin="http://127.0.0.1:8088") -> FastAPI:
     app = FastAPI(title="Enhancement Bench", docs_url=None, redoc_url=None, openapi_url=None)
     static = Path(__file__).with_name("static")
 
@@ -46,10 +42,10 @@ def create_app(store: Store, contracts: Contracts, *, operator_token: str, impor
         if request.headers.get("origin") not in (None, origin):
             return JSONResponse({"error": {"code": "origin_not_allowed"}}, 403)
         if request.url.path.startswith("/api/"):
-            expected = import_token if request.url.path == "/api/publications" else operator_token
-            supplied = request.headers.get("authorization", "").removeprefix("Bearer ")
-            if not hmac.compare_digest(supplied.encode(), expected.encode()):
-                return JSONResponse({"error": {"code": "unauthorized"}}, 401)
+            if request.method not in {"GET", "HEAD", "OPTIONS"} and request.headers.get("origin") != origin:
+                # The gateway uses browser cookies, so writes need an explicit same origin.
+                return JSONResponse({"error": {"code": "origin_required"}}, 403,
+                                    headers={"Cache-Control": "no-store"})
             if request.method == "POST" and request.headers.get("content-type", "").split(";")[0] != "application/json":
                 return JSONResponse({"error": {"code": "json_required"}}, 415)
             body = bytearray()
@@ -78,12 +74,16 @@ def create_app(store: Store, contracts: Contracts, *, operator_token: str, impor
         return {"ready": True, "schemaVersion": "bench.v1"}
 
     @app.get("/")
+    @app.get("/experiments")
+    @app.get("/experiments/{experiment_id}")
+    @app.get("/experiments/{experiment_id}/runs/new")
+    @app.get("/experiments/{experiment_id}/runs/{run_id}")
     def index():
         return FileResponse(static / "index.html")
 
     @app.get("/assets/{name}")
     def asset(name: str):
-        if name not in {"app.js", "app.css"}:
+        if name not in {"app.js", "app.css", "forms.js"}:
             raise BenchError("not_found", 404)
         return FileResponse(static / name)
 
@@ -105,6 +105,13 @@ def create_app(store: Store, contracts: Contracts, *, operator_token: str, impor
     @app.get("/api/experiments")
     def experiments():
         return {"experiments": store.definitions()}
+
+    @app.get("/api/run-form-schema")
+    def run_form_schema():
+        schema = contracts.validators["execute-request"].schema
+        return {"$defs": schema["$defs"], "properties": {
+            key: schema["properties"][key] for key in ("objective", "steering", "consumer")
+        }}
 
     @app.get("/api/runs")
     def runs():

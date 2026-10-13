@@ -23,7 +23,7 @@ consumer acceptance.
 
 | Component | Listener | Responsibility |
 | --- | --- | --- |
-| Bench API | Host loopback 8088 by default | Authenticated UI, definition import, durable queries and commands |
+| Bench API | Host loopback 8088 by default | Gateway-protected UI, definition import, durable queries and commands |
 | Bench worker | No HTTP listener | Single durable executor; owns only labelled enhancer containers |
 | Ephemeral enhancer | Loopback 8787 in worker namespace | Its own versioned enhancement/evaluation API |
 | Static OpenHands/Codex consumer | Its own loopback 8000, bridged to a private Unix socket | Agent Server API and fresh ACP rewrite conversations; no network interface |
@@ -68,8 +68,14 @@ model caches or provider account files. No socket or relay has a public port.
 in the deployment manager; do not commit them. The example model/revision/license
 are placeholders and are not qualified models.
 
-Provide distinct strong `BENCH_OPERATOR_TOKEN` and `BENCH_IMPORT_TOKEN`, plus
-`BENCH_CONSUMER_API_TOKEN` and a model-restricted `BENCH_LITELLM_TOKEN`. These are
+Bench has no application login, Bearer-token check or gateway JWT validation.
+Cloudflare Access authenticates browser and publication traffic before it reaches
+Bench. Keep the origin reachable only through that protected route or host loopback.
+Set `BENCH_ORIGIN` to the exact browser origin. API mutations require that same
+`Origin` header and JSON bodies; command-line clients must supply it explicitly.
+The dashboard loads automatically after the gateway admits the request.
+
+Provide `BENCH_CONSUMER_API_TOKEN` and a model-restricted `BENCH_LITELLM_TOKEN`. These are
 environment inputs; no local Codex account or credential file is mounted.
 The consumer entrypoint strips unrelated injected environment variables before
 starting Agent Server and supervises both transport processes. A transport exit

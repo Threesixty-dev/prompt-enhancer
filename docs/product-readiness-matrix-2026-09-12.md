@@ -1,5 +1,22 @@
 # Product feature and readiness matrix
 
+## Bench client navigation - 2026-10-13
+
+The [client navigation candidate](bench/client-navigation.md) separates the
+experiment list, experiment detail, run form and run evidence into deep-linkable
+pages. Reruns use schema-based form controls prefilled from immutable effective
+settings. Unchanged polling snapshots preserve result nodes and do not replay a
+panel animation. The candidate incorporates the existing Cloudflare-only access
+change; the client contains no application token prompt or token handling.
+
+Local evidence: 92 bench backend tests and 14 desktop/mobile browser checks pass,
+including same-origin write enforcement, no-login and expired-session journeys,
+typed overrides, saved-setting reruns, null/zero distinction, validation, deep
+links, stale-response isolation and polling stability. JavaScript syntax passes.
+Chrome inspection opens the run form directly using the synthetic loopback
+fixture. These are local source checks, not deployment or real-model acceptance;
+no B/W/WP gate or historical atlas observation changes.
+
 ## Enhancement candidate reconciliation - 2026-10-12
 
 The owner requested PR integration and promotion. The combined candidate now

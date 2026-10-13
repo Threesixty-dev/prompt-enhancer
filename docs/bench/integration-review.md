@@ -118,9 +118,9 @@ smoke variants. The default remains group `0` for Docker Desktop; a host-side
 socket symlink can have a different group from the socket inside its daemon VM.
 
 The completed review leaves the demo running at `http://127.0.0.1:8098`.
-Use the synthetic token `example-review-operator-not-a-secret` in the local UI.
-This fixture token is only for the loopback demonstration, not a deployment
-credential. The token stays in tab memory and must be entered again after reload.
+The later gateway-authentication change removes the demo's token prompt. The
+loopback UI opens directly and reconnects after reload; deployed access is
+authenticated by Cloudflare before reaching Bench.
 
 Open the latest revision and inspect its automatic run. Set parameter overrides
 to `{"timeout_seconds":45}`. Expand the steering controls and set:

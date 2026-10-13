@@ -27,8 +27,7 @@ def main():
         fixture = json.loads((contracts.directory / "examples/result.json").read_text())
         worker, _, _ = make_worker(store, contracts, fixture)
         worker.step()
-        app = create_app(store, contracts, operator_token="example-operator-token-not-a-secret",
-                         import_token="example-import-token-not-a-secret",
+        app = create_app(store, contracts,
                          allowed_repositories=("registry.example.com/example/enhancer",))
         uvicorn.run(app, host="127.0.0.1", port=8088, access_log=False, log_level="critical")
 
