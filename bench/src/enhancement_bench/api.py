@@ -34,6 +34,8 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
                origin="http://127.0.0.1:8088") -> FastAPI:
     app = FastAPI(title="Enhancement Bench", docs_url=None, redoc_url=None, openapi_url=None)
     static = Path(__file__).with_name("static")
+    revision_file = Path(__file__).with_name("revision.txt")
+    revision = revision_file.read_text().strip() if revision_file.is_file() else None
 
     @app.middleware("http")
     async def boundary(request: Request, call_next):
@@ -71,7 +73,8 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
 
     @app.get("/health/ready")
     def health():
-        return {"ready": True, "schemaVersion": "bench.v1"}
+        return JSONResponse({"ready": True, "schemaVersion": "bench.v1", "revision": revision},
+                            headers={"Cache-Control": "no-store"})
 
     @app.get("/")
     @app.get("/experiments")

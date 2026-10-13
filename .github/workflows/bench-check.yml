@@ -1,7 +1,7 @@
 name: Bench checks
 on:
   pull_request:
-    paths: ["bench/**", "tests/bench/**", "deployment/bench/**", "contracts/enhancement/**", "src/**", "containers/enhancement-core/**", "pyproject.toml", "uv.lock", "scripts/privacy_scan.py", ".github/workflows/bench-*.yml"]
+    paths: ["experiments/**", "bench/**", "tests/bench/**", "deployment/bench/**", "contracts/enhancement/**", "src/**", "containers/enhancement-core/**", "pyproject.toml", "uv.lock", "scripts/privacy_scan.py", ".github/workflows/bench-*.yml"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
         run: |
           uv sync --project bench --frozen --extra dev
           bench/.venv/bin/python -m pytest -q tests/bench
-          bench/.venv/bin/python -m enhancement_bench.cli validate bench/definitions/*.json
+          bench/.venv/bin/python -m enhancement_bench.cli validate experiments/*.json
           python scripts/privacy_scan.py
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

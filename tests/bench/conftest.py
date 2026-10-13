@@ -17,7 +17,9 @@ from enhancement_bench.store import Store
 
 @pytest.fixture
 def publication():
-    definition = json.loads((ROOT / "bench/definitions/example-widget.json").read_text())
+    definition = json.loads((ROOT / "bench/examples/example-widget.json").read_text())
+    # These scenarios start at a fictional revision 1, independent of the demo.
+    definition.update(revision="1", generation=1, enhancerVersion="0.1.0")
     return Publication.model_validate({"schemaVersion": "bench-publication/v1", "definition": definition,
                                        "image": "registry.example.com/example/enhancer@sha256:" + "a" * 64,
                                        "coreVersion": "0.1.0"})

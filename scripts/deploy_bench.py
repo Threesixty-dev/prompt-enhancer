@@ -1,0 +1,139 @@
+"""Deploy only the Bench API Compose application through the Coolify API.
+
+No runtime configuration or log bodies are printed. Controller and Bench Access
+credentials remain separate, redirects/proxies are disabled, and health must
+report the source revision baked into the image before deployment is confirmed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+
+from deploy_coolify import NoRedirect, access_headers, checked_url, controller_json
+
+
+def revision(env):
+    value = env.get("DEPLOY_REVISION", "")
+    if re.fullmatch(r"[a-f0-9]{40}", value) is None:
+        raise ValueError("revision_invalid")
+    if env.get("DEPLOY_BRANCH") != "main":
+        raise ValueError("main_required")
+    return value
+
+
+def controller(env):
+    revision(env)
+    origin = checked_url(env.get("BENCH_COOLIFY_URL", ""), webhook=False)
+    ids = [env.get(key, "") for key in ("BENCH_COOLIFY_SERVICE_UUID", "BENCH_COOLIFY_API_UUID")]
+    if any(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value) is None for value in ids):
+        raise ValueError("bench_target_required")
+    token = env.get("COOLIFY_TOKEN", "")
+    if not 16 <= len(token) <= 1024 or not token.isascii() or any(ord(c) <= 32 or ord(c) >= 127 for c in token):
+        raise ValueError("controller_token_invalid")
+    headers = {"Authorization": "Bearer " + token, "Accept": "application/json",
+               **access_headers(env, "COOLIFY", required=True)}
+    return origin + "/api/v1/services/" + ids[0] + "/applications/" + ids[1], headers
+
+
+def image_ref(env):
+    value = env.get("BENCH_DEPLOY_IMAGE", "")
+    if re.fullmatch(r"ghcr\.io/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}", value) is None:
+        raise ValueError("immutable_ghcr_image_required")
+    expected = env.get("BENCH_IMAGE_REPOSITORY", "")
+    if value.split("@")[0] != expected:
+        raise ValueError("image_repository_mismatch")
+    return value
+
+
+def opener():
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+
+def inspect_target(env, client):
+    url, headers = controller(env)
+    current = controller_json(client, url, headers)
+    if current.get("uuid") != env["BENCH_COOLIFY_API_UUID"] or current.get("name") != "bench-api":
+        raise RuntimeError("bench_api_target_mismatch")
+    return url, headers, current
+
+
+def deploy(env, client):
+    image = image_ref(env)
+    url, headers, _ = inspect_target(env, client)
+    controller_json(client, url, headers, method="PATCH", body={"image": image})
+    _, _, updated = inspect_target(env, client)
+    if updated.get("image") != image:
+        raise RuntimeError("image_pin_unconfirmed")
+    # Coolify v4.3.23 starts this service with compose up --no-deps.
+    controller_json(client, url + "/start?latest=true", headers, method="POST")
+    print("Bench API image pinned; deployment queued. Health verification follows.")
+
+
+def health_settings(env):
+    revision(env)
+    origin = checked_url(env.get("BENCH_PUBLIC_URL", ""), webhook=False)
+    headers = {"Accept": "application/json", "Cache-Control": "no-cache",
+               **access_headers(env, "BENCH_CF", required=True)}
+    return origin + "/health/ready", headers
+
+
+def ready(env, client, *, exact):
+    url, headers = health_settings(env)
+    request = urllib.request.Request(url, headers=headers)
+    with client.open(request, timeout=10) as response:
+        payload = response.read(4097)
+        if response.status != 200 or len(payload) > 4096:
+            return False
+        body = json.loads(payload)
+    return (isinstance(body, dict) and body.get("ready") is True
+            and body.get("schemaVersion") == "bench.v1"
+            and (not exact or body.get("revision") == revision(env)))
+
+
+def verify(env, client, *, monotonic=time.monotonic, sleep=time.sleep):
+    health_settings(env)
+    deadline, consecutive = monotonic() + 300, 0
+    while monotonic() < deadline:
+        try:
+            consecutive = consecutive + 1 if ready(env, client, exact=True) else 0
+            if consecutive >= 2:
+                print("The expected Bench source revision passed two health checks.")
+                return
+        except (OSError, ValueError, urllib.error.URLError):
+            consecutive = 0
+        sleep(5)
+    raise RuntimeError("bench_revision_health_timeout")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("mode", choices=["check-controller", "check-health", "deploy", "verify"])
+    mode = parser.parse_args(argv).mode
+    try:
+        client = opener()
+        if mode == "check-controller":
+            inspect_target(os.environ, client)
+            print("The configured target is the Bench API container.")
+        elif mode == "check-health":
+            if not ready(os.environ, client, exact=False):
+                raise RuntimeError("bench_health_access_unconfirmed")
+            print("Bench readiness is accessible with its gateway credentials.")
+        elif mode == "deploy":
+            deploy(os.environ, client)
+        else:
+            verify(os.environ, client)
+    except (OSError, ValueError, RuntimeError, urllib.error.URLError):
+        print("Bench deployment step failed: " + mode + ". Check the configured target, registry pull access and gateway policy privately.", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
