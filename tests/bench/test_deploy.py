@@ -24,8 +24,6 @@ def environment():
         "BENCH_PUBLIC_URL": "https://bench.example.com",
         "BENCH_CF_ACCESS_CLIENT_ID": "example-bench-id",
         "BENCH_CF_ACCESS_CLIENT_SECRET": "example-bench-secret",
-        "BENCH_IMAGE_REPOSITORY": "ghcr.io/example/bench",
-        "BENCH_DEPLOY_IMAGE": "ghcr.io/example/bench@sha256:" + "b" * 64,
     }
 
 
@@ -58,16 +56,40 @@ class Client:
         return Response(value)
 
 
-def test_only_the_selected_api_image_is_changed_and_started():
+def test_only_the_source_revision_and_selected_api_are_changed():
     env = environment()
+    image = "local/enhancement-bench:api-" + env["DEPLOY_REVISION"]
     app = {"uuid": "example-api", "name": "bench-api", "image": "example-old-image"}
-    client = Client([app, {}, {**app, "image": env["BENCH_DEPLOY_IMAGE"]}, {}])
+    client = Client([app, {"key": "BENCH_SOURCE_REVISION"}, {}, {**app, "image": image}, {}])
     deploy.deploy(env, client)
-    assert [r.method for r in client.calls] == ["GET", "PATCH", "GET", "POST"]
-    assert json.loads(client.calls[1].data) == {"image": env["BENCH_DEPLOY_IMAGE"]}
-    assert client.calls[-1].full_url.endswith("/applications/example-api/start?latest=true")
-    assert all(r.full_url.startswith("https://controller.example.com/api/v1/services/example-service/applications/example-api") for r in client.calls)
+    assert [r.method for r in client.calls] == ["GET", "PATCH", "PATCH", "GET", "POST"]
+    assert client.calls[1].full_url.endswith("/services/example-service/envs")
+    assert json.loads(client.calls[1].data) == {
+        "key": "BENCH_SOURCE_REVISION", "value": env["DEPLOY_REVISION"], "is_literal": True,
+    }
+    assert json.loads(client.calls[2].data) == {"image": image}
+    assert client.calls[-1].full_url.endswith("/applications/example-api/start?force=true")
+    assert all(r.full_url.startswith("https://controller.example.com/api/v1/services/example-service/") for r in client.calls)
     assert all(r.get_header("Authorization") == "Bearer " + env["COOLIFY_TOKEN"] for r in client.calls)
+    assert all("bench-worker" not in r.full_url and "latest=true" not in r.full_url for r in client.calls)
+
+
+@pytest.mark.parametrize("variable", [
+    {}, {"key": "ANOTHER_VARIABLE"}, {"key": "BENCH_SOURCE_REVISION", "value": "b" * 40},
+])
+def test_unconfirmed_source_revision_never_starts_a_build(variable):
+    client = Client([{"uuid": "example-api", "name": "bench-api"}, variable])
+    with pytest.raises(RuntimeError, match="source_revision_unconfirmed"):
+        deploy.deploy(environment(), client)
+    assert len(client.calls) == 2
+
+
+def test_missing_source_configuration_never_changes_the_image():
+    missing = urllib.error.HTTPError("https://controller.example.com", 404, "", {}, None)
+    client = Client([{"uuid": "example-api", "name": "bench-api"}, missing])
+    with pytest.raises(urllib.error.HTTPError):
+        deploy.deploy(environment(), client)
+    assert len(client.calls) == 2
 
 
 def test_wrong_resource_fails_before_any_write():
@@ -82,8 +104,6 @@ def test_wrong_resource_fails_before_any_write():
     ("BENCH_COOLIFY_URL", "https://controller.example.com/path"),
     ("BENCH_COOLIFY_API_UUID", "../example"), ("COOLIFY_TOKEN", "example\nsecret"),
     ("COOLIFY_ACCESS_CLIENT_SECRET", ""),
-    ("BENCH_DEPLOY_IMAGE", "ghcr.io/example/bench:latest"),
-    ("BENCH_IMAGE_REPOSITORY", "ghcr.io/example/other"),
 ])
 def test_invalid_configuration_never_reaches_network(key, value):
     env = {**environment(), key: value}
@@ -95,10 +115,10 @@ def test_invalid_configuration_never_reaches_network(key, value):
 
 def test_pin_must_be_read_back_before_start():
     app = {"uuid": "example-api", "name": "bench-api", "image": "example-old-image"}
-    client = Client([app, {}, app])
+    client = Client([app, {"key": "BENCH_SOURCE_REVISION"}, {}, app])
     with pytest.raises(RuntimeError, match="image_pin_unconfirmed"):
         deploy.deploy(environment(), client)
-    assert len(client.calls) == 3
+    assert len(client.calls) == 4
 
 
 def test_health_sends_only_bench_credentials_and_requires_exact_revision():
@@ -141,7 +161,11 @@ def test_workflow_scopes_deployment_and_does_not_wait_for_unrelated_quality():
     assert config["jobs"]["build-deploy"]["needs"] == "health-access"
     assert config["jobs"]["verify"]["needs"] == "build-deploy"
     assert "require_quality_run" not in str(config)
-    assert "docker push" in str(config) and "smoke_bench_image.py" in str(config)
+    steps = str(config["jobs"]["build-deploy"]["steps"])
+    assert "scripts/deploy_bench.py deploy" in steps
+    assert "ghcr.io" not in steps and "docker/build-push-action" not in steps
+    assert "packages" not in str(config.get("permissions", {}))
+    assert "packages" not in str(config["jobs"]["build-deploy"].get("permissions", {}))
 
 
 @pytest.mark.parametrize("failure,expected", [
