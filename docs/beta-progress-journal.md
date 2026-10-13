@@ -14,8 +14,11 @@ The [task card](bench/consumer-retention.md) binds source `2ab65bb`, paths and
 W05/W07/WP05/WP07 scope. Forty-six focused synthetic tests and the privacy scanner
 pass. A network-isolated pinned 1.49.1 container verified native history, restart,
 authentication, replay refusal and expiry with zero model calls. No full suite or
-CI wait was run. Live activation remains separate; the already-deleted pilot is
-not recovered and the historical architecture atlas is unchanged.
+CI wait was run. Source `6530fd0` was then deployed with the existing portal and
+volumes preserved. The live policy and isolated entrypoint startup were verified,
+and manual pilot generation 8 binds core 0.1.3 without starting inference. A
+checksummed core archive is retained. The already-deleted pilot is not recovered
+and the historical architecture atlas is unchanged.
 
 This is the shared execution handoff, not a second readiness ledger. Requirement
 acceptance remains in [the product-readiness matrix](product-readiness-matrix-2026-09-12.md).

@@ -8,7 +8,9 @@ for a configurable seven-day default after confirmed cleanup. Failed/uncertain
 attempts remain held. Focused synthetic and pinned-container restart/expiry
 evidence is recorded in the [integration review](bench/integration-review.md).
 No new inference, public OpenHands UI, general workflow or release qualification
-is claimed. Live rollout remains a separate step; existing Bench results retain
+is claimed. Source `6530fd0` is deployed: the live consumer reports the seven-day
+policy, and manual pilot generation 8 binds core 0.1.3 without enqueuing a run.
+Actual startup was verified without inference. Existing Bench results retain
 their independent policy and the previously deleted pilot is not recovered.
 
 ## Bounded live bench pilot - 2026-10-13

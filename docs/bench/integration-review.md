@@ -13,7 +13,18 @@ Initial focused validation: 46 synthetic tests passed. The pinned 1.49.1 consume
 container also preserved a fictional native conversation and its events across
 server restart, rejected unauthenticated access and replay, and expired the
 acknowledged history. Networking was disabled and no inference was performed.
-Live rollout and a future consumer run remain separate evidence.
+Source `6530fd0` was deployed to the dedicated consumer using an immutable image
+derived from its existing pinned image. Only that image reference changed in the
+live Compose definition; the portal, routing and volumes were preserved. The
+live authenticated retention endpoint reports seven days and a healthy sweep.
+An isolated startup check also verified the actual consumer entrypoint and core
+0.1.3 without inference. A checksummed core archive was retained.
+
+Manual pilot generation 8 (`pilot-retention-v8`) binds the new immutable core;
+import returned no run ID and automatic execution remains disabled for this
+revision. No new live inference was started. A future manual consumer run will
+provide end-to-end model/process retention evidence; the previous deleted
+conversation cannot be recovered.
 
 Date: 2026-10-12. Branch: `codex/enhancer-integration-review`.
 Initial disposition: local review candidate. The October 13 addendum records a
