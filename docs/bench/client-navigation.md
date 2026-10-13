@@ -11,7 +11,7 @@ this does not implement or accept the general workflow engine gates.
 
 - `/experiments` lists experiments. Cards are ordinary links to experiment pages.
 - `/experiments/{id}?revision={revision}` shows one revision, its units,
-  subjects and recent runs. New run opens a separate form.
+  subjects and runs for that revision. New run opens a separate form.
 - `/experiments/{id}/runs/new?revision={revision}` configures a run. An optional
   `from` run identity prefills the saved effective settings for a reconciled
   terminal run. Submission retains `retryOf` and a stable request identity for
@@ -21,7 +21,9 @@ this does not implement or accept the general workflow engine gates.
 
 The server serves the shell at these exact routes, so reloads and deep links
 work. Browser Back/Forward and modified link clicks retain normal navigation.
-Run identities are checked against the selected experiment and revision.
+Run identities are checked against the selected experiment and revision. Both
+the run list and experiment-card status are scoped to the displayed revision;
+a revision with no runs does not inherit another revision's history or status.
 Late responses from an abandoned page cannot replace the active page.
 
 ## Form contract

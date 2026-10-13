@@ -77,7 +77,7 @@ function renderExperiments() {
     const fragment = document.createDocumentFragment();
     for (const d of newest.values()) {
       const card = link(undefined, experimentPath(d), 'experiment-card');
-      const latest = runs.find(r => r.stable_id === d.stableId);
+      const latest = runs.find(r => r.stable_id === d.stableId && r.revision === d.revision);
       card.append(node('p', d.stableId, 'eyebrow'), node('h2', d.title), metadata(['Revision ' + d.revision, countLabel(d.units.length, 'unit'), countLabel(d.subjects.length, 'subject')]));
       const bottom = node('div', undefined, 'card-bottom'); bottom.append(latest ? badge(latest.status) : node('span', 'No runs yet', 'hint'), node('span', 'Open experiment >', 'card-action')); card.append(bottom); fragment.append(card);
     }
@@ -87,7 +87,7 @@ function renderExperiments() {
 }
 function renderRuns() {
   const container = $('runs'); if (!container) return;
-  const visible = runs.filter(r => r.stable_id === definition.stableId);
+  const visible = runs.filter(r => r.stable_id === definition.stableId && r.revision === definition.revision);
   patch(container, visible, () => {
     const fragment = document.createDocumentFragment();
     for (const r of visible) {
@@ -95,7 +95,7 @@ function renderRuns() {
       const title = node('div'); title.append(node('strong', (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run'), node('span', 'Revision ' + r.revision + ' / ' + r.id.slice(0, 8), 'hint run-subtitle'));
       card.append(title, badge(r.status), node('span', new Date(r.created * 1000).toLocaleString(), 'hint run-time')); fragment.append(card);
     }
-    if (!visible.length) fragment.append(node('p', 'No runs yet. Start a run to compare units for this experiment.', 'empty'));
+    if (!visible.length) fragment.append(node('p', 'No runs yet for this revision. Start a run to compare its units.', 'empty'));
     return fragment;
   });
 }
@@ -111,7 +111,7 @@ function experimentPage(d) {
   const prompts = node('div'); prompts.append(node('h2', 'Subjects'));
   for (const subject of d.subjects) prompts.append(disclosure(subject.id, node('p', subject.text, 'prompt')));
   grid.append(strategyBox, prompts); overview.append(grid, node('p', 'Evaluator profile: ' + d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision, 'hint'), evidence('Experiment definition', d, 'definition'));
-  const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Runs'), node('span', 'Recent runs across revisions', 'hint'));
+  const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Runs'), node('span', 'Runs for revision ' + d.revision, 'hint'));
   const list = node('div'); list.id = 'runs'; $('page-content').replaceChildren(overview, heading, list); renderRuns();
 }
 
