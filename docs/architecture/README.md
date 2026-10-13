@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 14 [Bench model and variation presentation](../bench/client-navigation.md#model-details-and-run-variations---2026-10-14)
+adds visible configured/recorded model identities and a case-by-variant attempt
+matrix to the owner-selected develop baseline. Its bounded synthetic backend and
+browser evidence supplements W02/W05 presentation context; the frozen October 8
+source observation, general workflow statuses and acceptance gates stay unchanged.
+
 A later feature-branch proposal, [ADR 0024](../adr/0024-inference-provider-boundary.md),
 separates inference providers from local runtime ownership. Its October 9 tests
 and scope are recorded separately; the October 8 source observation stays frozen.

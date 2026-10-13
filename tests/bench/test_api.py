@@ -20,6 +20,7 @@ def test_client_deep_links_serve_the_shell(store, contracts, path):
         assert 'id="page-content"' in response.text
         assert response.headers["Cache-Control"] == "no-store"
         assert client.get("/assets/forms.js").status_code == 200
+        assert client.get("/assets/overview.js").status_code == 200
         assert client.get("/assets/missing.js").status_code == 404
 
 

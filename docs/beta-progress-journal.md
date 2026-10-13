@@ -1,5 +1,20 @@
 # Beta progress journal: published handoff
 
+## 2026-10-14 - Bench model details and case-by-variant matrix
+
+Implemented on the owner-selected `develop` baseline at `97b128f`. Experiments
+and runs expose configured model aliases, while each attempt displays generation
+and before/after evaluator provenance with unknown values preserved. The dynamic
+matrix separates cases, variants and attempts, explains the paired comparison,
+reflects run-form selections and links to attempt results. Run-card summaries
+derive from saved settings and exclude prompts, instructions and evaluator targets.
+
+Local evidence: 162 Bench backend tests and 28 desktop/mobile Chrome browser
+checks pass, along with JavaScript syntax, repository privacy scanning and whitespace checks. Synthetic visual
+inspection covers desktop/mobile layout. No live provider/model call, publication
+or deployment occurred. See the [task evidence](bench/client-navigation.md#model-details-and-run-variations---2026-10-14).
+General workflow, native and release gates remain unchanged.
+
 ## 2026-10-13 - Bench deployment verification through Coolify
 
 The public gateway readiness request returned a login redirect. The owner chose

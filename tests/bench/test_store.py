@@ -78,6 +78,44 @@ def test_ui_overrides_and_results_survive_restart_without_git_change(store, publ
     assert store.definitions()[0]["baseParameters"]["timeout_seconds"] == 120
 
 
+def test_run_cards_use_saved_model_overrides_without_content(store, publication):
+    store.import_publication(changed(publication, autoRun=False))
+    run_id = store.enqueue_ui("example-widget", "1", Overrides(
+        unitIds=["consumer"], unitConsumerBindings={"consumer": {
+            "binding_id": "example-overridden-model", "provider": "inference"}},
+        unitSteering={"consumer": {"instructions": "EXAMPLE_PRIVATE_INSTRUCTIONS"}},
+    ), str(uuid4()))
+    row = Store(store.path).runs()[0]
+    assert row["id"] == run_id
+    assert row["configuration"] == {
+        "enhancerVersion": "0.1.0", "caseCount": 1,
+        "units": [{"id": "consumer", "strategy": "consumer.rewrite.v1", "consumerBinding": {
+            "binding_id": "example-overridden-model", "provider": "inference"}}],
+        "evaluatorProfile": {"evaluators": [{"evaluator_id": "prompt", "kind": "deterministic", "binding_id": "deterministic.v1"}]},
+    }
+    assert "effective" not in row
+    assert "EXAMPLE_PRIVATE_INSTRUCTIONS" not in json.dumps(row)
+    assert publication.definition.subjects[0].text not in json.dumps(row)
+    assert store.definitions()[0]["consumerBinding"]["binding_id"] != "example-overridden-model"
+
+
+def test_configuration_summary_preserves_legacy_bindings_and_excludes_evaluator_content(publication):
+    from enhancement_bench.definitions import configuration_summary, effective_settings
+
+    effective = effective_settings(publication.definition, Overrides())
+    del effective["units"][1]["consumerBinding"]
+    effective["evaluatorProfile"]["evaluators"].append({
+        "evaluator_id": "example-judge", "kind": "rubric", "binding_id": "example-judge-model",
+        "target": "EXAMPLE_PRIVATE_TARGET", "rubric": "EXAMPLE_PRIVATE_RUBRIC",
+    })
+    summary = configuration_summary(effective)
+    assert summary["units"][0]["consumerBinding"] is None
+    assert summary["units"][1]["consumerBinding"] == effective["consumerBinding"]
+    assert summary["evaluatorProfile"]["evaluators"][1] == {
+        "evaluator_id": "example-judge", "kind": "rubric", "binding_id": "example-judge-model"}
+    assert "EXAMPLE_PRIVATE" not in json.dumps(summary)
+
+
 def test_recovery_interrupts_and_holds_slot_without_replay(store, publication):
     first = store.import_publication(publication)["runId"]
     run = store.claim()

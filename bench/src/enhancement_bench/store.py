@@ -10,7 +10,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .definitions import Definition, Overrides, Publication, canonical, definition_payload, effective_settings, fingerprint
+from .definitions import Definition, Overrides, Publication, canonical, configuration_summary, definition_payload, effective_settings, fingerprint
 from .errors import BenchError
 
 TERMINAL = {"succeeded", "failed", "cancelled", "interrupted", "superseded"}
@@ -141,10 +141,15 @@ class Store:
                 if cursor is None:
                     raise BenchError("invalid_run_cursor")
                 where, parameters = " WHERE (created,id) < (?,?)", [cursor["created"], cursor["id"]]
-            rows = db.execute("SELECT id,correlation_id,stable_id,revision,generation,origin,retry_of,status,assertion_outcome,cancel_requested,cleanup_pending,reconciliation_required,error_code,created,started,finished FROM runs"
+            rows = db.execute("SELECT id,correlation_id,stable_id,revision,generation,origin,retry_of,status,assertion_outcome,cancel_requested,cleanup_pending,reconciliation_required,error_code,created,started,finished,effective FROM runs"
                               + where + " ORDER BY created DESC,id DESC LIMIT ?",
                               (*parameters, min(max(limit, 1), 500))).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["configuration"] = configuration_summary(json.loads(item.pop("effective")))
+            result.append(item)
+        return result
 
     def run(self, run_id: str) -> dict:
         with self.connection() as db:

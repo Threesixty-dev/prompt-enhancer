@@ -1,4 +1,5 @@
 import { node, schemaField, validateForm } from './forms.js';
+import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary, variationOverview, variantDescription } from './overview.js';
 
 const $ = id => document.getElementById(id);
 const json = value => JSON.stringify(value, null, 2);
@@ -87,7 +88,7 @@ function renderExperiments() {
     for (const d of newest.values()) {
       const card = link(undefined, experimentPath(d), 'experiment-card');
       const latest = runs.find(r => r.stable_id === d.stableId && r.revision === d.revision);
-      card.append(node('p', d.stableId, 'eyebrow'), node('h3', d.title), metadata([['Revision', d.revision], ['Units', d.units.length], ['Subjects', d.subjects.length]]));
+      card.append(node('p', d.stableId, 'eyebrow'), node('h3', d.title), metadata([['Revision', d.revision], countLabel(d)]), modelSummary(d));
       const bottom = node('div', undefined, 'card-bottom'); bottom.append(latest ? badge(latest.status) : node('span', 'No runs yet', 'hint'), node('span', 'Open experiment >', 'card-action')); card.append(bottom); fragment.append(card);
     }
     if (!newest.size) fragment.append(node('p', 'No experiments yet. Published experiment definitions will appear here.', 'empty'));
@@ -111,6 +112,7 @@ function renderAllRuns() {
         ['Experiment', r.stable_id], ['Revision', r.revision], ['Run', r.id.slice(0, 8)],
         (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run',
       ]));
+      title.append(node('p', countLabel(r.configuration || {}), 'hint run-subtitle'), modelSummary(r.configuration));
       card.append(title, badge(r.status), labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
       fragment.append(card);
     }
@@ -132,6 +134,7 @@ function renderRuns() {
     for (const r of visible) {
       const card = link(undefined, runPath(r), 'run-card');
       const title = node('div'); title.append(node('strong', (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run'), node('span', 'Revision ' + r.revision + ' / ' + r.id.slice(0, 8), 'hint run-subtitle'));
+      title.append(node('p', countLabel(r.configuration || {}), 'hint run-subtitle'), modelSummary(r.configuration));
       card.append(title, badge(r.status), node('span', new Date(r.created * 1000).toLocaleString(), 'hint run-time')); fragment.append(card);
     }
     if (!visible.length) fragment.append(node('p', 'No runs yet for this revision. Start a run to compare its units.', 'empty'));
@@ -140,18 +143,18 @@ function renderRuns() {
 }
 function experimentPage(d) {
   pageHeading(d.title, 'Review the experiment and open a run to inspect its results.', [[d.title]], [refreshButton(), link('New run', newRunPath(d), 'button')]);
-  const overview = node('section', undefined, 'surface'); overview.append(metadata([['Revision', d.revision], ['Enhancer version', d.enhancerVersion], ['Subjects', d.subjects.length], ['Units', d.units.length]]));
+  const overview = node('section', undefined, 'surface'); overview.append(metadata([['Revision', d.revision], ['Enhancer version', d.enhancerVersion]]), modelSummary(d), node('p', 'Model aliases are configured selections. Reported model identities appear in each attempt after execution.', 'hint'));
   const revisionLabel = node('label', 'Revision'); revisionLabel.htmlFor = 'revision'; const select = node('select'); select.id = 'revision';
   for (const version of experiments.filter(item => item.stableId === d.stableId)) { const option = node('option', 'Revision ' + version.revision); option.value = version.revision; select.append(option); }
   select.value = d.revision; select.onchange = () => navigate(experimentPath({ ...d, revision: select.value }));
   const revisionField = node('div', undefined, 'revision-field'); revisionField.append(revisionLabel, select); overview.append(revisionField);
-  const grid = node('div', undefined, 'overview-grid'); const strategyBox = node('div'); strategyBox.append(node('h2', 'Units'));
-  for (const unit of d.units) { const row = node('div', undefined, 'strategy-summary'); row.append(node('strong', unit.title), labeledValue('Strategy', unit.strategy, 'p', 'hint')); strategyBox.append(row); }
-  const prompts = node('div'); prompts.append(node('h2', 'Subjects'));
+  const grid = node('div', undefined, 'overview-grid'); const strategyBox = node('div'); strategyBox.append(node('h2', 'Variants (units)'));
+  for (const unit of d.units) { const row = node('div', undefined, 'strategy-summary'); row.append(node('strong', unit.title), labeledValue('Strategy', unit.strategy, 'p', 'hint'), labeledValue('Generation model alias', generationLabel(d, unit), 'p', 'hint'), node('p', variantDescription(d, unit), 'hint')); strategyBox.append(row); }
+  const prompts = node('div'); prompts.append(node('h2', 'Input cases (subjects)'));
   for (const subject of d.subjects) prompts.append(disclosure(subject.id, node('p', subject.text, 'prompt')));
   grid.append(strategyBox, prompts); overview.append(grid, labeledValue('Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision, 'p', 'hint'), evidence('Experiment definition', d, 'definition'));
   const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Runs'), node('span', 'Runs for revision ' + d.revision, 'hint'));
-  const list = node('div'); list.id = 'runs'; $('page-content').replaceChildren(overview, heading, list); renderRuns();
+  const list = node('div'); list.id = 'runs'; $('page-content').replaceChildren(variationOverview(d), overview, heading, list); renderRuns();
 }
 
 function metricsTable(result) {
@@ -175,23 +178,26 @@ function renderRun(r) {
       const cancel = node('button', r.cancel_requested ? 'Cancellation requested' : 'Cancel run', 'danger'); cancel.disabled = Boolean(r.cancel_requested);
       cancel.onclick = async () => { cancel.disabled = true; try { await api('/api/runs/' + encodeURIComponent(r.id) + '/cancel', {}); await refresh(); } catch (error) { tell(error.message); cancel.disabled = false; } }; actions.append(cancel);
     } else if (terminal.has(r.status) && !r.cleanup_pending && !r.reconciliation_required) actions.append(link('Rerun with changes', newRunPath(definition, r.id), 'button'));
-    intro.append(actions, metadata([['Run', r.id], ['Correlation', r.correlation_id], r.error_code ? ['Error', r.error_code] : null, r.cleanup_pending ? ['Cleanup', 'Unconfirmed: execution slot held'] : null]), evidence('Effective run settings', r.effective, 'effective'), evidence('Run history', r.events, 'events'));
+    intro.append(actions, metadata([['Run', r.id], ['Enhancer version', r.effective.enhancerVersion], ['Correlation', r.correlation_id], r.error_code ? ['Error', r.error_code] : null, r.cleanup_pending ? ['Cleanup', 'Unconfirmed: execution slot held'] : null]), modelSummary(r.effective), evidence('Effective run settings', r.effective, 'effective'), evidence('Run history', r.events, 'events'));
     if (r.reconciliation_required) {
       const form = node('form'); form.append(node('p', 'Verify that the remote consumer has stopped before releasing the execution slot.', 'hint'));
       const label = node('label', 'Reconciliation evidence reference'); label.htmlFor = 'reconcile-reference'; const reference = node('input'); reference.id = 'reconcile-reference'; reference.required = true; reference.pattern = '[A-Za-z0-9][A-Za-z0-9._-]{0,95}';
       const confirm = node('button', 'Confirm remote stopped', 'secondary'); confirm.type = 'submit'; confirm.disabled = Boolean(r.cleanup_pending); form.append(label, reference, confirm);
       form.onsubmit = async event => { event.preventDefault(); confirm.disabled = true; try { await api('/api/runs/' + encodeURIComponent(r.id) + '/reconcile', { remoteStopped: true, evidenceReference: reference.value }); confirm.blur(); await refresh(); } catch (error) { tell(error.message); confirm.disabled = false; } }; intro.append(form);
     }
-    fragment.append(intro);
-    for (const attempt of r.attempts) {
+    fragment.append(intro, variationOverview(r.effective, { attempts: r.attempts, onAttempt: attempt => {
+      const target = document.getElementById(attemptAnchor(attempt.id)); target?.scrollIntoView({ block: 'start' }); target?.focus({ preventScroll: true });
+    } }));
+    for (const [index, attempt] of r.attempts.entries()) {
       const panel = node('article', undefined, 'run-panel'), unit = r.effective.units.find(u => u.id === attempt.unit_id), subject = r.effective.subjects.find(s => s.id === attempt.subject_id);
-      panel.dataset.attempt = attempt.id;
-      const title = node('div', undefined, 'run-heading'); title.append(node('h2', 'Attempt: ' + unit.title + ' / ' + subject.id), badge(attempt.status));
-      panel.append(title, metadata([['Strategy', unit.strategy], ['Stage', attempt.progress ? attempt.progress.stage : 'Not started']]));
+      panel.dataset.attempt = attempt.id; panel.id = attemptAnchor(attempt.id); panel.tabIndex = -1;
+      const title = node('div', undefined, 'run-heading'); title.append(node('h2', 'Attempt ' + ((attempt.position ?? index) + 1) + ': ' + unit.title + ' / ' + subject.id), badge(attempt.status));
+      panel.append(title, metadata([['Strategy', unit.strategy], ['Generation model alias', generationLabel(r.effective, unit)], ['Stage', attempt.progress ? attempt.progress.stage : 'Not started']]));
       const comparison = node('div', undefined, 'comparison');
       for (const [label, text, cls] of [['Original prompt', subject.text, 'prompt'], ['Enhanced prompt', attempt.result?.enhanced_prompt ?? 'No enhanced prompt available.', 'prompt candidate']]) { const column = node('div'); column.append(node('h3', label), node('div', text, cls)); comparison.append(column); }
       panel.append(comparison);
-      if (attempt.result) panel.append(metricsTable(attempt.result), evidence('Complete result, provider provenance, timings and assertions', attempt.result, attempt.id));
+      if (attempt.result) panel.append(modelEvidence(attempt.result), metricsTable(attempt.result), evidence('Complete result, provider provenance, timings and assertions', attempt.result, attempt.id));
+      else panel.append(node('p', 'Reported model: unknown. No result provenance is available yet.', 'hint'));
       if (attempt.error_code) panel.append(node('p', attempt.error_code, 'hint')); fragment.append(panel);
     }
     return fragment;
@@ -202,11 +208,11 @@ function newRunPage(d, source) {
   pageHeading(source ? 'Rerun experiment' : 'New run', d.title + ' / revision ' + d.revision + '. Adjust settings for this run.', [[d.title, experimentPath(d)], [source ? 'Rerun' : 'New run']]);
   const form = node('form'); form.id = 'run-form'; form.noValidate = true;
   const intro = node('section', undefined, 'surface'); intro.append(node('h2', 'Run configuration'), node('p', source ? 'Prefilled from run ' + source.id.slice(0, 8) + '. The original result stays unchanged.' : 'Start from the experiment defaults. Each selected unit has its own settings.', 'hint'), metadata([['Enhancer version', d.enhancerVersion], ['Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision]]));
-  const subjects = node('fieldset', undefined, 'field-group'); subjects.append(node('legend', 'Subjects'));
+  const subjects = node('fieldset', undefined, 'field-group'); subjects.append(node('legend', 'Input cases (subjects)'));
   const subjectInputs = d.subjects.map(subject => {
     const label = node('label', undefined, 'check-option'), input = node('input'); input.type = 'checkbox'; input.checked = !source || source.effective.subjects.some(s => s.id === subject.id);
     label.append(input, node('span', subject.id)); subjects.append(label); return [subject.id, input];
-  }); intro.append(subjects); form.append(intro, node('h2', 'Units'));
+  }); intro.append(subjects); const preview = node('div'); preview.id = 'run-preview'; form.append(intro, preview, node('h2', 'Variants (units)'));
   const editors = d.units.map(unit => {
     const saved = source?.effective.units.find(u => u.id === unit.id);
     const settings = saved || { parameters: { ...d.baseParameters, ...unit.parameters }, objective: { ...d.objective, ...unit.objective }, steering: { ...d.baseSteering, ...unit.steering }, consumerBinding: { ...d.consumerBinding, ...unit.consumerBinding } };
@@ -228,6 +234,12 @@ function newRunPage(d, source) {
   });
   const actions = node('div', undefined, 'form-actions'); const submit = node('button', 'Start run'); submit.type = 'submit';
   actions.append(node('p', 'Settings are saved with this run. The experiment definition is unchanged.', 'hint'), link('Cancel', source ? runPath(source) : experimentPath(d), 'button secondary'), submit); form.append(actions);
+  const updatePreview = () => {
+    const selected = { ...d, subjects: d.subjects.filter(subject => subjectInputs.some(([id, input]) => id === subject.id && input.checked)),
+      units: editors.filter(editor => editor.enabled.checked).map(editor => ({ ...editor.unit, steering: editor.steering.read(), consumerBinding: editor.consumer?.read() })) };
+    patch(preview, selected, () => { const content = document.createDocumentFragment(); content.append(variationOverview(selected), modelSummary(selected)); return content; });
+  };
+  form.addEventListener('input', updatePreview); form.addEventListener('change', updatePreview); updatePreview();
   let pending;
   const epoch = routeEpoch;
   form.onsubmit = async event => {
