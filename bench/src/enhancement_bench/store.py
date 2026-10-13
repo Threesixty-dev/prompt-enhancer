@@ -133,10 +133,17 @@ class Store:
             rows = db.execute("SELECT * FROM definitions ORDER BY stable_id,generation DESC").fetchall()
         return [{**json.loads(r["body"]), "image": r["image"], "specHash": r["spec_hash"]} for r in rows]
 
-    def runs(self, limit: int = 100) -> list[dict]:
+    def runs(self, limit: int = 100, *, before: str | None = None) -> list[dict]:
         with self.connection() as db:
-            rows = db.execute("SELECT id,correlation_id,stable_id,revision,generation,origin,retry_of,status,assertion_outcome,cancel_requested,cleanup_pending,reconciliation_required,error_code,created,started,finished FROM runs ORDER BY created DESC LIMIT ?",
-                              (min(max(limit, 1), 500),)).fetchall()
+            where, parameters = "", []
+            if before is not None:
+                cursor = db.execute("SELECT created,id FROM runs WHERE id=?", (before,)).fetchone()
+                if cursor is None:
+                    raise BenchError("invalid_run_cursor")
+                where, parameters = " WHERE (created,id) < (?,?)", [cursor["created"], cursor["id"]]
+            rows = db.execute("SELECT id,correlation_id,stable_id,revision,generation,origin,retry_of,status,assertion_outcome,cancel_requested,cleanup_pending,reconciliation_required,error_code,created,started,finished FROM runs"
+                              + where + " ORDER BY created DESC,id DESC LIMIT ?",
+                              (*parameters, min(max(limit, 1), 500))).fetchall()
         return [dict(row) for row in rows]
 
     def run(self, run_id: str) -> dict:
