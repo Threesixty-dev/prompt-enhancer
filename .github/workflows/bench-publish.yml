@@ -55,7 +55,8 @@ jobs:
       - name: Idempotently deliver validated envelopes
         env:
           BENCH_DELIVERY_URL: ${{ vars.BENCH_DELIVERY_URL }}
-          BENCH_IMPORT_TOKEN: ${{ secrets.BENCH_IMPORT_TOKEN }}
+          BENCH_CF_ACCESS_CLIENT_ID: ${{ secrets.BENCH_CF_ACCESS_CLIENT_ID }}
+          BENCH_CF_ACCESS_CLIENT_SECRET: ${{ secrets.BENCH_CF_ACCESS_CLIENT_SECRET }}
         run: |
           for publication in "$RUNNER_TEMP"/bench-publications/*.json; do
             bench/.venv/bin/python -m enhancement_bench.cli deliver "$publication"

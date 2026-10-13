@@ -12,6 +12,11 @@ versioned enhancement flow and private experiment bench. They record later
 source, browser and container evidence separately from this dated atlas and do
 not close the general workflow, real-model or release gates.
 
+The October 13 [bench client navigation](../bench/client-navigation.md) candidate
+adds dedicated experiment/run pages and schema-driven run forms, with local
+synthetic evidence recorded in the readiness ledger. It preserves gateway-only
+access and leaves this dated atlas and general workflow acceptance unchanged.
+
 ## Start here
 
 1. Read the [system map](../images/architecture-overview.png).

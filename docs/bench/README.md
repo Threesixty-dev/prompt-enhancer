@@ -7,6 +7,11 @@ are sensitive even when their inputs are fictional; keep the service private.
 For the combined candidate, fixes, test evidence and a working loopback demo,
 see the [integration review](integration-review.md).
 
+The [client navigation](client-navigation.md) separates experiment browsing,
+experiment details, run setup and results. Open an experiment and choose **New
+run**, or choose **Rerun with changes** on a result. Edit parameters, objectives,
+steering and model aliases using form controls; saved evidence remains read-only.
+
 ## Local development
 
 The combined source checkout must contain B's authoritative
@@ -24,10 +29,11 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Set `BENCH_DATABASE`, distinct `BENCH_OPERATOR_TOKEN`/`BENCH_IMPORT_TOKEN`, and
-`BENCH_IMAGE_REPOSITORIES` through the process environment, outside Git. The API
+Set `BENCH_DATABASE` and `BENCH_IMAGE_REPOSITORIES` through the process environment,
+outside Git. The API
 defaults to `127.0.0.1:8088` and expects `BENCH_ORIGIN` to match the browser origin.
-The token entered in the UI stays in tab memory. Access logs are disabled.
+Cloudflare Access handles deployed authentication; Bench opens without a separate
+login. Keep the origin private behind that gateway. Access logs are disabled.
 
 `enhancement-bench serve` starts the API. `enhancement-bench worker` is a separate
 process with an exclusive file lock. Production runs the worker in its named
@@ -71,11 +77,12 @@ is an immutable string identity, while integer `generation` determines ordering.
 Duplicate delivery is a no-op. A conflicting payload for an existing revision or
 generation is rejected atomically. A disabled revision is not eligible for auto-run.
 
-`POST /api/publications` accepts only the CI import token. The operator token owns
+The gateway protects `POST /api/publications`,
 `GET /api/experiments`, `GET /api/runs`, `GET /api/runs/{id}`, `POST /api/runs`,
 `POST /api/runs/{id}/cancel`, and `POST /api/runs/{id}/reconcile`. UI run creation
 includes `stableId`, `revision`, a UUID `requestId`, explicit `overrides`, and an
 optional `retryOf`. Reusing a request ID with changed settings fails with 409.
+All mutations require the configured `Origin` and an `application/json` body.
 
 Effective parameters, objectives, steering, selected subjects/units, provider bindings, evaluator
 profile, definition revision, image digest and identity fields are durable before
@@ -113,7 +120,10 @@ reuses a matching version image when its build-input hash matches, or builds wit
 B's Docker recipe and publishes it. Changed code under an existing core version
 fails instead of replacing the tag. Definitions are delivered only after the
 immutable digest is known. Rerunning delivery is safe. The workflow uses the job's
-registry token and a separate bench import secret; no personal token is committed.
+registry token and optional `BENCH_CF_ACCESS_CLIENT_ID` / `BENCH_CF_ACCESS_CLIENT_SECRET`
+secrets for a Cloudflare service token allowed by the Bench route's Access policy.
+Bench has no separate login or import token. Delivery supplies the same-origin
+header and never follows redirects carrying gateway credentials.
 
 The publication workflow's operator-selected `models` variant installs B's locked
 optional runtimes and uses its own tag, build fingerprint and image label. The

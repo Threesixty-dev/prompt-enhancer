@@ -5,7 +5,7 @@ import pytest
 
 from enhancement_bench.definitions import Overrides, Publication, fingerprint
 from enhancement_bench.store import Store
-from test_api import client_for, IMPORT, OPERATOR
+from test_api import client_for, ORIGIN
 from test_client_worker import make_worker
 
 
@@ -31,8 +31,8 @@ def test_sibling_models_route_independently_and_keep_shared_evaluation(store, pu
 
 def test_ui_binding_override_is_immutable_and_survives_retry(store, publication, contracts):
     with client_for(store, contracts) as client:
-        client.post("/api/publications", json=publication.model_dump(), headers={"Authorization": "Bearer " + IMPORT})
-        headers = {"Authorization": "Bearer " + OPERATOR}
+        client.post("/api/publications", json=publication.model_dump(), headers=ORIGIN)
+        headers = ORIGIN
         overrides = {"unitIds": ["consumer"], "unitConsumerBindings": {"consumer": {"binding_id": "example-ui-model"}}}
         payload = {"stableId": "example-widget", "revision": "1", "requestId": str(uuid4()), "overrides": overrides}
         response = client.post("/api/runs", json=payload, headers=headers)
@@ -60,7 +60,7 @@ def test_binding_authority_is_validated_before_storage(store, publication, contr
     payload = publication.model_dump()
     payload["definition"]["units"][1]["consumerBinding"] = binding
     with client_for(store, contracts) as client:
-        response = client.post("/api/publications", json=payload, headers={"Authorization": "Bearer " + IMPORT})
+        response = client.post("/api/publications", json=payload, headers=ORIGIN)
         assert response.status_code == 502
     assert not store.definitions() and not store.runs()
 
@@ -69,7 +69,7 @@ def test_script_binding_and_unknown_unit_override_are_rejected(store, publicatio
     store.import_publication(publication)
     with client_for(store, contracts) as client:
         for unit in ("script", "missing"):
-            response = client.post("/api/runs", headers={"Authorization": "Bearer " + OPERATOR}, json={
+            response = client.post("/api/runs", headers=ORIGIN, json={
                 "stableId": "example-widget", "revision": "1", "requestId": str(uuid4()),
                 "overrides": {"unitConsumerBindings": {unit: {"binding_id": "example-model"}}}})
             assert response.status_code == 400

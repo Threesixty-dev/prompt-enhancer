@@ -63,8 +63,10 @@ candidate; evaluator evidence stays under core ownership. Uncertain operation
 IDs remain durable even if later result deletion fails. Container cleanup alone
 cannot release that remote-operation hold.
 The server never logs request bodies or upstream diagnostic text.
-API access uses separate operator/import tokens and same-origin browser checks.
-Content is rendered as text, without HTML interpretation or local token storage.
+API access relies on Cloudflare Access at the deployment edge, with no Bench login
+or token/JWT checks. The origin stays private; exact Host and Origin checks,
+explicit same-origin mutations and JSON-only bounded bodies protect browser writes.
+Content is rendered as text, without HTML interpretation.
 
 Affected existing boundaries: W02 immutable/recovery semantics, W03 typed
 adapters, W05 results views, W07 packaged qualification, WP03 run binding,

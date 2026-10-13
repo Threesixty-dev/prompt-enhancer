@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     settings = json.loads((ROOT / "deployment/bench/settings.example.json").read_text())
     settings.update({key: f"example-{key.lower()}-not-a-secret" for key in
-                     ("BENCH_OPERATOR_TOKEN", "BENCH_IMPORT_TOKEN", "BENCH_CONSUMER_API_TOKEN", "BENCH_LITELLM_TOKEN")})
+                     ("BENCH_CONSUMER_API_TOKEN", "BENCH_LITELLM_TOKEN")})
     models = json.loads((ROOT / "deployment/bench/settings.models.example.json").read_text())
     for selected in (settings, settings | models, settings | models | {"BENCH_MODEL_DEVICE": "cuda", "BENCH_GPU_DEVICE": "0"}):
         result = subprocess.run(["docker", "compose", "-f", str(ROOT / "deployment/bench/compose.yaml"), "config", "--quiet"],

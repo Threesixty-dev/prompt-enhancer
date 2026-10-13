@@ -5,8 +5,6 @@ services:
     command: [serve, --host, 0.0.0.0, --port, "8088"]
     environment:
       BENCH_DATABASE: /data/bench.sqlite3
-      BENCH_OPERATOR_TOKEN: ${BENCH_OPERATOR_TOKEN:?Set operator token}
-      BENCH_IMPORT_TOKEN: ${BENCH_IMPORT_TOKEN:?Set separate CI import token}
       BENCH_IMAGE_REPOSITORIES: ${BENCH_IMAGE_REPOSITORIES:?Set exact core repository allowlist}
       BENCH_ORIGIN: ${BENCH_ORIGIN:-http://127.0.0.1:8088}
     ports: ["127.0.0.1:8088:8088"]
