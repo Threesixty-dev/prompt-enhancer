@@ -1,5 +1,6 @@
 import { node, schemaField, validateForm } from './forms.js';
 import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary, variationOverview, variantDescription } from './overview.js';
+import { filterToolbar, hasFilters, historyCharts, historyPath, readFilters } from './history.js';
 
 const $ = id => document.getElementById(id);
 const json = value => JSON.stringify(value, null, 2);
@@ -8,7 +9,6 @@ const tell = message => { $('notice').textContent = message; };
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted', 'superseded']);
 let connected = false, experiments = [], runs = [], routeEpoch = 0;
 let activeRoute, definition, runSchema, runPage, polling = false, refreshVersion = 0;
-const runPageSize = 10;
 const snapshots = new WeakMap();
 
 async function api(path, body) {
@@ -45,16 +45,22 @@ function patch(container, value, build) {
   const signature = json(value);
   if (snapshots.get(container) === signature) return;
   const open = new Set([...container.querySelectorAll('details[open][data-key]')].map(d => d.dataset.key));
+  const choices = [...container.querySelectorAll('select[data-preserve]')].map(control => [control.dataset.preserve, control.value]);
   container.replaceChildren(build());
+  for (const [key, value] of choices) {
+    const control = container.querySelector('select[data-preserve="' + key + '"]');
+    if (control && [...control.options].some(option => option.value === value)) { control.value = value; control.dispatchEvent(new Event('change')); }
+  }
   for (const item of container.querySelectorAll('details[data-key]')) item.open = open.has(item.dataset.key);
   snapshots.set(container, signature);
 }
 function parseRoute() {
   const segments = location.pathname.split('/').filter(Boolean).map(decodeURIComponent), query = new URLSearchParams(location.search);
-  if (!segments.length || (segments.length === 1 && segments[0] === 'experiments')) return { kind: 'list', before: query.get('before') };
+  const history = { before: query.get('before'), filters: readFilters(query) };
+  if (!segments.length || (segments.length === 1 && segments[0] === 'experiments')) return { kind: 'list', ...history };
   if (segments[0] !== 'experiments' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(segments[1] || '')) return { kind: 'missing' };
   const base = { id: segments[1], revision: query.get('revision'), from: query.get('from') };
-  if (segments.length === 2) return { ...base, kind: 'experiment' };
+  if (segments.length === 2) return { ...base, ...history, kind: 'experiment' };
   if (segments.length === 4 && segments[2] === 'runs') return { ...base, kind: segments[3] === 'new' ? 'new' : 'run', runId: segments[3] };
   return { kind: 'missing' };
 }
@@ -95,20 +101,20 @@ function renderExperiments() {
     return fragment;
   });
 }
-function firstRunPage(response) {
-  const visible = response.runs.slice(0, runPageSize);
-  return { runs: visible, nextCursor: response.runs.length > runPageSize ? visible.at(-1).id : response.nextCursor };
+function historyFrame() {
+  const charts = node('div'); charts.id = 'history-charts';
+  const pagination = node('nav', undefined, 'run-pagination'); pagination.id = 'run-pagination'; pagination.setAttribute('aria-label', 'Run history');
+  return { filters: filterToolbar(activeRoute, experiments, runPage.modelOptions, navigate), charts, pagination };
 }
-const olderRunsPath = cursor => '/api/runs?limit=' + runPageSize + '&before=' + encodeURIComponent(cursor);
-function renderAllRuns() {
-  const container = $('all-runs'); if (!container) return;
-  patch(container, [runPage, experiments], () => {
+function renderHistory() {
+  const global = activeRoute.kind === 'list', container = $(global ? 'all-runs' : 'runs'); if (!container) return;
+  patch(container, [runPage.runs, experiments], () => {
     const fragment = document.createDocumentFragment();
     for (const r of runPage.runs) {
       const d = experiments.find(item => item.stableId === r.stable_id && item.revision === r.revision);
       const card = link(undefined, runPath(r), 'run-card');
       const title = node('div');
-      title.append(node('strong', d?.title || r.stable_id), metadata([
+      title.append(node('strong', global ? d?.title || r.stable_id : (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run'), metadata([
         ['Experiment', r.stable_id], ['Revision', r.revision], ['Run', r.id.slice(0, 8)],
         (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run',
       ]));
@@ -116,37 +122,23 @@ function renderAllRuns() {
       card.append(title, badge(r.status), labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
       fragment.append(card);
     }
-    if (!runPage.runs.length) fragment.append(node('p', 'No runs yet. Choose an experiment below to start a run.', 'empty'));
+    if (!runPage.runs.length) fragment.append(node('p', hasFilters(activeRoute) ? 'No runs match these filters. Adjust or reset the filters to see more runs.' : activeRoute.before ? 'No older runs on this page. Return to the newest runs.' : global ? 'No runs yet. Choose an experiment below to start a run.' : 'No runs yet for this revision. Start a run to compare its units.', 'empty'));
     return fragment;
   });
   patch($('run-pagination'), [activeRoute.before, runPage.nextCursor], () => {
     const fragment = document.createDocumentFragment();
-    if (activeRoute.before) fragment.append(link('Newest runs', '/experiments', 'button secondary'));
-    if (runPage.nextCursor) fragment.append(link('Older runs', '/experiments?before=' + encodeURIComponent(runPage.nextCursor), 'button secondary'));
+    if (activeRoute.before) fragment.append(link('Newest runs', historyPath(activeRoute), 'button secondary'));
+    if (runPage.nextCursor) fragment.append(link('Older runs', historyPath(activeRoute, { before: runPage.nextCursor }), 'button secondary'));
     return fragment;
   });
-}
-function renderRuns() {
-  const container = $('runs'); if (!container) return;
-  const visible = runs.filter(r => r.stable_id === definition.stableId && r.revision === definition.revision);
-  patch(container, visible, () => {
-    const fragment = document.createDocumentFragment();
-    for (const r of visible) {
-      const card = link(undefined, runPath(r), 'run-card');
-      const title = node('div'); title.append(node('strong', (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run'), node('span', 'Revision ' + r.revision + ' / ' + r.id.slice(0, 8), 'hint run-subtitle'));
-      title.append(node('p', countLabel(r.configuration || {}), 'hint run-subtitle'), modelSummary(r.configuration));
-      card.append(title, badge(r.status), node('span', new Date(r.created * 1000).toLocaleString(), 'hint run-time')); fragment.append(card);
-    }
-    if (!visible.length) fragment.append(node('p', 'No runs yet for this revision. Start a run to compare its units.', 'empty'));
-    return fragment;
-  });
+  patch($('history-charts'), runPage.summary, () => historyCharts(runPage.summary, activeRoute));
 }
 function experimentPage(d) {
   pageHeading(d.title, 'Review the experiment and open a run to inspect its results.', [[d.title]], [refreshButton(), link('New run', newRunPath(d), 'button')]);
   const overview = node('section', undefined, 'surface'); overview.append(metadata([['Revision', d.revision], ['Enhancer version', d.enhancerVersion]]), modelSummary(d), node('p', 'Model aliases are configured selections. Reported model identities appear in each attempt after execution.', 'hint'));
   const revisionLabel = node('label', 'Revision'); revisionLabel.htmlFor = 'revision'; const select = node('select'); select.id = 'revision';
   for (const version of experiments.filter(item => item.stableId === d.stableId)) { const option = node('option', 'Revision ' + version.revision); option.value = version.revision; select.append(option); }
-  select.value = d.revision; select.onchange = () => navigate(experimentPath({ ...d, revision: select.value }));
+  select.value = d.revision; select.onchange = () => navigate(historyPath(activeRoute, { filters: { ...activeRoute.filters, revision: select.value } }));
   const revisionField = node('div', undefined, 'revision-field'); revisionField.append(revisionLabel, select); overview.append(revisionField);
   const grid = node('div', undefined, 'overview-grid'); const strategyBox = node('div'); strategyBox.append(node('h2', 'Variants (units)'));
   for (const unit of d.units) { const row = node('div', undefined, 'strategy-summary'); row.append(node('strong', unit.title), labeledValue('Strategy', unit.strategy, 'p', 'hint'), labeledValue('Generation model alias', generationLabel(d, unit), 'p', 'hint'), node('p', variantDescription(d, unit), 'hint')); strategyBox.append(row); }
@@ -154,7 +146,8 @@ function experimentPage(d) {
   for (const subject of d.subjects) prompts.append(disclosure(subject.id, node('p', subject.text, 'prompt')));
   grid.append(strategyBox, prompts); overview.append(grid, labeledValue('Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision, 'p', 'hint'), evidence('Experiment definition', d, 'definition'));
   const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Runs'), node('span', 'Runs for revision ' + d.revision, 'hint'));
-  const list = node('div'); list.id = 'runs'; $('page-content').replaceChildren(variationOverview(d), overview, heading, list); renderRuns();
+  const list = node('div'); list.id = 'runs'; const history = historyFrame();
+  $('page-content').replaceChildren(variationOverview(d), overview, heading, history.filters, history.charts, list, history.pagination); renderHistory();
 }
 
 function metricsTable(result) {
@@ -264,24 +257,24 @@ function newRunPage(d, source) {
 }
 
 async function loadRoute(focus = false) {
-  const epoch = ++routeEpoch; tell('');
+  const epoch = ++routeEpoch; connected = false; tell('');
   try {
     activeRoute = parseRoute();
     if (activeRoute.kind === 'missing') throw new Error('Page not found.');
     const route = activeRoute;
     $('page-content').replaceChildren(node('p', 'Loading...', 'empty'));
-    const [a, b, page] = await Promise.all([api('/api/experiments'), api('/api/runs'), route.kind === 'list' && route.before ? api(olderRunsPath(route.before)) : null]);
+    const [a, b, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'list' ? api(historyPath(route, { api: true, before: route.before })) : null]);
     if (epoch !== routeEpoch) return;
-    experiments = a.experiments; runs = b.runs; connected = true; $('workspace').hidden = false;
+    experiments = a.experiments; runs = b?.runs || []; $('workspace').hidden = false;
     if (route.kind === 'list') {
       pageHeading('All runs', 'Runs across all experiments and revisions, newest first.', [], [refreshButton()]);
-      runPage = page || firstRunPage(b);
+      runPage = page;
       const runList = node('section'); runList.id = 'all-runs'; runList.setAttribute('aria-labelledby', 'page-title');
-      const pagination = node('nav', undefined, 'run-pagination'); pagination.id = 'run-pagination'; pagination.setAttribute('aria-label', 'Run history');
+      const history = historyFrame();
       const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Experiments'));
       const description = node('p', 'Choose an experiment to review its revisions or start a new run.', 'hint');
       const cards = node('div', undefined, 'experiment-grid'); cards.id = 'experiments';
-      $('page-content').replaceChildren(runList, pagination, heading, description, cards); renderAllRuns(); renderExperiments();
+      $('page-content').replaceChildren(history.filters, history.charts, runList, history.pagination, heading, description, cards); renderHistory(); renderExperiments();
     } else {
       let source;
       if (route.kind === 'run' || route.from) {
@@ -291,7 +284,12 @@ async function loadRoute(focus = false) {
       }
       definition = experiments.find(d => d.stableId === route.id && (!(source?.revision || route.revision) || d.revision === (source?.revision || route.revision)));
       if (!definition) throw new Error('Experiment revision not found.');
-      if (route.kind === 'experiment') experimentPage(definition);
+      if (route.kind === 'experiment') {
+        route.filters = { ...route.filters, experiment: definition.stableId, revision: definition.revision };
+        const page = await api(historyPath(route, { api: true, before: route.before }));
+        if (epoch !== routeEpoch) return;
+        runPage = page; experimentPage(definition);
+      }
       if (route.kind === 'run') {
         pageHeading('Run ' + source.id.slice(0, 8), definition.title + ' / revision ' + source.revision, [[definition.title, experimentPath(definition)], ['Results']], [refreshButton()]);
         const detail = node('section'); detail.id = 'run-detail'; $('page-content').replaceChildren(detail); renderRun(source);
@@ -303,6 +301,7 @@ async function loadRoute(focus = false) {
         newRunPage(definition, source);
       }
     }
+    connected = true;
     if (focus) $('page-title').focus({ preventScroll: true });
   } catch (error) {
     if (epoch !== routeEpoch) return;
@@ -315,11 +314,11 @@ async function loadRoute(focus = false) {
 async function refresh() {
   if (!connected || activeRoute?.kind === 'new') return;
   const epoch = routeEpoch, route = activeRoute, version = ++refreshVersion;
-  const [a, b, r, page] = await Promise.all([api('/api/experiments'), api('/api/runs'), route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, route.kind === 'list' && route.before ? api(olderRunsPath(route.before)) : null]);
+  const [a, b, r, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, ['list', 'experiment'].includes(route.kind) ? api(historyPath(route, { api: true, before: route.before })) : null]);
   if (epoch !== routeEpoch || version !== refreshVersion) return;
-  experiments = a.experiments; runs = b.runs;
-  if (route.kind === 'list') { runPage = page || firstRunPage(b); renderAllRuns(); renderExperiments(); }
-  if (route.kind === 'experiment') renderRuns();
+  experiments = a.experiments; runs = b?.runs || [];
+  if (page) { runPage = page; renderHistory(); }
+  if (route.kind === 'list') renderExperiments();
   if (route.kind === 'run') renderRun(r);
 }
 setInterval(async () => {

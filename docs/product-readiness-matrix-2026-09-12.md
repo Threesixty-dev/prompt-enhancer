@@ -1,5 +1,18 @@
 # Product feature and readiness matrix
 
+## Bench history filters and charts - 2026-10-14
+
+The [Bench history update](bench/client-navigation.md#history-filters-and-charts---2026-10-14)
+adds full-history status, experiment/revision, trigger, model and UTC date filters
+to the homepage and experiment run list. Activity/status charts and planned
+attempt counts share the filtered scope. Paired numeric Before/After means and
+model/variant comparisons separate evaluation identities, preserve unknowns and
+show sample/exclusion counts. These are descriptive metrics, not task-success
+evidence or model rankings. Local evidence: 182 backend tests, 36 desktop/mobile
+browser checks, JavaScript syntax, privacy and whitespace checks pass; synthetic
+layouts were visually inspected. Owner review and deployment remain open. No
+B/W/WP or release acceptance changes.
+
 ## Bench model details and run variations - 2026-10-14
 
 The [Bench presentation update](bench/client-navigation.md#model-details-and-run-variations---2026-10-14)

@@ -1,5 +1,22 @@
 # Beta progress journal: published handoff
 
+## 2026-10-14 - Bench history filters and comparison charts
+
+Implemented on owner-selected `develop` at `56ddc38`. Homepage and experiment
+run lists filter the entire saved history by status, identity/revision, trigger,
+model alias and UTC dates, preserving filters through pagination and navigation.
+Activity/status charts and planned-attempt counts share that scope. Before/After
+metric means and model/variant comparisons use paired numeric observations,
+separate evaluator provenance and expose sample/exclusion counts. Unknowns remain
+unknown, and chart summaries omit prompt/result text and operation identities.
+
+Local evidence: 182 Bench backend tests, 36 desktop/mobile browser checks,
+JavaScript syntax, privacy scanner and whitespace checks pass. Synthetic visual
+inspection confirms responsive filter/chart layouts. One browser test worker and
+owned loopback fixture servers were used; no provider call, production data read,
+source publication or deployment occurred. See the [bounded task evidence](bench/client-navigation.md#history-filters-and-charts---2026-10-14).
+Owner review and general workflow/native/release acceptance remain separate.
+
 ## 2026-10-14 - Bench model details and case-by-variant matrix
 
 Implemented on the owner-selected `develop` baseline at `97b128f`. Experiments
