@@ -239,10 +239,19 @@ def main():
     if not digests or not all(isinstance(value, str) and "@sha256:" in value for value in digests):
         raise SystemExit("local_registry_manifest_digest_unavailable_no_image_id_substitution")
     image = digests[0]
+    # The development example may target an older core than this CI image.
+    core_version = docker(["run", "--rm", "--network", "none", "--read-only",
+                           "--entrypoint", "python", image, "-c",
+                           "from prompt_enhancer.enhancement import CORE_VERSION; print(CORE_VERSION)"],
+                          capture=True).decode().strip()
     namespace = "enhancement-bench-smoke-" + uuid.uuid4().hex[:12]
     cache_volume = "enhancement-bench-models-smoke-" + uuid.uuid4().hex[:12]
     cache_created = False
     with tempfile.TemporaryDirectory(prefix="bench-docker-smoke-") as directory:
+        definition = json.loads((root / "bench/examples/example-widget.json").read_text())
+        definition["enhancerVersion"] = core_version
+        definition_path = Path(directory) / "definition.json"
+        definition_path.write_text(json.dumps(definition))
         cert, key = Path(directory).resolve() / "provider.crt", Path(directory).resolve() / "provider.key"
         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key),
                         "-out", str(cert), "-days", "1", "-subj", "/CN=localhost",
@@ -278,7 +287,7 @@ def main():
                     "--env", "ENHANCEMENT_CONSUMER_TOKEN=example-synthetic-token-not-a-secret",
                     "--entrypoint", "sleep", args.bench_image, "300"])
             for source, destination in ((Path(__file__).resolve(), "/tmp/docker_smoke.py"),
-                    (root / "bench/examples/example-widget.json", "/tmp/definition.json"),
+                    (definition_path, "/tmp/definition.json"),
                     (config, "/tmp/model-config.json"),
                     (cert, "/tmp/provider.crt"), (key, "/tmp/provider.key")):
                 docker(["exec", "-i", namespace, "python", "-c",
