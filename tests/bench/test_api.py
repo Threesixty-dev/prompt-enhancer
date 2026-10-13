@@ -167,3 +167,29 @@ def test_run_history_handles_empty_list_and_unknown_cursor(store, contracts):
         response = client.get("/api/runs?before=example-missing")
         assert response.status_code == 400
         assert response.json() == {"error": {"code": "invalid_run_cursor"}}
+
+
+@pytest.mark.parametrize("peer,headers,status,emits", [
+    ("127.0.0.1", {}, 200, True), ("::1", {}, 200, True),
+    ("192.0.2.1", {}, 200, False),
+    ("127.0.0.1", {"Host": "example.com"}, 403, False),
+])
+def test_readiness_receipt_contains_only_baked_revision_and_time(
+    store, contracts, monkeypatch, capsys, peer, headers, status, emits,
+):
+    from pathlib import Path
+    import enhancement_bench.api as api
+
+    original_is_file, original_read_text = Path.is_file, Path.read_text
+    monkeypatch.setattr(Path, "is_file", lambda path: True if path.name == "revision.txt" else original_is_file(path))
+    monkeypatch.setattr(Path, "read_text", lambda path, *a, **kw: "a" * 40 if path.name == "revision.txt" else original_read_text(path, *a, **kw))
+    monkeypatch.setattr(api.time, "time_ns", lambda: 1_790_000_000_000_000_000)
+    app = create_app(store, contracts, allowed_repositories=(), origin="http://testserver")
+    with TestClient(app, client=(peer, 50000)) as client:
+        response = client.get("/health/ready?example-private-canary=1", headers=headers)
+        assert response.status_code == status
+        if status == 200:
+            assert response.json()["revision"] == "a" * 40
+    assert capsys.readouterr().out == (
+        "BENCH_READY_V1 revision=" + "a" * 40 + " time_ms=1790000000000\n" if emits else ""
+    )

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
+import time
 from uuid import uuid4
 
 from fastapi import FastAPI, Query, Request
@@ -60,6 +62,12 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
         response.headers.update({"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
                                  "Referrer-Policy": "no-referrer",
                                  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
+        if (request.url.path == "/health/ready" and request.method == "GET"
+            and response.status_code == 200 and request.client is not None
+            and request.client.host in {"127.0.0.1", "::1"}
+            and isinstance(revision, str) and re.fullmatch(r"[a-f0-9]{40}", revision)):
+            # The controller can verify local health without public gateway access.
+            print(f"BENCH_READY_V1 revision={revision} time_ms={time.time_ns() // 1_000_000}", flush=True)
         return response
 
     @app.exception_handler(BenchError)
