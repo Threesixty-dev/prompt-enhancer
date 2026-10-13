@@ -43,13 +43,7 @@ def controller(env):
 
 
 def image_ref(env):
-    value = env.get("BENCH_DEPLOY_IMAGE", "")
-    if re.fullmatch(r"ghcr\.io/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}", value) is None:
-        raise ValueError("immutable_ghcr_image_required")
-    expected = env.get("BENCH_IMAGE_REPOSITORY", "")
-    if value.split("@")[0] != expected:
-        raise ValueError("image_repository_mismatch")
-    return value
+    return "local/enhancement-bench:api-" + revision(env)
 
 
 def opener():
@@ -67,13 +61,21 @@ def inspect_target(env, client):
 def deploy(env, client):
     image = image_ref(env)
     url, headers, _ = inspect_target(env, client)
+    service_url = url.rsplit("/applications/", 1)[0]
+    variable = controller_json(client, service_url + "/envs", headers, method="PATCH", body={
+        "key": "BENCH_SOURCE_REVISION", "value": revision(env), "is_literal": True,
+    })
+    # Ordinary tokens return metadata only; prove the baked revision after build.
+    if (variable.get("key") != "BENCH_SOURCE_REVISION"
+        or ("value" in variable and variable["value"] != revision(env))):
+        raise RuntimeError("source_revision_unconfirmed")
     controller_json(client, url, headers, method="PATCH", body={"image": image})
     _, _, updated = inspect_target(env, client)
     if updated.get("image") != image:
         raise RuntimeError("image_pin_unconfirmed")
-    # Coolify v4.3.23 starts this service with compose up --no-deps.
-    controller_json(client, url + "/start?latest=true", headers, method="POST")
-    print("Bench API image pinned; deployment queued. Health verification follows.")
+    # Coolify v4.3.23 starts this service with compose up --no-deps --build. Host layers stay cached.
+    controller_json(client, url + "/start?force=true", headers, method="POST")
+    print("Bench API source pinned; build queued on Coolify. Health verification follows.")
 
 
 def health_settings(env):
@@ -137,8 +139,7 @@ def main(argv=None):
         known = {"revision_invalid", "main_required", "deployment_url_invalid",
                  "bench_target_required", "controller_token_invalid",
                  "cloudflare_access_credentials_incomplete", "cloudflare_access_credentials_invalid",
-                 "cloudflare_access_credentials_required", "immutable_ghcr_image_required",
-                 "image_repository_mismatch", "bench_api_target_mismatch", "image_pin_unconfirmed",
+                 "cloudflare_access_credentials_required", "source_revision_unconfirmed", "bench_api_target_mismatch", "image_pin_unconfirmed",
                  "bench_health_access_unconfirmed", "bench_revision_health_timeout"}
         reason = str(error) if type(error) in {ValueError, RuntimeError} and str(error) in known else "request_unconfirmed"
         print(f"Bench deployment step failed: {mode} ({reason}).", file=sys.stderr)
