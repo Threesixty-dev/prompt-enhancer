@@ -19,33 +19,33 @@ function showExperiments() {
   const container = $("experiments"); container.replaceChildren();
   const newest = new Map(); for (const d of experiments) if (!newest.has(d.stableId)) newest.set(d.stableId, d);
   for (const d of newest.values()) {
-    const b = node("button", d.title, "experiment-choice"); b.type = "button"; b.setAttribute("aria-pressed", String(selection?.stableId === d.stableId)); b.append(node("span", `Revision ${d.revision} / ${d.units.length} strategies`));
+    const b = node("button", d.title, "experiment-choice"); b.type = "button"; b.setAttribute("aria-pressed", String(selection?.stableId === d.stableId)); b.append(node("span", `Revision ${d.revision} / ${d.units.length} Experiment Units`));
     b.onclick = () => { selection = d; pendingRequest = null; showExperiments(); showDefinition(); showRuns(); }; container.append(b);
   }
-  if (!newest.size) container.append(node("p", "No definitions imported yet.", "hint"));
+  if (!newest.size) container.append(node("p", "No Experiments imported yet.", "hint"));
 }
 function showDefinition() {
   const container = $("experiment"); container.replaceChildren();
-  if (!selection) { container.append(node("div", "Import a reviewed synthetic definition through the CI publication endpoint to begin.", "empty")); return; }
+  if (!selection) { container.append(node("div", "Publish a synthetic Experiment JSON from the experiments folder to begin.", "empty")); return; }
   const d = selection;
   const title = node("h2", d.title); title.id = "experiment-title";
-  container.append(node("p", d.stableId, "eyebrow"), title, metadata([`Revision ${d.revision}`, `Generation ${d.generation}`, `Core ${d.enhancerVersion}`, `${d.subjects.length} prompt subjects`]));
+  container.append(node("p", d.stableId, "eyebrow"), title, metadata([`Revision ${d.revision}`, `Generation ${d.generation}`, `Core ${d.enhancerVersion}`, `${d.subjects.length} Subjects`]));
   const form = node("form"); form.id = "run-form";
   const grid = node("div", undefined, "schema-form");
   const parameters = node("div"); const label = node("label", "Parameter overrides (JSON)"); label.htmlFor = "parameters";
   const field = node("textarea"); field.id = "parameters"; field.value = "{}"; field.spellcheck = false; parameters.append(label, field, node("small", "Only declared parameters are accepted. Effective settings are stored with the run."));
-  const units = node("div"); const unitLabel = node("label", "Strategy selection"); unitLabel.htmlFor = "unit-select";
-  const select = node("select"); select.id = "unit-select"; const all = node("option", "All sibling strategies"); all.value = ""; select.append(all);
+  const units = node("div"); const unitLabel = node("label", "Experiment Unit selection"); unitLabel.htmlFor = "unit-select";
+  const select = node("select"); select.id = "unit-select"; const all = node("option", "All sibling Experiment Units"); all.value = ""; select.append(all);
   for (const unit of d.units) { const option = node("option", unit.title); option.value = unit.id; select.append(option); }
   units.append(unitLabel, select);
   for (const unit of d.units.filter(u => u.strategy.startsWith("consumer."))) units.append(node("p", `${unit.title}: ${unit.consumerBinding?.binding_id || d.consumerBinding?.binding_id || "unconfigured"}`, "hint"));
   units.append(node("p", `Evaluator: ${d.evaluatorProfile.profile_id} / ${d.evaluatorProfile.revision}`, "hint")); grid.append(parameters, units); form.append(grid);
-  const advanced = node("details"), advancedGrid = node("div", undefined, "schema-form"); advanced.append(node("summary", "Objective and per-strategy steering"));
+  const advanced = node("details"), advancedGrid = node("div", undefined, "schema-form"); advanced.append(node("summary", "Objective and Experiment Unit steering"));
   const objectiveLabel = node("label", "Objective override (JSON)"); objectiveLabel.htmlFor = "objective-override";
   const objectiveField = node("textarea"); objectiveField.id = "objective-override"; objectiveField.value = "{}"; objectiveField.spellcheck = false;
-  const steeringLabel = node("label", "Steering overrides by strategy ID (JSON)"); steeringLabel.htmlFor = "steering-overrides";
+  const steeringLabel = node("label", "Steering overrides by Experiment Unit ID (JSON)"); steeringLabel.htmlFor = "steering-overrides";
   const steeringField = node("textarea"); steeringField.id = "steering-overrides"; steeringField.value = "{}"; steeringField.spellcheck = false;
-  const bindingLabel = node("label", "Consumer bindings by strategy ID (JSON)"); bindingLabel.htmlFor = "consumer-bindings";
+  const bindingLabel = node("label", "Consumer bindings by Experiment Unit ID (JSON)"); bindingLabel.htmlFor = "consumer-bindings";
   const bindingField = node("textarea"); bindingField.id = "consumer-bindings"; bindingField.value = "{}"; bindingField.spellcheck = false;
   const bindingBox = node("div"); bindingBox.append(bindingLabel, bindingField, node("small", "Select configured model aliases with binding_id. Provider defaults are inherited; endpoints and credentials are not accepted."));
   const objectiveBox = node("div"), steeringBox = node("div"); objectiveBox.append(objectiveLabel, objectiveField); steeringBox.append(steeringLabel, steeringField); advancedGrid.append(objectiveBox, steeringBox, bindingBox); advanced.append(advancedGrid, node("p", "Targets guide generation; assertions decide pass/fail. Consumer steering supports style and instructions. Scripted strategies accept only their declared controls.", "hint")); form.append(advanced);
@@ -56,7 +56,7 @@ function showDefinition() {
     if (!pendingRequest || pendingRequest.binding !== binding) pendingRequest = {binding, id: crypto.randomUUID()};
     const response = await api("/api/runs", {stableId: d.stableId, revision: d.revision, requestId: pendingRequest.id, overrides}); selectedRun = response.runId; pendingRequest = null; tell("Run queued. Its effective settings are now immutable."); await refresh();
   } catch (error) { tell(error.message); } finally { runButton.disabled = false; } };
-  container.append(form, details("Definition, image digest and parameter schema", d));
+  container.append(form, details("Experiment, image digest and parameter schema", d));
 }
 function showRuns() {
   const container = $("runs"); container.replaceChildren(); const visible = runs.filter(r => !selection || r.stable_id === selection.stableId); $("run-count").textContent = `${visible.length} recent runs`;
@@ -96,7 +96,7 @@ async function showRun() {
   }
   fragment.append(intro);
   for(const attempt of r.attempts) { const panel=node("article",undefined,"run-panel"); const unit=r.effective.units.find(u=>u.id===attempt.unit_id), subject=r.effective.subjects.find(s=>s.id===attempt.subject_id); const title=node("div",undefined,"run-heading"); title.append(node("h3",`${unit.title} / ${subject.id}`),badge(attempt.status));panel.append(title,metadata([unit.strategy,`Attempt ${attempt.id}`,attempt.progress ? `Stage: ${attempt.progress.stage}` : "Not started"]));
-    const comparison=node("div",undefined,"comparison");for(const [label,text,cls] of [["Original prompt",subject.text,"prompt"],["Enhanced prompt",attempt.result?.enhanced_prompt ?? "No candidate available.","prompt candidate"]]) { const column=node("div");column.append(node("h3",label),node("div",text,cls));comparison.append(column); }panel.append(comparison);
+    const comparison=node("div",undefined,"comparison");for(const [label,text,cls] of [["Subject",subject.text,"prompt"],["Enhanced prompt",attempt.result?.enhanced_prompt ?? "No candidate available.","prompt candidate"]]) { const column=node("div");column.append(node("h3",label),node("div",text,cls));comparison.append(column); }panel.append(comparison);
     if(attempt.result)panel.append(metricsTable(attempt.result),details("Complete result, provider provenance, timings and assertions",attempt.result));
     if(attempt.error_code)panel.append(node("p",attempt.error_code,"hint"));fragment.append(panel);
   }

@@ -278,7 +278,7 @@ def main():
                     "--env", "ENHANCEMENT_CONSUMER_TOKEN=example-synthetic-token-not-a-secret",
                     "--entrypoint", "sleep", args.bench_image, "300"])
             for source, destination in ((Path(__file__).resolve(), "/tmp/docker_smoke.py"),
-                    (root / "bench/definitions/example-widget.json", "/tmp/definition.json"),
+                    (root / "bench/examples/example-widget.json", "/tmp/definition.json"),
                     (config, "/tmp/model-config.json"),
                     (cert, "/tmp/provider.crt"), (key, "/tmp/provider.key")):
                 docker(["exec", "-i", namespace, "python", "-c",

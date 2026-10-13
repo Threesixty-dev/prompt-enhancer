@@ -1,5 +1,21 @@
 # Beta progress journal: published handoff
 
+## 2026-10-13 - JSON-only Experiment publication
+
+The owner requested the agreed Experiment JSON push workflow and domain language.
+On integration baseline `5d2228d`, publication now watches `experiments/`, keeps
+each Experiment's selected core version, imports newest revisions first, supplies
+Origin, rejects redirects and preserves idempotent automatic Runs. Experiment
+Unit remains the compared configuration; strategy is one of its settings.
+The acceptance JSON compares two scripted Experiment Units on two fictional
+Subjects, using one deterministic Evaluator and fixed nonregression assertions.
+
+Local evidence: 103 Test Bench tests, six desktop/mobile browser cases, syntax,
+schema and privacy checks pass. Automatic approval review rejected configuring
+the GitHub environment to allow the feature branch, so live delivery and its
+automatic Run remain unverified. See the [task card](bench/experiment-publication.md)
+for scope, dependencies and the exact completion criterion. No gate is closed.
+
 ## 2026-10-13 - Dedicated bench conversation retention
 
 The owner requested inspection history after successful OpenHands cleanup had

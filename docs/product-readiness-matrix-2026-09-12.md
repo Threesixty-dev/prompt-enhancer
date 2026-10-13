@@ -1,5 +1,14 @@
 # Product feature and readiness matrix
 
+## Test Bench Experiment publication candidate - 2026-10-13
+
+The [publication task](bench/experiment-publication.md) repairs the agreed
+`experiments/` JSON push to automatic Run flow and restores Experiment Unit
+terminology. Local evidence: 103 Test Bench tests, six desktop/mobile browser
+checks, schema validation, JavaScript syntax and the privacy scanner pass.
+Live publication remains blocked on explicit approval of the GitHub environment's
+deployment access. No automatic Run or general W/WP/release gate is claimed.
+
 ## Bench consumer retention candidate - 2026-10-13
 
 The owner requested bounded retention of the dedicated OpenHands conversation

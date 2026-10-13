@@ -12,6 +12,11 @@ versioned enhancement flow and private experiment bench. They record later
 source, browser and container evidence separately from this dated atlas and do
 not close the general workflow, real-model or release gates.
 
+The October 13 [Experiment publication task](../bench/experiment-publication.md)
+records the JSON push workflow and domain terminology correction. Its local
+checks are separate from live automatic-Run acceptance, which remains blocked
+on deployment-access approval. The dated atlas observation remains unchanged.
+
 ## Start here
 
 1. Read the [system map](../images/architecture-overview.png).

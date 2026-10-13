@@ -7,7 +7,8 @@ import json
 import os
 import signal
 from pathlib import Path
-from uuid import uuid4
+from urllib.parse import urlsplit
+from uuid import UUID, uuid4
 
 import httpx
 
@@ -33,6 +34,43 @@ def validate_definition(path: Path, contracts: Contracts) -> Definition:
         for unit in definition.units:
             contracts.request(run, {"id": str(uuid4()), "subject_id": subject.id, "unit_id": unit.id})
     return definition
+
+
+def deliver_publication(publication: Publication, endpoint: str, import_token: str,
+                        *, access_client_id: str | None = None,
+                        access_client_secret: str | None = None) -> dict:
+    endpoint = endpoint.rstrip("/")
+    origin = urlsplit(endpoint)
+    if (origin.scheme != "https" or not origin.hostname or origin.username is not None
+            or origin.password is not None or origin.path or origin.query or origin.fragment):
+        raise BenchError("https_delivery_origin_required")
+    if len(import_token) < 24 or any(c in import_token for c in "\r\n"):
+        raise BenchError("invalid_import_token")
+    if bool(access_client_id) != bool(access_client_secret):
+        raise BenchError("paired_access_credentials_required")
+    headers = {"Authorization": "Bearer " + import_token, "Origin": endpoint,
+               "User-Agent": "PromptEnhancer-Experiment-Publisher/1"}
+    if access_client_id and access_client_secret:
+        if any(c in access_client_id + access_client_secret for c in "\r\n"):
+            raise BenchError("invalid_access_credentials")
+        headers.update({"CF-Access-Client-Id": access_client_id,
+                        "CF-Access-Client-Secret": access_client_secret})
+    try:
+        with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
+            response = client.post(endpoint + "/api/publications",
+                                   json=publication.model_dump(), headers=headers)
+        if response.status_code != 202:
+            raise BenchError("publication_delivery_failed")
+        value = response.json()
+        if (not isinstance(value, dict) or "runId" not in value or type(value.get("imported")) is not bool
+                or (value.get("runId") is not None and not isinstance(value["runId"], str))):
+            raise BenchError("publication_acknowledgement_invalid")
+        run_id = str(UUID(value["runId"])) if value["runId"] is not None else None
+        return {"experiment": publication.definition.stableId,
+                "revision": publication.definition.revision,
+                "imported": value["imported"], "runId": run_id}
+    except (httpx.HTTPError, ValueError):
+        raise BenchError("publication_delivery_unconfirmed") from None
 
 
 def parser():
@@ -72,16 +110,11 @@ def main():
             return
         if args.command == "deliver":
             envelope = Publication.model_validate_json(args.publication.read_text())
-            endpoint = os.environ["BENCH_DELIVERY_URL"].rstrip("/")
-            if not endpoint.startswith("https://"):
-                raise BenchError("https_delivery_required")
-            with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
-                # Delivery is idempotent; a lost response can safely be delivered again.
-                response = client.post(endpoint + "/api/publications", json=envelope.model_dump(),
-                                       headers={"Authorization": "Bearer " + os.environ["BENCH_IMPORT_TOKEN"]})
-                if response.status_code != 202:
-                    raise BenchError("publication_delivery_failed")
-            print("Publication accepted.")
+            receipt = deliver_publication(envelope, os.environ["BENCH_DELIVERY_URL"],
+                os.environ["BENCH_IMPORT_TOKEN"],
+                access_client_id=os.environ.get("BENCH_CF_ACCESS_CLIENT_ID"),
+                access_client_secret=os.environ.get("BENCH_CF_ACCESS_CLIENT_SECRET"))
+            print(json.dumps(receipt))
             return
         store = Store(Path(os.environ.get("BENCH_DATABASE", "/tmp/enhancement-bench/bench.sqlite3")))
         repositories = tuple(filter(None, os.environ.get("BENCH_IMAGE_REPOSITORIES", "").split(",")))
