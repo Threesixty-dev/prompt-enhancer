@@ -1,7 +1,7 @@
 # Experiment publication task
 
-Date: 2026-10-13. Status: local verification complete; live publication blocked
-on approval of GitHub deployment access.
+Date: 2026-10-13. Status: JSON-push delivery and its automatic Run verified;
+owner review and broader CI remain open.
 
 ## Task card
 
@@ -23,8 +23,8 @@ on approval of GitHub deployment access.
   access headers, and Experiment Unit terminology.
 - Verification: synthetic API/worker delivery, duplicate suppression, version
   retention, conflicting revision rejection, invalid-origin/redirect rejection,
-  privacy scanning and desktop/mobile browser checks. Hosted delivery remains
-  separate evidence until a JSON-only push creates an automatic Run.
+  privacy scanning and desktop/mobile browser checks. The JSON-only push's
+  delivery and automatic Run are recorded separately below.
 - Resource bound: one serial publication job and the existing serial Test Bench
   worker. Acceptance uses two fictional Subjects and two scripted Experiment
   Units with one shared deterministic Evaluator, without model inference.
@@ -51,8 +51,27 @@ syntax, Experiment schema validation and the repository privacy scan pass.
 The deployed retained core reports runtime version `0.1.4` and variant `default`;
 its stale `0.1.2` OCI version/build labels are not used to claim build provenance.
 
-The deployment-access configuration was rejected by automatic approval review:
-authorizing the feature branch in the GitHub environment needs explicit owner
-approval. No live import, automatic Run, registry publication or deployment is
-claimed by these local checks. The acceptance criterion remains a JSON-only push
-followed by an observed automatic Run; a manual import is not equivalent evidence.
+After explicit owner approval of branch-restricted GitHub environment access and
+a one-year endpoint-only service token, the original JSON-only push at `caf3a33`
+was retried. Publication Action `38420508345`, attempt 3, passed in 21 seconds.
+Test Bench acknowledged `imported: true` and returned automatic Run
+`ed2b727c-0d7a-44ba-b081-31339b6086bd`. The Action ended at import acknowledgement;
+it did not poll or wait for Run results. The retained image was reused without
+registry publication or an application deployment.
+
+Separate Test Bench observation confirmed that Run succeeded and its assertions
+passed. Both Experiment Units completed for both fictional Subjects: four
+successful results. Acceptance-testability remained zero before and after in
+all four results, satisfying the fixed nonnegative-delta assertion. This is
+delivery/execution and deterministic nonregression evidence, not demonstrated
+semantic quality improvement or Consumer/model qualification. Unknown metrics
+remain unknown.
+
+Hosted Bench checks passed the synthetic tests, browser checks, deployment
+validation, image builds, real-core smoke and model-image cache smoke. The final
+consumer/relay step failed with `relay_smoke_failed`. The broader quality gate
+reports contract/OpenAPI artifact drift on both platforms, plus Windows consumer
+permission/retention and guarded-process failures. These remain open and the PR
+remains draft.
+The live UI still uses the earlier terminology; the corrected UI source in this
+PR has not been deployed. No general workflow, real-model or release gate closes.

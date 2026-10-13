@@ -11,10 +11,16 @@ The acceptance JSON compares two scripted Experiment Units on two fictional
 Subjects, using one deterministic Evaluator and fixed nonregression assertions.
 
 Local evidence: 103 Test Bench tests, six desktop/mobile browser cases, syntax,
-schema and privacy checks pass. Automatic approval review rejected configuring
-the GitHub environment to allow the feature branch, so live delivery and its
-automatic Run remain unverified. See the [task card](bench/experiment-publication.md)
-for scope, dependencies and the exact completion criterion. No gate is closed.
+schema and privacy checks pass. Following explicit owner approval of the
+branch-restricted environment and endpoint-only service token, the original
+JSON-only push's publication Action passed in 21 seconds and acknowledged the
+import. Test Bench then showed its automatic Run succeeded, with all four
+Subject/Experiment Unit results successful and assertions passed. The Action
+ends after delivery and does not monitor execution. Acceptance-testability stayed
+at zero, so no improvement in that metric is claimed. Broader CI failures remain
+open, and the UI terminology source changes are not deployed. See the
+[task card](bench/experiment-publication.md) for exact evidence and limits.
+No general gate is closed.
 
 ## 2026-10-13 - Dedicated bench conversation retention
 

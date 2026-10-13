@@ -14,8 +14,9 @@ not close the general workflow, real-model or release gates.
 
 The October 13 [Experiment publication task](../bench/experiment-publication.md)
 records the JSON push workflow and domain terminology correction. Its local
-checks are separate from live automatic-Run acceptance, which remains blocked
-on deployment-access approval. The dated atlas observation remains unchanged.
+checks and observed automatic Run establish bounded publication evidence. The
+Action ends at import acknowledgement; Test Bench owns execution and results.
+Broader CI and owner review remain open. The dated atlas observation is unchanged.
 
 ## Start here
 

@@ -6,8 +6,13 @@ The [publication task](bench/experiment-publication.md) repairs the agreed
 `experiments/` JSON push to automatic Run flow and restores Experiment Unit
 terminology. Local evidence: 103 Test Bench tests, six desktop/mobile browser
 checks, schema validation, JavaScript syntax and the privacy scanner pass.
-Live publication remains blocked on explicit approval of the GitHub environment's
-deployment access. No automatic Run or general W/WP/release gate is claimed.
+After explicit deployment-access approval, the original JSON-only push's Action
+passed and acknowledged an automatic Run. Test Bench separately showed four
+successful Subject/Experiment Unit results and passed assertions. Acceptance-
+testability delta was zero throughout: deterministic nonregression, not semantic
+quality improvement. The Action does not monitor Runs. Broader CI failures and
+owner review remain open, and the corrected UI wording is not yet deployed.
+No general W/WP/release gate is closed.
 
 ## Bench consumer retention candidate - 2026-10-13
 
