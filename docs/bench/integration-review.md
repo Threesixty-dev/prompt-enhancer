@@ -38,6 +38,27 @@ produces the exact committed OpenAPI bytes; no schema/client regeneration or
 relaxation of the byte-exact artifact gate is needed. Full hosted platform
 results must still pass on the final integration commit before merge.
 
+## October 13 pilot failure diagnosis
+
+Core 0.1.2 adds an operator-bound `reasoning_effort` setting, recorded in provider provenance.
+The Qwen gateway pilot exhausted its 1,024-token budget in reasoning, with
+`finish_reason: length` and empty answer text. A bounded diagnostic using the
+same fictional input and budget with `reasoning_effort: none` returned completed
+rubric JSON in 12 tokens. Truncated and malformed replies still remain unknown.
+
+The pinned OpenHands SDK 1.49.1 emits the completed ACP answer in a typed
+`FinishAction`, which the old MessageEvent-only reader ignored. The adapter now
+requires exactly one matching finish event after both completion checks. A
+second failure was a Codex startup warning prepended to the valid JSON because
+the gateway alias had no catalog entry. The static consumer now writes an
+explicit text-only client catalog for its configured alias, with tools disabled
+and unknown context limits left null. This is client policy, not a verified
+upstream model identity or capability claim. No arbitrary preamble is stripped.
+
+Only finite package-owned error codes cross the worker boundary; arbitrary
+exception text remains suppressed. Automatic runs stay disabled. This diagnosis
+does not by itself qualify an end-to-end experiment or close any beta gate.
+
 ## Review boundary
 
 The integration checkout combines the completed core and bench workstreams on

@@ -104,6 +104,7 @@ def test_rubric_gateway_is_independent_and_applies_only_evaluation_settings(monk
     from prompt_enhancer.infrastructure import litellm
     calls = []
     def chat(settings):
+        assert settings.reasoning_effort == "none"
         def complete(model, body):
             calls.append(json.loads(body))
             return 200, json.dumps({"model": "example-model", "choices": [{"finish_reason": "stop",
@@ -112,10 +113,30 @@ def test_rubric_gateway_is_independent_and_applies_only_evaluation_settings(monk
     monkeypatch.setattr(litellm, "LiteLLMChat", chat)
     spec = Evaluator(evaluator_id="example", kind="rubric", binding_id="example-evaluator",
         rubric="task_definition", generation=GenerationSettings(max_tokens=64, temperature=0.1))
-    value = rubric_inference({"config": config().model_dump(), "credential": "example-invalid-value",
+    binding = config().model_copy(update={"reasoning_effort": "none"})
+    value = rubric_inference({"config": binding.model_dump(), "credential": "example-invalid-value",
         "spec": spec.model_dump(), "subject": {"text": "Fictional input"}})
     assert value["metric"]["state"] == "abstained" and value["metric"]["value"] is None
     assert calls[0]["max_tokens"] == 64 and calls[0]["temperature"] == 0.1
+
+
+@pytest.mark.parametrize("finish,content", [
+    ("length", ""), ("length", '{"label":"present"}'),
+    ("stop", '{"label":"present","extra":true}'),
+])
+def test_rubric_reasoning_or_invalid_reply_stays_unknown(monkeypatch, finish, content):
+    from prompt_enhancer.infrastructure import litellm
+    def chat(settings):
+        return lambda *args: (200, json.dumps({"choices": [{"finish_reason": finish,
+            "message": {"role": "assistant", "content": content,
+                        "reasoning_content": "Fictional reasoning"}}]}).encode(), "application/json")
+    monkeypatch.setattr(litellm, "LiteLLMChat", chat)
+    spec = Evaluator(evaluator_id="example", kind="rubric", binding_id="example-evaluator",
+        rubric="task_definition", generation=GenerationSettings())
+    result = rubric_inference({"config": config().model_dump(), "credential": "example-invalid-value",
+        "spec": spec.model_dump(), "subject": {"text": "Fictional input"}})
+    assert result["metric"]["state"] == "unknown"
+    assert result["metric"]["label"] is None
 
 
 def test_local_rubric_rejects_unsupported_generation_controls():
@@ -132,6 +153,7 @@ def test_gateway_access_binding_resolves_only_named_credentials_and_keeps_unknow
     from prompt_enhancer.infrastructure import litellm
     value = config().model_dump()
     value.update(model_revision=None, model_license=None,
+        reasoning_effort="none",
         access_client_id_env="ENHANCEMENT_EXAMPLE_ACCESS_ID",
         access_client_secret_env="ENHANCEMENT_EXAMPLE_ACCESS_SECRET")
     binding = ConsumerConfig.model_validate(value)
@@ -156,6 +178,7 @@ def test_gateway_access_binding_resolves_only_named_credentials_and_keeps_unknow
     result = asyncio.run(adapter.evaluate(Subject(text="Fictional widget request"), spec))
     assert result.metrics[0].label == "present"
     assert result.provenance.model_revision is None and result.provenance.model_license is None
+    assert result.provenance.reasoning_effort == "none"
     assert captured[0].access_client_id.get_secret_value() == "example-access-id"
     assert captured[0].access_client_secret.get_secret_value() == "example-access-secret"
     assert captured[0].credential.get_secret_value() == "example-model-key"
@@ -166,10 +189,16 @@ def test_gateway_access_binding_resolves_only_named_credentials_and_keeps_unknow
             ConsumerConfig.model_validate({**value, **changes})
 
 
-def test_acp_rejects_unsupported_generation_before_process(monkeypatch):
+@pytest.mark.parametrize("generation", [{"max_tokens": 128}, {"temperature": 0.1}])
+def test_acp_rejects_unsupported_generation_before_process(monkeypatch, generation):
     adapter = ProcessConsumer(config("openhands_acp"), SecretStr("example-invalid-value"))
     with pytest.raises(CoreError, match="acp_generation_parameter_unsupported"):
-        adapter.validate(consumer_request(parameters={"generation": {"max_tokens": 128}}))
+        adapter.validate(consumer_request(parameters={"generation": generation}))
+
+
+def test_acp_binding_rejects_inference_reasoning_control():
+    with pytest.raises(ValidationError, match="reasoning_effort_requires_inference"):
+        ConsumerConfig.model_validate({**config("openhands_acp").model_dump(), "reasoning_effort": "none"})
 
 
 def test_remote_reported_model_mismatch_is_not_blessed(monkeypatch):
@@ -202,16 +231,29 @@ def test_process_consumer_forwards_exact_generation_context(monkeypatch, provide
         assert candidate.provenance.operation_id == sent[0]["operation_id"]
 
 
-def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None):
+def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, reply_kind="finish"):
     import httpx
     import importlib.metadata
     created, agents, sent = [], [], []
+    class ActionEvent(SimpleNamespace): pass
+    class FinishAction(SimpleNamespace): pass
+    reply = '{"enhanced_prompt":"Fictional revised prompt"}'
+    finish = ActionEvent(source="agent", tool_name="finish", action=FinishAction(message=reply))
+    events = [SimpleNamespace(source="agent", llm_message=SimpleNamespace(role="assistant",
+        content=[SimpleNamespace(text="Fictional intermediate commentary")]))]
+    if reply_kind == "finish":
+        events.append(finish)
+    elif reply_kind == "duplicate":
+        events.extend([finish, finish])
+    elif reply_kind == "wrong_tool":
+        events.append(ActionEvent(source="agent", tool_name="example", action=FinishAction(message=reply)))
+    elif reply_kind == "invalid_json":
+        events.append(ActionEvent(source="agent", tool_name="finish", action=FinishAction(message="Fictional prose")))
     def conversation(**kwargs):
         created.append(kwargs)
         return SimpleNamespace(send_message=sent.append, run=lambda: None, close=lambda: None,
             state=SimpleNamespace(execution_status="finished" if finished else "running",
-                events=[SimpleNamespace(source="agent", llm_message=SimpleNamespace(role="assistant",
-                    content=[SimpleNamespace(text='{"enhanced_prompt":"Fictional revised prompt"}')]))]))
+                events=events))
     def agent(**kwargs):
         agents.append(kwargs)
         return object()
@@ -224,6 +266,8 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None):
                                working_dir=kwargs["working_dir"])
     modules = {"openhands.sdk": {"Conversation": conversation},
         "openhands.sdk.agent": {"ACPAgent": agent},
+        "openhands.sdk.event": {"ActionEvent": ActionEvent},
+        "openhands.sdk.tool.builtins.finish": {"FinishAction": FinishAction},
         "openhands.sdk.context": {"AgentContext": lambda **kwargs: object()},
         "openhands.sdk.workspace": {"RemoteWorkspace": workspace}}
     for name, attributes in modules.items():
@@ -245,6 +289,16 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None):
             return SimpleNamespace(status_code=204)
     monkeypatch.setattr(httpx, "Client", Client)
     return created, agents, sent
+
+
+@pytest.mark.parametrize("reply_kind", ["message_only", "duplicate", "wrong_tool", "invalid_json"])
+def test_acp_requires_one_valid_finished_turn(monkeypatch, reply_kind):
+    created, _, _ = fake_sdk(monkeypatch, reply_kind=reply_kind)
+    item = consumer_request()
+    with pytest.raises(CoreError, match="consumer_reply_invalid"):
+        openhands({"config": config("openhands_acp").model_dump(), "request": item.model_dump(),
+            "generation_context": context_for(item).model_dump(), "credential": "example-invalid-value"})
+    assert len(created[0]["workspace"].commands) == 2
 
 
 def test_acp_allocates_independent_context_and_checks_completion_cleanup(monkeypatch):

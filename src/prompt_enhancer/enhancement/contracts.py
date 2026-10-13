@@ -178,6 +178,7 @@ class Provenance(WireModel):
     identity_source: Literal["not_applicable", "configured", "verified_manifest"] = "not_applicable"
     reported_model: str | None = Field(default=None, max_length=160)
     operation_id: Identifier | None = None
+    reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
 
 
 class Metric(WireModel):

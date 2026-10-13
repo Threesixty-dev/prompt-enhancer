@@ -14,7 +14,7 @@ from pydantic import SecretStr
 
 from .adapters import ConsumerConfig, TextEvaluatorConfig
 from .contracts import ExecuteRequest, Evaluator, GenerationContext, Subject
-from .ports import CoreError
+from .ports import CoreError, WORKER_ERROR_CODES
 
 REWRITE_INSTRUCTION = (
     "Rewrite the supplied fictional prompt while preserving its intent and language. "
@@ -59,10 +59,11 @@ def inference(payload):
 
     config = ConsumerConfig.model_validate(payload["config"])
     request = ExecuteRequest.model_validate(payload["request"])
+    generation = request.parameters.generation
     settings = LiteLLMSettings(base_url=config.endpoint, model=config.model,
         credential=SecretStr(payload["credential"]), model_revision=config.model_revision,
-        model_license=config.model_license, **payload.get("gateway_access", {}))
-    generation = request.parameters.generation
+        model_license=config.model_license, reasoning_effort=config.reasoning_effort,
+        **payload.get("gateway_access", {}))
     body = {"model": config.model, "stream": False, "messages": [
         {"role": "system", "content": REWRITE_INSTRUCTION},
         {"role": "user", "content": generation_input(payload)},
@@ -92,7 +93,9 @@ def rubric_inference(payload):
     spec, subject = Evaluator.model_validate(payload["spec"]), Subject.model_validate(payload["subject"])
     settings = LiteLLMSettings(base_url=config.endpoint, model=config.model,
         credential=SecretStr(payload["credential"]), model_revision=config.model_revision,
-        model_license=config.model_license, **payload.get("gateway_access", {}))
+        model_license=config.model_license,
+        reasoning_effort=config.reasoning_effort,
+        **payload.get("gateway_access", {}))
     # Identical rubric meanings to the typed local backend. Context is explicit
     # request data, never fetched from a prior consumer conversation.
     body = {"model": config.model, "stream": False,
@@ -124,6 +127,8 @@ def openhands(payload):
     from openhands.sdk import Conversation
     from openhands.sdk.agent import ACPAgent
     from openhands.sdk.context import AgentContext
+    from openhands.sdk.event import ActionEvent
+    from openhands.sdk.tool.builtins.finish import FinishAction
     from openhands.sdk.workspace import RemoteWorkspace
     import httpx
 
@@ -162,15 +167,14 @@ def openhands(payload):
             confirmed = True
         messages = []
         for event in conversation.state.events:
-            if getattr(event, "source", None) == "agent" and hasattr(event, "llm_message"):
-                message = event.llm_message
-                if getattr(message, "role", None) == "assistant":
-                    text = "".join(getattr(part, "text", "") for part in message.content)
-                    if text:
-                        messages.append(text)
-        if not messages:
+            # SDK 1.49.1 closes an ACP turn with FinishAction; streamed chunks
+            # and MessageEvents are not its completed response receipt.
+            if (isinstance(event, ActionEvent) and event.source == "agent"
+                    and event.tool_name == "finish" and isinstance(event.action, FinishAction)):
+                messages.append(event.action.message)
+        if len(messages) != 1:
             raise CoreError("consumer_reply_invalid")
-        text = parse_candidate(messages[-1], request.parameters.generation.max_output_chars)
+        text = parse_candidate(messages[0], request.parameters.generation.max_output_chars)
         return {"text": text, "reported_model": info.get("current_model_id")}
     except CoreError:
         raise
@@ -241,7 +245,8 @@ def main():
                 "typed_evaluation": typed_evaluation, "rubric_inference": rubric_inference}[payload["operation"]]
             value = operation(payload)
     except CoreError as exc:
-        value = {"error": "provider_failed", "uncertain": exc.uncertain}
+        value = {"error": exc.code if exc.code in WORKER_ERROR_CODES else "provider_failed",
+                 "uncertain": exc.uncertain}
     except BaseException:
         value = {"error": "provider_failed", "uncertain": True}
     output.write(json.dumps(value))

@@ -23,6 +23,7 @@ class ConsumerConfig(WireModel):
     model: str = Field(min_length=1, max_length=160)
     model_revision: str | None = Field(default=None, min_length=1, max_length=160)
     model_license: str | None = Field(default=None, min_length=1, max_length=100)
+    reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
     access_client_id_env: str | None = Field(default=None, pattern=r"^ENHANCEMENT_[A-Z0-9_]+$")
     access_client_secret_env: str | None = Field(default=None, pattern=r"^ENHANCEMENT_[A-Z0-9_]+$")
     tokenizer_revision: str | None = None
@@ -52,6 +53,8 @@ class ConsumerConfig(WireModel):
 
     @model_validator(mode="after")
     def inference_uses_verified_tls(self):
+        if self.provider != "inference" and self.reasoning_effort is not None:
+            raise ValueError("reasoning_effort_requires_inference")
         if self.provider == "inference" and not self.endpoint.startswith("https://"):
             raise ValueError("inference_https_required")
         if (self.access_client_id_env is None) != (self.access_client_secret_env is None):
@@ -89,10 +92,11 @@ class ProcessConsumer:
         self.gateway_access = gateway_access
         self.provider = config.provider
         self.provenance = Provenance(provider=config.provider,
-            adapter_version="openhands-acp-1.49.1.v2" if config.provider == "openhands_acp" else "litellm-chat-v1",
+            adapter_version="openhands-acp-1.49.1.v3" if config.provider == "openhands_acp" else "litellm-chat-v1",
             model=config.model, model_revision=config.model_revision,
             model_license=config.model_license, tokenizer_revision=config.tokenizer_revision,
-            rubric_version="enhancement-rewrite.v2", identity_source="configured")
+            rubric_version="enhancement-rewrite.v2", identity_source="configured",
+            reasoning_effort=config.reasoning_effort)
 
     def validate(self, request: ExecuteRequest):
         if self.provider == "openhands_acp":
@@ -180,10 +184,11 @@ class InferenceRubricEvaluation:
             raise CoreError("rubric_gateway_provider_unsupported")
         self.config, self.credential = config, credential
         self.gateway_access = gateway_access
-        self.provenance = Provenance(provider="litellm", adapter_version="litellm-rubric.v1",
+        self.provenance = Provenance(provider="litellm", adapter_version="litellm-rubric.v2",
             model=config.model, model_revision=config.model_revision, model_license=config.model_license,
             tokenizer_revision=config.tokenizer_revision, rubric_version="structured-rubric.v1",
-            metric_version="typed-text.v1", identity_source="configured")
+            metric_version="typed-text.v1", identity_source="configured",
+            reasoning_effort=config.reasoning_effort)
 
     def validate(self, spec: Evaluator):
         if spec.kind != "rubric":
