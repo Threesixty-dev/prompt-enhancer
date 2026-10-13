@@ -18,8 +18,6 @@ from ci import core_version
 ROOT = Path(__file__).resolve().parents[1]
 STATE = Path("/tmp/enhancement-bench-review-demo.json")
 LABEL = "enhancement-bench.review-demo"
-OPERATOR = "example-review-operator-not-a-secret"
-IMPORT = "example-review-import-not-a-secret"
 
 
 class DemoError(Exception):
@@ -44,10 +42,10 @@ def owned(state, name, *, volume=False):
     return label is not None
 
 
-def request(state, method, route, *, data=None, importer=False):
+def request(state, method, route, *, data=None):
     with httpx.Client(base_url=state["origin"], timeout=5, trust_env=False, follow_redirects=False) as client:
         response = client.request(method, route, json=data,
-            headers={"Authorization": "Bearer " + (IMPORT if importer else OPERATOR)})
+            headers={"Origin": state["origin"]})
         if response.status_code not in (200, 202):
             raise DemoError("demo_api_request_failed")
         return response.json()
@@ -116,7 +114,6 @@ def start(args):
     try:
         docker("run", "-d", "--name", state["api"], *common,
                "--publish", f"127.0.0.1:{state['port']}:8088", "--env", "BENCH_ORIGIN=" + state["origin"],
-               "--env", "BENCH_OPERATOR_TOKEN=" + OPERATOR, "--env", "BENCH_IMPORT_TOKEN=" + IMPORT,
                state["bench_image"], "serve", "--host", "0.0.0.0", "--port", "8088")
         deadline = time.monotonic() + 30
         while True:
@@ -132,8 +129,8 @@ def start(args):
                "--group-add", os.environ.get("BENCH_DOCKER_GID", "0"),
                "--mount", "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock",
                "--env", "BENCH_WORKER_CONTAINER=" + state["worker"], state["bench_image"], "worker")
-        imported = request(state, "POST", "/api/publications", data=state["publication"], importer=True)
-        repeated = request(state, "POST", "/api/publications", data=state["publication"], importer=True)
+        imported = request(state, "POST", "/api/publications", data=state["publication"])
+        repeated = request(state, "POST", "/api/publications", data=state["publication"])
         if imported["runId"] != repeated["runId"] or repeated["imported"]:
             raise DemoError("demo_import_not_idempotent")
         print(json.dumps(summary(state)))

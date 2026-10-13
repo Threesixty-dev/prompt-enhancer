@@ -7,6 +7,7 @@ import json
 import os
 import signal
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -75,10 +76,18 @@ def main():
             endpoint = os.environ["BENCH_DELIVERY_URL"].rstrip("/")
             if not endpoint.startswith("https://"):
                 raise BenchError("https_delivery_required")
+            address = urlsplit(endpoint)
+            headers = {"Origin": f"{address.scheme}://{address.netloc}"}
+            client_id = os.environ.get("BENCH_CF_ACCESS_CLIENT_ID", "")
+            gateway_secret = os.environ.get("BENCH_CF_ACCESS_CLIENT_SECRET", "")
+            if bool(client_id) != bool(gateway_secret):
+                raise BenchError("gateway_credentials_incomplete")
+            if client_id:
+                headers.update({"CF-Access-Client-Id": client_id, "CF-Access-Client-Secret": gateway_secret})
             with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
                 # Delivery is idempotent; a lost response can safely be delivered again.
                 response = client.post(endpoint + "/api/publications", json=envelope.model_dump(),
-                                       headers={"Authorization": "Bearer " + os.environ["BENCH_IMPORT_TOKEN"]})
+                                       headers=headers)
                 if response.status_code != 202:
                     raise BenchError("publication_delivery_failed")
             print("Publication accepted.")
@@ -90,9 +99,7 @@ def main():
         if args.command == "serve":
             import uvicorn
             from .api import create_app
-
-            app = create_app(store, contracts, operator_token=os.environ["BENCH_OPERATOR_TOKEN"],
-                             import_token=os.environ["BENCH_IMPORT_TOKEN"], allowed_repositories=repositories,
+            app = create_app(store, contracts, allowed_repositories=repositories,
                              origin=os.environ.get("BENCH_ORIGIN", f"http://127.0.0.1:{args.port}"))
             uvicorn.run(app, host=args.host, port=args.port, access_log=False, log_level="critical")
         else:

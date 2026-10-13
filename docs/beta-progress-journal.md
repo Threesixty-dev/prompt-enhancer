@@ -6,6 +6,27 @@ The owner's preserved development checkout contains additional October 6–7
 journal history; this documentation branch does not overwrite or blanket-publish
 that dirty tree. Reconcile those entries when admitting their source cohorts.
 
+## 2026-10-13 - bench pages and run forms
+
+Implemented [dedicated bench routes](bench/client-navigation.md) on a feature
+branch from `origin/develop` at `aeefb03`. Experiment selection navigates to an
+experiment page; new runs and reruns open forms with typed per-strategy controls;
+results have durable URLs. Reruns preserve the prior subject/strategy selection,
+parameters, objectives, steering and consumer bindings before edits. Polling
+skips unchanged DOM snapshots and never overwrites an open run form.
+
+Integrated the existing gateway-only authentication cohort to preserve the live
+client's direct-entry behavior. There is no Bench login or browser token state.
+The API retains exact Host/Origin checks, same-origin JSON writes and private
+deployment assumptions. Existing worktrees and the main development edits remain
+preserved. No source publication or deployment was performed.
+
+Evidence: 92 backend tests, 14 desktop/mobile browser checks and JavaScript syntax
+pass. Chrome visually verifies the token-free synthetic form. Tests cover expired
+access without a token fallback, typed overrides and retained null/zero values,
+route isolation, stale responses, reruns and stable DOM identity across polling.
+This does not establish hosted, consumer/model or release qualification.
+
 ## 2026-10-12 - reconcile enhancement candidate for PR promotion
 
 Task: owner-requested source integration, PR and promotion to main, followed by
