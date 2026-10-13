@@ -161,3 +161,23 @@ def effective_settings(definition: Definition, overrides: Overrides) -> dict:
     result["overrides"] = overrides.model_dump()
     canonical(result)
     return result
+
+
+def configuration_summary(effective: dict) -> dict:
+    """Project immutable run configuration without prompts or evaluator targets."""
+    units = []
+    for unit in effective["units"]:
+        binding = None
+        if unit["strategy"].startswith("consumer."):
+            source = (effective.get("consumerBinding") or {}) | (unit.get("consumerBinding") or {})
+            binding = {key: source.get(key) for key in ("binding_id", "provider")}
+        units.append({"id": unit["id"], "strategy": unit["strategy"], "consumerBinding": binding})
+    return {
+        "enhancerVersion": effective["enhancerVersion"],
+        "caseCount": len(effective["subjects"]),
+        "units": units,
+        "evaluatorProfile": {"evaluators": [
+            {key: evaluator.get(key) for key in ("evaluator_id", "kind", "binding_id")}
+            for evaluator in effective["evaluatorProfile"].get("evaluators", [])
+        ]},
+    }

@@ -16,6 +16,8 @@ from test_client_worker import make_worker
 
 
 def main():
+    port = int(os.environ.get("BENCH_BROWSER_PORT", "8088"))
+    origin = f"http://127.0.0.1:{port}"
     contracts = Contracts(Path(os.environ["BENCH_CONTRACTS"]))
     root = Path(__file__).resolve().parents[2]
     definition = json.loads((root / "bench/examples/example-widget.json").read_text())
@@ -29,8 +31,8 @@ def main():
         worker, _, _ = make_worker(store, contracts, fixture)
         worker.step()
         app = create_app(store, contracts,
-                         allowed_repositories=("registry.example.com/example/enhancer",))
-        uvicorn.run(app, host="127.0.0.1", port=8088, access_log=False, log_level="critical")
+                         allowed_repositories=("registry.example.com/example/enhancer",), origin=origin)
+        uvicorn.run(app, host="127.0.0.1", port=port, access_log=False, log_level="critical")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Bench model details and run variations - 2026-10-14
+
+The [Bench presentation update](bench/client-navigation.md#model-details-and-run-variations---2026-10-14)
+shows configured generation/evaluation aliases and recorded per-attempt model
+provenance. A cases-by-variants matrix explains attempt counts, updates with form
+selections and run status, and links to results. Run cards use their saved model
+overrides through a bounded configuration projection excluding prompt content.
+Local evidence: 162 backend tests, 28 desktop/mobile browser checks, JavaScript
+syntax, repository privacy scanning and whitespace checks pass; synthetic layouts were visually inspected.
+Owner review and deployment remain open. No B/W/WP or release acceptance changes.
+
 ## Bench run overview - 2026-10-13
 
 The local [bench client](bench/client-navigation.md#all-runs-and-labels---2026-10-13)
