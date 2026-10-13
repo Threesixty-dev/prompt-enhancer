@@ -129,8 +129,19 @@ def main(argv=None):
             deploy(os.environ, client)
         else:
             verify(os.environ, client)
-    except (OSError, ValueError, RuntimeError, urllib.error.URLError):
-        print("Bench deployment step failed: " + mode + ". Check the configured target, registry pull access and gateway policy privately.", file=sys.stderr)
+    except urllib.error.HTTPError as error:
+        # Status is useful for policy diagnosis; URLs, headers and bodies are not.
+        print(f"Bench deployment step failed: {mode} (HTTP {error.code}).", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, RuntimeError, urllib.error.URLError) as error:
+        known = {"revision_invalid", "main_required", "deployment_url_invalid",
+                 "bench_target_required", "controller_token_invalid",
+                 "cloudflare_access_credentials_incomplete", "cloudflare_access_credentials_invalid",
+                 "cloudflare_access_credentials_required", "immutable_ghcr_image_required",
+                 "image_repository_mismatch", "bench_api_target_mismatch", "image_pin_unconfirmed",
+                 "bench_health_access_unconfirmed", "bench_revision_health_timeout"}
+        reason = str(error) if type(error) in {ValueError, RuntimeError} and str(error) in known else "request_unconfirmed"
+        print(f"Bench deployment step failed: {mode} ({reason}).", file=sys.stderr)
         return 1
     return 0
 
