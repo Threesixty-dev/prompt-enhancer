@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "bench-experiment/v1",
+  "stableId": "example-clarification-focus",
+  "revision": "1",
+  "generation": 1,
+  "title": "General and acceptance-focused clarification",
+  "enhancerVersion": "0.1.4",
+  "autoRun": true,
+  "subjects": [
+    {
+      "id": "example-widget",
+      "text": "Add a parser for the fictional example widget. Return a patch and tests.",
+      "context": []
+    },
+    {
+      "id": "example-list",
+      "text": "Improve filtering in the fictional example item list. Return a patch and tests.",
+      "context": []
+    }
+  ],
+  "units": [
+    {
+      "id": "general-clarification",
+      "title": "General clarification",
+      "strategy": "script.clarify.v1",
+      "parameters": {},
+      "assertions": [
+        {
+          "evaluator_id": "prompt",
+          "metric_key": "prompt.acceptance_testability",
+          "operator": "minimum_delta",
+          "threshold": 0
+        }
+      ]
+    },
+    {
+      "id": "acceptance-clarification",
+      "title": "Acceptance-focused clarification",
+      "strategy": "script.clarify.v1",
+      "parameters": {},
+      "steering": {
+        "profile": "targeted.v1",
+        "style": "preserve",
+        "focus": [
+          "acceptance"
+        ]
+      },
+      "objective": {
+        "targets": [
+          {
+            "kind": "numeric",
+            "evaluator_id": "prompt",
+            "metric_key": "prompt.acceptance_testability",
+            "direction": "increase",
+            "desired_value": null
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "evaluator_id": "prompt",
+          "metric_key": "prompt.acceptance_testability",
+          "operator": "minimum_delta",
+          "threshold": 0
+        }
+      ]
+    }
+  ],
+  "consumerBinding": null,
+  "evaluatorProfile": {
+    "profile_id": "example-deterministic",
+    "revision": "1",
+    "evaluators": [
+      {
+        "evaluator_id": "prompt",
+        "kind": "deterministic",
+        "binding_id": "deterministic.v1",
+        "target": null,
+        "rubric": null,
+        "generation": null
+      }
+    ]
+  },
+  "baseParameters": {
+    "timeout_seconds": 60,
+    "generation": {
+      "max_output_chars": 4000,
+      "max_tokens": null,
+      "temperature": null
+    }
+  },
+  "parameterSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "timeout_seconds",
+      "generation"
+    ],
+    "properties": {
+      "timeout_seconds": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600
+      },
+      "generation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "max_output_chars",
+          "max_tokens",
+          "temperature"
+        ],
+        "properties": {
+          "max_output_chars": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 20000
+          },
+          "max_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 16,
+            "maximum": 8192
+          },
+          "temperature": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    }
+  },
+  "objective": {
+    "objective_id": "prompt-clarity",
+    "revision": "1",
+    "description": "Improve clarity and testability while preserving intent. Mark unavailable details with placeholders.",
+    "targets": []
+  },
+  "baseSteering": {
+    "profile": "conservative.v1",
+    "style": "preserve",
+    "focus": [],
+    "instructions": null
+  }
+}

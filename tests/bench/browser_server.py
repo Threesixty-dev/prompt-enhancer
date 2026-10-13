@@ -18,7 +18,8 @@ from test_client_worker import make_worker
 def main():
     contracts = Contracts(Path(os.environ["BENCH_CONTRACTS"]))
     root = Path(__file__).resolve().parents[2]
-    definition = json.loads((root / "bench/definitions/example-widget.json").read_text())
+    definition = json.loads((root / "bench/examples/example-widget.json").read_text())
+    definition.update(enhancerVersion="0.1.0")
     publication = Publication.model_validate({"schemaVersion": "bench-publication/v1", "definition": definition,
         "image": "registry.example.com/example/enhancer@sha256:" + "a" * 64, "coreVersion": "0.1.0"})
     with tempfile.TemporaryDirectory(prefix="bench-browser-") as directory:

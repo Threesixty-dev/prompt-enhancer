@@ -22,7 +22,7 @@ def test_delivery_uses_same_origin_and_optional_gateway_credentials(monkeypatch,
 
     def respond(request):
         requests.append(request)
-        return httpx.Response(202, json={"imported": True})
+        return httpx.Response(202, json={"imported": True, "runId": None})
 
     client_type = httpx.Client
 

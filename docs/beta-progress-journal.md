@@ -1,5 +1,67 @@
 # Beta progress journal: published handoff
 
+## 2026-10-13 - source reconciliation and Bench deployment Action
+
+Reconciled the gateway/consumer-retention and Experiment publication branches
+with the accepted Bench routes, forms, labels and paginated run overview. The
+integrated publisher keeps gateway-only access and validates its acknowledgement.
+Regenerated protocol schemas to match core 0.1.3 and reconciled the moved example
+fixture used by browser tests.
+
+Added the [Bench API deployment Action](bench/continuous-deployment.md): relevant
+main pushes build a source image, run a packaged smoke, publish a digest and
+redeploy only the selected API container through Coolify. Readiness must report
+the baked source commit twice. Worker/consumer lifecycles remain separate.
+
+Local evidence: 137 Bench tests, 108 focused core/consumer/gateway tests, 20
+desktop/mobile browser checks, privacy scanning, JavaScript syntax, definition
+validation and Compose validation pass. The source-derived container passes the
+empty-database API/client smoke. No full desktop quality gate or new model run
+is claimed. Hosted deployment remains subject to registry pull and gateway
+configuration; local tests are not live deployment evidence.
+
+## 2026-10-13 - JSON-only Experiment publication
+
+The owner requested the agreed Experiment JSON push workflow and domain language.
+On integration baseline `5d2228d`, publication now watches `experiments/`, keeps
+each Experiment's selected core version, imports newest revisions first, supplies
+Origin, rejects redirects and preserves idempotent automatic Runs. Experiment
+Unit remains the compared configuration; strategy is one of its settings.
+The acceptance JSON compares two scripted Experiment Units on two fictional
+Subjects, using one deterministic Evaluator and fixed nonregression assertions.
+
+Local evidence: 103 Test Bench tests, six desktop/mobile browser cases, syntax,
+schema and privacy checks pass. Following explicit owner approval of the
+branch-restricted environment and endpoint-only service token, the original
+JSON-only push's publication Action passed in 21 seconds and acknowledged the
+import. Test Bench then showed its automatic Run succeeded, with all four
+Subject/Experiment Unit results successful and assertions passed. The Action
+ends after delivery and does not monitor execution. Acceptance-testability stayed
+at zero, so no improvement in that metric is claimed. Broader CI failures remain
+open, and the UI terminology source changes are not deployed. See the
+[task card](bench/experiment-publication.md) for exact evidence and limits.
+No general gate is closed.
+
+## 2026-10-13 - Dedicated bench conversation retention
+
+The owner requested inspection history after successful OpenHands cleanup had
+deleted the pilot conversation. Core 0.1.3 and a version-gated consumer adapter
+now separate runtime release from native history retention. The default is seven
+days after confirmed workspace cleanup, configurable 1-90 days. Uncertain and
+cleanup-held attempts do not expire automatically. Native REST history survives
+restart; retained HTTP and WebSocket mutation/replay are rejected. Complete Bench
+results keep their independent retention policy.
+
+The [task card](bench/consumer-retention.md) binds source `2ab65bb`, paths and
+W05/W07/WP05/WP07 scope. Forty-six focused synthetic tests and the privacy scanner
+pass. A network-isolated pinned 1.49.1 container verified native history, restart,
+authentication, replay refusal and expiry with zero model calls. No full suite or
+CI wait was run. Source `6530fd0` was then deployed with the existing portal and
+volumes preserved. The live policy and isolated entrypoint startup were verified,
+and manual pilot generation 8 binds core 0.1.3 without starting inference. A
+checksummed core archive is retained. The already-deleted pilot is not recovered
+and the historical architecture atlas is unchanged.
+
 This is the shared execution handoff, not a second readiness ledger. Requirement
 acceptance remains in [the product-readiness matrix](product-readiness-matrix-2026-09-12.md).
 The owner's preserved development checkout contains additional October 6–7
@@ -36,6 +98,23 @@ pass. Chrome visually verifies the token-free synthetic form. Tests cover expire
 access without a token fallback, typed overrides and retained null/zero values,
 route isolation, stale responses, reruns and stable DOM identity across polling.
 This does not establish hosted, consumer/model or release qualification.
+
+## 2026-10-13 - complete one live synthetic bench pilot
+
+Task: repair Qwen rubric completion and OpenHands/Codex generation, preserving
+the separately deployed portal. Core `42de206` and consumer `a653b2d` qualify one
+manual end-to-end run: eight valid rubric replies (seven known labels and one
+original abstention), a strictly parsed rewrite, and ten saved comparison records
+in approximately 41 seconds. Assertions were not evaluated. The deployment
+receipt verifies conversation, workspace, process and ephemeral-core cleanup,
+no queue/reconciliation holds, and the retained core archive checksum.
+
+The fixes keep strict parsing, operator-bound reasoning control and explicit
+provenance. Codex's custom alias must be selectable for ACP initialization;
+an offline metadata check verifies this without inference. Automatic runs stay
+off, the PR stays draft for owner review, and no full suite or CI wait was added.
+This does not establish quality improvement or close any beta gate. See the
+[integration evidence](bench/integration-review.md#october-13-live-synthetic-completion).
 
 ## 2026-10-12 - reconcile enhancement candidate for PR promotion
 

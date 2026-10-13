@@ -1,5 +1,8 @@
 # Bench deployment recipe
 
+For repeatable API/client releases from main, use the
+[Bench deployment Action](continuous-deployment.md).
+
 Status: reviewable configuration, not a live deployment. Use Coolify's Compose
 application type with `deployment/bench/compose.yaml`. The dedicated Docker host
 must be approved for benchmark execution; the worker's Docker socket is powerful
@@ -27,7 +30,7 @@ consumer acceptance.
 | Bench worker | No HTTP listener | Single durable executor; owns only labelled enhancer containers |
 | Ephemeral enhancer | Loopback 8787 in worker namespace | Its own versioned enhancement/evaluation API |
 | Static OpenHands/Codex consumer | Its own loopback 8000, bridged to a private Unix socket | Agent Server API and fresh ACP rewrite conversations; no network interface |
-| Consumer relay | Worker loopback 8000 and private gateway Unix socket | Agent API transport and bounded HTTPS model requests; no gateway credential of its own |
+| Consumer relay | Worker loopback 8000 and private gateway Unix socket | Agent API transport and bounded HTTPS model requests; optional deployment-only Access credentials |
 | Existing LiteLLM | Configured HTTPS gateway | Consumer model access; model-restricted credential |
 
 `consumer-relay` shares `bench-worker`'s network namespace. Each enhancer is launched
@@ -38,6 +41,9 @@ connected through two dedicated Unix-socket volumes. The one-slot policy prevent
 8787 collisions. Restarting/replacing the namespace owner also requires restarting
 the relay so it joins the new namespace; use the Compose project as the
 lifecycle unit. Do not remove its durable data volumes during a restart.
+If the deployment manager rewrites container names, inspect its generated Compose
+and set `BENCH_WORKER_CONTAINER` to the generated worker container name before
+starting services. The core must join that exact namespace owner.
 Compose enables an authenticated consumer-readiness gate before claiming queued
 runs, so initial worker/relay startup does not submit a turn prematurely. Failed
 readiness leaves runs queued. Uncertainty after a submitted turn still requires
@@ -83,6 +89,38 @@ stops the consumer so Docker can restart the complete unit; health checks exerci
 the actual private transports. It writes only its dedicated runtime Codex configuration
 and uses read-only session mode, disabled web search and no interactive approvals.
 The private synthetic worker is not a general-purpose repository agent.
+OpenHands initializes `.git` in each fresh attempt workspace. Core 0.1.3 closes
+the client subscription, asks the dedicated consumer to release the finished
+runtime while retaining native history, then removes the owned metadata and
+empty workspace. A replaced workspace symlink or other remaining file still
+causes uncertain cleanup and requires reconciliation.
+
+Completed native OpenHands conversations remain in `consumer-data` for seven
+days by default. `BENCH_CONSUMER_RETENTION_DAYS` accepts 1 through 90 days. The
+expiry clock begins only after core confirms workspace cleanup. Failed,
+interrupted and cleanup-held conversations have no automatic expiry; reconcile
+them explicitly. Complete Bench results have their own retention policy and are
+unaffected by conversation expiry. Already-deleted conversations cannot be
+recovered by enabling this policy.
+
+The authenticated `/api/bench/retention` endpoint reports the policy and sweep
+health. `/api/bench/conversations/{id}/release` unloads a completed owned runtime;
+`/retain` acknowledges workspace cleanup and durably records its expiry. Native
+OpenHands conversation and event GET endpoints remain usable after restart;
+retained conversations reject HTTP mutation and both interactive WebSocket
+connections; historical inspection uses the native REST event API. The expiry sweep runs every
+minute and skips loaded conversations. Native event inspection can temporarily
+reload idle metadata; the server's idle eviction releases that state without
+executing another turn. Expiry also removes any empty owned workspace recreated
+by inspection. A failed sweep blocks new core consumer calls until repaired.
+
+This is the bench's separate Agent Server, with no public consumer port or
+separately published OpenHands UI. The retention adapter is version-gated to
+SDK/server 1.49.1 because that version has no unload-without-delete HTTP method.
+Its small compatibility boundary uses the server's lifecycle lock and close
+operation; it does not ingest or mutate external provider sessions. Deploy the
+consumer retention adapter before using core 0.1.3, which checks the capability
+before any model call. Keep the existing consumer volume when replacing images.
 
 Set `BENCH_DOCKER_GID` to the socket's group so UID 10002 can use it, and
 `BENCH_CORE_CONFIG_SOURCE` to the reviewed core configuration's **Docker-host**
@@ -115,6 +153,32 @@ core-supported `rubric` key and optional evaluator `generation` controls.
 Consumer and evaluator generation settings remain separate. This wiring is
 implemented; a gateway/model profile, real inference, retention policy and loaded
 model identity still require live qualification.
+
+If the gateway uses Cloudflare Access, provide the paired
+`BENCH_CF_ACCESS_CLIENT_ID` and `BENCH_CF_ACCESS_CLIENT_SECRET` deployment secrets
+for a service token scoped to that gateway. The relay sends these only to its
+fixed HTTPS endpoint, alongside the consumer's separate restricted Bearer key.
+It rejects redirects and never accepts Access credentials from incoming headers.
+No Access credentials reach the isolated OpenHands/Codex consumer.
+For the evaluator binding, add these non-secret environment references:
+
+```json
+{
+  "access_client_id_env": "ENHANCEMENT_CF_ACCESS_CLIENT_ID",
+  "access_client_secret_env": "ENHANCEMENT_CF_ACCESS_CLIENT_SECRET"
+}
+```
+
+Compose passes the named values to the core; the adapter resolves them only from
+its injected environment. Missing pairs and invalid header values fail closed.
+Keep Access policies, TLS verification and model-key restrictions enabled.
+Browser login alone does not authenticate these service requests; verify the
+gateway's machine-access policy before submitting an experiment.
+
+When a hosted gateway does not report a model revision or license, leave the
+corresponding binding fields `null`. Results preserve those unknown values;
+an alias, successful reply or container version does not prove a model revision.
+Local model manifests still require their pinned revision and reviewed license.
 
 Classifier and embedding adapters use reviewed local manifests and offline
 caches. They cannot use this chat/rubric endpoint. The operator-configured local

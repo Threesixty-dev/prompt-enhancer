@@ -28,6 +28,49 @@ Chrome inspection opens the run form directly using the synthetic loopback
 fixture. These are local source checks, not deployment or real-model acceptance;
 no B/W/WP gate or historical atlas observation changes.
 
+## Test Bench Experiment publication candidate - 2026-10-13
+
+The [publication task](bench/experiment-publication.md) repairs the agreed
+`experiments/` JSON push to automatic Run flow and restores Experiment Unit
+terminology. Local evidence: 103 Test Bench tests, six desktop/mobile browser
+checks, schema validation, JavaScript syntax and the privacy scanner pass.
+After explicit deployment-access approval, the original JSON-only push's Action
+passed and acknowledged an automatic Run. Test Bench separately showed four
+successful Subject/Experiment Unit results and passed assertions. Acceptance-
+testability delta was zero throughout: deterministic nonregression, not semantic
+quality improvement. The Action does not monitor Runs. Broader CI failures and
+owner review remain open, and the corrected UI wording is not yet deployed.
+No general W/WP/release gate is closed.
+
+## Bench consumer retention candidate - 2026-10-13
+
+The owner requested bounded retention of the dedicated OpenHands conversation
+history. Core 0.1.3 releases the runtime while the consumer retains native history
+for a configurable seven-day default after confirmed cleanup. Failed/uncertain
+attempts remain held. Focused synthetic and pinned-container restart/expiry
+evidence is recorded in the [integration review](bench/integration-review.md).
+No new inference, public OpenHands UI, general workflow or release qualification
+is claimed. Source `6530fd0` is deployed: the live consumer reports the seven-day
+policy, and manual pilot generation 8 binds core 0.1.3 without enqueuing a run.
+Actual startup was verified without inference. Existing Bench results retain
+their independent policy and the previously deleted pilot is not recovered.
+
+## Bounded live bench pilot - 2026-10-13
+
+One fictional end-to-end pilot completed through the deployed core 0.1.2,
+OpenHands/Codex consumer and separate Qwen evaluator bindings via LiteLLM.
+The consumer produced a strictly parsed rewrite; all eight rubric responses
+were valid, with one original abstention preserved and seven known labels.
+Ten comparison records were saved, retaining unknown/non-comparable states.
+The run completed in approximately 41 seconds; assertions were not evaluated.
+Owned conversation, workspace, process and core cleanup was verified, with no
+queue or reconciliation holds. Automatic runs remain disabled.
+
+The [integration review](bench/integration-review.md) records the fixes and
+evidence limits. This establishes one bounded completion path, not prompt-quality
+improvement, pinned upstream model identity, live cancellation qualification,
+general workflow acceptance or a beta/release gate. The dated atlas is unchanged.
+
 ## Enhancement candidate reconciliation - 2026-10-12
 
 The owner requested PR integration and promotion. The combined candidate now

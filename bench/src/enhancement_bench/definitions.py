@@ -37,7 +37,7 @@ class Subject(StrictModel):
     context: list[dict[str, str]] = Field(default_factory=list, max_length=8)
 
 
-class Unit(StrictModel):
+class ExperimentUnit(StrictModel):
     id: Identifier
     title: str = Field(min_length=1, max_length=120)
     strategy: str = Field(min_length=1, max_length=80)
@@ -48,7 +48,7 @@ class Unit(StrictModel):
     consumerBinding: dict[str, Any] = Field(default_factory=dict)
 
 
-class Definition(StrictModel):
+class Experiment(StrictModel):
     schemaVersion: Literal["bench-experiment/v1"]
     stableId: Identifier
     revision: Identifier
@@ -57,7 +57,7 @@ class Definition(StrictModel):
     enhancerVersion: str = Field(min_length=1, max_length=80)
     autoRun: bool = True
     subjects: list[Subject] = Field(min_length=1, max_length=32)
-    units: list[Unit] = Field(min_length=1, max_length=16)
+    units: list[ExperimentUnit] = Field(min_length=1, max_length=16)
     consumerBinding: dict[str, Any] | None
     evaluatorProfile: dict[str, Any]
     baseParameters: dict[str, Any] = Field(default_factory=dict)
@@ -83,6 +83,11 @@ class Definition(StrictModel):
         except (SchemaError, ValidationError):
             raise ValueError("invalid_parameters") from None
         return self
+
+
+# Keep existing v1 imports and wire identities compatible.
+Unit = ExperimentUnit
+Definition = Experiment
 
 
 class Publication(StrictModel):

@@ -7,6 +7,15 @@ from typing import Protocol
 from .contracts import Evaluation, Evaluator, ExecuteRequest, GenerationContext, Provenance, Subject
 
 
+# Only these package-owned diagnostics may cross the worker boundary.
+WORKER_ERROR_CODES = frozenset({
+    "generation_context_mismatch", "consumer_failed", "evaluator_failed",
+    "consumer_reply_invalid", "candidate_invalid", "openhands_sdk_version_unsupported",
+    "consumer_workspace_unavailable", "remote_execution_unconfirmed",
+    "remote_cleanup_unconfirmed", "worker_input_too_large",
+})
+
+
 class CoreError(Exception):
     def __init__(self, code: str, *, uncertain: bool = False, operation_id: str | None = None):
         self.code = code

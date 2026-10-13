@@ -9,7 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .ports import CoreError
+from .ports import CoreError, WORKER_ERROR_CODES
 
 MAX_WORKER_OUTPUT = 512_000
 
@@ -84,8 +84,11 @@ async def _run(payload: dict, *, remote: bool, environment: dict, cwd: str) -> d
         if not isinstance(value, dict):
             raise CoreError("worker_reply_invalid", uncertain=remote)
         if value.get("error"):
-            raise CoreError("remote_execution_unconfirmed" if value.get("uncertain") else "provider_failed",
-                            uncertain=value.get("uncertain") is True)
+            uncertain = value.get("uncertain") is not False
+            code = value["error"]
+            if not isinstance(code, str) or code not in WORKER_ERROR_CODES:
+                code = "remote_execution_unconfirmed" if uncertain else "provider_failed"
+            raise CoreError(code, uncertain=uncertain)
         return value
     except asyncio.CancelledError:
         await stop()

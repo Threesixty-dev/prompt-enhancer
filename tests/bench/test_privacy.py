@@ -15,7 +15,7 @@ def scanner():
 def test_bench_sources_and_fixtures_pass_repository_privacy_gate():
     root, module = scanner()
     paths = []
-    for directory in ("bench/src", "bench/definitions", "bench/browser", "tests/bench", "deployment/bench", "docs/bench"):
+    for directory in ("experiments", "bench/src", "bench/examples", "bench/browser", "tests/bench", "deployment/bench", "docs/bench"):
         paths += [p for p in (root / directory).rglob("*") if p.is_file() and "__pycache__" not in p.parts]
     paths += list((root / ".github/workflows").glob("bench-*.yml"))
     assert module.scan_repository(root, paths) == []
