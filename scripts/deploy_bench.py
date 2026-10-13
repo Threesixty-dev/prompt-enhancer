@@ -1,14 +1,13 @@
 """Deploy only the Bench API Compose application through the Coolify API.
 
-No runtime configuration or log bodies are printed. Controller and Bench Access
-credentials remain separate, redirects/proxies are disabled, and health must
-report the source revision baked into the image before deployment is confirmed.
+No runtime configuration or log bodies are printed. Existing controller access
+verifies fresh local readiness receipts and container health without changing the
+public gateway. Redirects and proxies are disabled.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -74,40 +73,52 @@ def deploy(env, client):
     if updated.get("image") != image:
         raise RuntimeError("image_pin_unconfirmed")
     # Coolify v4.3.23 starts this service with compose up --no-deps --build. Host layers stay cached.
+    started_ms = time.time_ns() // 1_000_000
     controller_json(client, url + "/start?force=true", headers, method="POST")
     print("Bench API source pinned; build queued on Coolify. Health verification follows.")
+    return started_ms
 
 
-def health_settings(env):
-    revision(env)
-    origin = checked_url(env.get("BENCH_PUBLIC_URL", ""), webhook=False)
-    headers = {**HTTP_CLIENT_HEADERS, "Cache-Control": "no-cache",
-               **access_headers(env, "BENCH_CF", required=True)}
-    return origin + "/health/ready", headers
+def ready_receipt(env, client, *, not_before_ms, now_ms):
+    url, headers, current = inspect_target(env, client)
+    if current.get("image") != image_ref(env) or current.get("status") != "running:healthy":
+        return None
+    result = controller_json(client, url + "/logs?lines=20", headers)
+    logs = result.get("logs")
+    if not isinstance(logs, str):
+        return None
+    receipts = []
+    for line in logs.splitlines():
+        match = re.fullmatch(r"BENCH_READY_V1 revision=([a-f0-9]{40}) time_ms=([0-9]{13})", line)
+        if match and match[1] == revision(env):
+            timestamp = int(match[2])
+            if max(not_before_ms, now_ms - 90_000) <= timestamp <= now_ms + 5_000:
+                receipts.append(timestamp)
+    return max(receipts, default=None)
 
 
-def ready(env, client, *, exact):
-    url, headers = health_settings(env)
-    request = urllib.request.Request(url, headers=headers)
-    with client.open(request, timeout=10) as response:
-        payload = response.read(4097)
-        if response.status != 200 or len(payload) > 4096:
-            return False
-        body = json.loads(payload)
-    return (isinstance(body, dict) and body.get("ready") is True
-            and body.get("schemaVersion") == "bench.v1"
-            and (not exact or body.get("revision") == revision(env)))
-
-
-def verify(env, client, *, monotonic=time.monotonic, sleep=time.sleep):
-    health_settings(env)
-    deadline, consecutive = monotonic() + 300, 0
+def verify(env, client, *, not_before_ms=None, monotonic=time.monotonic,
+           sleep=time.sleep, wall_time_ns=time.time_ns):
+    controller(env)
+    if not_before_ms is None:
+        not_before_ms = wall_time_ns() // 1_000_000
+    deadline, consecutive, last_receipt = monotonic() + 300, 0, None
     while monotonic() < deadline:
         try:
-            consecutive = consecutive + 1 if ready(env, client, exact=True) else 0
-            if consecutive >= 2:
-                print("The expected Bench source revision passed two health checks.")
-                return
+            receipt = ready_receipt(env, client, not_before_ms=not_before_ms,
+                                    now_ms=wall_time_ns() // 1_000_000)
+            if receipt is None:
+                consecutive = 0
+            elif last_receipt is None or receipt > last_receipt:
+                consecutive += 1
+                last_receipt = receipt
+                if consecutive >= 2:
+                    print("The expected Bench source revision passed two fresh local health checks.")
+                    return
+        except urllib.error.HTTPError as error:
+            if error.code in {301, 302, 303, 307, 308, 401, 403, 404}:
+                raise
+            consecutive = 0
         except (OSError, ValueError, urllib.error.URLError):
             consecutive = 0
         sleep(5)
@@ -116,19 +127,16 @@ def verify(env, client, *, monotonic=time.monotonic, sleep=time.sleep):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["check-controller", "check-health", "deploy", "verify"])
+    parser.add_argument("mode", choices=["check-controller", "deploy", "verify"])
     mode = parser.parse_args(argv).mode
     try:
         client = opener()
         if mode == "check-controller":
             inspect_target(os.environ, client)
             print("The configured target is the Bench API container.")
-        elif mode == "check-health":
-            if not ready(os.environ, client, exact=False):
-                raise RuntimeError("bench_health_access_unconfirmed")
-            print("Bench readiness is accessible with its gateway credentials.")
         elif mode == "deploy":
-            deploy(os.environ, client)
+            started_ms = deploy(os.environ, client)
+            verify(os.environ, client, not_before_ms=started_ms)
         else:
             verify(os.environ, client)
     except urllib.error.HTTPError as error:
@@ -140,7 +148,7 @@ def main(argv=None):
                  "bench_target_required", "controller_token_invalid",
                  "cloudflare_access_credentials_incomplete", "cloudflare_access_credentials_invalid",
                  "cloudflare_access_credentials_required", "source_revision_unconfirmed", "bench_api_target_mismatch", "image_pin_unconfirmed",
-                 "bench_health_access_unconfirmed", "bench_revision_health_timeout"}
+                 "bench_revision_health_timeout"}
         reason = str(error) if type(error) in {ValueError, RuntimeError} and str(error) in known else "request_unconfirmed"
         print(f"Bench deployment step failed: {mode} ({reason}).", file=sys.stderr)
         return 1

@@ -26,25 +26,8 @@ env:
   DEPLOY_BRANCH: ${{ github.ref_name }}
 
 jobs:
-  health-access:
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: bench-publication
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - name: Check Bench gateway access before changing deployment
-        env:
-          BENCH_PUBLIC_URL: ${{ vars.BENCH_DELIVERY_URL }}
-          BENCH_CF_ACCESS_CLIENT_ID: ${{ secrets.BENCH_CF_ACCESS_CLIENT_ID }}
-          BENCH_CF_ACCESS_CLIENT_SECRET: ${{ secrets.BENCH_CF_ACCESS_CLIENT_SECRET }}
-        run: python3 scripts/deploy_bench.py check-health
-
   build-deploy:
     if: github.ref == 'refs/heads/main'
-    needs: health-access
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 15
@@ -74,25 +57,9 @@ jobs:
           bench/.venv/bin/python -m pytest -q tests/bench
           python scripts/privacy_scan.py
           node --check bench/src/enhancement_bench/static/app.js
-      - name: Build the exact source commit on Coolify and replace only the API
+      - name: Build on Coolify and verify the running API revision
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           COOLIFY_ACCESS_CLIENT_ID: ${{ secrets.COOLIFY_ACCESS_CLIENT_ID }}
           COOLIFY_ACCESS_CLIENT_SECRET: ${{ secrets.COOLIFY_ACCESS_CLIENT_SECRET }}
         run: python scripts/deploy_bench.py deploy
-
-  verify:
-    needs: build-deploy
-    runs-on: ubuntu-latest
-    environment: bench-publication
-    timeout-minutes: 7
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - name: Verify the running source revision
-        env:
-          BENCH_PUBLIC_URL: ${{ vars.BENCH_DELIVERY_URL }}
-          BENCH_CF_ACCESS_CLIENT_ID: ${{ secrets.BENCH_CF_ACCESS_CLIENT_ID }}
-          BENCH_CF_ACCESS_CLIENT_SECRET: ${{ secrets.BENCH_CF_ACCESS_CLIENT_SECRET }}
-        run: python3 scripts/deploy_bench.py verify

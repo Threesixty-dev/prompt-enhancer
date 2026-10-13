@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.request
@@ -40,11 +41,17 @@ def main():
             time.sleep(1)
         else:
             raise RuntimeError("packaged_readiness_failed")
+        local_health = run("docker", "exec", name, "python", "-c",
+            "import urllib.request; request=urllib.request.Request('http://127.0.0.1:8088/health/ready',"
+            "headers={'Host':'bench.example.com'}); print(urllib.request.urlopen(request,timeout=3).read().decode())")
+        assert json.loads(local_health)["revision"] == revision
+        assert any(re.fullmatch(r"BENCH_READY_V1 revision=" + re.escape(revision) + r" time_ms=[0-9]{13}", line)
+                   for line in run("docker", "logs", name).splitlines())
         assert json.loads(get("/api/runs")) == {"runs": [], "nextCursor": None}
         assert b'page-content' in get("/experiments")
         assert b'All runs' in get("/assets/app.js")
         assert b'operator-token' not in get("/experiments")
-        print("Packaged Bench revision, empty API and routed client passed.")
+        print("Packaged Bench revision, local readiness receipt, empty API and routed client passed.")
     finally:
         subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

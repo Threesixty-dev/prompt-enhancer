@@ -121,32 +121,77 @@ def test_pin_must_be_read_back_before_start():
     assert len(client.calls) == 4
 
 
-def test_health_sends_only_bench_credentials_and_requires_exact_revision():
-    env = environment()
-    client = Client([{"ready": True, "schemaVersion": "bench.v1", "revision": "c" * 40},
-                     {"ready": True, "schemaVersion": "bench.v1", "revision": env["DEPLOY_REVISION"]}])
-    assert not deploy.ready(env, client, exact=True)
-    assert deploy.ready(env, client, exact=True)
+NOW = 1_790_000_000_000
+
+
+def healthy_app(**changes):
+    return {"uuid": "example-api", "name": "bench-api", "status": "running:healthy",
+            "image": "local/enhancement-bench:api-" + "a" * 40, **changes}
+
+
+def receipt(timestamp=NOW, revision="a" * 40):
+    return f"BENCH_READY_V1 revision={revision} time_ms={timestamp}"
+
+
+def test_readiness_uses_only_controller_credentials_and_bounded_logs(capsys):
+    client = Client([healthy_app(), {"logs": "example-private-canary\n" + receipt()}])
+    assert deploy.ready_receipt(environment(), client, not_before_ms=NOW, now_ms=NOW) == NOW
     for request in client.calls:
-        assert request.full_url == "https://bench.example.com/health/ready"
-        assert request.get_header("Authorization") is None
-        assert request.get_header("Cf-access-client-id") == env["BENCH_CF_ACCESS_CLIENT_ID"]
-        assert request.get_header("Cf-access-client-secret") == env["BENCH_CF_ACCESS_CLIENT_SECRET"]
+        assert request.full_url.startswith("https://controller.example.com/api/v1/services/example-service/")
+        assert request.get_header("Cf-access-client-id") == "example-controller-id"
+        assert request.get_header("Cf-access-client-secret") == "example-controller-secret"
+    assert client.calls[-1].full_url.endswith("/applications/example-api/logs?lines=20")
+    assert "example-private-canary" not in capsys.readouterr().out
 
 
-def test_queued_or_old_healthy_container_cannot_pass_deployment():
-    stale = {"ready": True, "schemaVersion": "bench.v1", "revision": "c" * 40}
-    client = Client([stale, stale])
+@pytest.mark.parametrize("line", [
+    receipt(revision="b" * 40), receipt(NOW - 1), receipt(NOW + 5_001),
+    "prefix " + receipt(), receipt() + " extra", "ready", "",
+])
+def test_wrong_stale_future_or_malformed_receipts_cannot_pass(line):
+    client = Client([healthy_app(), {"logs": line}])
+    assert deploy.ready_receipt(environment(), client, not_before_ms=NOW, now_ms=NOW) is None
+
+
+def test_old_receipt_expires_even_if_it_followed_deployment():
+    client = Client([healthy_app(), {"logs": receipt(NOW - 90_001)}])
+    assert deploy.ready_receipt(environment(), client, not_before_ms=NOW - 100_000, now_ms=NOW) is None
+
+
+@pytest.mark.parametrize("changes", [
+    {"status": "running:unhealthy"}, {"status": "running:unknown"}, {"status": "exited:unhealthy"},
+    {"image": "local/enhancement-bench:api-" + "b" * 40},
+])
+def test_unhealthy_or_wrong_image_never_passes(changes):
+    client = Client([healthy_app(**changes)])
+    assert deploy.ready_receipt(environment(), client, not_before_ms=NOW, now_ms=NOW) is None
+    assert len(client.calls) == 1
+
+
+def test_repeated_receipt_is_not_two_health_checks():
+    client = Client([healthy_app(), {"logs": receipt()}, healthy_app(), {"logs": receipt()}])
     clock = iter([0, 0, 150, 301])
     with pytest.raises(RuntimeError, match="bench_revision_health_timeout"):
-        deploy.verify(environment(), client, monotonic=lambda: next(clock), sleep=lambda _: None)
+        deploy.verify(environment(), client, monotonic=lambda: next(clock), sleep=lambda _: None,
+                      wall_time_ns=lambda: NOW * 1_000_000)
 
 
-def test_two_consecutive_health_checks_required_after_a_failure():
-    ready = {"ready": True, "schemaVersion": "bench.v1", "revision": "a" * 40}
-    client = Client([ready, OSError(), ready, ready])
-    deploy.verify(environment(), client, monotonic=lambda: 0, sleep=lambda _: None)
-    assert len(client.calls) == 4
+def test_two_new_receipts_required_after_a_health_failure():
+    values = []
+    for timestamp in [NOW, None, NOW, NOW + 1, NOW + 2]:
+        values.extend([healthy_app(), {"logs": receipt(timestamp)}] if timestamp else [healthy_app(status="running:unhealthy")])
+    client = Client(values)
+    deploy.verify(environment(), client, monotonic=lambda: 0, sleep=lambda _: None,
+                  wall_time_ns=lambda: NOW * 1_000_000)
+    assert len(client.calls) == 9
+
+
+def test_controller_access_error_fails_without_polling_for_five_minutes():
+    failure = urllib.error.HTTPError("https://controller.example.com", 403, "", {}, None)
+    client = Client([failure])
+    with pytest.raises(urllib.error.HTTPError):
+        deploy.verify(environment(), client)
+    assert len(client.calls) == 1
 
 
 def test_redirects_are_never_followed():
@@ -158,8 +203,9 @@ def test_workflow_scopes_deployment_and_does_not_wait_for_unrelated_quality():
     triggers = config.get("on", config.get(True))
     assert triggers["push"]["branches"] == ["main"]
     assert config["concurrency"]["cancel-in-progress"] is False
-    assert config["jobs"]["build-deploy"]["needs"] == "health-access"
-    assert config["jobs"]["verify"]["needs"] == "build-deploy"
+    assert set(config["jobs"]) == {"build-deploy"}
+    assert config["jobs"]["build-deploy"]["environment"] == "production"
+    assert "BENCH_CF_ACCESS" not in str(config) and "check-health" not in str(config)
     assert "require_quality_run" not in str(config)
     steps = str(config["jobs"]["build-deploy"]["steps"])
     assert "scripts/deploy_bench.py deploy" in steps
@@ -171,13 +217,21 @@ def test_workflow_scopes_deployment_and_does_not_wait_for_unrelated_quality():
 @pytest.mark.parametrize("failure,expected", [
     (urllib.error.HTTPError("https://example.com/private", 403, "example-sensitive-body", {}, None), "HTTP 403"),
     (ValueError("example-sensitive-body"), "request_unconfirmed"),
-    (RuntimeError("bench_health_access_unconfirmed"), "bench_health_access_unconfirmed"),
+    (RuntimeError("bench_revision_health_timeout"), "bench_revision_health_timeout"),
 ])
 def test_cli_reports_safe_failure_reason_without_response_data(monkeypatch, capsys, failure, expected):
     def fail(*args, **kwargs):
         raise failure
-    monkeypatch.setattr(deploy, "ready", fail)
-    assert deploy.main(["check-health"]) == 1
+    monkeypatch.setattr(deploy, "inspect_target", fail)
+    assert deploy.main(["check-controller"]) == 1
     output = capsys.readouterr().err
     assert expected in output
     assert "example-sensitive-body" not in output and "example.com" not in output
+
+
+def test_cli_deployment_waits_for_readiness_before_success(monkeypatch):
+    calls = []
+    monkeypatch.setattr(deploy, "deploy", lambda *_: NOW)
+    monkeypatch.setattr(deploy, "verify", lambda *args, **kwargs: calls.append(kwargs))
+    assert deploy.main(["deploy"]) == 0
+    assert calls == [{"not_before_ms": NOW}]

@@ -1,5 +1,23 @@
 # Beta progress journal: published handoff
 
+## 2026-10-13 - Bench deployment verification through Coolify
+
+The public gateway readiness request returned a login redirect. The owner chose
+to keep gateway policy unchanged. Deployment now verifies the existing API
+container through the authenticated controller: exact configured image, healthy
+container status and two distinct fresh loopback health receipts containing only
+the baked source SHA and timestamp. Receipts must postdate deployment, and stale,
+wrong-revision, malformed or repeated lines cannot establish success. Runtime
+log bodies are neither printed nor saved. Controller authorization failures fail
+immediately. No public route, credential or gateway permission was added.
+
+Local evidence: 160 Bench tests, privacy scanner and whitespace checks passed.
+The packaged synthetic container smoke passed, including the local health receipt,
+empty API and routed client. This establishes packaged local readiness; it does
+not test the public gateway path or claim hosted deployment completion. The
+broader desktop quality gate remains outside this owner-requested fix.
+
+
 ## 2026-10-13 - Bench builds from pinned source on Coolify
 
 Replaced the deployment Action's GHCR build/push/pull path with the existing
