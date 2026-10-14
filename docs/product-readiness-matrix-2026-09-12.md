@@ -29,6 +29,13 @@ and requires an offline runtime probe with confirmed cleanup. Local evidence:
 checks pass. No live publication or runtime qualification is claimed; hosted
 workflow/registry/worker evidence remains open. B/W/WP acceptance is unchanged.
 
+The same candidate includes mandatory root Codex/Claude skill routing and
+repository-local experiment/core skills. Merge-check corrections preserve the
+relay environment-isolation assertion while matching the current server process,
+and keep six HTTP 422 descriptions stable across Python versions. The complete
+isolated relay smoke and nine OpenAPI export tests pass locally. These are
+bounded synthetic checks; they do not close a wider acceptance gate.
+
 ## Bench stats preview and dedicated charts - 2026-10-14
 
 The [layout correction](bench/client-navigation.md#stats-preview-and-dedicated-charts---2026-10-14)

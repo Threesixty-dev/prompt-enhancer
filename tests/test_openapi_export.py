@@ -973,7 +973,13 @@ def test_http_413_descriptions_are_independent_of_python_version(
         assert response["description"] == "Content Too Large", path
 
 
-def test_committed_openapi_artifact_is_byte_exact_to_current_schema() -> None:
+@pytest.mark.parametrize(
+    "status_description", ("Unprocessable Entity", "Unprocessable Content")
+)
+def test_committed_openapi_artifact_is_byte_exact_to_current_schema(
+    monkeypatch: pytest.MonkeyPatch, status_description: str
+) -> None:
+    monkeypatch.setitem(http.client.responses, 422, status_description)
     expected = (
         json.dumps(build_openapi_schema(), indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")

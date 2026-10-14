@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Enhancement Core"
+  short_description: "Release a pinned core image separately from experiments"
+  default_prompt: "Use $deploy-enhancement-core to prepare and validate a separate versioned core release for Prompt Enhancer experiments."

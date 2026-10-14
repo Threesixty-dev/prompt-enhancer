@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prepare Bench Experiment"
+  short_description: "Author and validate Prompt Enhancer experiments"
+  default_prompt: "Use $prepare-bench-experiment to prepare and validate a Prompt Enhancer experiment for the comparison I describe."
