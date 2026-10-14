@@ -1,5 +1,17 @@
 # Product feature and readiness matrix
 
+## Bench stats preview and dedicated charts - 2026-10-14
+
+The [layout correction](bench/client-navigation.md#stats-preview-and-dedicated-charts---2026-10-14)
+places a compact stats preview above homepage and experiment run-list filters.
+View all stats opens the full charts with a dedicated filter form, retaining
+scope and selections. Browser Back restores paginated lists. On `develop`
+baseline `994ed34`, 184 backend tests and 38 desktop/mobile browser checks pass,
+along with syntax, privacy and whitespace checks. Synthetic visual inspection
+confirms both responsive layouts. Existing aggregation and metric semantics are
+unchanged. Hosted deployment verification remains separate; no B/W/WP or release
+acceptance changes.
+
 ## Bench history filters and charts - 2026-10-14
 
 The [Bench history update](bench/client-navigation.md#history-filters-and-charts---2026-10-14)

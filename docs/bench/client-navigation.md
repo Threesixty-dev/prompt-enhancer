@@ -7,6 +7,31 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Stats preview and dedicated charts - 2026-10-14
+
+- Task / atlas scope: correct the Bench homepage and experiment run-list
+  hierarchy; bounded W02/W05 presentation on `develop` baseline `994ed34`.
+- User outcome: a compact Stats overview precedes the list filters and run
+  cards. It shows matching runs, planned attempts, execution counts and daily
+  activity. View all stats opens a dedicated page with the complete charts and
+  its own Filter stats form; Back to runs retains the applied filters.
+- Navigation: `/stats` covers global history; `/experiments/{id}/stats` retains
+  the selected revision. Opening stats drops the pagination cursor, while
+  browser Back restores the original list URL. Apply/Reset stays on the stats
+  page. Deep links, reload and polling preserve the selected scope.
+- Boundary: existing summary aggregation, paired metric semantics and privacy
+  projection remain unchanged. This only adds client navigation, shell routes
+  and compact presentation; there is no schema or execution change.
+- Evidence: 184 Bench backend tests and 38 desktop/mobile browser checks pass,
+  including preview ordering, keyboard navigation, filter carryover, pagination
+  restoration, stats reload/reset and scoped routes. JavaScript syntax, privacy
+  and whitespace checks pass. Synthetic desktop/mobile previews and full stats
+  pages were visually inspected with no horizontal overflow.
+- Resource / completion boundary: one browser test worker and owned loopback
+  fixture servers; temporary dependency links removed and fixture servers
+  stopped. Local checks use no provider calls or production data. Hosted
+  deployment evidence remains separate; general acceptance gates are unchanged.
+
 ## History filters and charts - 2026-10-14
 
 - Task / atlas scope: full-history filters and descriptive charts on the Bench
@@ -95,6 +120,8 @@ this does not implement or accept the general workflow engine gates.
   continues the history; Newest runs returns to the beginning.
 - `/experiments/{id}?revision={revision}` shows one revision, its units,
   subjects and runs for that revision. New run opens a separate form.
+- `/stats` and `/experiments/{id}/stats?revision={revision}` show full run
+  statistics with their own filters, reached from the compact list preview.
 - `/experiments/{id}/runs/new?revision={revision}` configures a run. An optional
   `from` run identity prefills the saved effective settings for a reconciled
   terminal run. Submission retains `retryOf` and a stable request identity for

@@ -15,13 +15,14 @@ async function fixture(page) {
   await page.route(/\/api\/runs(?:\?.*)?$/, route => route.fulfill({ json: historyResponse(runs, new URL(route.request().url()).searchParams, comparisons) }));
   return { runs, comparisons };
 }
-const filters = page => page.getByRole('form', { name: 'Filter runs' });
+const filters = page => page.getByRole('form', { name: /^Filter (runs|stats)$/ });
 const charts = page => page.getByRole('region', { name: 'Run history charts' });
+const preview = page => page.getByRole('region', { name: 'Stats preview' });
 
 test('filters cover full history, persist with pagination and reset the cursor when changed', async ({ page }) => {
   await fixture(page); await page.goto('/experiments');
   await expect(page.locator('#all-runs .run-card')).toHaveCount(10);
-  await expect(charts(page).locator('.history-totals')).toContainText('24Matching runs');
+  await expect(preview(page).locator('.preview-totals')).toContainText('24Matching runs');
   await filters(page).getByLabel('Execution status').selectOption('failed');
   await filters(page).getByLabel('Experiment', { exact: true }).selectOption('example-widget');
   await filters(page).getByLabel('Revision', { exact: true }).selectOption('1');
@@ -30,7 +31,7 @@ test('filters cover full history, persist with pagination and reset the cursor w
   await filters(page).getByLabel('Created through (UTC)').fill('2026-10-10');
   await filters(page).getByRole('button', { name: 'Apply filters' }).click();
   await expect(page.locator('#all-runs .run-card')).toHaveCount(10);
-  await expect(charts(page).locator('.history-totals')).toContainText('12Matching runs');
+  await expect(preview(page).locator('.preview-totals')).toContainText('12Matching runs');
   await page.getByRole('link', { name: 'Older runs', exact: true }).click();
   await expect(page.locator('#all-runs .run-card')).toHaveCount(2);
   expect(new URL(page.url()).searchParams.get('status')).toBe('failed');
@@ -44,29 +45,33 @@ test('filters cover full history, persist with pagination and reset the cursor w
   await page.goBack(); await expect(page.locator('#all-runs .run-card')).toHaveCount(2);
   await filters(page).getByRole('link', { name: 'Reset filters' }).click();
   await expect(page).toHaveURL(/\/experiments$/);
-  await expect(charts(page).locator('.history-totals')).toContainText('24Matching runs');
+  await expect(preview(page).locator('.preview-totals')).toContainText('24Matching runs');
 });
 
 test('experiment history supports filters, keyboard chart navigation, and empty recovery', async ({ page }) => {
   await fixture(page); await page.goto('/experiments/example-widget?revision=1');
   await expect(page.locator('#runs .run-card')).toHaveCount(10);
   await expect(filters(page).getByLabel('Experiment', { exact: true })).toHaveCount(0);
+  await preview(page).getByRole('link', { name: 'View all stats' }).click();
+  await expect(page).toHaveURL(/\/experiments\/example-widget\/stats\?revision=1$/);
   await charts(page).getByRole('link', { name: 'failed: 12 runs, filter runs', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(filters(page).getByLabel('Execution status')).toHaveValue('failed');
+  await expect(page.getByRole('form', { name: 'Filter stats' })).toBeVisible();
+  await page.getByRole('link', { name: 'Back to runs', exact: true }).click();
   await page.getByRole('link', { name: 'Older runs', exact: true }).click();
   await expect(page.locator('#runs .run-card')).toHaveCount(2);
   await filters(page).getByLabel('Model alias', { exact: true }).fill('example-missing');
   await filters(page).getByRole('button', { name: 'Apply filters' }).click();
   await expect(page.locator('#runs')).toContainText('No runs match these filters.');
-  await expect(charts(page)).toContainText('No recorded metrics for these filters yet.');
+  await expect(preview(page).locator('.preview-totals')).toContainText('0Matching runs');
   await filters(page).getByRole('link', { name: 'Reset filters' }).click();
   await expect(page).toHaveURL(/\/experiments\/example-widget\?revision=1$/);
   await expect(page.locator('#runs .run-card')).toHaveCount(10);
 });
 
 test('metric charts show pairs, models and variants, preserve unknowns and survive refresh', async ({ page }) => {
-  const { runs } = await fixture(page); await page.goto('/experiments');
+  const { runs } = await fixture(page); await page.goto('/stats');
   const metrics = page.getByRole('region', { name: 'Metric comparisons' });
   await expect(metrics.getByRole('heading', { name: 'By generation model' })).toBeVisible();
   await expect(metrics.getByRole('heading', { name: 'By variant and model' })).toBeVisible();
@@ -97,9 +102,49 @@ test('invalid date range does not navigate or submit, and stale filtered respons
   await expect(page).toHaveURL(/\/experiments$/);
   let release; const gate = new Promise(resolve => { release = resolve; });
   await page.route('**/api/runs?status=failed**', async route => { await gate; await route.fallback(); });
-  await charts(page).getByRole('link', { name: 'failed: 12 runs, filter runs', exact: true }).click();
+  await filters(page).getByLabel('Created from (UTC)').fill('');
+  await filters(page).getByLabel('Created through (UTC)').fill('');
+  await filters(page).getByLabel('Execution status').selectOption('failed');
+  await filters(page).getByRole('button', { name: 'Apply filters' }).click();
   await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
   release();
   await expect(filters(page).getByLabel('Execution status')).toHaveValue('');
+  await expect(preview(page).locator('.preview-totals')).toContainText('24Matching runs');
+});
+
+test('compact stats preview precedes list filters and opens a separate filtered stats page', async ({ page }) => {
+  const { runs } = await fixture(page);
+  for (const path of ['/experiments', '/experiments/example-widget?revision=1']) {
+    await page.goto(path);
+    await expect(preview(page)).toBeVisible();
+    await expect(charts(page)).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Metric comparisons' })).toHaveCount(0);
+    expect(await page.evaluate(() => Boolean(document.querySelector('#stats-preview').compareDocumentPosition(document.querySelector('.history-filters')) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    expect((await preview(page).boundingBox()).height).toBeLessThan(400);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.goto('/experiments?status=failed&model=example-model-a&fromDate=2026-10-10&before=' + runs[21].id);
+  await expect(page.locator('#all-runs .run-card')).toHaveCount(2);
+  const listUrl = page.url();
+  const allStats = preview(page).getByRole('link', { name: 'View all stats' });
+  await allStats.focus(); await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Run stats', exact: true })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/stats');
+  expect(new URL(page.url()).searchParams.has('before')).toBe(false);
+  await expect(filters(page).getByLabel('Execution status')).toHaveValue('failed');
+  await expect(filters(page).getByLabel('Model alias', { exact: true })).toHaveValue('example-model-a');
+  await expect(page.locator('#all-runs, #runs, #stats-preview')).toHaveCount(0);
+  await page.reload();
+  await expect(charts(page).locator('.history-totals')).toContainText('12Matching runs');
+  await page.goBack(); await expect(page).toHaveURL(listUrl);
+  await expect(page.locator('#all-runs .run-card')).toHaveCount(2);
+  await page.goForward();
+  await expect(page.getByRole('form', { name: 'Filter stats' })).toBeVisible();
+  await filters(page).getByLabel('Trigger').selectOption('ui');
+  await filters(page).getByRole('button', { name: 'Apply filters' }).click();
+  await expect(charts(page).locator('.history-totals')).toContainText('6Matching runs');
+  expect(new URL(page.url()).pathname).toBe('/stats');
+  await filters(page).getByRole('link', { name: 'Reset filters' }).click();
+  await expect(page).toHaveURL(/\/stats$/);
   await expect(charts(page).locator('.history-totals')).toContainText('24Matching runs');
 });
