@@ -17,8 +17,10 @@ the existing version. New core behavior requires the appropriate source change
 and reviewed version bump. Do not silently change an Experiment's requested core
 to get publication to pass.
 
-The personal authoring skill is `prepare-bench-experiment`; the separate release
-skill is `deploy-enhancement-core`. Both use the repository's authoritative
+The repository provides the [Experiment authoring skill](../../.agents/skills/prepare-bench-experiment/SKILL.md)
+and the separate [core release skill](../../.agents/skills/deploy-enhancement-core/SKILL.md).
+Root `AGENTS.md` and `CLAUDE.md` require the relevant skills and Bench instructions
+for Codex and Claude Code. Both skills use the repository's authoritative
 contracts and current workflows. Creating a definition or preparing a release
 does not itself authorize image publication or a model run.
 

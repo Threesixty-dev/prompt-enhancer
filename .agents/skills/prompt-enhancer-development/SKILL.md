@@ -25,6 +25,12 @@ installation, signing, or a new product decision.
 
 ## Route the work
 
+- Test Bench: read `docs/bench/README.md` for Bench UI/API, runs, Experiments and
+  core integration. For Experiment definitions or comparison design, also read
+  `.agents/skills/prepare-bench-experiment/SKILL.md`. For a new core release, use
+  `.agents/skills/deploy-enhancement-core/SKILL.md` and
+  `docs/bench/core-publication.md`. Follow the required-reading table in root
+  `AGENTS.md` for service deployment.
 - Backend wiring: `src/prompt_enhancer/bootstrap.py` and HTTP composition.
 - Provider/privacy: `infrastructure/providers/`, application ingestion,
   `privacy.py`; external provider sessions remain read-only and uninspected by
