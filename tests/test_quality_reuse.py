@@ -7,6 +7,8 @@ import importlib.util
 from pathlib import Path
 import re
 import subprocess
+import sys
+import textwrap
 
 import pytest
 
@@ -73,7 +75,7 @@ def verify(api, timeout=60):
     return clock
 
 
-def test_success_reuses_six_jobs_without_starting_tests_or_workflows(capsys):
+def test_success_reuses_integrity_and_scoped_result_without_starting_workflows(capsys):
     api = API()
     assert verify(api).sleeps == []
     assert len(api.calls) == 3
@@ -228,3 +230,25 @@ def test_workflow_scheduling_keeps_quality_and_manual_release_boundaries():
     assert "actions: read" in deploy and "python3 scripts/require_quality_run.py" in deploy
     assert "  container:\n    needs: quality" in deploy
     assert "  deploy:\n    needs: container" in deploy
+
+
+@pytest.mark.parametrize(("changes", "passes"), [
+    ({}, True),
+    ({"BACKEND": "success", "EXPECT_BACKEND": "success"}, True),
+    ({"BACKEND": "skipped", "EXPECT_BACKEND": "success"}, False),
+    ({"BACKEND": "failure", "EXPECT_BACKEND": "success"}, False),
+    ({"FRONTEND": "cancelled", "EXPECT_FRONTEND": "success"}, False),
+    ({"CI_POLICY": "failure", "EXPECT_CI_POLICY": "success"}, False),
+    ({"INTEGRITY": "failure"}, False),
+    ({"INTEGRITY": "skipped"}, False),
+])
+@pytest.mark.skipif(sys.platform == "win32", reason="The aggregate job runs on Ubuntu with Bash")
+def test_scoped_quality_result_requires_all_selected_suites(changes, passes):
+    gate = (ROOT / ".github/workflows/quality-gate.yml").read_text()
+    result_job = gate.split("  quality-result:\n", 1)[1]
+    command = textwrap.dedent(result_job.split("        run: |\n", 1)[1])
+    env = {"INTEGRITY": "success", "BACKEND": "skipped", "FRONTEND": "skipped",
+           "CI_POLICY": "skipped", "EXPECT_BACKEND": "skipped",
+           "EXPECT_FRONTEND": "skipped", "EXPECT_CI_POLICY": "skipped", **changes}
+    result = subprocess.run(["bash", "-e", "-c", command], env=env, capture_output=True)
+    assert (result.returncode == 0) is passes

@@ -1,5 +1,34 @@
 # Product feature and readiness matrix
 
+## Definition-only Bench validation - 2026-10-14
+
+The [scoped experiment candidate](bench/concise-structured-experiment.md) separates
+definition contract/identity/privacy checks from full Bench verification. Local
+evidence: 277 synthetic tests and 24 pinned Action PR/push scenarios pass. Hosted
+CI and owner merge remain pending. R26 and all runtime/release gates are unchanged.
+
+## Affected-component CI checks - 2026-10-14
+
+The [quality workflow](ci-quality-gate.md#scheduling-and-deployment-reuse) uses
+pinned `dorny/paths-filter` with a shared YAML path list. Documentation updates
+keep integrity checks; product suites run for their changed component paths.
+An aggregate job rejects failures, cancellations and unexpected skips. Deployment
+requires that aggregate and integrity to pass on the exact main-push revision.
+Local evidence: 58 focused synthetic tests and workflow lint pass; the actual
+pinned Action also passes synthetic PR/push comparisons. Privacy scanning passes.
+Hosted validation remains separate; R26 and all release gates remain unchanged.
+
+## Separate core publication - 2026-10-14
+
+The [core release candidate](bench/core-publication.md) separates manual core
+image publication from Experiment delivery. The Experiment Action has read-only
+package access and refuses missing cores before delivering definitions. The new
+core Action verifies requested source/version identity, preserves immutable tags
+and requires an offline runtime probe with confirmed cleanup. Local evidence:
+201 Bench tests, CLI check mode, skill structure checks, privacy and whitespace
+checks pass. No live publication or runtime qualification is claimed; hosted
+workflow/registry/worker evidence remains open. B/W/WP acceptance is unchanged.
+
 ## Bench stats preview and dedicated charts - 2026-10-14
 
 The [layout correction](bench/client-navigation.md#stats-preview-and-dedicated-charts---2026-10-14)
