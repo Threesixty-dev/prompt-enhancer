@@ -1,5 +1,27 @@
 # Beta progress journal: published handoff
 
+## 2026-10-14 - Repair finished consumer socket cleanup
+
+Task / nodes / gates: consumer-socket-cleanup; W07/WP08. Baseline: develop
+`dbd5bf1`, separate from the release-deployment filter candidate. A finished
+generation could become interrupted because SDK 1.49.1 returned from close while
+its idle event socket remained subscribed. A synthetic socket reproduced the
+failure and confirmed that a subsequent state event lets the closing client exit.
+
+The version-gated consumer adapter sends one bounded state notification before
+the existing idle wait. It never forces an observer to disconnect, cancels work,
+or infers process exit from completion text. Tests retain failures for active
+work, live observers, notification timeouts/errors and unconfirmed process exit.
+Scope: consumer adapter, its regression/smoke tests and evidence documentation;
+core/Experiment versions, unrelated checkout work and privacy boundaries remain
+unchanged. No architecture decision changes.
+
+Evidence: 254 synthetic consumer/Bench tests pass. The rebuilt pinned consumer
+passes startup/version/authentication checks plus a real-SDK loopback socket
+regression for closing and still-connected clients, with no model call or account
+access. Test-container removal succeeds. Owner source review, publication and
+deployment remain pending; broader runtime/real-model acceptance remains open.
+
 ## 2026-10-14 - Resolve Bench core versions per Run
 
 On `develop` baseline `f7c380e`, the owner-requested

@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 14 [consumer socket cleanup correction](../bench/deployment.md#finished-consumer-socket-cleanup---2026-10-14)
+adds a bounded state notification before the pinned consumer's existing idle and
+process-exit checks. Synthetic tests and a real-SDK loopback socket smoke cover
+closing clients and active observers. This later W07/WP08 evidence leaves the
+frozen atlas observation and general runtime acceptance unchanged.
+
 The October 14 [core version resolution candidate](../bench/core-version-resolution.md)
 and proposed [ADR 0026](../adr/0026-core-version-resolution-at-run-creation.md)
 move Bench image binding to new-Run admission while retaining historical digests.

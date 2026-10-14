@@ -1,14 +1,15 @@
 """Static consumer startup/authentication only; no model or provider-account access."""
 
 import json
+from pathlib import Path
 import subprocess
 import time
 import uuid
 
 
-def run(args, capture=False):
+def run(args, capture=False, input_bytes=None):
     return subprocess.run(["docker", *args], stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-                          stderr=subprocess.DEVNULL, timeout=45, check=False)
+                          stderr=subprocess.DEVNULL, timeout=45, check=False, input=input_bytes)
 
 
 def main():
@@ -45,7 +46,14 @@ def main():
         versions = json.loads(checks.stdout)
         assert "0.156.0" in versions["codex"]
         assert "1.10.0" in versions["acp"]
+        shutdown = run(["exec", "-i", name, "python3", "-"], capture=True,
+            input_bytes=Path(__file__).with_name("consumer_shutdown_probe.py").read_bytes())
+        if shutdown.returncode:
+            raise RuntimeError("static_consumer_socket_shutdown_failed")
+        shutdown_receipt = json.loads(shutdown.stdout)
+        assert shutdown_receipt["closing_client_released"] and shutdown_receipt["connected_observer_held"]
         print(json.dumps({"scope": "static_consumer_startup", "ready": True, "versions": versions,
+                          "socket_shutdown": shutdown_receipt,
                           "model_call_performed": False, "provider_account_access": False}))
     finally:
         result = run(["rm", "--force", name])

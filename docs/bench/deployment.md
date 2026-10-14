@@ -122,6 +122,31 @@ operation; it does not ingest or mutate external provider sessions. Deploy the
 consumer retention adapter before using core 0.1.3, which checks the capability
 before any model call. Keep the existing consumer volume when replacing images.
 
+### Finished consumer socket cleanup - 2026-10-14
+
+SDK 1.49.1 can leave its event socket connected after `close()` returns: the
+receive loop checks its stop flag only when another event arrives. A finished
+generation then fails the consumer's subscribed-runtime check and leaves the
+Run interrupted with `remote_cleanup_unconfirmed`.
+
+The consumer release adapter now sends one current-state notification, bounded
+to one second within the existing two-second idle deadline. This wakes a closing
+SDK client without cancelling work or disconnecting an active observer. Release
+still requires no active work or subscriptions, a closed runtime and a confirmed
+process exit. A notification failure remains uncertain; history stays held until
+workspace cleanup is acknowledged. Inspecting native history can reload idle
+metadata, so operator recovery should perform release, workspace cleanup and
+retention acknowledgement together before recording reconciliation evidence.
+
+Evidence: 254 synthetic consumer/Bench tests pass. The isolated consumer image
+smoke uses the real pinned SDK and a loopback WebSocket carrying fictional state;
+it verifies closing-client release and rejection of an observer that remains
+connected. It makes no model call and accesses no provider account. The test
+container is removed afterward. This change belongs to the static consumer image;
+the core image, core version and Experiment definitions are unchanged. Owner
+review and live deployment of the fix remain pending; general W07/WP08 acceptance
+is unchanged.
+
 Set `BENCH_DOCKER_GID` to the socket's group so UID 10002 can use it, and
 `BENCH_CORE_CONFIG_SOURCE` to the reviewed core configuration's **Docker-host**
 path. Docker bind mounts resolve on the daemon host, not inside the bench worker.

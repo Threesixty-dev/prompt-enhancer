@@ -1,5 +1,15 @@
 # Product feature and readiness matrix
 
+## Finished consumer socket cleanup - 2026-10-14
+
+The [consumer correction](bench/deployment.md#finished-consumer-socket-cleanup---2026-10-14)
+wakes an SDK client whose close flag is waiting on another socket event. The
+existing idle, subscription, process-exit and workspace checks remain required;
+notification failure keeps history held. Evidence: 254 synthetic consumer/Bench
+tests and the isolated pinned consumer startup/socket smoke pass without a model
+call or provider-account access. Core and Experiment versions are unchanged.
+Owner review and deployment are pending; W07/WP08 remain open.
+
 ## Core version resolution per Run - 2026-10-14
 
 The [bounded Bench change](bench/core-version-resolution.md) separates Experiment
