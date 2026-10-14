@@ -1,5 +1,22 @@
 # Beta progress journal: published handoff
 
+## 2026-10-14 - Scope CI to affected components
+
+Task: R26, B00/B11; baseline `fe47f63`, continuing the separate-core-release PR.
+The owner requested affected-component checks for PR updates and main pushes.
+Added a pinned `dorny/paths-filter` Action with shared YAML filters; no custom
+change parser or historical evidence cache. Per-update comparison prevents a
+documentation follow-up from repeating product suites for earlier code changes.
+CI edits run focused policy tests. Integrity always runs; an aggregate requires
+selected jobs to pass and unselected jobs to be skipped. Exact-main deployment
+verification consumes that aggregate without restarting tests.
+
+Evidence: 58 synthetic verifier/aggregate tests, workflow lint, actual pinned
+Action comparisons with fictional Git inputs, privacy and whitespace checks pass.
+Tests cover unexpected skips, failed/cancelled jobs, provenance mismatches and
+rerun races. No product suite or release was started locally for these CI edits.
+Hosted checks and owner-authorized merge are pending; no acceptance gate closes.
+
 ## 2026-10-14 - Separate optional core release from Experiment publication
 
 On `develop` baseline `01a4d21`, added a manual-only Publish Core Action and a

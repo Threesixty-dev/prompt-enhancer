@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Affected-component CI checks - 2026-10-14
+
+The [quality workflow](ci-quality-gate.md#scheduling-and-deployment-reuse) uses
+pinned `dorny/paths-filter` with a shared YAML path list. Documentation updates
+keep integrity checks; product suites run for their changed component paths.
+An aggregate job rejects failures, cancellations and unexpected skips. Deployment
+requires that aggregate and integrity to pass on the exact main-push revision.
+Local evidence: 58 focused synthetic tests and workflow lint pass; the actual
+pinned Action also passes synthetic PR/push comparisons. Privacy scanning passes.
+Hosted validation remains separate; R26 and all release gates remain unchanged.
+
 ## Separate core publication - 2026-10-14
 
 The [core release candidate](bench/core-publication.md) separates manual core

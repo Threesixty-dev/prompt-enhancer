@@ -13,7 +13,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      hosted: ${{ steps.changes.outputs.hosted }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
+        id: changes
+        with:
+          token: ''
+          base: ${{ github.event.before || github.event.pull_request.base.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          predicate-quantifier: some-with-excludes
+          filters: .github/validation-paths.yml
   container:
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.hosted == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
