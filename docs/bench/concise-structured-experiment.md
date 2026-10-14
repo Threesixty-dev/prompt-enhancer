@@ -121,3 +121,14 @@ semantic validation of 16 requests, identity checks, the privacy scan and
 architecture-output consistency. Hosted validation, owner merge and import
 acknowledgement remain separate. Publication reuses core `0.1.4`; `autoRun`
 remains false.
+
+The candidate also separates Experiment definition validation from full Bench
+verification. A JSON-only update checks every case/unit request, cross-file
+revision/generation identity uniqueness and privacy without browser tests,
+container builds or runtime smoke. Bench code, dependencies, runtime and Bench
+workflow changes still select full verification; manual dispatch runs both jobs.
+The shared CLI and publisher use the same identity validation. Follow-up evidence:
+277 Bench/CI-policy/privacy tests and canonical validation pass; the exact pinned
+path-filter Action passes 24 synthetic PR/push cases, including definition-only,
+documentation, runtime, workflow and mixed changes. Hosted CI for this correction
+and owner merge remain pending.

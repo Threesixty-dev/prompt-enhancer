@@ -14,9 +14,14 @@ the previous head for a PR update or main push, and the PR base for a newly
 opened PR. Detection checks out the PR head explicitly. A documentation-only
 update therefore does not repeat suites selected by earlier code changes.
 
-Frontend paths select frontend and hosted-container checks; Bench paths select
-Bench checks; shared Python source/dependencies select backend, Bench and hosted
-checks where those workflows run. CI configuration and evidence-verifier changes
+Frontend paths select frontend and hosted-container checks. Experiment JSON
+changes select only the lightweight Experiment definitions job: per-case/unit
+request contracts, unique revision/generation identities and privacy scanning.
+They do not select Bench browser tests, image builds or runtime smoke checks.
+Bench code, dependencies, runtime and Bench workflow changes select the full
+Bench checks plus definition validation; shared Python source/dependencies select
+backend, Bench and hosted checks where those workflows run. CI configuration and
+evidence-verifier changes
 select focused CI-policy tests. Update the shared filters when adding a new
 source surface. Privacy, architecture consistency and patch whitespace remain
 checked on every quality run. Manual workflow dispatch explicitly runs all jobs.

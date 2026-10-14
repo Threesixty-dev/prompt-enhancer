@@ -162,7 +162,11 @@ or build contexts. There is no provider-session ingestion in this application.
 
 ## CI and deployment
 
-`bench-check.yml` validates tests, privacy, the UI, Compose and local image smoke.
+For Experiment JSON changes, `bench-check.yml` runs only definition request
+contract validation, cross-file revision/generation identity checks and privacy.
+Bench source, dependency, runtime or Bench workflow changes additionally select
+the full synthetic tests, UI, Compose and local image smoke checks. Manual
+workflow dispatch runs both jobs.
 `bench-publish.yml` runs on JSON changes in `experiments/` on
 `BENCH_PUBLICATION_BRANCH` (the repository default branch when unset). Explicit
 manual dispatch remains available for recovery. All publication jobs share one

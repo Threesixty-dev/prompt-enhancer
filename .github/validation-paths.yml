@@ -15,9 +15,11 @@ frontend:
   - 'frontend/**'
   - 'docs/openapi.json'
   - 'scripts/export_openapi.py'
+bench_definitions:
+  - 'experiments/**'
 bench:
   - 'bench/**'
-  - 'experiments/**'
+  - '.github/workflows/bench-*.yml'
   - 'tests/bench/**'
   - 'tests/conftest.py'
   - 'tests/support/**'
