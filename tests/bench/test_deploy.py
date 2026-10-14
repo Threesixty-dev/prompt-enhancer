@@ -203,7 +203,12 @@ def test_workflow_scopes_deployment_and_does_not_wait_for_unrelated_quality():
     triggers = config.get("on", config.get(True))
     assert triggers["push"]["branches"] == ["main"]
     assert config["concurrency"]["cancel-in-progress"] is False
-    assert set(config["jobs"]) == {"build-deploy"}
+    assert set(config["jobs"]) == {"changes", "build-deploy"}
+    selection = config["jobs"]["changes"]
+    assert "environment" not in selection and "secrets." not in str(selection)
+    assert "bench/deploy_changes.py" in str(selection)
+    assert config["jobs"]["build-deploy"]["needs"] == "changes"
+    assert "needs.changes.outputs.deploy == 'true'" in config["jobs"]["build-deploy"]["if"]
     assert config["jobs"]["build-deploy"]["environment"] == "production"
     assert "BENCH_CF_ACCESS" not in str(config) and "check-health" not in str(config)
     assert "require_quality_run" not in str(config)

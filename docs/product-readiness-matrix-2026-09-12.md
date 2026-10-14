@@ -1,5 +1,15 @@
 # Product feature and readiness matrix
 
+## Independent core release automation - 2026-10-14
+
+The [bounded automation follow-up](bench/core-publication.md#release-automation-follow-up---2026-10-14)
+skips Bench API deployment for generated core-version defaults alone, retains
+runtime/protocol/manual deployment, and adds content-free HTTP error status.
+Evidence: 256 synthetic Bench tests, privacy and architecture checks pass.
+Public package access and anonymous worker pull are separate operational
+observations. Hosted CI, owner review and promotion remain open; R26 and
+W02/W07/WP08 acceptance is unchanged.
+
 ## Core version resolution per Run - 2026-10-14
 
 The [bounded Bench change](bench/core-version-resolution.md) separates Experiment

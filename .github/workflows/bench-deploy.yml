@@ -26,8 +26,25 @@ env:
   DEPLOY_BRANCH: ${{ github.ref_name }}
 
 jobs:
-  build-deploy:
+  changes:
     if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy: ${{ steps.select.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select runtime and protocol changes
+        id: select
+        env:
+          DEPLOY_BEFORE: ${{ github.event.before }}
+        run: python3 bench/deploy_changes.py
+  build-deploy:
+    needs: changes
+    if: github.ref == 'refs/heads/main' && needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 15

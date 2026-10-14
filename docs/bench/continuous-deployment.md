@@ -14,6 +14,22 @@ Coolify v4.3.23's service-application API replaces only `bench-api` with
 the source commit baked into the image while Coolify reports the API healthy. The Action does not wait for the
 broad desktop quality workflow.
 
+## Core releases do not redeploy Bench
+
+The source-selection job compares the pushed Git revisions before entering the
+production deployment job. A change limited to the generated `core_version`
+default in the capabilities, readiness and execution-result schemas does not
+deploy the API. All other schema fields remain part of the comparison. Added,
+deleted, malformed or unavailable contracts select deployment conservatively,
+as do changes to Bench code or deployment tooling. Manual dispatch still deploys
+the selected main revision.
+
+The selection job has no production environment or controller credentials.
+It does not change the core release workflow, the worker or the relay. Ordinary
+compatible core releases build and register an image independently; Bench starts
+that image when a new Run is admitted. Actual Bench database/protocol upgrades
+retain their separate coordinated service-upgrade requirements.
+
 ## Configuration
 
 | Setting | GitHub location | Purpose |

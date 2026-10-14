@@ -289,4 +289,4 @@ def test_registration_cli_failure_stops_the_job_without_echoing_response(
         cli.main()
     assert failed.value.code == 1
     assert len(requests) == 1
-    assert capsys.readouterr().out == "core_registration_delivery_failed\n"
+    assert capsys.readouterr().out == f"core_registration_delivery_failed_http_{status}\n"

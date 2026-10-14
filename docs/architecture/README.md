@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 14 [release automation follow-up](../bench/core-publication.md#release-automation-follow-up---2026-10-14)
+separates generated core-version defaults from Bench runtime/protocol deployment
+and records content-free delivery diagnostics. Its 256 synthetic Bench checks
+supplement R26/W02/W07/WP08 evidence without changing this frozen observation
+or accepting general runtime and release gates.
+
 The October 14 [core version resolution candidate](../bench/core-version-resolution.md)
 and proposed [ADR 0026](../adr/0026-core-version-resolution-at-run-creation.md)
 move Bench image binding to new-Run admission while retaining historical digests.
