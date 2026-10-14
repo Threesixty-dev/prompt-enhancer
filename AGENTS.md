@@ -2,6 +2,37 @@
 
 This is a privacy-sensitive repository for local coding-agent analytics.
 
+## Required skills and Bench instructions
+
+These requirements apply to both Codex and Claude Code. Resolve every path from
+the selected repository root and use the tracked skills in `.agents/skills/`.
+
+1. Before substantive repository work, read and apply
+   `.agents/skills/prompt-enhancer-development/SKILL.md` in full.
+2. For Test Bench or Experiment work, also read `docs/bench/README.md` before
+   designing changes, editing definitions or running validation. This includes
+   Bench UI/API, runs, comparison design, publication and core integration.
+3. Load the additional skill and instructions for each applicable task below.
+   Read its referenced authoring/validation guidance when performing those steps.
+
+| Task | Required additional reading |
+| --- | --- |
+| Prepare, revise, validate or publish an Experiment; design cases, variants or model comparisons | `.agents/skills/prepare-bench-experiment/SKILL.md` |
+| Prepare or publish a new core version for Bench | `.agents/skills/deploy-enhancement-core/SKILL.md` and `docs/bench/core-publication.md` |
+| Deploy or operate Bench services | `docs/bench/deployment.md`; for API/UI deployment, also `docs/bench/continuous-deployment.md` |
+
+Reading a skill's name or description is insufficient. If a skill invocation
+tool is unavailable, open its `SKILL.md` directly and follow it. Briefly identify
+the skills and Bench instructions loaded before implementation. If a required
+file is missing, report the missing path and resolve the checkout prerequisite
+before proceeding with dependent work.
+
+For Experiment preparation, establish whether to reuse an existing released core
+or prepare a new version separately. Ask once if that choice is unresolved;
+respect an answer already given. Core publication is optional and separate from
+Experiment publication and Bench service deployment. Loading these instructions
+does not authorize a release or model run.
+
 ## Non-negotiable privacy rules
 
 - Never copy, stage, commit, print, summarize, or upload real Codex or Claude sessions, prompts, tool output, source snippets, account data, or local configuration.

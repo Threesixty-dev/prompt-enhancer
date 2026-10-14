@@ -13,11 +13,7 @@ from urllib.parse import urlencode
 WORKFLOW = ".github/workflows/quality-gate.yml"
 REQUIRED_JOBS = frozenset({
     "Repository integrity",
-    "Frontend",
-    "Backend (ubuntu-latest, shard 1/2)",
-    "Backend (ubuntu-latest, shard 2/2)",
-    "Backend (windows-latest, shard 1/2)",
-    "Backend (windows-latest, shard 2/2)",
+    "Quality result",
 })
 PENDING = {"queued", "in_progress", "waiting", "pending", "requested"}
 

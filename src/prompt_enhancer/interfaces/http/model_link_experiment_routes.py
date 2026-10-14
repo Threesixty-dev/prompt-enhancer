@@ -302,7 +302,8 @@ def create_model_link_experiment_router(
                 "model": (
                     ModelLinkFailureResponse
                     | SanitizedModelLinkValidationFailureResponse
-                )
+                ),
+                "description": "Unprocessable Content",
             },
         },
     )
@@ -346,7 +347,10 @@ def create_model_link_experiment_router(
         response_model=ModelLinkExperimentDto,
         responses={
             404: {"model": ModelLinkFailureResponse},
-            422: {"model": SanitizedModelLinkValidationFailureResponse},
+            422: {
+                "model": SanitizedModelLinkValidationFailureResponse,
+                "description": "Unprocessable Content",
+            },
             503: {"model": ModelLinkFailureResponse},
         },
     )
@@ -374,7 +378,8 @@ def create_model_link_experiment_router(
                 "model": (
                     ModelLinkFailureResponse
                     | SanitizedModelLinkValidationFailureResponse
-                )
+                ),
+                "description": "Unprocessable Content",
             },
             503: {"model": ModelLinkFailureResponse},
         },

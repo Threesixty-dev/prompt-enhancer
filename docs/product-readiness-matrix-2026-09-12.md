@@ -1,5 +1,34 @@
 # Product feature and readiness matrix
 
+## Affected-component CI checks - 2026-10-14
+
+The [quality workflow](ci-quality-gate.md#scheduling-and-deployment-reuse) uses
+pinned `dorny/paths-filter` with a shared YAML path list. Documentation updates
+keep integrity checks; product suites run for their changed component paths.
+An aggregate job rejects failures, cancellations and unexpected skips. Deployment
+requires that aggregate and integrity to pass on the exact main-push revision.
+Local evidence: 58 focused synthetic tests and workflow lint pass; the actual
+pinned Action also passes synthetic PR/push comparisons. Privacy scanning passes.
+Hosted validation remains separate; R26 and all release gates remain unchanged.
+
+## Separate core publication - 2026-10-14
+
+The [core release candidate](bench/core-publication.md) separates manual core
+image publication from Experiment delivery. The Experiment Action has read-only
+package access and refuses missing cores before delivering definitions. The new
+core Action verifies requested source/version identity, preserves immutable tags
+and requires an offline runtime probe with confirmed cleanup. Local evidence:
+201 Bench tests, CLI check mode, skill structure checks, privacy and whitespace
+checks pass. No live publication or runtime qualification is claimed; hosted
+workflow/registry/worker evidence remains open. B/W/WP acceptance is unchanged.
+
+The same candidate includes mandatory root Codex/Claude skill routing and
+repository-local experiment/core skills. Merge-check corrections preserve the
+relay environment-isolation assertion while matching the current server process,
+and keep six HTTP 422 descriptions stable across Python versions. The complete
+isolated relay smoke and nine OpenAPI export tests pass locally. These are
+bounded synthetic checks; they do not close a wider acceptance gate.
+
 ## Bench stats preview and dedicated charts - 2026-10-14
 
 The [layout correction](bench/client-navigation.md#stats-preview-and-dedicated-charts---2026-10-14)

@@ -2,6 +2,15 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 14 [CI path selection](../ci-quality-gate.md#scheduling-and-deployment-reuse)
+uses a pinned GitHub Action and shared YAML filters for affected-component checks.
+Its bounded synthetic evidence supplements R26 without changing acceptance gates.
+
+The October 14 [separate core publication task](../bench/core-publication.md)
+records the optional manual core-release workflow and resolve-only Experiment
+delivery. Its bounded synthetic evidence supplements W02/W07/WP08 tooling without
+altering the frozen atlas observation or accepting broader runtime gates.
+
 The October 14 [Bench stats preview correction](../bench/client-navigation.md#stats-preview-and-dedicated-charts---2026-10-14)
 places a compact overview above list filters and moves full charts to dedicated
 global/revision-scoped stats routes. Its synthetic evidence supplements W02/W05
