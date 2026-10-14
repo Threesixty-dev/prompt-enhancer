@@ -1,6 +1,6 @@
 import { node, schemaField, validateForm } from './forms.js';
 import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary, variationOverview, variantDescription } from './overview.js';
-import { filterToolbar, hasFilters, historyCharts, historyPath, readFilters } from './history.js';
+import { filterToolbar, hasFilters, historyCharts, historyPath, readFilters, statsPreview } from './history.js';
 
 const $ = id => document.getElementById(id);
 const json = value => JSON.stringify(value, null, 2);
@@ -58,9 +58,11 @@ function parseRoute() {
   const segments = location.pathname.split('/').filter(Boolean).map(decodeURIComponent), query = new URLSearchParams(location.search);
   const history = { before: query.get('before'), filters: readFilters(query) };
   if (!segments.length || (segments.length === 1 && segments[0] === 'experiments')) return { kind: 'list', ...history };
+  if (segments.length === 1 && segments[0] === 'stats') return { kind: 'stats', ...history };
   if (segments[0] !== 'experiments' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(segments[1] || '')) return { kind: 'missing' };
   const base = { id: segments[1], revision: query.get('revision'), from: query.get('from') };
   if (segments.length === 2) return { ...base, ...history, kind: 'experiment' };
+  if (segments.length === 3 && segments[2] === 'stats') return { ...base, ...history, kind: 'stats' };
   if (segments.length === 4 && segments[2] === 'runs') return { ...base, kind: segments[3] === 'new' ? 'new' : 'run', runId: segments[3] };
   return { kind: 'missing' };
 }
@@ -102,9 +104,9 @@ function renderExperiments() {
   });
 }
 function historyFrame() {
-  const charts = node('div'); charts.id = 'history-charts';
+  const preview = node('div'); preview.id = 'stats-preview';
   const pagination = node('nav', undefined, 'run-pagination'); pagination.id = 'run-pagination'; pagination.setAttribute('aria-label', 'Run history');
-  return { filters: filterToolbar(activeRoute, experiments, runPage.modelOptions, navigate), charts, pagination };
+  return { filters: filterToolbar(activeRoute, experiments, runPage.modelOptions, navigate), preview, pagination };
 }
 function renderHistory() {
   const global = activeRoute.kind === 'list', container = $(global ? 'all-runs' : 'runs'); if (!container) return;
@@ -131,7 +133,16 @@ function renderHistory() {
     if (runPage.nextCursor) fragment.append(link('Older runs', historyPath(activeRoute, { before: runPage.nextCursor }), 'button secondary'));
     return fragment;
   });
-  patch($('history-charts'), runPage.summary, () => historyCharts(runPage.summary, activeRoute));
+  patch($('stats-preview'), runPage.summary, () => statsPreview(runPage.summary, activeRoute));
+}
+function renderStats() {
+  const container = $('history-charts'); if (container) patch(container, runPage.summary, () => historyCharts(runPage.summary, activeRoute));
+}
+function statsPage(d) {
+  const back = historyPath(activeRoute, { stats: false });
+  pageHeading('Run stats', d ? d.title + ' / revision ' + d.revision : 'Explore activity, execution status and metric comparisons across runs.', d ? [[d.title, back], ['Stats']] : [['Stats']], [refreshButton(), link('Back to runs', back, 'button secondary')]);
+  const charts = node('div'); charts.id = 'history-charts';
+  $('page-content').replaceChildren(filterToolbar(activeRoute, experiments, runPage.modelOptions, navigate), charts); renderStats();
 }
 function experimentPage(d) {
   pageHeading(d.title, 'Review the experiment and open a run to inspect its results.', [[d.title]], [refreshButton(), link('New run', newRunPath(d), 'button')]);
@@ -147,7 +158,7 @@ function experimentPage(d) {
   grid.append(strategyBox, prompts); overview.append(grid, labeledValue('Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision, 'p', 'hint'), evidence('Experiment definition', d, 'definition'));
   const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Runs'), node('span', 'Runs for revision ' + d.revision, 'hint'));
   const list = node('div'); list.id = 'runs'; const history = historyFrame();
-  $('page-content').replaceChildren(variationOverview(d), overview, heading, history.filters, history.charts, list, history.pagination); renderHistory();
+  $('page-content').replaceChildren(variationOverview(d), overview, heading, history.preview, history.filters, list, history.pagination); renderHistory();
 }
 
 function metricsTable(result) {
@@ -263,7 +274,8 @@ async function loadRoute(focus = false) {
     if (activeRoute.kind === 'missing') throw new Error('Page not found.');
     const route = activeRoute;
     $('page-content').replaceChildren(node('p', 'Loading...', 'empty'));
-    const [a, b, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'list' ? api(historyPath(route, { api: true, before: route.before })) : null]);
+    const globalHistory = !route.id && ['list', 'stats'].includes(route.kind);
+    const [a, b, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, globalHistory ? api(historyPath(route, { api: true, before: route.before })) : null]);
     if (epoch !== routeEpoch) return;
     experiments = a.experiments; runs = b?.runs || []; $('workspace').hidden = false;
     if (route.kind === 'list') {
@@ -274,7 +286,9 @@ async function loadRoute(focus = false) {
       const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Experiments'));
       const description = node('p', 'Choose an experiment to review its revisions or start a new run.', 'hint');
       const cards = node('div', undefined, 'experiment-grid'); cards.id = 'experiments';
-      $('page-content').replaceChildren(history.filters, history.charts, runList, history.pagination, heading, description, cards); renderHistory(); renderExperiments();
+      $('page-content').replaceChildren(history.preview, history.filters, runList, history.pagination, heading, description, cards); renderHistory(); renderExperiments();
+    } else if (globalHistory && route.kind === 'stats') {
+      runPage = page; statsPage();
     } else {
       let source;
       if (route.kind === 'run' || route.from) {
@@ -284,11 +298,11 @@ async function loadRoute(focus = false) {
       }
       definition = experiments.find(d => d.stableId === route.id && (!(source?.revision || route.revision) || d.revision === (source?.revision || route.revision)));
       if (!definition) throw new Error('Experiment revision not found.');
-      if (route.kind === 'experiment') {
+      if (['experiment', 'stats'].includes(route.kind)) {
         route.filters = { ...route.filters, experiment: definition.stableId, revision: definition.revision };
         const page = await api(historyPath(route, { api: true, before: route.before }));
         if (epoch !== routeEpoch) return;
-        runPage = page; experimentPage(definition);
+        runPage = page; if (route.kind === 'stats') statsPage(definition); else experimentPage(definition);
       }
       if (route.kind === 'run') {
         pageHeading('Run ' + source.id.slice(0, 8), definition.title + ' / revision ' + source.revision, [[definition.title, experimentPath(definition)], ['Results']], [refreshButton()]);
@@ -314,10 +328,10 @@ async function loadRoute(focus = false) {
 async function refresh() {
   if (!connected || activeRoute?.kind === 'new') return;
   const epoch = routeEpoch, route = activeRoute, version = ++refreshVersion;
-  const [a, b, r, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, ['list', 'experiment'].includes(route.kind) ? api(historyPath(route, { api: true, before: route.before })) : null]);
+  const [a, b, r, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, ['list', 'experiment', 'stats'].includes(route.kind) ? api(historyPath(route, { api: true, before: route.before })) : null]);
   if (epoch !== routeEpoch || version !== refreshVersion) return;
   experiments = a.experiments; runs = b?.runs || [];
-  if (page) { runPage = page; renderHistory(); }
+  if (page) { runPage = page; if (route.kind === 'stats') renderStats(); else renderHistory(); }
   if (route.kind === 'list') renderExperiments();
   if (route.kind === 'run') renderRun(r);
 }

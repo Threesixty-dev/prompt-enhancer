@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 14 [Bench stats preview correction](../bench/client-navigation.md#stats-preview-and-dedicated-charts---2026-10-14)
+places a compact overview above list filters and moves full charts to dedicated
+global/revision-scoped stats routes. Its synthetic evidence supplements W02/W05
+presentation; aggregation, the frozen atlas observation and acceptance gates
+remain unchanged.
+
 The October 14 [Bench model and variation presentation](../bench/client-navigation.md#model-details-and-run-variations---2026-10-14)
 adds visible configured/recorded model identities and a case-by-variant attempt
 matrix to the owner-selected develop baseline. Its bounded synthetic backend and

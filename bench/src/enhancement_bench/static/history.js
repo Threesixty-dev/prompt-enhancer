@@ -4,20 +4,22 @@ const keys = ['status', 'experiment', 'revision', 'origin', 'model', 'fromDate',
 const statuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted', 'superseded'];
 const number = value => value == null ? 'Unknown' : new Intl.NumberFormat().format(value);
 export const readFilters = query => Object.fromEntries(keys.filter(key => query.get(key)).map(key => [key, query.get(key)]));
-export const hasFilters = route => keys.some(key => route.filters[key] && (route.kind === 'list' || !['experiment', 'revision'].includes(key)));
+export const hasFilters = route => keys.some(key => route.filters[key] && (!route.id || !['experiment', 'revision'].includes(key)));
 
-export function historyPath(route, { before = null, filters = route.filters, api = false } = {}) {
+export function historyPath(route, { before = null, filters = route.filters, api = false, stats = route.kind === 'stats' } = {}) {
   const query = new URLSearchParams();
-  for (const key of keys) if (filters[key] && (api || route.kind === 'list' || key !== 'experiment')) query.set(key, filters[key]);
+  for (const key of keys) if (filters[key] && (api || !route.id || key !== 'experiment')) query.set(key, filters[key]);
   if (api) { query.set('limit', '10'); query.set('summary', 'true'); }
-  if (before) query.set('before', before);
-  const path = api ? '/api/runs' : route.kind === 'list' ? '/experiments' : '/experiments/' + encodeURIComponent(route.id);
+  if (before && !stats) query.set('before', before);
+  const listPath = route.id ? '/experiments/' + encodeURIComponent(route.id) : '/experiments';
+  const path = api ? '/api/runs' : stats ? (route.id ? listPath + '/stats' : '/stats') : listPath;
   return path + (query.size ? '?' + query : '');
 }
 
 export function filterToolbar(route, experiments, models, onApply) {
-  const form = node('form', undefined, 'surface history-filters'); form.setAttribute('aria-label', 'Filter runs');
-  const heading = node('div', undefined, 'filter-heading'); heading.append(node('h3', 'Filter runs'), node('span', 'Across the full run history', 'hint')); form.append(heading);
+  const title = route.kind === 'stats' ? 'Filter stats' : 'Filter runs';
+  const form = node('form', undefined, 'surface history-filters'); form.setAttribute('aria-label', title);
+  const heading = node('div', undefined, 'filter-heading'); heading.append(node('h3', title), node('span', 'Across the full run history', 'hint')); form.append(heading);
   const fields = node('div', undefined, 'filter-grid');
   const controls = {};
   const field = (key, title, control) => {
@@ -31,7 +33,7 @@ export function filterToolbar(route, experiments, models, onApply) {
     return field(key, title, control);
   };
   select('status', 'Execution status', statuses.map(status => [status, status[0].toUpperCase() + status.slice(1)]), 'All statuses');
-  if (route.kind === 'list') {
+  if (!route.id) {
     const definitions = new Map(); for (const d of experiments) if (!definitions.has(d.stableId)) definitions.set(d.stableId, d.title);
     select('experiment', 'Experiment', [...definitions], 'All experiments');
     select('revision', 'Revision', [...new Set(experiments.map(d => d.revision))].map(value => [value, value]), 'All revisions');
@@ -46,7 +48,7 @@ export function filterToolbar(route, experiments, models, onApply) {
   const validateDates = () => to.setCustomValidity(from.value && to.value && from.value > to.value ? 'End date must be on or after the start date.' : '');
   from.oninput = validateDates; to.oninput = validateDates;
   const actions = node('div', undefined, 'filter-actions'), apply = node('button', 'Apply filters'); apply.type = 'submit';
-  const reset = node('a', 'Reset filters', 'button secondary'); reset.dataset.route = ''; reset.href = historyPath(route, { filters: route.kind === 'list' ? {} : { experiment: route.id, revision: route.filters.revision } });
+  const reset = node('a', 'Reset filters', 'button secondary'); reset.dataset.route = ''; reset.href = historyPath(route, { filters: !route.id ? {} : { experiment: route.id, revision: route.filters.revision } });
   actions.append(node('p', 'Model alias matches generation or evaluation. Dates include the entire UTC day.', 'hint'), reset, apply);
   form.append(fields, suggestions, actions);
   form.onsubmit = event => {
@@ -64,6 +66,34 @@ const svgNode = (tag, attributes) => {
   return element;
 };
 
+function activityBars(days) {
+  const max = Math.max(1, ...days.map(day => day.count));
+  const svg = svgNode('svg', { viewBox: '0 0 600 150', 'aria-hidden': 'true', focusable: 'false' });
+  for (const y of [10, 70, 130]) svg.append(svgNode('line', { x1: 0, x2: 600, y1: y, y2: y, class: 'chart-gridline' }));
+  for (const [i, day] of days.entries()) {
+    const width = 600 / days.length, height = day.count / max * 120;
+    const bar = svgNode('rect', { x: i * width + 2, y: 130 - height, width: Math.max(1, width - 4), height, rx: 2, class: 'activity-bar' });
+    const title = svgNode('title', {}); title.textContent = day.day + ': ' + number(day.count) + ' runs'; bar.append(title); svg.append(bar);
+  }
+  return svg;
+}
+
+export function statsPreview(summary, route) {
+  const section = node('section', undefined, 'surface stats-preview'); section.setAttribute('aria-label', 'Stats preview');
+  const heading = node('div', undefined, 'preview-heading'), intro = node('div');
+  intro.append(node('h2', 'Stats overview'), node('p', 'Current run filters, across all pages.', 'hint'));
+  const all = node('a', 'View all stats', 'button secondary'); all.dataset.route = ''; all.href = historyPath(route, { stats: true }); heading.append(intro, all); section.append(heading);
+  if (!summary) { section.append(node('p', 'Stats are currently unavailable.', 'hint')); return section; }
+  const content = node('div', undefined, 'preview-content'), totals = node('div', undefined, 'preview-totals');
+  for (const [label, value] of [['Matching runs', summary.total], ['Planned attempts', summary.plannedAttempts], ['Succeeded', summary.statuses?.find(row => row.status === 'succeeded')?.count], ['Failed', summary.statuses?.find(row => row.status === 'failed')?.count]]) {
+    const stat = node('div'); stat.append(node('strong', number(value)), node('span', label)); totals.append(stat);
+  }
+  const activity = node('div', undefined, 'preview-activity'), days = summary.activity || [];
+  activity.append(node('strong', 'Run activity'), activityBars(days), node('span', summary.activityFrom + ' to ' + summary.activityTo + ' (UTC)', 'hint'));
+  activity.setAttribute('role', 'img'); activity.setAttribute('aria-label', 'Run activity: ' + days.reduce((sum, day) => sum + day.count, 0) + ' runs created from ' + summary.activityFrom + ' to ' + summary.activityTo + ', UTC.');
+  content.append(totals, activity); section.append(content); return section;
+}
+
 export function historyCharts(summary, route) {
   const section = node('section', undefined, 'history-insights'); section.setAttribute('aria-label', 'Run history charts');
   if (!summary) { section.append(node('p', 'Run history charts are unavailable.', 'hint')); return section; }
@@ -76,14 +106,7 @@ export function historyCharts(summary, route) {
   const charts = node('div', undefined, 'history-chart-grid');
   const activity = node('article', undefined, 'surface activity-chart'); activity.append(node('h3', 'Runs created per day'));
   activity.append(node('p', summary.activityFrom + ' to ' + summary.activityTo + ' (UTC)', 'hint chart-window'));
-  const days = summary.activity || [], max = Math.max(1, ...days.map(day => day.count));
-  const svg = svgNode('svg', { viewBox: '0 0 600 150', 'aria-hidden': 'true', focusable: 'false' });
-  for (const y of [10, 70, 130]) svg.append(svgNode('line', { x1: 0, x2: 600, y1: y, y2: y, class: 'chart-gridline' }));
-  for (const [i, day] of days.entries()) {
-    const width = 600 / days.length, height = day.count / max * 120;
-    const bar = svgNode('rect', { x: i * width + 2, y: 130 - height, width: Math.max(1, width - 4), height, rx: 2, class: 'activity-bar' });
-    const title = svgNode('title', {}); title.textContent = day.day + ': ' + number(day.count) + ' runs'; bar.append(title); svg.append(bar);
-  }
+  const days = summary.activity || [], svg = activityBars(days);
   const scale = node('div', undefined, 'chart-scale'); scale.append(node('span', '0 baseline'), node('span', 'Peak: ' + number(Math.max(0, ...days.map(day => day.count))) + ' runs / day'));
   activity.append(svg, scale);
   if (!days.some(day => day.count > 0)) activity.append(node('p', 'No runs created in this chart window.', 'hint'));
