@@ -69,7 +69,7 @@ def _deliver(payload: dict, path: str, endpoint: str,
         with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
             response = client.post(endpoint + path, json=payload, headers=headers)
         if response.status_code != 202:
-            raise BenchError(f"{operation}_delivery_failed")
+            raise BenchError(f"{operation}_delivery_failed_http_{response.status_code}")
         return response.json()
     except (httpx.HTTPError, ValueError):
         raise BenchError(f"{operation}_delivery_unconfirmed") from None

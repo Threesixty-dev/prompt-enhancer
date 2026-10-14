@@ -1,5 +1,18 @@
 # Beta progress journal: published handoff
 
+## 2026-10-14 - Independent core release automation
+
+On `develop` baseline `dbd5bf1`, the [automation follow-up](bench/core-publication.md#release-automation-follow-up---2026-10-14)
+excludes changes limited to generated core-version defaults from Bench API
+deployment. Real runtime/protocol changes and manual dispatch still deploy;
+missing or malformed comparison inputs select deployment conservatively.
+Delivery errors report only HTTP status, preserving response-body privacy.
+
+Evidence: 256 synthetic Bench tests, privacy scanning, architecture consistency
+and whitespace checks pass. Public registry setup and an anonymous worker pull
+were separately verified under the owner's operational authorization. Hosted CI,
+source review and promotion remain pending. No general acceptance gate closes.
+
 ## 2026-10-14 - Resolve Bench core versions per Run
 
 On `develop` baseline `f7c380e`, the owner-requested

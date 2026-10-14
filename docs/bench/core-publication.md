@@ -45,6 +45,13 @@ environment name does not itself enforce review; existing GitHub environment and
 repository protections remain authoritative. No settings or permissions are
 automatically configured by adding the workflow.
 
+The gateway's existing machine-access policy must cover both `/api/publications`
+and `/api/core-images`. An exact-path policy for Experiment delivery alone does
+not authorize core registration. Add the registration path to the reviewed
+Service Auth application when configuring this feature; retain authentication
+and the existing policy scope for every other endpoint. A successful local
+registration or anonymous image pull does not verify this gateway delivery path.
+
 `bench/core_release.py --check` verifies repository syntax, dependency variant,
 the requested version and the full checked-out source SHA before registry access.
 After focused synthetic tests and privacy scanning, `--allow-publish` releases
@@ -69,6 +76,32 @@ run and immutable artifact, then retry identical source or prepare a new version
 when a source correction is needed. Network/authentication errors are never
 treated as evidence that a tag is absent.
 
+## One-time public GHCR setup
+
+For a public source repository whose owner approves public images, configure
+`BENCH_REGISTRY=ghcr.io` and an exact lowercase `BENCH_IMAGE_REPOSITORY`, such as
+`ghcr.io/example/enhancement-core`, in the existing `bench-publication`
+environment. The Action uses its existing job-scoped `GITHUB_TOKEN` for the push;
+no personal registry token is needed. Keep the package associated with the source
+repository and verify its public visibility during initial package setup.
+Publication success alone does not prove anonymous pull access.
+
+Add that exact repository to both the API and worker's
+`BENCH_IMAGE_REPOSITORIES` allowlists. Preserve any previous repositories needed
+by recorded Runs. Apply this configuration once through the deployment manager,
+then verify an anonymous pull of the registered digest on the worker host.
+Do not mount host Docker credentials or provider account files into the worker.
+
+After setup, each release uses the existing `Publish Core` workflow dispatch
+with the selected version, main revision and variant. The Action builds or reuses
+the image, verifies its runtime identity and registers the digest. There is no
+per-version Coolify image edit or worker/relay restart. Experiment publication
+and Run execution remain separate; the workflow does not start a Run. Generated
+core-version defaults alone no longer trigger a Bench API deployment.
+
+A private registry requires separately provisioned, scoped worker pull access;
+the public setup does not configure or infer such credentials.
+
 ## Use the released version
 
 Register the verified release receipt through `enhancement-bench register-core`
@@ -92,6 +125,28 @@ through `Publish Experiments` separately. That job no longer accesses a registry
 or requires package permissions. New Runs, including reruns, resolve the current
 catalog entry and record its digest. An unavailable version fails Run admission;
 `autoRun: false` definitions may be imported before registration.
+
+## Release automation follow-up - 2026-10-14
+
+- Baseline: reviewed `develop` at `dbd5bf1`; recovery branch
+  `codex/core-release-recovery` preserves the staged automation follow-up.
+- Proposed behavior: compatible core releases use the versioned registry publication and
+  registration workflow without a Bench API deployment for version-only schema
+  defaults or per-version worker/relay maintenance.
+- Scope: deployment selection, synthetic Git-history regressions, content-free
+  HTTP status diagnostics for delivery failures, operator guidance, and
+  owner-selected registry/allowlist configuration outside Git.
+- Evidence: 256 Bench tests, privacy scanning and architecture consistency pass,
+  including synthetic Git histories and delivery privacy boundaries. The
+  owner-authorized public package setup and anonymous worker pull of the verified
+  artifact are confirmed separately. The release Action then reused that artifact,
+  passed offline verification and registered it successfully after the exact
+  registration path was added to the existing Service Auth application. A rerun
+  preserved its revision/settings and bound the registry digest, but its first
+  attempt reported unconfirmed remote cleanup; this is not experiment-success
+  evidence. Source review, hosted PR checks and promotion remain separate.
+- Boundary: no new core implementation, Experiment revision, model binding,
+  database migration or broader workflow acceptance is implied by this follow-up.
 
 ## Bounded task evidence - 2026-10-14
 
