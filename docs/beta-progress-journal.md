@@ -15,6 +15,15 @@ refusal, missing artifact/no delivery, runtime probe bounds and failure cleanup,
 and separate workflow authority. No new image or Experiment was published; actual
 registry/container/worker verification remains separate. No general gate closes.
 
+Follow-up: root Codex/Claude instructions require repository-local skills and
+Bench guidance. Three skill validations, 19 referenced paths/imports and nine
+privacy tests pass. Merge validation reproduced and corrected an outdated
+consumer-process match in the relay smoke; its complete isolated-container run
+now passes with every security/restart assertion retained. Six HTTP 422 response
+descriptions are explicit across Python versions; all nine OpenAPI export tests
+pass without changing the committed schema. These bounded checks add no model,
+provider-account or production-release qualification.
+
 ## 2026-10-14 - Bench stats preview above list filters
 
 Corrected the history layout on `develop` baseline `994ed34`: a compact stats

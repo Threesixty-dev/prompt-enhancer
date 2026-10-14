@@ -100,3 +100,26 @@ definition with `autoRun: true` can then queue a run independently.
   Experiment was delivered. Workflow publication/owner merge, registry access,
   actual container probe and worker availability need separate hosted evidence.
   General workflow, model, GPU and release acceptance gates remain unchanged.
+
+## Agent instructions and merge validation - 2026-10-14
+
+Root `AGENTS.md` and `CLAUDE.md` now require the development skill, the Bench
+guide for relevant work, and the applicable experiment/core skill. All three
+skills are tracked in `.agents/skills/`; personal installation is unnecessary.
+Three skill validators, 19 instruction references/imports and nine focused
+privacy tests pass. Existing privacy and contribution requirements are preserved.
+
+Pre-merge CI exposed two existing compatibility defects. The relay smoke still
+identified the old Agent Server process after startup moved to the retention
+wrapper. It now checks the exact current process arguments and retains the
+unrelated-environment canary assertion. The failure reproduced locally; the
+complete relay smoke then passed with newly built isolated Bench/consumer images,
+including authentication, TLS streaming, network isolation and restart checks.
+No model or provider account was used and no image was published.
+
+Six explicit HTTP 422 responses also inherited Python-version-dependent status
+descriptions. Their descriptions now match the committed OpenAPI artifact on
+both Python status tables. All nine OpenAPI export tests pass, including exact
+artifact checks under both descriptions. Response schemas, status codes and
+runtime behavior are unchanged. These checks do not substitute for the final
+hosted CI result or broader release acceptance.

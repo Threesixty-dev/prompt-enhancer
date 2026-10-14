@@ -400,7 +400,8 @@ def create_session_analysis_command_router(
                 "model": (
                     SessionTextAnalysisFailureResponse
                     | SanitizedRequestValidationFailureResponse
-                )
+                ),
+                "description": "Unprocessable Content",
             },
         },
     )
@@ -440,7 +441,8 @@ def create_session_analysis_command_router(
                 "model": (
                     SessionTextAnalysisFailureResponse
                     | SanitizedRequestValidationFailureResponse
-                )
+                ),
+                "description": "Unprocessable Content",
             },
         },
     )
@@ -515,7 +517,8 @@ def create_session_analysis_command_router(
                 "model": (
                     SessionTextAnalysisFailureResponse
                     | SanitizedRequestValidationFailureResponse
-                )
+                ),
+                "description": "Unprocessable Content",
             },
         },
     )
