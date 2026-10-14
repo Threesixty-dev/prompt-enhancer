@@ -155,8 +155,34 @@ def test_workflows_separate_manual_core_publication_from_experiment_delivery():
     core_commands = "\n".join(step.get("run", "") for step in job["steps"])
     assert "bench/core_release.py --allow-publish" in core_commands
     assert "bench/ci.py" not in core_commands and "enhancement_bench.cli deliver" not in core_commands
-    assert "BENCH_DELIVERY_URL" not in json.dumps(core) and "BENCH_CF_ACCESS" not in json.dumps(core)
-    assert experiment["jobs"]["publish"]["permissions"]["packages"] == "read"
+    assert experiment["jobs"]["publish"]["permissions"] == {"contents": "read"}
+    assert "BENCH_CORE_IMAGES" not in json.dumps(experiment)
     experiment_commands = "\n".join(step.get("run", "") for step in experiment["jobs"]["publish"]["steps"])
     assert "--allow-publish" not in experiment_commands and "core_release.py" not in experiment_commands
     assert "enhancement_bench.cli deliver" in experiment_commands
+    assert "docker" not in experiment_commands
+
+
+def test_core_registration_follows_verified_release_and_fails_closed():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/bench-core-publish.yml").read_text())
+    steps = workflow["jobs"]["publish"]["steps"]
+    release_index = next(i for i, step in enumerate(steps)
+                         if "core_release.py --allow-publish" in step.get("run", ""))
+    registration_index = next(i for i, step in enumerate(steps)
+                              if "enhancement_bench.cli register-core" in step.get("run", ""))
+    assert registration_index == release_index + 1
+    registration = steps[registration_index]
+    assert registration["run"].endswith('register-core "$RUNNER_TEMP/core-release.json"')
+    assert steps[release_index]["run"].endswith('--output "$RUNNER_TEMP/core-release.json"')
+    assert "if" not in registration and "continue-on-error" not in registration
+    assert "continue-on-error" not in steps[release_index]
+    assert registration["env"] == {
+        "BENCH_DELIVERY_URL": "${{ vars.BENCH_DELIVERY_URL }}",
+        "BENCH_CF_ACCESS_CLIENT_ID": "${{ secrets.BENCH_CF_ACCESS_CLIENT_ID }}",
+        "BENCH_CF_ACCESS_CLIENT_SECRET": "${{ secrets.BENCH_CF_ACCESS_CLIENT_SECRET }}",
+    }
+    # Gateway credentials are scoped to receipt delivery, never build or probe.
+    for index, step in enumerate(steps):
+        if index != registration_index:
+            assert not any(key.startswith("BENCH_CF_ACCESS") for key in step.get("env", {}))
+    assert steps[-1]["if"].startswith("always()")

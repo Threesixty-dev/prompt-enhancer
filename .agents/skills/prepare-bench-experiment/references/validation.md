@@ -32,10 +32,10 @@ consistency, evaluator requirements and referenced evaluator IDs in addition to
 the JSON schema. Import contracts only; do not construct a runtime or load models.
 
 For the publication directory, check uniqueness of both `(stableId, revision)`
-and `(stableId, generation)` across files. The CLI validates files independently;
-`bench/ci.py` adds those cross-file checks before image resolution. Do not run
-the publisher as an offline validator: it can contact registries and pull images.
-It cannot build or publish them. Use the separate `Publish Core` Action and
+and `(stableId, generation)` across files. Both the validation CLI and
+`bench/ci.py` check these identities across their selected files. The publisher
+prepares version-only envelopes without registry access; it cannot build,
+publish or register images. Use the separate `Publish Core` Action and
 `deploy-enhancement-core` skill for an explicitly requested new core release.
 
 Inspect `EnhancementEngine.validate` for script restrictions, supported metric

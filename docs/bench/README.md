@@ -77,9 +77,10 @@ workers against the same SQLite database or duplicate the static worker namespac
 ## Experiments and delivery
 
 Author a new JSON file directly in `experiments/` and push it to the configured
-publication branch. The `Publish Experiments` GitHub Action validates the files,
-resolves each Experiment's `enhancerVersion` to an immutable core image, and
-delivers it to Test Bench. `autoRun: true` queues a Run automatically on import;
+publication branch. The `Publish Experiments` GitHub Action validates the files
+and delivers version-referencing definitions to Test Bench. Bench resolves each
+new Run's `enhancerVersion` from its registered core catalog and freezes that
+image digest on the Run. `autoRun: true` queues a Run automatically on import;
 its status and results appear in the UI. No manual import or UI Run is needed.
 
 Keep `stableId` for later revisions and change both `revision` and `generation`.
@@ -118,14 +119,26 @@ The measured baseline, evaluator profile and generation context/prompt versions
 are retained with the core result; the core sends these measurements to the
 consumer before requesting a candidate.
 
-Publication schema `bench-publication/v1` contains `definition`, `image`, and
-`coreVersion`. `image` must be an allowlisted repository followed by an immutable
-SHA-256 digest. There is no runtime Git SHA lookup. The definition's `revision`
+Publication schema `bench-publication/v2` contains only `definition` alongside
+the envelope schema version. The definition references `enhancerVersion`.
+Verified core-release receipts register version/variant-to-image bindings through
+`POST /api/core-images`; their images must use an allowlisted repository and an
+immutable SHA-256 digest. New Runs and reruns resolve the current binding; queued,
+running and historical Runs retain their original digests. A rebuilt image for
+the same core version needs registration, without an Experiment revision change.
+Repeated Run requests return their original Run without resolving again.
+There is no runtime Git SHA lookup. The definition's `revision`
 is an immutable string identity, while integer `generation` determines ordering.
 Duplicate delivery is a no-op. A conflicting payload for an existing revision or
 generation is rejected atomically. A disabled revision is not eligible for auto-run.
 
-The gateway protects `POST /api/publications`,
+An unavailable version fails Run admission with `core_version_unavailable`.
+An import that would auto-run rolls back atomically; `autoRun: false` definitions
+can be imported before their core is registered. Legacy v1 envelopes remain
+accepted and may seed a missing catalog entry; redelivery never replaces a newer
+registration. See [resolution and migration](core-version-resolution.md).
+
+The gateway protects `POST /api/publications`, `POST /api/core-images`,
 `GET /api/experiments`, `GET /api/runs`, `GET /api/runs/{id}`, `POST /api/runs`,
 `POST /api/runs/{id}/cancel`, and `POST /api/runs/{id}/reconcile`. UI run creation
 includes `stableId`, `revision`, a UUID `requestId`, explicit `overrides`, and an
@@ -181,43 +194,32 @@ The one-time operator configuration is:
 | `BENCH_PUBLICATION_BRANCH` | Repository variable | Branch permitted to publish automatically |
 | `BENCH_DELIVERY_URL` | Environment variable | HTTPS Test Bench origin, without an API path |
 | `BENCH_CF_ACCESS_CLIENT_ID`, `BENCH_CF_ACCESS_CLIENT_SECRET` | Environment secrets, when needed | Existing machine access through the access gateway |
-| `BENCH_CORE_IMAGES` | Environment variable | Optional reviewed catalog of retained immutable core artifacts |
-| `BENCH_IMAGE_REPOSITORY`, `BENCH_REGISTRY` | Environment variables, when needed | Registry for versions outside the retained catalog |
-| `BENCH_CORE_VARIANT` | Environment variable, optional | `default` or `models`; defaults to `default` |
+| `BENCH_IMAGE_REPOSITORY`, `BENCH_REGISTRY` | Core-release environment variables | Registry used by the separate core release job |
+| `BENCH_CORE_VARIANT` | API and worker environment, optional | Catalog/runtime variant: `default` or `models`; defaults to `default` |
 
-The retained artifact catalog is JSON keyed by core version, for example:
+The current catalog is stored in Bench's private database, keyed by core version
+and variant. Register the verified `core-release/v1` receipt using
+`enhancement-bench register-core /tmp/example-core-release.json` with the existing
+delivery origin and gateway settings. Registration does not import an Experiment
+or start a Run. The old publisher-side `BENCH_CORE_IMAGES` setting is no longer
+read. Migrated legacy entries retain unknown build provenance until replaced by
+a verified receipt; do not fabricate a fingerprint from stale image labels.
 
-```json
-{
-  "0.1.4": {
-    "image": "registry.example.com/example/enhancer@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "variant": "default"
-  }
-}
-```
-
-Register an artifact only after verifying its runtime core version, build variant
-and availability to the Test Bench worker. The digest identifies the exact bytes.
-`buildInputSha256` may be recorded when the complete build-input fingerprint is
-known; do not invent it from a stale image label. Reusing the checkout's current
-core version requires that fingerprint to match the current source. Other
-retained versions do not claim source equivalence to this checkout.
-
-For versions outside the catalog, the Experiment publisher resolves an existing
-verified registry image. It has read-only package access and cannot build or
-publish a core image. A missing version reports `core_release_required`; use the
-separate manual [Publish Core workflow](core-publication.md) to release the
-selected source version first. A definition-only change can reuse an existing
-core. Changed source under an existing version fails instead of replacing the
-tag. All Experiments validate and all images
-resolve before delivery begins. Delivery sends the required Origin and optional gateway
-credentials, refuses redirects, and emits only a content-free acknowledgement.
-Bench has no application login or import token. Registry access uses the job
-token; no personal credential is committed.
+Experiment publication validates and delivers version-only definitions without
+registry access. A new Run whose version is absent from the catalog reports
+`core_version_unavailable`; use the separate manual
+[Publish Core workflow](core-publication.md) to verify and register the selected
+version before retrying. A definition with `autoRun: false` can be imported before
+registration. A definition-only change can reuse a registered core, and rebuilding
+the same build inputs can register a replacement digest without a new Experiment
+revision. Changed build inputs require a new core version. Delivery sends the
+required Origin and optional gateway credentials, refuses redirects, and emits
+only a content-free acknowledgement. Bench has no application login or import
+token. Registry access belongs to the separate core-release job and worker.
 
 The core-release workflow's operator-selected `models` variant installs B's
 locked optional runtimes and uses its own tag, build fingerprint and image label.
-Select the matching variant when publishing Experiments. The
+Configure the API and worker to select the matching catalog variant. The
 worker's optional local-model profile mounts only a reviewed labelled Docker
 volume at a fixed read-only cache path and validates CPU/memory/device settings.
 These controls stay outside definitions and UI overrides. See the deployment

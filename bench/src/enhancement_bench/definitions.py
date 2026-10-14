@@ -14,6 +14,7 @@ from .errors import BenchError
 
 Identifier = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$")]
 IMAGE = re.compile(r"^[a-z0-9][a-z0-9./:_-]{0,240}@sha256:[a-f0-9]{64}$")
+CoreVersion = Annotated[str, StringConstraints(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.-]+)?$", max_length=80)]
 
 
 def canonical(value: Any) -> str:
@@ -91,18 +92,33 @@ Definition = Experiment
 
 
 class Publication(StrictModel):
-    schemaVersion: Literal["bench-publication/v1"]
+    schemaVersion: Literal["bench-publication/v1", "bench-publication/v2"]
     definition: Definition
-    image: str
-    coreVersion: str
+    image: str | None = None
+    coreVersion: str | None = None
 
     @model_validator(mode="after")
     def validate_image(self):
-        if not IMAGE.fullmatch(self.image):
+        if self.schemaVersion == "bench-publication/v2":
+            if self.image is not None or self.coreVersion is not None:
+                raise ValueError("definition_only_publication_required")
+            return self
+        if not isinstance(self.image, str) or not IMAGE.fullmatch(self.image):
             raise ValueError("immutable_image_required")
         if self.coreVersion != self.definition.enhancerVersion:
             raise ValueError("core_version_mismatch")
         return self
+
+
+class CoreImage(StrictModel):
+    schemaVersion: Literal["core-release/v1"]
+    coreVersion: CoreVersion
+    variant: Literal["default", "models"]
+    image: str = Field(pattern=IMAGE.pattern)
+    buildInputSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    validatedSourceRevision: str = Field(pattern=r"^[a-f0-9]{40}$")
+    action: Literal["built", "reused"]
+    runtimeVerified: Literal[True]
 
 
 class Overrides(StrictModel):

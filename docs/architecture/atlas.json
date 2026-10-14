@@ -2813,6 +2813,7 @@
     }
   ],
   "findings": [
+    "Later bounded evidence, 2026-10-14: docs/bench/core-version-resolution.md and proposed ADR 0026 record version-only Bench publications, per-Run catalog resolution and schema 2 migration. 237 synthetic Bench tests pass, including automatic registration after release verification and failure handling. This W02/W07/WP08 addendum does not recolor the frozen October 8 observation or accept general workflow/runtime gates.",
     "Audit scope is analytics/metrics only. No provider history, credentials, environment files, personal runtime, network calls, application windows or models accessed. No tests executed for this read-only inventory.",
     "Color is component-specific: ready means a bounded source/helper contract with historical passing evidence and reviewed implementation; it never certifies beta/native/installed readiness. partial includes implemented but unqualified features. absent marks the missing measured adapter, not absence of its UI/schema. mock is explicit synthetic preview only.",
     "docs/architecture.md is still 'discussion draft 0.1' and says product is not a replacement provider client; this conflicts with agreed first-class Agent/workflow scope. Its encrypted content vault, remote judge and DuckDB edges are proposals, not confirmed runtime composition.",

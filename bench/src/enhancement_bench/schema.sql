@@ -1,4 +1,9 @@
 PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS core_images (
+  core_version TEXT NOT NULL, variant TEXT NOT NULL CHECK(variant IN ('default','models')),
+  image TEXT NOT NULL, receipt TEXT, registered REAL NOT NULL,
+  PRIMARY KEY(core_version, variant)
+);
 CREATE TABLE IF NOT EXISTS definitions (
   stable_id TEXT NOT NULL, revision TEXT NOT NULL, generation INTEGER NOT NULL,
   spec_hash TEXT NOT NULL, body TEXT NOT NULL, image TEXT NOT NULL,
@@ -39,4 +44,3 @@ BEGIN SELECT RAISE(ABORT, 'immutable_definition'); END;
 CREATE TRIGGER IF NOT EXISTS immutable_run_settings BEFORE UPDATE OF
   effective,image,stable_id,revision,generation,request_key,request_hash,correlation_id ON runs
 BEGIN SELECT RAISE(ABORT, 'immutable_run_settings'); END;
-PRAGMA user_version=1;

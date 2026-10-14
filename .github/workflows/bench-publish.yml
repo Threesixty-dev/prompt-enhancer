@@ -3,17 +3,6 @@ on:
   push:
     paths: ["experiments/**/*.json"]
   workflow_dispatch:
-    inputs:
-      image_repository:
-        description: Reviewed image repository without a tag
-        required: false
-        type: string
-      core_variant:
-        description: Reviewed core dependency variant; models includes offline typed model runtimes
-        required: true
-        default: default
-        type: choice
-        options: [default, models]
 permissions:
   contents: read
 concurrency:
@@ -27,7 +16,6 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
-      packages: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -43,19 +31,8 @@ jobs:
           uv sync --project bench --frozen --extra dev
           bench/.venv/bin/python -m enhancement_bench.cli validate experiments/*.json
           python scripts/privacy_scan.py
-      - name: Authenticate to approved registry
-        if: vars.BENCH_REGISTRY != ''
-        env:
-          REGISTRY: ${{ vars.BENCH_REGISTRY }}
-          REGISTRY_USER: ${{ github.actor }}
-          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
-      - name: Resolve existing core versions and immutable digests
-        env:
-          IMAGE_REPOSITORY: ${{ inputs.image_repository || vars.BENCH_IMAGE_REPOSITORY }}
-          CORE_VARIANT: ${{ inputs.core_variant || vars.BENCH_CORE_VARIANT || 'default' }}
-          BENCH_CORE_IMAGES: ${{ vars.BENCH_CORE_IMAGES || '{}' }}
-        run: bench/.venv/bin/python bench/ci.py --repository "$IMAGE_REPOSITORY" --variant "$CORE_VARIANT" --output "$RUNNER_TEMP/bench-publications"
+      - name: Prepare version-referencing Experiment envelopes
+        run: bench/.venv/bin/python bench/ci.py --output "$RUNNER_TEMP/bench-publications"
       - name: Idempotently deliver validated envelopes
         env:
           BENCH_DELIVERY_URL: ${{ vars.BENCH_DELIVERY_URL }}
@@ -65,8 +42,3 @@ jobs:
           for publication in "$RUNNER_TEMP"/bench-publications/*.json; do
             bench/.venv/bin/python -m enhancement_bench.cli deliver "$publication"
           done
-      - name: Remove job registry credentials
-        if: always() && vars.BENCH_REGISTRY != ''
-        env:
-          REGISTRY: ${{ vars.BENCH_REGISTRY }}
-        run: docker logout "$REGISTRY"
