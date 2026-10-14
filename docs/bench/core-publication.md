@@ -45,6 +45,13 @@ environment name does not itself enforce review; existing GitHub environment and
 repository protections remain authoritative. No settings or permissions are
 automatically configured by adding the workflow.
 
+The gateway's existing machine-access policy must cover both `/api/publications`
+and `/api/core-images`. An exact-path policy for Experiment delivery alone does
+not authorize core registration. Add the registration path to the reviewed
+Service Auth application when configuring this feature; retain authentication
+and the existing policy scope for every other endpoint. A successful local
+registration or anonymous image pull does not verify this gateway delivery path.
+
 `bench/core_release.py --check` verifies repository syntax, dependency variant,
 the requested version and the full checked-out source SHA before registry access.
 After focused synthetic tests and privacy scanning, `--allow-publish` releases
@@ -132,9 +139,12 @@ catalog entry and record its digest. An unavailable version fails Run admission;
 - Evidence: 256 Bench tests, privacy scanning and architecture consistency pass,
   including synthetic Git histories and delivery privacy boundaries. The
   owner-authorized public package setup and anonymous worker pull of the verified
-  artifact are confirmed separately. Automated registration and a rerun remain
-  operational verification steps until their receipts are confirmed. Source
-  review, hosted CI and promotion remain separate from that operational evidence.
+  artifact are confirmed separately. The release Action then reused that artifact,
+  passed offline verification and registered it successfully after the exact
+  registration path was added to the existing Service Auth application. A rerun
+  preserved its revision/settings and bound the registry digest, but its first
+  attempt reported unconfirmed remote cleanup; this is not experiment-success
+  evidence. Source review, hosted PR checks and promotion remain separate.
 - Boundary: no new core implementation, Experiment revision, model binding,
   database migration or broader workflow acceptance is implied by this follow-up.
 
