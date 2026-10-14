@@ -68,6 +68,12 @@ jobs:
         run: printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
       - name: Release only the selected core and verify its runtime identity
         run: bench/.venv/bin/python bench/core_release.py --allow-publish --repository "$IMAGE_REPOSITORY" --version "$CORE_VERSION" --source-revision "$CORE_SOURCE_REVISION" --variant "$CORE_VARIANT" --output "$RUNNER_TEMP/core-release.json"
+      - name: Register the verified core for future Runs
+        env:
+          BENCH_DELIVERY_URL: ${{ vars.BENCH_DELIVERY_URL }}
+          BENCH_CF_ACCESS_CLIENT_ID: ${{ secrets.BENCH_CF_ACCESS_CLIENT_ID }}
+          BENCH_CF_ACCESS_CLIENT_SECRET: ${{ secrets.BENCH_CF_ACCESS_CLIENT_SECRET }}
+        run: bench/.venv/bin/python -m enhancement_bench.cli register-core "$RUNNER_TEMP/core-release.json"
       - name: Remove job registry credentials
         if: always() && vars.BENCH_REGISTRY != ''
         env:

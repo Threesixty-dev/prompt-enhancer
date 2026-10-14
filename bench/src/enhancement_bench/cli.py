@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
-from .definitions import Definition, Overrides, Publication, effective_settings
+from .definitions import CoreImage, Definition, Overrides, Publication, effective_settings
 from .errors import BenchError
 from .protocol import Contracts
 from .runtime import DockerRuntime, DockerSettings
@@ -47,9 +47,10 @@ def validate_definitions(paths: list[Path], contracts: Contracts) -> list[Defini
     return definitions
 
 
-def deliver_publication(publication: Publication, endpoint: str,
+def _deliver(payload: dict, path: str, endpoint: str,
                         *, access_client_id: str | None = None,
-                        access_client_secret: str | None = None) -> dict:
+                        access_client_secret: str | None = None,
+                        operation: str = "publication") -> dict:
     endpoint = endpoint.rstrip("/")
     origin = urlsplit(endpoint)
     if (origin.scheme != "https" or not origin.hostname or origin.username is not None
@@ -66,11 +67,18 @@ def deliver_publication(publication: Publication, endpoint: str,
                         "CF-Access-Client-Secret": access_client_secret})
     try:
         with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
-            response = client.post(endpoint + "/api/publications",
-                                   json=publication.model_dump(), headers=headers)
+            response = client.post(endpoint + path, json=payload, headers=headers)
         if response.status_code != 202:
-            raise BenchError("publication_delivery_failed")
-        value = response.json()
+            raise BenchError(f"{operation}_delivery_failed")
+        return response.json()
+    except (httpx.HTTPError, ValueError):
+        raise BenchError(f"{operation}_delivery_unconfirmed") from None
+
+
+def deliver_publication(publication: Publication, endpoint: str, **credentials) -> dict:
+    excluded = {"image", "coreVersion"} if publication.schemaVersion == "bench-publication/v2" else set()
+    value = _deliver(publication.model_dump(exclude=excluded), "/api/publications", endpoint, **credentials)
+    try:
         if (not isinstance(value, dict) or "runId" not in value or type(value.get("imported")) is not bool
                 or (value.get("runId") is not None and not isinstance(value["runId"], str))):
             raise BenchError("publication_acknowledgement_invalid")
@@ -78,8 +86,17 @@ def deliver_publication(publication: Publication, endpoint: str,
         return {"experiment": publication.definition.stableId,
                 "revision": publication.definition.revision,
                 "imported": value["imported"], "runId": run_id}
-    except (httpx.HTTPError, ValueError):
+    except ValueError:
         raise BenchError("publication_delivery_unconfirmed") from None
+
+
+def register_core_image(artifact: CoreImage, endpoint: str, **credentials) -> dict:
+    value = _deliver(artifact.model_dump(), "/api/core-images", endpoint,
+                     operation="core_registration", **credentials)
+    if (not isinstance(value, dict) or type(value.get("registered")) is not bool
+            or value.get("coreVersion") != artifact.coreVersion or value.get("variant") != artifact.variant):
+        raise BenchError("core_registration_acknowledgement_invalid")
+    return {key: value[key] for key in ("registered", "coreVersion", "variant")}
 
 
 def parser():
@@ -94,11 +111,11 @@ def parser():
     sub.add_parser("worker")
     envelope = sub.add_parser("envelope")
     envelope.add_argument("definition", type=Path)
-    envelope.add_argument("--image", required=True)
-    envelope.add_argument("--core-version", required=True)
     envelope.add_argument("--output", required=True, type=Path)
     deliver = sub.add_parser("deliver")
     deliver.add_argument("publication", type=Path)
+    register = sub.add_parser("register-core")
+    register.add_argument("receipt", type=Path)
     return value
 
 
@@ -112,18 +129,23 @@ def main():
             return
         if args.command == "envelope":
             definition = validate_definition(args.definition, contracts)
-            envelope = Publication(schemaVersion="bench-publication/v1", definition=definition,
-                                   image=args.image, coreVersion=args.core_version)
-            args.output.write_text(envelope.model_dump_json(indent=2) + "\n")
+            envelope = Publication(schemaVersion="bench-publication/v2", definition=definition)
+            args.output.write_text(envelope.model_dump_json(indent=2, exclude={"image", "coreVersion"}) + "\n")
             return
-        if args.command == "deliver":
-            envelope = Publication.model_validate_json(args.publication.read_text())
-            receipt = deliver_publication(envelope, os.environ["BENCH_DELIVERY_URL"],
+        if args.command in {"deliver", "register-core"}:
+            if args.command == "deliver":
+                value = Publication.model_validate_json(args.publication.read_text())
+                delivery = deliver_publication
+            else:
+                value = CoreImage.model_validate_json(args.receipt.read_text())
+                delivery = register_core_image
+            receipt = delivery(value, os.environ["BENCH_DELIVERY_URL"],
                 access_client_id=os.environ.get("BENCH_CF_ACCESS_CLIENT_ID"),
                 access_client_secret=os.environ.get("BENCH_CF_ACCESS_CLIENT_SECRET"))
             print(json.dumps(receipt))
             return
-        store = Store(Path(os.environ.get("BENCH_DATABASE", "/tmp/enhancement-bench/bench.sqlite3")))
+        store = Store(Path(os.environ.get("BENCH_DATABASE", "/tmp/enhancement-bench/bench.sqlite3")),
+                      core_variant=os.environ.get("BENCH_CORE_VARIANT", "default"))
         repositories = tuple(filter(None, os.environ.get("BENCH_IMAGE_REPOSITORIES", "").split(",")))
         if not repositories:
             raise BenchError("image_allowlist_required")

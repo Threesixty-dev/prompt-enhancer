@@ -1,5 +1,18 @@
 # Product feature and readiness matrix
 
+## Core version resolution per Run - 2026-10-14
+
+The [bounded Bench change](bench/core-version-resolution.md) separates Experiment
+version references from per-Run image digests. New Runs and reruns resolve a
+version/variant catalog; duplicate requests and historical Runs retain their
+original binding. Schema 2 migration preserves private evidence. Local evidence:
+237 Bench tests, three definition validations, privacy scan, synthetic default/CPU/CUDA
+Compose validation and two skill validators pass. Automatic core-release
+registration follows successful runtime verification and fails the job if delivery
+is unconfirmed; gateway credentials stay scoped to registration. Hosted
+CI, owner merge, deployment and actual artifact availability are unverified.
+W02/W07/WP08 general workflow and runtime gates remain open.
+
 ## Definition-only Bench validation - 2026-10-14
 
 The [scoped experiment candidate](bench/concise-structured-experiment.md) separates

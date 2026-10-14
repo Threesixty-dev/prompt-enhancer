@@ -10,7 +10,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .definitions import Definition, Overrides, Publication, canonical, configuration_summary, definition_payload, effective_settings, fingerprint
+from .definitions import CoreImage, Definition, Overrides, Publication, canonical, configuration_summary, definition_payload, effective_settings, fingerprint
 from .errors import BenchError
 from .history import RunFilters, model_options, predicate, summarize
 
@@ -18,15 +18,26 @@ TERMINAL = {"succeeded", "failed", "cancelled", "interrupted", "superseded"}
 
 
 class Store:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, core_variant: str = "default"):
+        if core_variant not in {"default", "models"}:
+            raise BenchError("unsupported_build_variant")
+        self.core_variant = core_variant
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self.connection() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise BenchError("unsupported_database_schema", 503)
             db.execute("PRAGMA journal_mode=WAL")
-            db.executescript(Path(__file__).with_name("schema.sql").read_text())
+            db.executescript("BEGIN IMMEDIATE;\n" + Path(__file__).with_name("schema.sql").read_text())
+            if version == 1:
+                # Retain legacy registrations without rewriting any definition or run.
+                for row in db.execute("SELECT body,image,created FROM definitions ORDER BY created DESC,stable_id,revision"):
+                    db.execute("INSERT OR IGNORE INTO core_images VALUES(?,?,?,?,?)",
+                               (json.loads(row["body"])["enhancerVersion"], self.core_variant,
+                                row["image"], None, row["created"]))
+            db.execute("PRAGMA user_version=2")
+            db.commit()
         os.chmod(self.path, 0o600)
 
     @contextmanager
@@ -54,16 +65,34 @@ class Store:
         db.execute("INSERT INTO events(run_id,attempt_id,state,code,created) VALUES(?,?,?,?,?)",
                    (run_id, attempt_id, state, code, time.time()))
 
+    def register_core_image(self, artifact: CoreImage) -> dict:
+        with self.transaction() as db:
+            previous = db.execute("SELECT image,receipt FROM core_images WHERE core_version=? AND variant=?",
+                                  (artifact.coreVersion, artifact.variant)).fetchone()
+            if previous and previous["receipt"]:
+                receipt = json.loads(previous["receipt"])
+                if receipt["buildInputSha256"] != artifact.buildInputSha256:
+                    raise BenchError("core_version_reused_for_changed_code", 409)
+                if previous["image"] == artifact.image:
+                    return {"registered": False, "coreVersion": artifact.coreVersion, "variant": artifact.variant}
+            db.execute("""INSERT INTO core_images VALUES(?,?,?,?,?)
+                ON CONFLICT(core_version,variant) DO UPDATE SET
+                image=excluded.image,receipt=excluded.receipt,registered=excluded.registered""",
+                       (artifact.coreVersion, artifact.variant, artifact.image,
+                        artifact.model_dump_json(), time.time()))
+        return {"registered": True, "coreVersion": artifact.coreVersion, "variant": artifact.variant}
+
     def import_publication(self, publication: Publication) -> dict:
         definition = publication.definition
         payload = definition_payload(definition)
         body = canonical(payload)
-        spec_hash = fingerprint(publication.model_dump() | {"definition": payload})
+        spec_hash = (fingerprint(payload) if publication.schemaVersion == "bench-publication/v2"
+                     else fingerprint(publication.model_dump() | {"definition": payload}))
         with self.transaction() as db:
             existing = db.execute("SELECT * FROM definitions WHERE stable_id=? AND revision=?",
                                   (definition.stableId, definition.revision)).fetchone()
             if existing:
-                if existing["spec_hash"] != spec_hash:
+                if canonical(definition_payload(Definition.model_validate_json(existing["body"]))) != body:
                     raise BenchError("immutable_revision_conflict", 409)
                 run = db.execute("SELECT id FROM runs WHERE stable_id=? AND revision=? AND origin='gitops'",
                                  (definition.stableId, definition.revision)).fetchone()
@@ -73,7 +102,11 @@ class Store:
                 raise BenchError("generation_conflict", 409)
             db.execute("INSERT INTO definitions VALUES(?,?,?,?,?,?,?,?)",
                        (definition.stableId, definition.revision, definition.generation,
-                        spec_hash, body, publication.image, definition.autoRun, time.time()))
+                        spec_hash, body, publication.image or "", definition.autoRun, time.time()))
+            if publication.image is not None:
+                # Old publishers can bootstrap a version, never replace a newer release.
+                db.execute("INSERT OR IGNORE INTO core_images VALUES(?,?,?,?,?)",
+                           (definition.enhancerVersion, self.core_variant, publication.image, None, time.time()))
             latest = db.execute("SELECT MAX(generation) FROM definitions WHERE stable_id=? AND auto_run=1",
                                 (definition.stableId,)).fetchone()[0]
             run_id = None
@@ -82,18 +115,25 @@ class Store:
                                    (definition.stableId, latest)).fetchall()
                 for row in stale:
                     self._finish(db, row["id"], "superseded", "newer_eligible_definition")
-                run_id = self._enqueue(db, definition, publication.image, Overrides(), "gitops",
+                run_id = self._enqueue(db, definition, Overrides(), "gitops",
                                        f"auto:{definition.stableId}:{definition.revision}", None)
             return {"imported": True, "runId": run_id}
 
-    def _enqueue(self, db, definition, image, overrides, origin, request_key, retry_of):
+    def _enqueue(self, db, definition, overrides, origin, request_key, retry_of):
         effective = effective_settings(definition, overrides)
-        digest = fingerprint({"effective": effective, "image": image, "retryOf": retry_of})
-        previous = db.execute("SELECT id,request_hash FROM runs WHERE request_key=?", (request_key,)).fetchone()
+        previous = db.execute("SELECT id,request_hash,image FROM runs WHERE request_key=?", (request_key,)).fetchone()
         if previous:
+            # Preserve v1 request hashes and retries even after the catalog changes.
+            digest = fingerprint({"effective": effective, "image": previous["image"], "retryOf": retry_of})
             if previous["request_hash"] != digest:
                 raise BenchError("idempotency_conflict", 409)
             return previous["id"]
+        artifact = db.execute("SELECT image FROM core_images WHERE core_version=? AND variant=?",
+                              (definition.enhancerVersion, self.core_variant)).fetchone()
+        if artifact is None:
+            raise BenchError("core_version_unavailable", 409)
+        image = artifact["image"]
+        digest = fingerprint({"effective": effective, "image": image, "retryOf": retry_of})
         run_id, correlation_id = str(uuid.uuid4()), str(uuid.uuid4())
         db.execute("""INSERT INTO runs(id,correlation_id,stable_id,revision,generation,origin,
           request_key,request_hash,retry_of,effective,image,status,created)
@@ -126,13 +166,13 @@ class Store:
                 if (parent is None or parent["stable_id"] != stable_id or parent["revision"] != revision
                         or parent["status"] not in TERMINAL or parent["cleanup_pending"] or parent["reconciliation_required"]):
                     raise BenchError("retry_requires_reconciled_terminal_run", 409)
-            return self._enqueue(db, Definition.model_validate_json(row["body"]), row["image"],
+            return self._enqueue(db, Definition.model_validate_json(row["body"]),
                                  overrides, "ui", f"ui:{request_id}", retry_of)
 
     def definitions(self) -> list[dict]:
         with self.connection() as db:
             rows = db.execute("SELECT * FROM definitions ORDER BY stable_id,generation DESC").fetchall()
-        return [{**json.loads(r["body"]), "image": r["image"], "specHash": r["spec_hash"]} for r in rows]
+        return [{**json.loads(r["body"]), "specHash": r["spec_hash"]} for r in rows]
 
     def runs(self, limit: int = 100, *, before: str | None = None, filters: RunFilters | None = None) -> list[dict]:
         with self.connection() as db:
