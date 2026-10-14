@@ -12,6 +12,7 @@ ORIGIN = {"Origin": "http://testserver"}
     "/experiments", "/experiments/example-widget",
     "/experiments/example-widget/runs/new",
     "/experiments/example-widget/runs/example-run",
+    "/stats", "/experiments/example-widget/stats",
 ])
 def test_client_deep_links_serve_the_shell(store, contracts, path):
     with client_for(store, contracts) as client:

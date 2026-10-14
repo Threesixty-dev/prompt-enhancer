@@ -1,5 +1,20 @@
 # Beta progress journal: published handoff
 
+## 2026-10-14 - Bench stats preview above list filters
+
+Corrected the history layout on `develop` baseline `994ed34`: a compact stats
+preview precedes the homepage and experiment run-list filters. View all stats
+opens separate global or revision-scoped charts with their own filters. Applied
+filters carry between both views; browser Back restores list pagination.
+Existing summaries and metric semantics remain unchanged.
+
+Local evidence: 184 Bench backend tests, 38 desktop/mobile browser checks,
+JavaScript syntax, privacy and whitespace checks pass. Synthetic visual checks
+confirm preview ordering and no horizontal overflow on either screen size.
+Owned fixture servers were stopped and temporary dependency links removed.
+See the [bounded correction evidence](bench/client-navigation.md#stats-preview-and-dedicated-charts---2026-10-14).
+Hosted deployment verification is separate; no general acceptance gate changes.
+
 ## 2026-10-14 - Bench history filters and comparison charts
 
 Implemented on owner-selected `develop` at `56ddc38`. Homepage and experiment
