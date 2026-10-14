@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
-      packages: write
+      packages: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -50,12 +50,12 @@ jobs:
           REGISTRY_USER: ${{ github.actor }}
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
-      - name: Build or reuse code-owned version and immutable digest
+      - name: Resolve existing core versions and immutable digests
         env:
           IMAGE_REPOSITORY: ${{ inputs.image_repository || vars.BENCH_IMAGE_REPOSITORY }}
           CORE_VARIANT: ${{ inputs.core_variant || vars.BENCH_CORE_VARIANT || 'default' }}
           BENCH_CORE_IMAGES: ${{ vars.BENCH_CORE_IMAGES || '{}' }}
-        run: bench/.venv/bin/python bench/ci.py --repository "$IMAGE_REPOSITORY" --variant "$CORE_VARIANT" --allow-publish --output "$RUNNER_TEMP/bench-publications"
+        run: bench/.venv/bin/python bench/ci.py --repository "$IMAGE_REPOSITORY" --variant "$CORE_VARIANT" --output "$RUNNER_TEMP/bench-publications"
       - name: Idempotently deliver validated envelopes
         env:
           BENCH_DELIVERY_URL: ${{ vars.BENCH_DELIVERY_URL }}

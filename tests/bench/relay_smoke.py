@@ -136,8 +136,8 @@ matched=0
 for entry in Path('/proc').iterdir():
     if not entry.name.isdigit(): continue
     try:
-        command=(entry/'cmdline').read_bytes()
-        if b'openhands.agent_server' in command and b'-c' not in command.split(b'\\0'):
+        command=(entry/'cmdline').read_bytes().split(b'\\0')
+        if command[1:4] == [b'-m', b'uvicorn', b'consumer_retention:create_app']:
             environment=(entry/'environ').read_bytes()
             assert b'EXAMPLE_STACK_CANARY=' not in environment
             matched+=1

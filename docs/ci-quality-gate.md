@@ -7,21 +7,38 @@ artifacts. Tests remain subject to the suite-wide non-loopback socket guard.
 
 ## Scheduling and deployment reuse
 
-A pull-request update starts one full quality workflow. Feature and `develop`
-pushes do not start a second copy; their proposals are checked through PRs.
-A newer update cancels the superseded run for the same PR. Each `main` push
-gets its own full validation, because its merge commit is a distinct revision;
-those runs are not cancelled when another main commit arrives.
+A pull-request update and each `main` push run repository integrity checks.
+The pinned `dorny/paths-filter` Action selects product jobs using
+`.github/validation-paths.yml`. With its token disabled, it compares Git commits:
+the previous head for a PR update or main push, and the PR base for a newly
+opened PR. Detection checks out the PR head explicitly. A documentation-only
+update therefore does not repeat suites selected by earlier code changes.
+
+Frontend paths select frontend and hosted-container checks; Bench paths select
+Bench checks; shared Python source/dependencies select backend, Bench and hosted
+checks where those workflows run. CI configuration and evidence-verifier changes
+select focused CI-policy tests. Update the shared filters when adding a new
+source surface. Privacy, architecture consistency and patch whitespace remain
+checked on every quality run. Manual workflow dispatch explicitly runs all jobs.
+
+Feature and `develop` pushes do not start a second quality workflow; their
+proposals are checked through PRs. A newer update cancels the superseded quality
+run for the same PR. Main runs retain their own evidence and are not cancelled
+when another main commit arrives.
 
 Manual deployment reads the successful **Quality gate** run for its exact
 `main` commit through `scripts/require_quality_run.py`. It never calls the suite
 again. Only a `push` run of `.github/workflows/quality-gate.yml` in the same
 repository, with the same source repository, branch and SHA, is eligible.
-The newest run must succeed, and repository integrity, frontend and all four
-backend shards must have successful job evidence. Missing or skipped jobs,
-failed or cancelled runs, malformed API responses and different commits block
-deployment. A failed-job-only rerun may retain successes from earlier attempts
-of the same immutable run; a newer unsuccessful attempt takes precedence.
+The newest run must succeed, with successful `Repository integrity` and
+`Quality result` job evidence. The always-running aggregate requires every
+selected suite to succeed and every unselected suite to be skipped. Backend
+matrix failures remain failures of that selected job. An unexpected skip,
+failure or cancellation fails the aggregate. Missing or skipped required
+aggregate jobs, malformed API responses and different commits block deployment.
+A failed-job-only rerun may retain successes from earlier attempts of the same
+immutable run; a newer unsuccessful attempt takes precedence. The verifier does
+not search older commits or treat an unselected suite as newly validated.
 
 If the eligible run is still pending, deployment waits up to 65 minutes.
 If no run exists, wait for main CI to appear before dispatching deployment.
@@ -37,6 +54,8 @@ and authenticated live revision verification still run during deployment.
 | Repository integrity | Ubuntu | `python scripts/privacy_scan.py`; `python scripts/render_architecture_atlas.py --check`; event-range `git diff --check` |
 | Backend | Two required shards each on Ubuntu and Windows | `uv lock --check`; `uv sync --frozen --extra dev`; frozen `uv run` compilation, platform security preflight, and the complete pytest collection split across both shards |
 | Frontend | Ubuntu, Node.js 24 | `npm ci`; `npm test`; `npm run check:api`; `npm run build`; `npx playwright install --with-deps chromium`; `npm run test:e2e` |
+| CI policy | Ubuntu | Focused synthetic release-evidence tests when CI configuration or its verifier changes |
+| Quality result | Ubuntu | Require integrity and all selected jobs to succeed; require unselected jobs to be skipped |
 
 Every external GitHub action is pinned to an immutable commit SHA. Adjacent
 comments retain the reviewed release tag so dependency updates remain explicit

@@ -1,0 +1,75 @@
+name: Publish Core
+
+on:
+  workflow_dispatch:
+    inputs:
+      core_version:
+        description: Exact CORE_VERSION in the selected main source
+        required: true
+        type: string
+      source_revision:
+        description: Full reviewed main commit SHA; release refuses a moved source
+        required: true
+        type: string
+      core_variant:
+        description: Reviewed dependency variant; models includes offline model runtimes
+        required: true
+        default: default
+        type: choice
+        options: [default, models]
+      image_repository:
+        description: Reviewed image repository without a tag; defaults to the configured repository
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-image-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    environment: bench-publication
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_REPOSITORY: ${{ inputs.image_repository || vars.BENCH_IMAGE_REPOSITORY }}
+      CORE_VERSION: ${{ inputs.core_version }}
+      CORE_VARIANT: ${{ inputs.core_variant }}
+      CORE_SOURCE_REVISION: ${{ inputs.source_revision }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.10.4"
+      - name: Validate source and release inputs without publication
+        run: |
+          uv sync --project bench --frozen --extra dev
+          bench/.venv/bin/python bench/core_release.py --check --repository "$IMAGE_REPOSITORY" --version "$CORE_VERSION" --source-revision "$CORE_SOURCE_REVISION" --variant "$CORE_VARIANT"
+          python scripts/privacy_scan.py
+          bench/.venv/bin/python -m pytest -q tests/bench
+      - name: Authenticate to approved registry
+        if: vars.BENCH_REGISTRY != ''
+        env:
+          REGISTRY: ${{ vars.BENCH_REGISTRY }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+      - name: Release only the selected core and verify its runtime identity
+        run: bench/.venv/bin/python bench/core_release.py --allow-publish --repository "$IMAGE_REPOSITORY" --version "$CORE_VERSION" --source-revision "$CORE_SOURCE_REVISION" --variant "$CORE_VARIANT" --output "$RUNNER_TEMP/core-release.json"
+      - name: Remove job registry credentials
+        if: always() && vars.BENCH_REGISTRY != ''
+        env:
+          REGISTRY: ${{ vars.BENCH_REGISTRY }}
+        run: docker logout "$REGISTRY"

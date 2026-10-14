@@ -1,4 +1,3 @@
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -64,10 +63,8 @@ def test_daemon_unavailable_never_counts_as_successful_cleanup(monkeypatch):
 
 
 def ci_module():
-    spec = importlib.util.spec_from_file_location("bench_ci", ROOT / "bench/ci.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from enhancement_bench import core_images
+    return core_images
 
 
 def test_ci_definition_only_changes_reuse_image(monkeypatch):
