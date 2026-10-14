@@ -1,5 +1,20 @@
 # Beta progress journal: published handoff
 
+## 2026-10-14 - Separate optional core release from Experiment publication
+
+On `develop` baseline `01a4d21`, added a manual-only Publish Core Action and a
+version/source-bound release command. Experiment publication now resolves
+existing core artifacts with read-only package access and cannot build or push
+them. A missing image requires the separate release first. The authoring skill
+asks whether to reuse a core or prepare a new version; deployment has its own
+skill. See [the task and operator guide](bench/core-publication.md).
+
+Local evidence: 201 synthetic Bench tests, release CLI check mode, both skill
+structure checks, privacy and whitespace checks pass. Tests cover source/version
+refusal, missing artifact/no delivery, runtime probe bounds and failure cleanup,
+and separate workflow authority. No new image or Experiment was published; actual
+registry/container/worker verification remains separate. No general gate closes.
+
 ## 2026-10-14 - Bench stats preview above list filters
 
 Corrected the history layout on `develop` baseline `994ed34`: a compact stats

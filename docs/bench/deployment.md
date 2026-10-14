@@ -233,9 +233,11 @@ The read-only root, PID limit, dropped capabilities, bounded temporary filesyste
 and one-run admission policy remain enforced. Stop/drain the worker before changing
 its runtime profile; the models profile rejects queued default-variant images.
 
-Select `models` in the manual publication workflow or pass `--variant models` to
-`bench/ci.py`. It builds B's recipe with `ENHANCEMENT_WITH_MODELS=1` and resolves
-`core-<version>-models`; the default uses `core-<version>` with build argument `0`.
+Select `models` in the separate manual [Publish Core workflow](core-publication.md)
+to release that variant. It builds B's recipe with `ENHANCEMENT_WITH_MODELS=1` and
+publishes `core-<version>-models`; the default uses `core-<version>` with build
+argument `0`. The Experiment publisher's `--variant models` only resolves an
+existing matching image and cannot build or publish one.
 Both the build fingerprint and `example.enhancement.build-variant` image label
 include the variant. Reuse requires the matching label and source/build hash.
 The model-enabled launcher refuses an image without the `models` label. Switching

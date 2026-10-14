@@ -199,17 +199,21 @@ known; do not invent it from a stale image label. Reusing the checkout's current
 core version requires that fingerprint to match the current source. Other
 retained versions do not claim source equivalence to this checkout.
 
-For versions outside the catalog, the publisher reuses a verified registry image
-or builds the checkout's code-owned `CORE_VERSION`. It never builds a different
-requested version from current source. Changed source under an existing version
-fails instead of replacing the tag. All Experiments validate and all images
+For versions outside the catalog, the Experiment publisher resolves an existing
+verified registry image. It has read-only package access and cannot build or
+publish a core image. A missing version reports `core_release_required`; use the
+separate manual [Publish Core workflow](core-publication.md) to release the
+selected source version first. A definition-only change can reuse an existing
+core. Changed source under an existing version fails instead of replacing the
+tag. All Experiments validate and all images
 resolve before delivery begins. Delivery sends the required Origin and optional gateway
 credentials, refuses redirects, and emits only a content-free acknowledgement.
 Bench has no application login or import token. Registry access uses the job
 token; no personal credential is committed.
 
-The publication workflow's operator-selected `models` variant installs B's locked
-optional runtimes and uses its own tag, build fingerprint and image label. The
+The core-release workflow's operator-selected `models` variant installs B's
+locked optional runtimes and uses its own tag, build fingerprint and image label.
+Select the matching variant when publishing Experiments. The
 worker's optional local-model profile mounts only a reviewed labelled Docker
 volume at a fixed read-only cache path and validates CPU/memory/device settings.
 These controls stay outside definitions and UI overrides. See the deployment

@@ -9,6 +9,7 @@ import httpx
 import pytest
 import yaml
 
+from enhancement_bench import core_images
 from enhancement_bench.api import create_app
 from enhancement_bench.cli import deliver_publication
 from enhancement_bench.definitions import Definition, Experiment, ExperimentUnit, Unit
@@ -100,7 +101,7 @@ def run_publisher(monkeypatch, tmp_path, experiments):
     monkeypatch.setattr(sys, "argv", ["ci.py", "--repository", IMAGE.split("@")[0],
                                      "--experiments", str(inputs), "--output", str(output)])
     calls = []
-    monkeypatch.setattr(ci, "resolve_or_publish", lambda repository, **kwargs:
+    monkeypatch.setattr(ci, "resolve_existing", lambda repository, **kwargs:
                         calls.append(kwargs["version"]) or (kwargs["version"], IMAGE, "reused"))
     return ci, output, calls
 
@@ -141,7 +142,7 @@ def test_duplicate_experiment_revision_fails_before_image_resolution(monkeypatch
 
 
 def test_registered_image_reuse_is_pinned_and_does_not_hide_changed_current_source(monkeypatch):
-    ci = publisher()
+    ci = core_images
     entry = {"image": IMAGE, "variant": "default", "buildInputSha256": "b" * 64}
     monkeypatch.setattr(ci, "core_version", lambda: "0.2.0")
     assert ci.configured_image("0.1.0", "default", {"0.1.0": entry}) == ("0.1.0", IMAGE, "registered")
@@ -154,7 +155,7 @@ def test_registered_image_reuse_is_pinned_and_does_not_hide_changed_current_sour
 
 
 def test_retained_artifact_keeps_unknown_build_inputs_unknown(monkeypatch):
-    ci = publisher()
+    ci = core_images
     entry = {"image": IMAGE, "variant": "default"}
     monkeypatch.setattr(ci, "core_version", lambda: "0.2.0")
     assert ci.configured_image("0.1.0", "default", {"0.1.0": entry}) == ("0.1.0", IMAGE, "registered")
@@ -164,7 +165,7 @@ def test_retained_artifact_keeps_unknown_build_inputs_unknown(monkeypatch):
 
 
 def test_historical_version_cannot_be_built_from_current_source(monkeypatch):
-    ci = publisher()
+    ci = core_images
     monkeypatch.setattr(ci, "core_version", lambda: "0.2.0")
     monkeypatch.setattr(ci, "existing_tag", lambda tag: False)
     monkeypatch.setattr(ci, "command", lambda *args, **kwargs: pytest.fail("must not build wrong source"))
@@ -181,3 +182,25 @@ def test_json_push_triggers_publication_only_on_operator_selected_branch():
     assert "github.event.repository.default_branch" in job["if"]
     assert job["environment"] == "bench-publication"
     assert workflow["concurrency"]["cancel-in-progress"] is False
+
+
+def test_missing_core_requires_separate_release_before_any_envelopes(monkeypatch, tmp_path, publication):
+    ci, output, calls = run_publisher(monkeypatch, tmp_path, [publication.definition.model_dump()])
+
+    def missing(*args, **kwargs):
+        raise BenchError("core_release_required")
+
+    monkeypatch.setattr(ci, "resolve_existing", missing)
+    with pytest.raises(SystemExit, match="core_release_required: use Publish Core"):
+        ci.main()
+    assert not output.exists() and not calls
+
+
+def test_experiment_cli_rejects_the_old_publication_authority_flag(monkeypatch, tmp_path):
+    import sys
+    ci = publisher()
+    monkeypatch.setattr(sys, "argv", ["ci.py", "--allow-publish", "--output", str(tmp_path / "output")])
+    monkeypatch.setattr(ci, "resolve_existing", lambda *args, **kwargs: pytest.fail("must not contact registry"))
+    with pytest.raises(SystemExit) as failure:
+        ci.main()
+    assert failure.value.code == 2

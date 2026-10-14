@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Separate core publication - 2026-10-14
+
+The [core release candidate](bench/core-publication.md) separates manual core
+image publication from Experiment delivery. The Experiment Action has read-only
+package access and refuses missing cores before delivering definitions. The new
+core Action verifies requested source/version identity, preserves immutable tags
+and requires an offline runtime probe with confirmed cleanup. Local evidence:
+201 Bench tests, CLI check mode, skill structure checks, privacy and whitespace
+checks pass. No live publication or runtime qualification is claimed; hosted
+workflow/registry/worker evidence remains open. B/W/WP acceptance is unchanged.
+
 ## Bench stats preview and dedicated charts - 2026-10-14
 
 The [layout correction](bench/client-navigation.md#stats-preview-and-dedicated-charts---2026-10-14)
