@@ -5,7 +5,7 @@
   "generation": 1,
   "title": "Concise versus structured rewriting: sparse and specified prompts",
   "enhancerVersion": "0.1.4",
-  "autoRun": false,
+  "autoRun": true,
   "subjects": [
     {
       "id": "example-parser-sparse",

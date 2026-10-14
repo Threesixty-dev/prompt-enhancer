@@ -1,6 +1,6 @@
 # Concise versus structured rewriting
 
-Status: prepared for owner-authorized publication; automatic execution disabled.
+Status: owner-authorized publication with automatic execution on first import.
 
 Definition: [example-concise-structured-20261014.json](../../experiments/example-concise-structured-20261014.json).
 Identity: `example-concise-structured-20261014`, revision `1`, generation `1`.
@@ -50,8 +50,9 @@ pilot, so stochastic variation remains unmeasured.
 - Limits: 180 seconds per attempt, at most 4,000 output characters. Token limit
   and temperature are null (provider-managed/unknown). This is not a measured
   cost estimate or a run-wide deadline.
-- `autoRun` is false. The definition is not published, queued or executed by
-  local validation.
+- `autoRun` is true, explicitly authorized on 2026-10-14. First import queues one
+  run with 12 attempts; repeated delivery is idempotent. Local validation does
+  not publish, queue or execute the definition.
 
 ## Interpretation fixed before a run
 
@@ -119,8 +120,8 @@ Local validation of this combined candidate passes all 201 Bench tests, 142
 focused publication/CI/privacy checks, canonical validation of both definitions,
 semantic validation of 16 requests, identity checks, the privacy scan and
 architecture-output consistency. Hosted validation, owner merge and import
-acknowledgement remain separate. Publication reuses core `0.1.4`; `autoRun`
-remains false.
+acknowledgement remain separate. Publication reuses core `0.1.4`; automatic
+execution on first import is explicitly authorized.
 
 The candidate also separates Experiment definition validation from full Bench
 verification. A JSON-only update checks every case/unit request, cross-file
@@ -130,5 +131,5 @@ workflow changes still select full verification; manual dispatch runs both jobs.
 The shared CLI and publisher use the same identity validation. Follow-up evidence:
 277 Bench/CI-policy/privacy tests and canonical validation pass; the exact pinned
 path-filter Action passes 24 synthetic PR/push cases, including definition-only,
-documentation, runtime, workflow and mixed changes. Hosted CI for this correction
-and owner merge remain pending.
+documentation, runtime, workflow and mixed changes. Hosted CI confirmation,
+execution of the authorized merge and import acknowledgement remain pending.
