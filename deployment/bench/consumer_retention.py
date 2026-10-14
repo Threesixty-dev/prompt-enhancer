@@ -93,6 +93,15 @@ class Retention:
             if event_service is not None:
                 # Never cancel work or discard a subscribed/uncertain runtime.
                 deadline = time.monotonic() + 2
+                if event_service.has_external_subscribers():
+                    # SDK 1.49.1's stop() sets a flag but cannot wake an idle
+                    # socket receive. A state notification lets a closing client
+                    # observe that flag and disconnect. Live observers remain
+                    # subscribed and still fail the idle check below.
+                    try:
+                        await asyncio.wait_for(event_service._publish_state_update(), timeout=1)
+                    except Exception:
+                        raise HTTPException(409, "runtime_release_unconfirmed") from None
                 while not event_service.is_idle_evictable():
                     if time.monotonic() >= deadline:
                         raise HTTPException(409, "conversation_still_active")

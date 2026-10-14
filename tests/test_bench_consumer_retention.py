@@ -33,6 +33,7 @@ class Service:
                 self.process.returncode = 0
         self._event_services = {self.identifier: SimpleNamespace(
             is_idle_evictable=lambda: not active, __aexit__=close, is_open=lambda: self.open,
+            has_external_subscribers=lambda: False,
             stored=object(), get_conversation=lambda: SimpleNamespace(agent=SimpleNamespace(_process=self.process)))}
         self._conversation_records = {self.identifier: SimpleNamespace(stored=None, cached_info=None)}
         self.deleted = []
@@ -118,3 +119,54 @@ def test_nonbench_conversation_is_never_adopted(tmp_path):
     with pytest.raises(HTTPException, match="conversation_not_bench_owned"):
         asyncio.run(retention.release(service, service.identifier))
     assert service.open and retention.read(service.identifier) is None
+
+
+@pytest.mark.parametrize("closing,active", [(True, False), (False, False), (True, True)])
+def test_finished_subscription_must_disconnect_before_runtime_release(tmp_path, closing, active):
+    service = Service(tmp_path / "conversations")
+    event = service._event_services[service.identifier]
+    subscribed = True
+    notifications = []
+
+    async def publish_state():
+        nonlocal subscribed
+        notifications.append("finished")
+        # SDK 1.49.1 checks its stop flag only after receiving an event.
+        if closing:
+            subscribed = False
+
+    event.has_external_subscribers = lambda: subscribed
+    event.is_idle_evictable = lambda: not subscribed and not active
+    event._publish_state_update = publish_state
+    retention = Retention(tmp_path / "receipts", 7)
+    if closing and not active:
+        receipt = asyncio.run(retention.release(service, service.identifier))
+        assert receipt["runtime_released"] and not receipt["cleanup_confirmed"]
+        assert not service.open and service.process.returncode == 0
+    else:
+        with pytest.raises(HTTPException, match="conversation_still_active"):
+            asyncio.run(retention.release(service, service.identifier))
+        assert service.open and service.process.returncode is None
+        assert retention.read(service.identifier) is None
+    assert notifications == ["finished"]
+    assert service.deleted == []
+
+
+@pytest.mark.parametrize("failure", ["blocked", "error"])
+def test_notification_failure_keeps_runtime_and_history_held(tmp_path, failure):
+    service = Service(tmp_path / "conversations")
+    event = service._event_services[service.identifier]
+    event.has_external_subscribers = lambda: True
+    event.is_idle_evictable = lambda: False
+
+    async def publish_state():
+        if failure == "error":
+            raise RuntimeError("example-notification-error")
+        await asyncio.Event().wait()
+
+    event._publish_state_update = publish_state
+    retention = Retention(tmp_path / "receipts", 7)
+    with pytest.raises(HTTPException, match="runtime_release_unconfirmed"):
+        asyncio.run(asyncio.wait_for(retention.release(service, service.identifier), timeout=3))
+    assert service.open and service.process.returncode is None
+    assert retention.read(service.identifier) is None and service.deleted == []
