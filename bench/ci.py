@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from enhancement_bench.cli import validate_definition
+from enhancement_bench.cli import validate_definitions
 from enhancement_bench.core_images import VERSION, configured_image, resolve_existing
 from enhancement_bench.definitions import Publication
 from enhancement_bench.errors import BenchError
@@ -26,13 +26,7 @@ def main():
     try:
         contracts = Contracts(ROOT / "contracts/enhancement")
         paths = sorted(args.experiments.glob("*.json"))
-        if not paths or any(p.is_symlink() or not p.is_file() for p in paths):
-            raise BenchError("experiment_files_required")
-        definitions = [validate_definition(p, contracts) for p in paths]
-        identities = [(d.stableId, d.revision) for d in definitions]
-        generations = [(d.stableId, d.generation) for d in definitions]
-        if len(set(identities)) != len(identities) or len(set(generations)) != len(generations):
-            raise BenchError("duplicate_experiment_revision")
+        definitions = validate_definitions(paths, contracts)
         catalog = json.loads(os.environ.get("BENCH_CORE_IMAGES", "{}"))
         if not isinstance(catalog, dict) or len(catalog) > 64:
             raise BenchError("registered_core_images_invalid")

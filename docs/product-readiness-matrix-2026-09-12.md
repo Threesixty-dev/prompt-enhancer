@@ -1,5 +1,12 @@
 # Product feature and readiness matrix
 
+## Definition-only Bench validation - 2026-10-14
+
+The [scoped experiment candidate](bench/concise-structured-experiment.md) separates
+definition contract/identity/privacy checks from full Bench verification. Local
+evidence: 277 synthetic tests and 24 pinned Action PR/push scenarios pass. Hosted
+CI and owner merge remain pending. R26 and all runtime/release gates are unchanged.
+
 ## Affected-component CI checks - 2026-10-14
 
 The [quality workflow](ci-quality-gate.md#scheduling-and-deployment-reuse) uses

@@ -36,6 +36,17 @@ def validate_definition(path: Path, contracts: Contracts) -> Definition:
     return definition
 
 
+def validate_definitions(paths: list[Path], contracts: Contracts) -> list[Definition]:
+    if not paths or any(path.is_symlink() or not path.is_file() for path in paths):
+        raise BenchError("experiment_files_required")
+    definitions = [validate_definition(path, contracts) for path in paths]
+    identities = [(definition.stableId, definition.revision) for definition in definitions]
+    generations = [(definition.stableId, definition.generation) for definition in definitions]
+    if len(set(identities)) != len(identities) or len(set(generations)) != len(generations):
+        raise BenchError("duplicate_experiment_revision")
+    return definitions
+
+
 def deliver_publication(publication: Publication, endpoint: str,
                         *, access_client_id: str | None = None,
                         access_client_secret: str | None = None) -> dict:
@@ -96,8 +107,7 @@ def main():
     try:
         contracts = Contracts(args.contracts)
         if args.command == "validate":
-            for path in args.definitions:
-                validate_definition(path, contracts)
+            validate_definitions(args.definitions, contracts)
             print(f"Validated {len(args.definitions)} synthetic experiment definitions.")
             return
         if args.command == "envelope":

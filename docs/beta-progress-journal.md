@@ -1,5 +1,15 @@
 # Beta progress journal: published handoff
 
+## 2026-10-14 - Definition-only Bench validation
+
+The scoped publication candidate separates Experiment JSON from full Bench
+verification. Definition changes validate request contracts, revision/generation
+identity uniqueness and privacy; Bench code/runtime/workflow changes retain the
+full checks. The CLI shares identity validation with the publisher. Evidence:
+277 synthetic Bench/CI-policy/privacy tests and 24 real pinned Action scenarios
+pass. Hosted CI and owner merge remain pending; no acceptance gate closes. See
+the [experiment task record](bench/concise-structured-experiment.md).
+
 ## 2026-10-14 - Scope CI to affected components
 
 Task: R26, B00/B11; baseline `fe47f63`, continuing the separate-core-release PR.
