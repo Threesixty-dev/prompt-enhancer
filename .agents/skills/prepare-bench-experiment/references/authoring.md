@@ -11,7 +11,7 @@ when they differ from this guide; these notes are not an alternate schema.
 | `stableId` | Stable logical experiment identity; unique for a new experiment. |
 | `revision` | Immutable string identity. A changed definition gets a new value. |
 | `generation` | Positive integer controlling revision ordering, independently of the revision string. |
-| `enhancerVersion` | Exact core version resolved by publication to an immutable image. |
+| `enhancerVersion` | Exact core version resolved to an immutable image when each Run is created. |
 | `subjects` | Shared synthetic input cases, each with unique `id`, `text`, and explicit context. |
 | `units` | Comparison configurations, each with a unique `id`, title and packaged strategy. |
 | `consumerBinding` | Default generation binding for consumer units; null for a script-only experiment. |

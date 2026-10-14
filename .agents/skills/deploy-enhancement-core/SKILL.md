@@ -25,10 +25,12 @@ publication approval. Do not treat an experiment request as core-release authori
 
 Read `CORE_VERSION` in `src/prompt_enhancer/enhancement/__init__.py`. The requested
 release must match the selected source's version. A new implementation requires
-a reviewed version bump when its build inputs change; never reuse an existing
-version tag for changed bytes. Resolve a new version with the user rather than
-silently changing an experiment's selected version. Historical artifacts are
-reused through the experiment publisher, not rebuilt from current source.
+a reviewed version bump when its build inputs change. A rebuild with identical
+verified build inputs may register a replacement digest for the same version.
+Resolve a new version with the user rather than
+silently changing an experiment's selected version. Historical artifacts remain
+available through Bench's registered catalog; releasing one requires its reviewed
+source and verified receipt.
 
 The `models` variant includes optional runtime dependencies, not model weights.
 It has a separate tag and build fingerprint. Worker variant, device, cache and
@@ -64,8 +66,10 @@ reviewed full `source_revision`, `core_variant` and, when needed,
 to the reviewed main source; if main moved, inspect the difference before proceeding.
 
 The job uses the existing `bench-publication` environment for reviewed registry
-settings and job-scoped package write access. It does not use Bench delivery or
-gateway secrets. If registry settings or access are unavailable, report the
+settings and job-scoped package write access. Its final registration step uses
+the configured Bench HTTPS origin and gateway secrets only for receipt delivery.
+Upgrade Bench to support `/api/core-images` before running this workflow.
+If registry or Bench access is unavailable, report the
 specific missing prerequisite without enumerating secrets, granting new access,
 or changing repository/environment policy.
 
@@ -73,12 +77,12 @@ Monitor the exact dispatched workflow run. The release reuses an identical
 existing image or builds/publishes the code-owned version, then verifies the
 immutable digest's runtime core/protocol identity in an isolated offline container.
 The models variant also checks runtime dependency imports without loading weights.
-Completion requires a successful workflow, immutable digest and verified probe
-cleanup. Prefer metadata and the bounded summary; do not dump raw runner,
+Completion requires a successful workflow, immutable digest, verified probe
+cleanup and confirmed catalog registration. Prefer metadata and the bounded summary; do not dump raw runner,
 registry or production logs.
 
 On an uncertain or failed run, inspect that run's state before retrying. The
-image may already have been pushed before a runtime probe failed. Never overwrite
+image may already have been pushed before a runtime probe or registration failed. Never overwrite
 its tag or assume failure means nothing was published. Correct source under a
 new version when necessary; an identical successful artifact can be reused.
 
@@ -89,16 +93,20 @@ Report core version, variant, immutable digest, validated source SHA, action
 which checkout's build inputs were validated; a reused image may have originally
 been built at another commit with identical inputs. Do not claim it was rebuilt.
 
-The experiment publisher can resolve a registry artifact automatically once the
-configured repository, selected variant and worker pull permissions match. A
-retained local artifact instead needs a separately reviewed `BENCH_CORE_IMAGES`
-entry; do not edit that catalog or runtime configuration without authorization.
-The release job does not prove worker-host availability, model readiness or an
-experiment outcome.
+Bench resolves the current registered image when creating each Run, including
+reruns. Use the verified release receipt with `enhancement-bench register-core`
+when registration is authorized. It uses the configured Bench HTTPS origin and
+gateway access, and updates only the version/variant catalog. Registration does
+not start an Experiment or prove worker-host availability/model readiness.
+The Action registers the verified receipt after successful runtime verification.
+Confirm the registration acknowledgement separately from publication; if delivery
+failed, retry registration of the same verified receipt rather than rebuilding
+the image. Do not invent missing legacy provenance.
 
 Return to `.agents/skills/prepare-bench-experiment/SKILL.md` when an experiment
 needs the new version.
-Changing `enhancerVersion` or its immutable image requires a new experiment
-revision/generation. Publish it separately through `Publish Experiments` only
+Changing `enhancerVersion` requires a new experiment revision/generation.
+Replacing the registered image for the same version does not; old Runs retain
+their image digests. Publish changed definitions through `Publish Experiments` only
 when requested. Keep core release, experiment import, run execution and assertion
 outcomes separate in the final report.

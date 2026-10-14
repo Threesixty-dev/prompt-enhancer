@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 from typing import Literal
 
-from .definitions import Definition, Overrides, Publication, StrictModel
+from .definitions import CoreImage, Definition, Overrides, Publication, StrictModel
 from .errors import BenchError
 from .history import RunFilters, RunStatus
 from .protocol import Contracts
@@ -104,7 +104,7 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
 
     @app.post("/api/publications", status_code=202)
     def publication(value: Publication):
-        if value.image.split("@", 1)[0] not in allowed_repositories:
+        if value.image is not None and value.image.split("@", 1)[0] not in allowed_repositories:
             raise BenchError("image_repository_not_allowed", 403)
         # Exercise the authoritative request schema for every combination before import.
         from .definitions import effective_settings
@@ -116,6 +116,12 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
             for unit in value.definition.units:
                 contracts.request(run, {"id": str(uuid4()), "subject_id": subject.id, "unit_id": unit.id})
         return store.import_publication(value)
+
+    @app.post("/api/core-images", status_code=202)
+    def register_core_image(value: CoreImage):
+        if value.image.split("@", 1)[0] not in allowed_repositories:
+            raise BenchError("image_repository_not_allowed", 403)
+        return store.register_core_image(value)
 
     @app.get("/api/experiments")
     def experiments():

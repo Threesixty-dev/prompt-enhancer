@@ -50,13 +50,14 @@ runtime prerequisites before publishing an experiment that needs it. Follow
 `docs/bench/core-publication.md`; if the required skill is missing, resolve that
 checkout prerequisite before proceeding with core work.
 
-`Publish Experiments` must only resolve existing images. It cannot build or
-publish a missing core. A missing image is a separate release prerequisite,
+`Publish Experiments` delivers version-referencing definitions and cannot build,
+publish or register a core. Bench resolves the registered image when creating
+each Run, including reruns. A missing image is a separate release prerequisite,
 not permission to bump versions, retag an artifact or invoke core publication.
 Honor explicit core deployment authorization already provided in this task.
 Before publication, verify the approved workflow has this separation. If it
 still passes `--allow-publish` to `bench/ci.py`, the workflow update must be
-reviewed and promoted first; do not claim the old Action is resolve-only.
+reviewed and promoted first; do not claim the old Action is definition-only.
 
 ## Design the comparison
 
@@ -103,10 +104,12 @@ set it to false and report that choice. If the user requests automatic execution
 on publication, set it to true. This field does not itself authorize publication.
 Changing it after import requires a new revision too.
 
-Pin `enhancerVersion` to an available reviewed core artifact. Existing retained
+Pin `enhancerVersion` to a reviewed core version. Existing retained
 versions may differ from the checkout's `CORE_VERSION`; do not silently rewrite
 the requested version or change core code to make publication succeed. Resolve
-runtime/model readiness separately from local definition validation.
+runtime/model readiness separately from local definition validation. Registering
+a rebuilt image for that same version does not require a new Experiment revision;
+existing Runs keep their recorded image digests.
 
 Use closed `parameterSchema` definitions and explicit effective parameters.
 Overrides merge shallowly: replace the whole nested `generation` object when
@@ -134,8 +137,8 @@ owner-authorized merge flow. Use an explicitly verified repository with `gh -R`;
 do not rely on an implicit CLI repository. Existing authorization for this task
 still applies; preparation alone does not grant publishing or model execution.
 
-`Publish Experiments` validates all top-level definitions and resolves their
-images before delivering them, newest generation first. It is not a single-file
+`Publish Experiments` validates all top-level definitions before delivering them,
+newest generation first. Image resolution occurs at new-Run admission. It is not a single-file
 dispatch, core release or Bench API/UI deployment. Delivery is idempotent; eligible
 `autoRun: true` revisions can queue a run. The Action stops at import
 acknowledgement. Track publication, execution status and assertion outcomes as

@@ -1,5 +1,23 @@
 # Beta progress journal: published handoff
 
+## 2026-10-14 - Resolve Bench core versions per Run
+
+On `develop` baseline `f7c380e`, the owner-requested
+[resolution change](bench/core-version-resolution.md) makes publication v2 carry
+only an Experiment definition. New Runs and reruns resolve a separate core
+version/variant catalog and retain an immutable image digest. Catalog registration
+does not start work. Duplicate requests keep their original binding, and schema
+2 migration preserves existing definition and Run evidence. Proposed ADR 0026
+records this amendment; API and worker select the same variant.
+
+Evidence: 237 synthetic Bench tests, three definition validations, privacy scan,
+default/model CPU/CUDA Compose validation and two skill validators pass. No
+production database, registry, model or deployment was used. The owner-authorized
+release-registration Action step delivers the verified artifact receipt to Bench
+after successful runtime verification, with gateway credentials scoped to that
+step. Workflow-order and failure checks cover that delivery. Hosted
+checks, owner review and deployment remain open; no general beta gate closes.
+
 ## 2026-10-14 - Definition-only Bench validation
 
 The scoped publication candidate separates Experiment JSON from full Bench

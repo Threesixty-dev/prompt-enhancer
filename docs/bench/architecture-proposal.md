@@ -4,6 +4,10 @@ Status: proposed for owner review, 2026-10-12. This does not supersede accepted
 ADRs or certify workflow beta gates. Central ADR/atlas integration is coordinated
 by the supervisor and core workstream.
 
+The image-binding portion of this historical proposal is amended by proposed
+[ADR 0026](../adr/0026-core-version-resolution-at-run-creation.md): Experiments
+reference a core version, and each new Run resolves and saves its image digest.
+
 The bench stores experiment revisions, run snapshots, per-subject/unit attempts,
 complete results and lifecycle events in its own private SQLite database. It does
 not store benchmark prompts in the application's metrics-only prompt-check history.

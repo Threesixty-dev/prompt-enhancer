@@ -6,6 +6,7 @@ services:
     environment:
       BENCH_DATABASE: /data/bench.sqlite3
       BENCH_IMAGE_REPOSITORIES: ${BENCH_IMAGE_REPOSITORIES:?Set exact core repository allowlist}
+      BENCH_CORE_VARIANT: ${BENCH_CORE_VARIANT:-default}
       BENCH_ORIGIN: ${BENCH_ORIGIN:-http://127.0.0.1:8088}
     ports: ["127.0.0.1:8088:8088"]
     volumes: [bench-data:/data]

@@ -6,7 +6,8 @@ Coolify` updates the API/UI. These are three separate workflows.
 
 Bench starts an ephemeral core container for each run. A core release does not
 replace the worker or consumer, deploy the API/UI, change model bindings or start
-an Experiment. Existing definitions keep their saved image digests.
+an Experiment. Definitions select a core version; each Run keeps its saved image
+digest. See [Run-time version resolution](core-version-resolution.md).
 
 ## Choose whether a core release is needed
 
@@ -38,7 +39,8 @@ The manual-only `.github/workflows/bench-core-publish.yml` runs on reviewed
 
 The job reuses the existing `bench-publication` environment's approved registry
 settings (`BENCH_REGISTRY`, `BENCH_IMAGE_REPOSITORY`) and job-scoped package write
-permission. It does not reference Bench delivery or gateway secrets. The
+permission. The final registration step uses the existing `BENCH_DELIVERY_URL`
+and gateway secrets; those credentials are not supplied to build or probe steps. The
 environment name does not itself enforce review; existing GitHub environment and
 repository protections remain authoritative. No settings or permissions are
 automatically configured by adding the workflow.
@@ -69,19 +71,27 @@ treated as evidence that a tag is absent.
 
 ## Use the released version
 
-Registry resolution needs the configured repository and matching variant, and
-the worker must be able to pull the digest from an allowlisted repository. A
-retained local artifact instead uses a separately reviewed `BENCH_CORE_IMAGES`
-entry. Core publication does not edit this catalog, prove worker-host access or
-configure GPU/cache/model readiness.
+Register the verified release receipt through `enhancement-bench register-core`
+using the existing configured Bench HTTPS origin and gateway access. This updates
+Bench's version/variant catalog for future Runs, without importing definitions or
+starting execution. The [automatic registration Action step](core-version-resolution.md#automatic-registration-step)
+performs this delivery after successful release verification. Upgrade Bench to
+support `/api/core-images` before running that workflow. A failed registration
+fails the job even if the image has already been published; retrying registration
+of the same verified receipt is idempotent.
 
-Set the Experiment's `enhancerVersion` to the selected released version. Changing
-an imported definition or its image requires a new revision and generation.
-Publish the definition through `Publish Experiments` separately. Its job has
-package read access only, and `bench/ci.py` no longer accepts `--allow-publish`.
-All selected definitions/images resolve before any envelope delivery; a missing
-core fails with an instruction to use `Publish Core` first. An eligible imported
-definition with `autoRun: true` can then queue a run independently.
+The worker must be able to pull the digest from an allowlisted repository with
+the matching variant. Registration does not prove worker-host access or configure
+GPU/cache/model readiness. Legacy database/catalog entries retain unknown build
+provenance rather than inventing a release receipt.
+
+Set the Experiment's `enhancerVersion` to the selected version. Changing that
+version or other definition settings requires a new revision and generation;
+replacing the registered image for the same version does not. Publish definitions
+through `Publish Experiments` separately. That job no longer accesses a registry
+or requires package permissions. New Runs, including reruns, resolve the current
+catalog entry and record its digest. An unavailable version fails Run admission;
+`autoRun: false` definitions may be imported before registration.
 
 ## Bounded task evidence - 2026-10-14
 

@@ -12,7 +12,7 @@ import yaml
 from enhancement_bench import core_images
 from enhancement_bench.api import create_app
 from enhancement_bench.cli import deliver_publication
-from enhancement_bench.definitions import Definition, Experiment, ExperimentUnit, Unit
+from enhancement_bench.definitions import CoreImage, Definition, Experiment, ExperimentUnit, Unit
 from enhancement_bench.errors import BenchError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -101,8 +101,7 @@ def run_publisher(monkeypatch, tmp_path, experiments):
     monkeypatch.setattr(sys, "argv", ["ci.py", "--repository", IMAGE.split("@")[0],
                                      "--experiments", str(inputs), "--output", str(output)])
     calls = []
-    monkeypatch.setattr(ci, "resolve_existing", lambda repository, **kwargs:
-                        calls.append(kwargs["version"]) or (kwargs["version"], IMAGE, "reused"))
+    monkeypatch.setattr(core_images, "command", lambda *args, **kwargs: pytest.fail("publisher must not contact registry"))
     return ci, output, calls
 
 
@@ -124,11 +123,18 @@ def test_publisher_keeps_each_experiment_version_and_delivers_newest_first(
     ci, output, calls = run_publisher(monkeypatch, tmp_path, [original, newest])
     ci.main()
     envelopes = [json.loads(path.read_text()) for path in sorted(output.glob("*.json"))]
-    assert calls == ["0.1.0", "0.2.0"]
+    assert calls == []
     assert [e["definition"]["revision"] for e in envelopes] == ["2", "1"]
     from enhancement_bench.definitions import Publication
 
     for envelope in envelopes:
+        assert set(envelope) == {"schemaVersion", "definition"}
+        assert envelope["schemaVersion"] == "bench-publication/v2"
+        store.register_core_image(CoreImage(
+            schemaVersion="core-release/v1", coreVersion=envelope["definition"]["enhancerVersion"],
+            variant="default", image=IMAGE, buildInputSha256="b" * 64,
+            validatedSourceRevision="c" * 40, action="built", runtimeVerified=True,
+        ))
         store.import_publication(Publication.model_validate(envelope))
     assert len(store.runs()) == 1 and store.runs()[0]["revision"] == "2"
 
@@ -184,23 +190,24 @@ def test_json_push_triggers_publication_only_on_operator_selected_branch():
     assert workflow["concurrency"]["cancel-in-progress"] is False
 
 
-def test_missing_core_requires_separate_release_before_any_envelopes(monkeypatch, tmp_path, publication):
-    ci, output, calls = run_publisher(monkeypatch, tmp_path, [publication.definition.model_dump()])
-
-    def missing(*args, **kwargs):
-        raise BenchError("core_release_required")
-
-    monkeypatch.setattr(ci, "resolve_existing", missing)
-    with pytest.raises(SystemExit, match="core_release_required: use Publish Core"):
-        ci.main()
-    assert not output.exists() and not calls
+def test_publisher_does_not_require_an_image_and_preserves_explicit_nulls(monkeypatch, tmp_path, publication):
+    definition = publication.definition.model_dump()
+    definition["consumerBinding"] = None
+    definition["units"] = [definition["units"][0]]
+    definition["autoRun"] = False
+    ci, output, calls = run_publisher(monkeypatch, tmp_path, [definition])
+    monkeypatch.setattr(sys, "argv", ["ci.py", "--experiments", str(tmp_path / "experiments"), "--output", str(output)])
+    ci.main()
+    envelope = json.loads(next(output.glob("*.json")).read_text())
+    assert envelope["definition"]["consumerBinding"] is None
+    assert set(envelope) == {"schemaVersion", "definition"} and not calls
 
 
 def test_experiment_cli_rejects_the_old_publication_authority_flag(monkeypatch, tmp_path):
     import sys
     ci = publisher()
     monkeypatch.setattr(sys, "argv", ["ci.py", "--allow-publish", "--output", str(tmp_path / "output")])
-    monkeypatch.setattr(ci, "resolve_existing", lambda *args, **kwargs: pytest.fail("must not contact registry"))
+    monkeypatch.setattr(core_images, "command", lambda *args, **kwargs: pytest.fail("must not contact registry"))
     with pytest.raises(SystemExit) as failure:
         ci.main()
     assert failure.value.code == 2

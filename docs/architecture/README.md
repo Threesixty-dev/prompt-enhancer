@@ -2,6 +2,13 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 14 [core version resolution candidate](../bench/core-version-resolution.md)
+and proposed [ADR 0026](../adr/0026-core-version-resolution-at-run-creation.md)
+move Bench image binding to new-Run admission while retaining historical digests.
+The bounded W02/W07/WP08 evidence does not change the frozen atlas observation or
+accept general workflow/runtime gates. The core release workflow registers the
+verified artifact for future Runs after its offline runtime probe succeeds.
+
 The October 14 [CI path selection](../ci-quality-gate.md#scheduling-and-deployment-reuse)
 uses a pinned GitHub Action and shared YAML filters for affected-component checks.
 Experiment JSON selects contract/identity/privacy validation separately from
