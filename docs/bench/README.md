@@ -10,7 +10,8 @@ see the [integration review](integration-review.md).
 The [client navigation](client-navigation.md) separates experiment browsing,
 experiment details, run setup and results. Open an experiment and choose **New
 run**, or choose **Rerun with changes** on a result. Edit parameters, objectives,
-steering and model aliases using form controls; saved results remain read-only.
+steering, generation model aliases and evaluator routing using form controls;
+saved results remain read-only.
 
 ## Domain language
 
@@ -118,6 +119,33 @@ objective and steering for each unit. Rerun copies those effective settings.
 The measured baseline, evaluator profile and generation context/prompt versions
 are retained with the core result; the core sends these measurements to the
 consumer before requesting a candidate.
+
+### Selecting evaluators for a run
+
+The **Evaluators** section in New run and Rerun allows one to eight evaluators.
+Each row selects a method and an operator-configured binding alias. Add multiple
+rubric rows to compare model aliases or to judge different criteria. The existing
+rubric adapter supports task definition, constraint precision, acceptance
+testability and deliverable contract; it returns `present`, `absent` or unknown,
+not the deterministic numeric scores. Classifiers require a statement, embeddings
+require reference text, and rubric models may have separate generation settings.
+Alias suggestions come from imported definitions, not a live availability catalog.
+Core admission still checks that each alias supports its selected method.
+
+API/UI `overrides.evaluators` replaces the shared evaluator list for that Run.
+The same frozen list applies to every selected unit and both evaluation passes.
+A changed profile gets a content-derived `run-…` revision; reruns retain the
+effective choices. Imported definitions and historical results are unchanged.
+Omitted overrides preserve older effective settings and idempotency hashes.
+Duplicate IDs, invalid typed settings and broken assertion/objective references
+reject before enqueue. Keep the deterministic evaluator when existing assertions
+reference its metrics; add model judges beside it. No endpoint, credential, model
+download or consumer binding is introduced by selecting an evaluator alias.
+
+The numeric rule-based metrics describe detected text cues. Zero is a measured
+score; unknown means no eligible observation and is never filled with zero.
+`diagnostic_task_not_detected` means problem-evidence scoring did not apply to
+that prompt. A delta is unknown if either side lacks a comparable observation.
 
 Publication schema `bench-publication/v2` contains only `definition` alongside
 the envelope schema version. The definition references `enhancerVersion`.

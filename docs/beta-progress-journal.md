@@ -1,5 +1,23 @@
 # Beta progress journal: published handoff
 
+## 2026-10-15 - Select evaluator models independently
+
+On `develop` baseline `dbd5bf1`, the owner-requested Bench change adds a shared
+evaluator editor with model aliases, typed criteria/reference text and rubric
+generation settings. API overrides freeze all choices under a content-derived
+profile revision. Reruns retain them; original definitions and results do not
+change. Validation rejects malformed routes and broken metric references before
+enqueue. Result hints distinguish rule-based zeroes from unknown observations.
+
+Evidence: 253 Bench tests, nine privacy checks, three definition validations,
+JavaScript syntax and privacy scanning pass. All six new evaluator browser
+checks pass. The wider initial run passed 41/44 cases but hit Chrome worker/page
+setup failures and two history tests assuming the initial run stayed on page one.
+Those tests now filter by automatic trigger; six affected desktop/mobile recovery
+checks pass. No clean full-suite rerun, live model call or deployment is claimed.
+See the [task record](bench/client-navigation.md#evaluator-routing---2026-10-15).
+Publication and owner review remain pending; no broader gate closes.
+
 ## 2026-10-14 - Resolve Bench core versions per Run
 
 On `develop` baseline `f7c380e`, the owner-requested

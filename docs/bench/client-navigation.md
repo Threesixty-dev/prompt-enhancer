@@ -189,3 +189,30 @@ invalid page bounds, cross-experiment/revision listing, empty history, direct
 result navigation and unchanged DOM identity during polling. JavaScript syntax
 passes. This is local UI evidence; it does not establish deployment or model
 qualification.
+
+## Evaluator routing - 2026-10-15
+
+Task: bounded W02/W05 Bench routing on `develop` at `dbd5bf1`. The owner
+requested independent evaluator model selection after a deterministic-only
+comparison. Scope: Bench API overrides, run form, result explanations and
+synthetic tests. Core contracts, metric formulas and model/runtime configuration
+are preserved; no new core image or Experiment revision is needed.
+
+New run and Rerun expose a shared evaluator list with typed method, alias,
+criterion/reference and optional rubric generation controls. Aliases may differ
+between evaluators; all units and before/after passes share the frozen profile.
+The preview updates as rows change, reruns restore saved choices, and changed
+profiles get a content-derived revision. API admission rejects invalid typed
+routes, duplicate evaluator IDs and broken metric references without storing
+private error content. Historical Run settings remain unchanged.
+
+Result hints explain deterministic text-cue scores, unknown versus zero and the
+diagnostic-only problem-evidence metric. Rubric judgments remain separate
+categorical measurements. Suggestions use imported aliases and do not assert
+live runtime/model availability. The core still validates configured bindings.
+
+Evidence: 253 synthetic Bench tests pass, including routing through every
+attempt, replay idempotency, restart/rerun persistence, immutable definitions,
+typed-method validation and content-free rejection. Browser, privacy and final
+review results are recorded in the readiness ledger. Publication, deployment
+and live evaluator qualification remain separate from this source change.
