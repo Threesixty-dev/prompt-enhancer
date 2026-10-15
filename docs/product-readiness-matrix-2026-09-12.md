@@ -1,5 +1,23 @@
 # Product feature and readiness matrix
 
+## Bench evaluator routing - 2026-10-15
+
+The [bounded routing change](bench/client-navigation.md#evaluator-routing---2026-10-15)
+adds typed evaluator selection to New run/Rerun and freezes a shared profile
+across units and before/after passes. Model aliases, criteria/reference text and
+optional rubric generation settings survive rerun; invalid references reject
+before queue admission. Deterministic numeric cues and model judgments remain
+distinct, with clearer unknown-state explanations.
+
+Local evidence: 253 Bench tests, nine privacy tests, three definition validations,
+JavaScript syntax and the privacy scanner pass. Six new desktop/mobile evaluator
+checks pass. The initial full browser run passed 41/44 cases and encountered
+Chrome teardown/page-setup errors plus history tests whose fixture had paginated
+off the first page. Explicit automatic-run filtering repairs those assumptions;
+all six affected desktop/mobile recovery checks pass on a fresh fixture. This is
+not a clean full-suite run. Publication, deployment and live model qualification
+are pending. The frozen atlas and general W02/W05/W07/WP08 acceptance stay open.
+
 ## Core version resolution per Run - 2026-10-14
 
 The [bounded Bench change](bench/core-version-resolution.md) separates Experiment

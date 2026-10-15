@@ -23,6 +23,12 @@ async function openExperiment(page) {
   await page.locator('.experiment-card').filter({ hasText: title }).click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
 }
+async function automaticRun(page) {
+  // Run creation tests can push the initial fixture beyond the first history page.
+  await page.getByLabel('Trigger', { exact: true }).selectOption('gitops');
+  await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
+  return page.getByRole('link', { name: /Automatic run/ }).first();
+}
 const strategy = (page, id) => page.locator('.strategy-editor[data-unit="' + id + '"]');
 async function start(page) {
   await page.getByRole('button', { name: 'Start run', exact: true }).click();
@@ -54,7 +60,7 @@ test('experiment, run form, and result have separate routes with back, forward, 
   await connect(page, '/experiments/example-widget/runs/new?revision=1');
   await expect(strategy(page, 'script').getByLabel('Timeout (seconds)', { exact: true })).toHaveValue('120');
   await page.getByRole('link', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('link', { name: /Automatic run/ }).first().click();
+  await (await automaticRun(page)).click();
   const resultPath = new URL(page.url()).pathname;
   await expect(page.locator('#run-detail')).toBeVisible();
   await expect(page.locator('#run-form, #runs')).toHaveCount(0);
@@ -184,7 +190,7 @@ test('invalid numbers and empty selections never submit a run', async ({ page })
 
 test('polling preserves completed result nodes, open disclosures, and form input', async ({ page }) => {
   await openExperiment(page);
-  await page.getByRole('link', { name: /Automatic run/ }).first().click();
+  await (await automaticRun(page)).click();
   await page.getByText('Effective run settings', { exact: true }).click();
   await page.evaluate(() => {
     window.resultNode = document.querySelector('.run-panel');
@@ -207,17 +213,18 @@ test('polling preserves completed result nodes, open disclosures, and form input
 
 test('late result response cannot replace another page and wrong experiment run is rejected', async ({ page }) => {
   await openExperiment(page);
+  const automatic = await automaticRun(page);
+  const runHref = await automatic.getAttribute('href');
   let release;
   const gate = new Promise(resolve => { release = resolve; });
   await page.route('**/api/runs/*', async route => { await gate; await route.continue(); });
-  await page.getByRole('link', { name: /Automatic run/ }).first().click();
+  await automatic.click();
   await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
   release();
   await expect(page.locator('.experiment-card')).toBeVisible();
   await expect(page.locator('#run-detail')).toHaveCount(0);
   await page.unroute('**/api/runs/*');
   await page.locator('.experiment-card').first().click();
-  const runHref = await page.getByRole('link', { name: /Automatic run/ }).first().getAttribute('href');
   await connect(page, runHref.replace('/example-widget/', '/example-other/'));
   await expect(page.getByText('This run does not belong to the selected experiment revision.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel run' })).toHaveCount(0);
@@ -274,7 +281,7 @@ test('all runs precede experiments, include every revision, and paginate without
 
 test('global run links open results and empty history keeps experiments available', async ({ page }) => {
   await connect(page);
-  await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
+  await (await automaticRun(page)).click();
   await expect(page.locator('#run-detail')).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Before', exact: true }).first()).toBeVisible();
   await page.route(/\/api\/runs(?:\?.*)?$/, route => route.fulfill({ json: historyResponse([], new URL(route.request().url()).searchParams) }));

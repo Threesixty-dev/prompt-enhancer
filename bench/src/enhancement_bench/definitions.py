@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -131,6 +132,7 @@ class Overrides(StrictModel):
     unitObjectives: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
     unitSteering: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
     unitConsumerBindings: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
+    evaluators: list[dict[str, Any]] | None = Field(default=None, min_length=1, max_length=8)
 
 
 def definition_payload(definition: Definition) -> dict:
@@ -152,6 +154,11 @@ def effective_settings(definition: Definition, overrides: Overrides) -> dict:
                     | set(overrides.unitConsumerBindings)) <= selected_units):
         raise BenchError("unknown_selection")
     result = definition.model_dump()
+    if overrides.evaluators is not None and overrides.evaluators != result["evaluatorProfile"]["evaluators"]:
+        profile = result["evaluatorProfile"]
+        profile["evaluators"] = copy.deepcopy(overrides.evaluators)
+        # A changed routing profile has its own stable identity, including on rerun.
+        profile["revision"] = "run-" + fingerprint(profile)[:24]
     result["subjects"] = [s for s in result["subjects"] if s["id"] in selected_subjects]
     result["units"] = [u for u in result["units"] if u["id"] in selected_units]
     validator = Draft202012Validator(definition.parameterSchema)
@@ -174,7 +181,7 @@ def effective_settings(definition: Definition, overrides: Overrides) -> dict:
                              | overrides.unitObjectives.get(unit["id"], {}))
         unit["steering"] = (definition.baseSteering | unit["steering"] | overrides.steering
                             | overrides.unitSteering.get(unit["id"], {}))
-    result["overrides"] = overrides.model_dump()
+    result["overrides"] = overrides.model_dump(exclude={"evaluators"} if overrides.evaluators is None else set())
     canonical(result)
     return result
 

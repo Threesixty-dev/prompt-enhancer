@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 15 [Bench evaluator routing](../bench/client-navigation.md#evaluator-routing---2026-10-15)
+adds per-Run typed evaluator selection with immutable settings and independent
+model aliases. The readiness ledger records bounded API/browser/privacy evidence
+and the browser-run limitation. This later W02/W05 work preserves the frozen
+atlas observation and does not accept general workflow or model-runtime gates.
+
 The October 14 [core version resolution candidate](../bench/core-version-resolution.md)
 and proposed [ADR 0026](../adr/0026-core-version-resolution-at-run-creation.md)
 move Bench image binding to new-Run admission while retaining historical digests.

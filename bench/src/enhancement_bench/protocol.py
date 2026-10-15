@@ -93,8 +93,35 @@ class Contracts:
                     explicit(value[key], child)
 
         self.validate("execute-request", request)
+        self.validate_evaluation(request)
         explicit(request["parameters"], schema["properties"]["parameters"])
         return request
+
+    @staticmethod
+    def validate_evaluation(request: dict) -> None:
+        """Check typed routing and references before a Run can enter the queue."""
+        evaluators = request["evaluation"]["evaluators"]
+        by_id = {item["evaluator_id"]: item for item in evaluators}
+        if len(by_id) != len(evaluators):
+            raise BenchError("duplicate_evaluator", 422)
+        for item in evaluators:
+            kind = item["kind"]
+            if ((item.get("target") is not None) != (kind in {"classifier", "embedding"})
+                    or (item.get("rubric") is not None) != (kind == "rubric")
+                    or (item.get("generation") is not None and kind != "rubric")):
+                raise BenchError("invalid_evaluator_settings", 422)
+        metrics = {
+            "deterministic": {"prompt.task_definition_coverage", "prompt.problem_evidence_quality",
+                "prompt.context_sufficiency", "prompt.constraint_precision", "prompt.acceptance_testability",
+                "prompt.deliverable_contract"},
+            "classifier": {"nli.label"}, "embedding": {"embedding.similarity"}, "rubric": {"rubric.label"},
+        }
+        for reference in [*request["assertions"], *request["objective"].get("targets", [])]:
+            evaluator = by_id.get(reference["evaluator_id"])
+            if evaluator is None:
+                raise BenchError("referenced_evaluator_required", 422)
+            if reference["metric_key"] not in metrics[evaluator["kind"]]:
+                raise BenchError("evaluator_metric_incompatible", 422)
 
     def correlated(self, name: str, value: dict, request: dict) -> dict:
         self.validate(name, value)

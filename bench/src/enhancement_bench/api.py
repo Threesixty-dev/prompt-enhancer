@@ -98,7 +98,7 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
 
     @app.get("/assets/{name}")
     def asset(name: str):
-        if name not in {"app.js", "app.css", "forms.js", "overview.js", "history.js"}:
+        if name not in {"app.js", "app.css", "forms.js", "overview.js", "history.js", "evaluators.js"}:
             raise BenchError("not_found", 404)
         return FileResponse(static / name)
 
@@ -131,7 +131,7 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
     def run_form_schema():
         schema = contracts.validators["execute-request"].schema
         return {"$defs": schema["$defs"], "properties": {
-            key: schema["properties"][key] for key in ("objective", "steering", "consumer")
+            key: schema["properties"][key] for key in ("objective", "steering", "consumer", "evaluation")
         }}
 
     @app.get("/api/runs")

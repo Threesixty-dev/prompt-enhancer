@@ -1,4 +1,5 @@
 import { node, schemaField, validateForm } from './forms.js';
+import { evaluatorEditor, evaluatorErrors } from './evaluators.js';
 import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary, variationOverview, variantDescription } from './overview.js';
 import { filterToolbar, hasFilters, historyCharts, historyPath, readFilters, statsPreview } from './history.js';
 
@@ -16,7 +17,7 @@ async function api(path, body) {
   const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', cache: 'no-store', credentials: 'same-origin', headers, body: body === undefined ? undefined : json(body) });
   if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Bench unavailable. Reload the page to reconnect.');
   const value = await response.json();
-  if (!response.ok) { const error = new Error(value.error?.code || 'request_failed'); error.status = response.status; throw error; }
+  if (!response.ok) { const code = value.error?.code; const error = new Error(evaluatorErrors[code] || code || 'request_failed'); error.status = response.status; throw error; }
   return value;
 }
 
@@ -171,7 +172,14 @@ function metricsTable(result) {
     const delta = result.deltas?.find(x => x.evaluator_id === evaluator.evaluator_id && x.metric_key === metric.key);
     const row = node('tr'); for (const value of [evaluator.evaluator_id + ' / ' + metric.key, display(metric), display(after), display(delta)]) row.append(node('td', String(value))); body.append(row);
   }
-  table.append(body); wrap.append(table); return wrap;
+  table.append(body); wrap.append(table);
+  if ((result.before || []).some(evaluator => evaluator.kind === 'deterministic')) {
+    wrap.append(node('p', 'Rule-based scores measure detected text cues, not a model’s judgment. Zero is a measured score; unknown means there was no eligible observation. A delta stays unknown when either side is unknown.', 'hint'));
+  }
+  if ((result.before || []).some(evaluator => evaluator.metrics.some(metric => metric.reason === 'diagnostic_task_not_detected'))) {
+    wrap.append(node('p', 'Problem evidence applies to debugging or diagnostic requests. No diagnostic task was detected in this prompt.', 'hint'));
+  }
+  return wrap;
 }
 function renderRun(r) {
   const container = $('run-detail'); if (!container || document.activeElement?.closest('#run-detail form')) return;
@@ -211,12 +219,14 @@ function renderRun(r) {
 function newRunPage(d, source) {
   pageHeading(source ? 'Rerun experiment' : 'New run', d.title + ' / revision ' + d.revision + '. Adjust settings for this run.', [[d.title, experimentPath(d)], [source ? 'Rerun' : 'New run']]);
   const form = node('form'); form.id = 'run-form'; form.noValidate = true;
-  const intro = node('section', undefined, 'surface'); intro.append(node('h2', 'Run configuration'), node('p', source ? 'Prefilled from run ' + source.id.slice(0, 8) + '. The original result stays unchanged.' : 'Start from the experiment defaults. Each selected unit has its own settings.', 'hint'), metadata([['Enhancer version', d.enhancerVersion], ['Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision]]));
+  const profile = source?.effective.evaluatorProfile || d.evaluatorProfile;
+  const evaluation = evaluatorEditor(profile, runSchema, experiments);
+  const intro = node('section', undefined, 'surface'); intro.append(node('h2', 'Run configuration'), node('p', source ? 'Prefilled from run ' + source.id.slice(0, 8) + '. The original result stays unchanged.' : 'Start from the experiment defaults. Each selected unit has its own settings.', 'hint'), metadata([['Enhancer version', d.enhancerVersion], ['Starting evaluator profile', profile.profile_id + ' / ' + profile.revision]]));
   const subjects = node('fieldset', undefined, 'field-group'); subjects.append(node('legend', 'Input cases (subjects)'));
   const subjectInputs = d.subjects.map(subject => {
     const label = node('label', undefined, 'check-option'), input = node('input'); input.type = 'checkbox'; input.checked = !source || source.effective.subjects.some(s => s.id === subject.id);
     label.append(input, node('span', subject.id)); subjects.append(label); return [subject.id, input];
-  }); intro.append(subjects); const preview = node('div'); preview.id = 'run-preview'; form.append(intro, preview, node('h2', 'Variants (units)'));
+  }); intro.append(subjects); const preview = node('div'); preview.id = 'run-preview'; form.append(intro, evaluation.element, preview, node('h2', 'Variants (units)'));
   const editors = d.units.map(unit => {
     const saved = source?.effective.units.find(u => u.id === unit.id);
     const settings = saved || { parameters: { ...d.baseParameters, ...unit.parameters }, objective: { ...d.objective, ...unit.objective }, steering: { ...d.baseSteering, ...unit.steering }, consumerBinding: { ...d.consumerBinding, ...unit.consumerBinding } };
@@ -239,7 +249,7 @@ function newRunPage(d, source) {
   const actions = node('div', undefined, 'form-actions'); const submit = node('button', 'Start run'); submit.type = 'submit';
   actions.append(node('p', 'Settings are saved with this run. The experiment definition is unchanged.', 'hint'), link('Cancel', source ? runPath(source) : experimentPath(d), 'button secondary'), submit); form.append(actions);
   const updatePreview = () => {
-    const selected = { ...d, subjects: d.subjects.filter(subject => subjectInputs.some(([id, input]) => id === subject.id && input.checked)),
+    const selected = { ...d, evaluatorProfile: { ...profile, evaluators: evaluation.read() }, subjects: d.subjects.filter(subject => subjectInputs.some(([id, input]) => id === subject.id && input.checked)),
       units: editors.filter(editor => editor.enabled.checked).map(editor => ({ ...editor.unit, steering: editor.steering.read(), consumerBinding: editor.consumer?.read() })) };
     patch(preview, selected, () => { const content = document.createDocumentFragment(); content.append(variationOverview(selected), modelSummary(selected)); return content; });
   };
@@ -251,6 +261,8 @@ function newRunPage(d, source) {
     const selected = editors.filter(editor => editor.enabled.checked), subjectIds = subjectInputs.filter(([, input]) => input.checked).map(([id]) => id);
     if (!selected.length || !subjectIds.length) { tell('Select at least one unit and one subject.'); return; }
     const overrides = { parameters: {}, unitParameters: {}, unitObjectives: {}, unitSteering: {}, unitConsumerBindings: {}, unitIds: selected.map(editor => editor.unit.id), subjectIds };
+    const evaluators = evaluation.read();
+    if (json(evaluators) !== json(d.evaluatorProfile.evaluators)) overrides.evaluators = evaluators;
     for (const editor of selected) {
       const id = editor.unit.id; overrides.unitParameters[id] = editor.parameters.read(); overrides.unitObjectives[id] = editor.objective.read(); overrides.unitSteering[id] = editor.steering.read();
       if (editor.consumer) overrides.unitConsumerBindings[id] = editor.consumer.read();
