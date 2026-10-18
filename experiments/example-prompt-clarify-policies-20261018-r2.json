@@ -1,0 +1,198 @@
+{
+  "schemaVersion": "bench-experiment/v2",
+  "stableId": "example-prompt-clarify-policies-20261018",
+  "revision": "2",
+  "generation": 2,
+  "title": "Clarification review: concise versus structured policies",
+  "enhancerVersion": "0.2.0",
+  "autoRun": true,
+  "subjects": [
+    {
+      "id": "example-parser-sparse",
+      "text": "Add a parser for fictional example widget records. Return a patch and tests.",
+      "context": []
+    },
+    {
+      "id": "example-parser-specified",
+      "text": "Implement parse_widget(text) in the fictional example widget project. Input is one comma-separated record containing a name and a quantity. Trim surrounding whitespace in both fields. Require a nonempty name and a base-10 integer quantity from 0 through 99. Return an object with name and quantity. Reject extra fields, missing fields, empty names, and out-of-range or noninteger quantities with ValueError. Do not add dependencies or change other public functions. Acceptance tests must cover valid input, surrounding whitespace, both quantity boundaries, and each rejection case. Return a patch and unit tests.",
+      "context": []
+    },
+    {
+      "id": "example-filter-sparse",
+      "text": "Improve search filtering in the fictional example item list. Return a patch and tests.",
+      "context": []
+    },
+    {
+      "id": "example-filter-specified",
+      "text": "Implement filter_items(items, query) in the fictional example item list project. Each item has a string name. Trim surrounding whitespace from query and match it as a case-insensitive substring of name. An empty trimmed query returns all items. Preserve the input order and return a new list without mutating items or their contents. Do not add network calls or dependencies, and do not change pagination. Acceptance tests must cover mixed case, surrounding whitespace, empty queries, no matches, multiple matches in original order, and input immutability. Return a patch and unit tests.",
+      "context": []
+    },
+    {
+      "id": "example-export-sparse",
+      "text": "Add CSV export to the fictional example inventory report. Return a patch and tests.",
+      "context": []
+    },
+    {
+      "id": "example-export-specified",
+      "text": "Implement export_inventory(rows) in the fictional example inventory project. Each row has a name string and a nonnegative integer quantity. Return a CSV string with the header name,quantity in that order, preserve row order, and use LF line endings with a final newline. Quote names containing commas, double quotes, or line breaks; escape a double quote by doubling it. For an empty list return only the header and its newline. Use the standard library without adding dependencies. Do not write files or send data over a network. Acceptance tests must cover simple rows, each quoting case, preserved order, final newline, and empty input. Return a patch and unit tests.",
+      "context": []
+    }
+  ],
+  "units": [
+    {
+      "id": "concise",
+      "title": "Concise policy",
+      "strategy": "prompt.check.v1",
+      "parameters": {},
+      "objective": {},
+      "steering": {},
+      "assertions": [],
+      "stepSettings": {
+        "review": {
+          "policy": {
+            "policy_id": "example-prompt-clarify-concise",
+            "revision": "1",
+            "instructions": "You review prompts that people send to coding agents (Claude Code, Codex). You get the prompt about to be sent, optionally the earlier conversation, and deterministic findings. Answer with strict JSON only, no markdown, no code fences: {\"findings\":[{\"aspect\":\"goal|scope|context|constraints|acceptance|deliverable|verification|ambiguity|other\",\"severity\":\"low|medium|high\",\"why\":\"...\",\"suggestion\":\"...\"}],\"reformulated_prompt\":\"...\",\"reformulated_elements\":[{\"element\":\"goal|scope|context|constraints|acceptance|deliverable|verification|other\",\"original\":\"... or null\",\"suggested\":\"...\"}],\"notes\":\"...\"}. Rules: keep the person's intent, language and tone; never invent facts or values - any parameter, number, path or name the person did not state must appear as a placeholder like <specify: max retries> so the person fills it; the reformulated prompt must stay concise (at most twice the original length); at most six findings ordered by severity; if the prompt is already good say so in notes and keep findings short; if the prompt relies on the earlier conversation, say what must be restated when starting fresh. Focus this review on missing or ambiguous details, including dependencies on earlier context. Suggest concrete clarification questions or placeholders for missing information. Include a reformulated prompt when useful; otherwise return findings or notes without a rewrite. Use concise wording in the notes, findings, and any reformulated prompt. Remove repetition while preserving every supplied requirement, constraint, example, and requested deliverable. Do not omit concrete details to shorten the response. Review the prompt only; do not perform its requested task. Do not add unsupported facts, technologies, numeric targets, or acceptance conditions. Mark unavailable information with clear placeholders or clarification questions. Do not add requirements merely to improve an evaluator score. Keep the required JSON response shape unchanged. A well-specified input may need no rewrite."
+          }
+        }
+      }
+    },
+    {
+      "id": "structured",
+      "title": "Structured policy",
+      "strategy": "prompt.check.v1",
+      "parameters": {},
+      "objective": {},
+      "steering": {},
+      "assertions": [],
+      "stepSettings": {
+        "review": {
+          "policy": {
+            "policy_id": "example-prompt-clarify-structured",
+            "revision": "1",
+            "instructions": "You review prompts that people send to coding agents (Claude Code, Codex). You get the prompt about to be sent, optionally the earlier conversation, and deterministic findings. Answer with strict JSON only, no markdown, no code fences: {\"findings\":[{\"aspect\":\"goal|scope|context|constraints|acceptance|deliverable|verification|ambiguity|other\",\"severity\":\"low|medium|high\",\"why\":\"...\",\"suggestion\":\"...\"}],\"reformulated_prompt\":\"...\",\"reformulated_elements\":[{\"element\":\"goal|scope|context|constraints|acceptance|deliverable|verification|other\",\"original\":\"... or null\",\"suggested\":\"...\"}],\"notes\":\"...\"}. Rules: keep the person's intent, language and tone; never invent facts or values - any parameter, number, path or name the person did not state must appear as a placeholder like <specify: max retries> so the person fills it; the reformulated prompt must stay concise (at most twice the original length); at most six findings ordered by severity; if the prompt is already good say so in notes and keep findings short; if the prompt relies on the earlier conversation, say what must be restated when starting fresh. Focus this review on missing or ambiguous details, including dependencies on earlier context. Suggest concrete clarification questions or placeholders for missing information. Include a reformulated prompt when useful; otherwise return findings or notes without a rewrite. Use explicit organization in the notes, findings, and any reformulated prompt. Group related requirements and use headings or lists within JSON string values when useful. Preserve every supplied requirement, constraint, example, and requested deliverable without adding sections that invent missing facts. Review the prompt only; do not perform its requested task. Do not add unsupported facts, technologies, numeric targets, or acceptance conditions. Mark unavailable information with clear placeholders or clarification questions. Do not add requirements merely to improve an evaluator score. Keep the required JSON response shape unchanged. A well-specified input may need no rewrite."
+          }
+        }
+      }
+    }
+  ],
+  "consumerBinding": {
+    "binding_id": "codex-consumer",
+    "provider": "openhands_acp"
+  },
+  "evaluatorProfile": {
+    "profile_id": "example-workflow-policy-deterministic",
+    "revision": "1",
+    "evaluators": [
+      {
+        "evaluator_id": "prompt",
+        "kind": "deterministic",
+        "binding_id": "deterministic.v1",
+        "target": null,
+        "rubric": null,
+        "generation": null
+      }
+    ]
+  },
+  "baseParameters": {
+    "timeout_seconds": 180,
+    "generation": {
+      "max_output_chars": 4000,
+      "max_tokens": null,
+      "temperature": null
+    }
+  },
+  "parameterSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "timeout_seconds",
+      "generation"
+    ],
+    "properties": {
+      "timeout_seconds": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600
+      },
+      "generation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "max_output_chars",
+          "max_tokens",
+          "temperature"
+        ],
+        "properties": {
+          "max_output_chars": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 20000
+          },
+          "max_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 16,
+            "maximum": 8192
+          },
+          "temperature": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    }
+  },
+  "objective": {
+    "objective_id": "prompt-clarity",
+    "revision": "1",
+    "description": "Improve clarity and testability while preserving intent. Mark unavailable details with placeholders.",
+    "targets": []
+  },
+  "baseSteering": {
+    "profile": "conservative.v1",
+    "style": "preserve",
+    "focus": [],
+    "instructions": null
+  },
+  "workflow": {
+    "workflow_id": "prompt-clarify",
+    "version": "2.0.0",
+    "definition_sha256": "1ed185a079fe652d46477d125455106330334db25cb6bc575b2b09e5219e50bb"
+  },
+  "coreBuild": {
+    "variant": "default",
+    "image": "ghcr.io/threesixty-dev/prompt-enhancer-core@sha256:8ab0cb4885c695cce53cdae33a51dc90f2da1a90b3ca139ebc6db97335f1bb6b",
+    "buildInputSha256": "2063209346de703835b5c9e15d41cd41afd23abf05f5a5526a09ba7c80b7e1d8"
+  },
+  "baseStepSettings": {
+    "review": {
+      "generation": {
+        "max_output_chars": 4000,
+        "max_tokens": null,
+        "temperature": null
+      },
+      "enable_thinking": null
+    }
+  },
+  "harnessAssertions": [
+    {
+      "evaluator_id": "prompt",
+      "metric_key": "prompt.task_definition_coverage",
+      "operator": "minimum_delta",
+      "threshold": 0
+    },
+    {
+      "evaluator_id": "prompt",
+      "metric_key": "prompt.acceptance_testability",
+      "operator": "minimum_delta",
+      "threshold": 0
+    }
+  ]
+}
