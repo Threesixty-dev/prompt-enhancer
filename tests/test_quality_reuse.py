@@ -223,6 +223,13 @@ def test_workflow_scheduling_keeps_quality_and_manual_release_boundaries():
     assert re.search(r"^  push:\n    branches: \[main\]$", triggers, re.M)
     assert "workflow_call" not in gate
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in gate
+    for job in ("backend", "frontend"):
+        section = re.search(rf"(?ms)^  {job}:\n(.*?)(?=^  [a-z-]+:|\Z)", gate).group(1)
+        assert "if: github.event_name == 'workflow_dispatch'" in section
+        assert "outputs." + job not in gate
+        expected = "${{ github.event_name == 'workflow_dispatch' && 'success' || 'skipped' }}"
+        assert f"EXPECT_{job.upper()}: {expected}" in gate
+    assert "python scripts/privacy_scan.py" in gate
     deploy = (ROOT / ".github/workflows/publish-coolify.yml").read_text()
     assert "workflow_dispatch:" in deploy
     assert not re.search(r"^  (push|pull_request|workflow_run):", deploy, re.M)
@@ -230,6 +237,23 @@ def test_workflow_scheduling_keeps_quality_and_manual_release_boundaries():
     assert "actions: read" in deploy and "python3 scripts/require_quality_run.py" in deploy
     assert "  container:\n    needs: quality" in deploy
     assert "  deploy:\n    needs: container" in deploy
+
+
+def test_bench_and_hosted_heavy_checks_are_manual_but_definitions_stay_automatic():
+    bench = (ROOT / ".github/workflows/bench-check.yml").read_text()
+    triggers = bench.split("on:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert "  pull_request:\n    paths:\n      - 'experiments/**'" in triggers
+    assert "  workflow_dispatch:" in triggers
+    assert "  changes:" not in bench
+    assert "  verify:\n    needs: definitions\n    if: github.event_name == 'workflow_dispatch'" in bench
+    definitions = bench.split("  definitions:\n", 1)[1].split("  verify:\n", 1)[0]
+    assert "enhancement_bench.cli validate experiments/*.json" in definitions
+    assert "python scripts/privacy_scan.py" in definitions
+    hosted = (ROOT / ".github/workflows/verify-hosted.yml").read_text()
+    assert "  workflow_dispatch:" in hosted
+    assert not re.search(r"^  (push|pull_request|workflow_run):", hosted, re.M)
+    assert "python3 scripts/privacy_scan.py" in hosted
+    assert "python3 scripts/smoke_hosted_container.py" in hosted
 
 
 @pytest.mark.parametrize(("changes", "passes"), [

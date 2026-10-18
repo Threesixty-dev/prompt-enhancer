@@ -65,9 +65,10 @@ raise its timeout without diagnosing it; preserve incremental outcomes.
 
 The quality commands and platform responsibilities live in
 `docs/ci-quality-gate.md` and `.github/workflows/quality-gate.yml`; verify them in
-the selected baseline. Full release tests do not run after every documentation
-change. Source/mock tests cannot satisfy native, real-model or clean-machine
-gates. Do not loosen a failing gate.
+the selected baseline. Full backend, frontend/browser and candidate-container
+suites run only by manual dispatch; automatic CI retains fast integrity checks.
+Run affected tests locally for the task. Source/mock tests cannot satisfy native,
+real-model or clean-machine gates. Do not loosen a failing gate.
 
 ## Review, record and collaborate
 

@@ -1,5 +1,15 @@
 # Product feature and readiness matrix
 
+## Manual development regression suites - 2026-10-18
+
+The owner approved [manual heavy CI](ci-quality-gate.md): full platform/backend,
+frontend/browser, Bench runtime/container and hosted-container suites run on
+demand. Automatic integrity/privacy, PR metadata, Experiment definitions and
+existing deployment validation remain. Evidence: 63 focused synthetic CI/privacy
+tests pass, and workflow YAML/dependencies validate. This changes scheduling,
+not product acceptance; an automatic green result is not full regression proof.
+R26, B00/B11 and all native/model/release gate statuses remain unchanged.
+
 ## Workflow promotion portability correction - 2026-10-18
 
 Hosted Windows checks exposed POSIX-only directory synchronization and permission
