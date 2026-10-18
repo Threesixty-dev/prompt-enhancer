@@ -1,5 +1,19 @@
 # Beta progress journal: published handoff
 
+## 2026-10-18 - Make heavy development CI manual
+
+The owner explicitly approved manual-only full Ubuntu/Windows backend,
+frontend/browser, Bench container/runtime and hosted-container checks. The
+[development CI policy](ci-quality-gate.md) retains automatic privacy,
+repository integrity, PR metadata and Experiment definition checks. Existing
+deployment validation, runtime readiness and core-release checks remain intact.
+An automatic green quality result now means fast integrity evidence only.
+
+Evidence: 63 focused scheduling, quality-evidence and privacy tests pass. All
+workflow YAML and job dependencies parse correctly. The full regression suites
+were not run for this scheduling change. R26 and release acceptance statuses are
+unchanged.
+
 ## 2026-10-18 - Repair Windows checks before workflow promotion
 
 Hosted validation of the workflow candidate exposed four existing filesystem

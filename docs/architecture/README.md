@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 18 owner-approved [development CI policy](../ci-quality-gate.md)
+makes full backend/frontend, Bench browser/runtime and hosted-container checks
+manual. Fast integrity/privacy and PR metadata checks remain automatic, with
+definition checks for Experiment PRs and existing deployment validation retained.
+The bounded scheduling checks supplement R26 without accepting release gates.
+
 The October 18 [versioned workflow implementation](../bench/versioned-workflows.md)
 records the owner-approved component/workflow split and fixed v2 experiment pins.
 It preserves v1 history and documents the prompt-only Bench transport separately
