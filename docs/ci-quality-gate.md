@@ -1,30 +1,37 @@
 # CI quality gate
 
-Checkpoint 9A keeps the repository's synthetic release checks reproducible on
-pull requests and pushes to `main`. The workflow has read-only repository permission,
-does not receive repository secrets, and does not upload test or runtime
+The owner-approved development policy keeps quick integrity checks automatic and
+makes full regression suites available on demand. The workflow has read-only
+repository permission, does not receive repository secrets, and does not upload test or runtime
 artifacts. Tests remain subject to the suite-wide non-loopback socket guard.
 
 ## Scheduling and deployment reuse
 
-A pull-request update and each `main` push run repository integrity checks.
-The pinned `dorny/paths-filter` Action selects product jobs using
-`.github/validation-paths.yml`. With its token disabled, it compares Git commits:
-the previous head for a PR update or main push, and the PR base for a newly
-opened PR. Detection checks out the PR head explicitly. A documentation-only
-update therefore does not repeat suites selected by earlier code changes.
+A pull-request update and each `main` push run privacy scanning, architecture
+consistency and patch-whitespace checks. PR metadata validation remains automatic.
+The pinned `dorny/paths-filter` Action uses `.github/validation-paths.yml` only to
+select focused CI-policy tests when CI configuration or the evidence verifier
+changes. With its token disabled, it compares Git commits: the previous head for
+a PR update or main push, and the PR base for a newly opened PR.
 
-Frontend paths select frontend and hosted-container checks. Experiment JSON
-changes select only the lightweight Experiment definitions job: per-case/unit
-request contracts, unique revision/generation identities and privacy scanning.
-They do not select Bench browser tests, image builds or runtime smoke checks.
-Bench code, dependencies, runtime and Bench workflow changes select the full
-Bench checks plus definition validation; shared Python source/dependencies select
-backend, Bench and hosted checks where those workflows run. CI configuration and
-evidence-verifier changes
-select focused CI-policy tests. Update the shared filters when adding a new
-source surface. Privacy, architecture consistency and patch whitespace remain
-checked on every quality run. Manual workflow dispatch explicitly runs all jobs.
+The full Ubuntu/Windows backend matrix and frontend unit/build/browser suite run
+only through manual dispatch of **Quality gate** on the selected branch. Both
+backend shards and their platform security preflights remain required in that
+manual run. Ordinary source changes do not start these jobs automatically.
+
+**Bench checks** runs automatically only for PR changes under `experiments/`.
+It validates definition contracts, revision/generation identities and privacy.
+Manual dispatch also runs the full Bench synthetic/browser/container/runtime
+verification, after definitions succeed. **Verify hosted candidate** is entirely
+manual. Select the source branch in Actions when requesting either workflow.
+Newer Bench checks cancel the superseded run for the same PR or selected branch.
+
+An automatic green run establishes fast integrity evidence only. It does not
+establish full regression, platform, browser or release qualification. Run
+affected tests locally during development and dispatch the relevant full suites
+on a frozen candidate when that evidence is needed. No test implementation,
+privacy rule, release acceptance requirement or deployed service boundary is
+removed by this scheduling change.
 
 Feature and `develop` pushes do not start a second quality workflow; their
 proposals are checked through PRs. A newer update cancels the superseded quality
@@ -34,7 +41,8 @@ when another main commit arrives.
 Manual deployment reads the successful **Quality gate** run for its exact
 `main` commit through `scripts/require_quality_run.py`. It never calls the suite
 again. Only a `push` run of `.github/workflows/quality-gate.yml` in the same
-repository, with the same source repository, branch and SHA, is eligible.
+repository, with the same source repository, branch and SHA, is eligible. This
+automatic run now supplies fast integrity evidence, not a full regression result.
 The newest run must succeed, with successful `Repository integrity` and
 `Quality result` job evidence. The always-running aggregate requires every
 selected suite to succeed and every unselected suite to be skipped. Backend
@@ -52,13 +60,18 @@ The read-only check uses the job's temporary `GITHUB_TOKEN` with `actions: read`
 it has no deployment secrets and cannot start tests. Container smoke checks
 and authenticated live revision verification still run during deployment.
 
+Bench API/UI deployment keeps its focused tests, privacy scan, syntax check and
+exact running-revision verification. Experiment publication and the separate
+manual core release retain their existing validation. These workflows do not
+wait for the full optional development suites.
+
 ## CI ownership
 
 | Job | Platform | Required commands and evidence |
 | --- | --- | --- |
 | Repository integrity | Ubuntu | `python scripts/privacy_scan.py`; `python scripts/render_architecture_atlas.py --check`; event-range `git diff --check` |
-| Backend | Two required shards each on Ubuntu and Windows | `uv lock --check`; `uv sync --frozen --extra dev`; frozen `uv run` compilation, platform security preflight, and the complete pytest collection split across both shards |
-| Frontend | Ubuntu, Node.js 24 | `npm ci`; `npm test`; `npm run check:api`; `npm run build`; `npx playwright install --with-deps chromium`; `npm run test:e2e` |
+| Backend (manual) | Two required shards each on Ubuntu and Windows | `uv lock --check`; `uv sync --frozen --extra dev`; frozen `uv run` compilation, platform security preflight, and the complete pytest collection split across both shards |
+| Frontend (manual) | Ubuntu, Node.js 24 | `npm ci`; `npm test`; `npm run check:api`; `npm run build`; `npx playwright install --with-deps chromium`; `npm run test:e2e` |
 | CI policy | Ubuntu | Focused synthetic release-evidence tests when CI configuration or its verifier changes |
 | Quality result | Ubuntu | Require integrity and all selected jobs to succeed; require unselected jobs to be skipped |
 

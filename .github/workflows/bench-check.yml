@@ -1,34 +1,17 @@
 name: Bench checks
 on:
   pull_request:
+    paths:
+      - 'experiments/**'
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: bench-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      bench: ${{ steps.changes.outputs.bench }}
-      definitions: ${{ steps.changes.outputs.bench_definitions }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
-        id: changes
-        with:
-          token: ''
-          base: ${{ github.event.before || github.event.pull_request.base.sha || github.ref }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          predicate-quantifier: some-with-excludes
-          filters: .github/validation-paths.yml
   definitions:
     name: Experiment definitions
-    needs: changes
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.definitions == 'true' || needs.changes.outputs.bench == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -47,8 +30,8 @@ jobs:
           bench/.venv/bin/python -m enhancement_bench.cli validate experiments/*.json
           python scripts/privacy_scan.py
   verify:
-    needs: changes
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.bench == 'true'
+    needs: definitions
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:

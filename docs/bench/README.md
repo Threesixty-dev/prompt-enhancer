@@ -183,9 +183,11 @@ or build contexts. There is no provider-session ingestion in this application.
 
 For Experiment JSON changes, `bench-check.yml` runs only definition request
 contract validation, cross-file revision/generation identity checks and privacy.
-Bench source, dependency, runtime or Bench workflow changes additionally select
-the full synthetic tests, UI, Compose and local image smoke checks. Manual
-workflow dispatch runs both jobs.
+Full synthetic tests, browser suites, Compose and local image smoke checks run
+only through manual dispatch of **Bench checks** on the selected branch. That
+dispatch first validates definitions, then runs the full verification job.
+Ordinary code PRs retain the fast repository/privacy checks described in
+[CI scheduling](../ci-quality-gate.md); they do not start Bench image builds.
 `bench-publish.yml` runs on JSON changes in `experiments/` on
 `BENCH_PUBLICATION_BRANCH` (the repository default branch when unset). Explicit
 manual dispatch remains available for recovery. All publication jobs share one

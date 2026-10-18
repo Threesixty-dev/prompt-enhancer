@@ -236,9 +236,10 @@ When the prerequisite is met, the intended settings for `main` and `develop` are
 - dismiss stale approvals on new commits, and require review of the most recent
   push;
 - require conversation resolution before merge;
-- require these successful checks: `Repository integrity`,
-  `Backend (ubuntu-latest)`, `Backend (windows-latest)`, `Frontend`, and
-  `Collaboration policy`;
+- require the automatic checks: `Repository integrity`, `Quality result`, and
+  `Collaboration policy`; full backend/frontend/Bench/hosted checks are manual
+  under the owner-approved [development CI policy](ci-quality-gate.md), so do not
+  require their check names on every PR;
 - block force pushes and deletion; leave auto-merge off;
 - protect release tags, and keep signing material and publishing credentials in
   an owner-controlled, separate location rather than this repository.
