@@ -12,6 +12,11 @@ from .comparisons import comparisons
 
 RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted", "superseded"]
 STATUSES = ("queued", "running", "succeeded", "failed", "cancelled", "interrupted", "superseded")
+GENERATION_ALIAS = """COALESCE(json_extract(u.value,'$.stepSettings.review.binding.binding_id'),
+    json_extract(u.value,'$.stepSettings.rewrite.binding.binding_id'),
+    json_extract(u.value,'$.consumerBinding.binding_id'),
+    json_extract(r.effective,'$.consumerBinding.binding_id'))"""
+MODEL_STRATEGY = "(json_extract(u.value,'$.strategy') LIKE 'consumer.%' OR json_extract(u.value,'$.strategy')='prompt.check.v1')"
 
 
 class RunFilters(StrictModel):
@@ -48,11 +53,9 @@ def predicate(filters: RunFilters) -> tuple[str, list]:
         clauses.append("r.created<?")
         values.append(midnight(filters.toDate) + 86400)
     if filters.model:
-        clauses.append("""(EXISTS (
+        clauses.append(f"""(EXISTS (
           SELECT 1 FROM json_each(r.effective,'$.units') u
-          WHERE json_extract(u.value,'$.strategy') LIKE 'consumer.%'
-          AND COALESCE(json_extract(u.value,'$.consumerBinding.binding_id'),
-                       json_extract(r.effective,'$.consumerBinding.binding_id'))=?
+          WHERE {MODEL_STRATEGY} AND {GENERATION_ALIAS}=?
         ) OR EXISTS (
           SELECT 1 FROM json_each(r.effective,'$.evaluatorProfile.evaluators') e
           WHERE json_extract(e.value,'$.kind')<>'deterministic'
@@ -88,10 +91,9 @@ def model_options(db, filters: RunFilters) -> list[str]:
     # Scope suggestions to the experiment/revision, never to a page or current status.
     where, parameters = predicate(RunFilters(experiment=filters.experiment, revision=filters.revision))
     rows = db.execute(f"""SELECT alias FROM (
-      SELECT COALESCE(json_extract(u.value,'$.consumerBinding.binding_id'),
-                      json_extract(r.effective,'$.consumerBinding.binding_id')) AS alias
+      SELECT {GENERATION_ALIAS} AS alias
       FROM runs r,json_each(r.effective,'$.units') u
-      WHERE {where} AND json_extract(u.value,'$.strategy') LIKE 'consumer.%'
+      WHERE {where} AND {MODEL_STRATEGY}
       UNION
       SELECT json_extract(e.value,'$.binding_id') AS alias
       FROM runs r,json_each(r.effective,'$.evaluatorProfile.evaluators') e

@@ -234,7 +234,7 @@
       "type": "string"
     },
     "core_version": {
-      "default": "0.1.4",
+      "default": "0.2.0",
       "title": "Core Version",
       "type": "string"
     },
@@ -296,6 +296,15 @@
       "minimum": 1,
       "title": "Max Retained",
       "type": "integer"
+    },
+    "workflows": {
+      "default": [],
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Workflows",
+      "type": "array"
     }
   },
   "required": [

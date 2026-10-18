@@ -88,6 +88,12 @@ new version when necessary; an identical successful artifact can be reused.
 
 ## Hand off the artifact
 
+For `bench-experiment/v2`, a release receipt supplies the experiment's exact
+`coreBuild` pin. Registering a replacement image preserves earlier artifact
+receipts and does not rebind those experiments. Selecting that replacement
+requires a new experiment revision. The version-catalog resolution described
+below applies to legacy v1 definitions; see `docs/bench/versioned-workflows.md`.
+
 Report core version, variant, immutable digest, validated source SHA, action
 (built or reused) and exact verification scope. The summary's source SHA shows
 which checkout's build inputs were validated; a reused image may have originally

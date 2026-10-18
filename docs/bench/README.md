@@ -4,6 +4,12 @@ Standalone private benchmark storage and UI for `enhancement.v1`. Only explicitl
 authored synthetic subjects are supported in this MWE. Definitions and responses
 are sensitive even when their inputs are fictional; keep the service private.
 
+New `bench-experiment/v2` definitions follow the
+[versioned workflow contract](versioned-workflows.md): one workflow version, exact
+core build and harness evaluation per revision. Variants can change supported
+step bindings, policies and parameters. The legacy v1 behavior documented below
+remains available for existing definitions.
+
 For the combined candidate, fixes, test evidence and a working loopback demo,
 see the [integration review](integration-review.md).
 

@@ -6,6 +6,8 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from . import CORE_VERSION, PROTOCOL_VERSION
+from ..core.prompt_evaluation import PromptMetricReading
+from ..core.prompt_review import ContextInference, ModelCommentary
 
 Identifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")]
 
@@ -141,26 +143,64 @@ class Steering(WireModel):
     instructions: Annotated[str, Field(min_length=1, max_length=2_000), AfterValidator(valid_text)] | None = None
 
 
+class WorkflowReference(WireModel):
+    workflow_id: Literal["prompt-check", "prompt-rewrite", "prompt-clarify"]
+    version: Literal["1.0.0", "2.0.0"]
+    definition_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class Policy(WireModel):
+    policy_id: Identifier
+    revision: Identifier
+    instructions: Text
+
+
+class WorkflowStepSettings(WireModel):
+    binding: ConsumerBinding | None = None
+    policy: Policy | None = None
+    generation: GenerationSettings | None = None
+    enable_thinking: bool | None = None
+
+
+class ModelCall(WireModel):
+    """Provider input contains only the workflow's selected messages and settings."""
+    system: Annotated[str, Field(min_length=1, max_length=32_000), AfterValidator(valid_text)]
+    user: Annotated[str, Field(min_length=1, max_length=600_000), AfterValidator(valid_text)]
+    policy_version: Identifier
+    generation: GenerationSettings
+    timeout_seconds: int = Field(ge=1, le=600)
+    response_schema: dict | None = None
+    enable_thinking: bool | None = None
+
+
 class ExecuteRequest(Identity):
     protocol_version: Literal["enhancement.v1"] = PROTOCOL_VERSION
     data_policy: Literal["synthetic_benchmark"]
     subject: Subject
-    strategy: Literal["script.clarify.v1", "consumer.rewrite.v1"]
+    strategy: Literal["script.clarify.v1", "consumer.rewrite.v1", "prompt.check.v1"]
     parameters: Parameters = Field(default_factory=Parameters)
     consumer: ConsumerBinding | None = None
     evaluation: EvaluationProfile
     assertions: tuple[Assertion, ...] = Field(default=(), max_length=32)
     objective: Objective = Field(default_factory=Objective)
     steering: Steering = Field(default_factory=Steering)
+    workflow: WorkflowReference | None = None
+    workflow_steps: dict[Identifier, WorkflowStepSettings] = Field(default_factory=dict, max_length=8)
 
     @model_validator(mode="after")
     def consistent(self) -> ExecuteRequest:
-        if (self.consumer is not None) != (self.strategy == "consumer.rewrite.v1"):
+        if self.workflow is not None:
+            from ..workflows.catalog import validate_configuration
+            validate_configuration(self)
+        elif self.workflow_steps or self.strategy == "prompt.check.v1":
+            raise ValueError("versioned_workflow_required")
+        elif (self.consumer is not None) != (self.strategy == "consumer.rewrite.v1"):
             raise ValueError("consumer_required_only_for_consumer_strategy")
         ids = {e.evaluator_id for e in self.evaluation.evaluators}
         if any(a.evaluator_id not in ids for a in self.assertions):
             raise ValueError("assertion_evaluator_unknown")
-        if any(target.evaluator_id not in ids for target in self.objective.targets):
+        objective_ids = {"diagnostics"} if self.workflow else ids
+        if any(target.evaluator_id not in objective_ids for target in self.objective.targets):
             raise ValueError("objective_evaluator_unknown")
         return self
 
@@ -238,6 +278,33 @@ class StageTiming(WireModel):
     seconds: float = Field(ge=0, allow_inf_nan=False)
 
 
+class WorkflowStepReceipt(WireModel):
+    step_id: Identifier
+    implementation: Identifier
+    status: Literal["succeeded", "skipped", "failed"]
+    provenance: Provenance | None = None
+    policy: Policy | None = None
+    generation: GenerationSettings | None = None
+    binding: ConsumerBinding | None = None
+    enable_thinking: bool | None = None
+
+
+class WorkflowCommentary(ModelCommentary):
+    inference_provider: Literal["local", "litellm", "openhands_acp"] = "local"
+
+
+class WorkflowReceipt(WireModel):
+    workflow: WorkflowReference
+    definition_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    configuration_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    compatible_core: str
+    steps: tuple[WorkflowStepReceipt, ...]
+    # These are workflow diagnostics; they never stand in for harness measurements.
+    diagnostics: tuple[PromptMetricReading, ...] = ()
+    context: ContextInference | None = None
+    review: WorkflowCommentary | None = None
+
+
 class ExecutionError(WireModel):
     code: Identifier
     stage: Identifier
@@ -264,14 +331,17 @@ class ExecutionResult(Identity):
     assertions: tuple[AssertionResult, ...] = ()
     effective_parameters: Parameters
     evaluation_profile: EvaluationProfile
-    strategy: Literal["script.clarify.v1", "consumer.rewrite.v1"]
+    strategy: Literal["script.clarify.v1", "consumer.rewrite.v1", "prompt.check.v1"]
     consumer_binding: ConsumerBinding | None = None
     effective_objective: Objective = Field(default_factory=Objective)
     effective_steering: Steering = Field(default_factory=Steering)
-    generation_context_version: Literal["enhancement-generation.v1"] = "enhancement-generation.v1"
-    generation_prompt_version: Literal["enhancement-rewrite.v2"] = "enhancement-rewrite.v2"
+    generation_context_version: Identifier = "enhancement-generation.v1"
+    generation_prompt_version: Identifier = "enhancement-rewrite.v2"
     timings: tuple[StageTiming, ...] = ()
     errors: tuple[ExecutionError, ...] = ()
+    workflow: WorkflowReference | None = None
+    effective_workflow_steps: dict[Identifier, WorkflowStepSettings] = Field(default_factory=dict)
+    workflow_result: WorkflowReceipt | None = None
 
 
 class Progress(Identity):
@@ -316,3 +386,4 @@ class Capabilities(WireModel):
     result_storage: Literal["ephemeral"] = "ephemeral"
     max_active: int = Field(ge=1, le=4)
     max_retained: int = Field(ge=1, le=128)
+    workflows: tuple[dict, ...] = ()

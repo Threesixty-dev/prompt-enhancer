@@ -26,7 +26,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self.connection() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2):
+            if version not in (0, 1, 2, 3):
                 raise BenchError("unsupported_database_schema", 503)
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript("BEGIN IMMEDIATE;\n" + Path(__file__).with_name("schema.sql").read_text())
@@ -36,7 +36,9 @@ class Store:
                     db.execute("INSERT OR IGNORE INTO core_images VALUES(?,?,?,?,?)",
                                (json.loads(row["body"])["enhancerVersion"], self.core_variant,
                                 row["image"], None, row["created"]))
-            db.execute("PRAGMA user_version=2")
+            db.execute("""INSERT OR IGNORE INTO core_artifacts
+                SELECT core_version,variant,image,receipt,registered FROM core_images WHERE receipt IS NOT NULL""")
+            db.execute("PRAGMA user_version=3")
             db.commit()
         os.chmod(self.path, 0o600)
 
@@ -80,6 +82,9 @@ class Store:
                 image=excluded.image,receipt=excluded.receipt,registered=excluded.registered""",
                        (artifact.coreVersion, artifact.variant, artifact.image,
                         artifact.model_dump_json(), time.time()))
+            db.execute("INSERT OR IGNORE INTO core_artifacts VALUES(?,?,?,?,?)",
+                       (artifact.coreVersion, artifact.variant, artifact.image,
+                        artifact.model_dump_json(), time.time()))
         return {"registered": True, "coreVersion": artifact.coreVersion, "variant": artifact.variant}
 
     def import_publication(self, publication: Publication) -> dict:
@@ -100,9 +105,10 @@ class Store:
             if db.execute("SELECT 1 FROM definitions WHERE stable_id=? AND generation=?",
                           (definition.stableId, definition.generation)).fetchone():
                 raise BenchError("generation_conflict", 409)
+            pinned_image = self._resolve_core(db, definition) if definition.coreBuild else publication.image
             db.execute("INSERT INTO definitions VALUES(?,?,?,?,?,?,?,?)",
                        (definition.stableId, definition.revision, definition.generation,
-                        spec_hash, body, publication.image or "", definition.autoRun, time.time()))
+                        spec_hash, body, pinned_image or "", definition.autoRun, time.time()))
             if publication.image is not None:
                 # Old publishers can bootstrap a version, never replace a newer release.
                 db.execute("INSERT OR IGNORE INTO core_images VALUES(?,?,?,?,?)",
@@ -128,11 +134,7 @@ class Store:
             if previous["request_hash"] != digest:
                 raise BenchError("idempotency_conflict", 409)
             return previous["id"]
-        artifact = db.execute("SELECT image FROM core_images WHERE core_version=? AND variant=?",
-                              (definition.enhancerVersion, self.core_variant)).fetchone()
-        if artifact is None:
-            raise BenchError("core_version_unavailable", 409)
-        image = artifact["image"]
+        image = self._resolve_core(db, definition)
         digest = fingerprint({"effective": effective, "image": image, "retryOf": retry_of})
         run_id, correlation_id = str(uuid.uuid4()), str(uuid.uuid4())
         db.execute("""INSERT INTO runs(id,correlation_id,stable_id,revision,generation,origin,
@@ -149,6 +151,24 @@ class Store:
                 position += 1
         self._event(db, run_id, "queued")
         return run_id
+
+    def _resolve_core(self, db, definition):
+        if definition.coreBuild:
+            build = definition.coreBuild
+            if build.variant != self.core_variant:
+                raise BenchError("core_image_variant_mismatch", 409)
+            artifact = db.execute("SELECT receipt FROM core_artifacts WHERE core_version=? AND variant=? AND image=?",
+                (definition.enhancerVersion, build.variant, build.image)).fetchone()
+            if artifact is None:
+                raise BenchError("pinned_core_build_unavailable", 409)
+            if json.loads(artifact["receipt"])["buildInputSha256"] != build.buildInputSha256:
+                raise BenchError("pinned_core_build_mismatch", 409)
+            return build.image
+        artifact = db.execute("SELECT image FROM core_images WHERE core_version=? AND variant=?",
+                              (definition.enhancerVersion, self.core_variant)).fetchone()
+        if artifact is None:
+            raise BenchError("core_version_unavailable", 409)
+        return artifact["image"]
 
     def enqueue_ui(self, stable_id: str, revision: str, overrides: Overrides,
                    request_id: str, retry_of: str | None = None) -> str:

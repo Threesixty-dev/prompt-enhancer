@@ -8,7 +8,7 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from prompt_enhancer.enhancement.adapters import ConsumerConfig, ProcessConsumer, ProcessTextEvaluation, TextEvaluatorConfig
-from prompt_enhancer.enhancement.contracts import Evaluator, GenerationSettings, Subject
+from prompt_enhancer.enhancement.contracts import Evaluator, GenerationSettings, ModelCall, Subject
 from prompt_enhancer.enhancement.evaluators import TypedTextEvaluation
 from prompt_enhancer.enhancement.ports import CoreError
 from prompt_enhancer.enhancement.worker import inference, openhands, parse_candidate, rubric_inference
@@ -98,6 +98,47 @@ def test_inference_reuses_gateway_adapter_and_requires_complete_reply(monkeypatc
     assert sent[0]["temperature"] == 0.2 and sent[0]["max_tokens"] == 128
     assert len(sent[0]["messages"]) == 2
     assert json.loads(sent[0]["messages"][1]["content"])["generation_context"]["before"] == context.model_dump(mode="json")["before"]
+
+
+def test_workflow_provider_transports_only_prepared_messages_and_preserves_review_json(monkeypatch):
+    from prompt_enhancer.enhancement import adapters
+    from prompt_enhancer.infrastructure import litellm
+    sent, worker_inputs = [], []
+    reply = '{"notes":"Fictional review without a rewrite."}'
+    def chat(settings):
+        def complete(model, body):
+            sent.append(json.loads(body))
+            return 200, json.dumps({"model": "example-model", "choices": [{"finish_reason": "stop",
+                "message": {"role": "assistant", "content": reply}}]}).encode(), "application/json"
+        return complete
+    monkeypatch.setattr(litellm, "LiteLLMChat", chat)
+    async def worker(payload, **kwargs):
+        worker_inputs.append(payload)
+        return inference(payload)
+    monkeypatch.setattr(adapters, "run_worker", worker)
+    call = ModelCall(system="Review this fictional input.", user="Fictional widget request.",
+        policy_version="example-review.v1", generation=GenerationSettings(max_tokens=128, temperature=0.2),
+        timeout_seconds=10, enable_thinking=False, response_schema={"type": "object"})
+    result = asyncio.run(ProcessConsumer(config(), SecretStr("example-invalid-value")).complete(call))
+    assert result.text == reply and result.provenance.rubric_version == call.policy_version
+    assert "request" not in worker_inputs[0] and "generation_context" not in worker_inputs[0]
+    assert sent[0]["messages"] == [{"role": "system", "content": call.system}, {"role": "user", "content": call.user}]
+    assert sent[0]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert sent[0]["response_format"]["json_schema"]["schema"] == call.response_schema
+
+
+def test_legacy_generation_context_keeps_its_existing_payload_bound():
+    from prompt_enhancer.enhancement.contracts import GenerationContext
+    from prompt_enhancer.enhancement.engine import identity
+    from prompt_enhancer.enhancement.worker import model_call
+    item = consumer_request(evaluation={"profile_id": "example-profile", "revision": "1", "evaluators": [
+        {"evaluator_id": f"example-{i}", "kind": "embedding", "binding_id": "example-embedding", "target": "Fictional target. " * 1000}
+        for i in range(8)]})
+    context = GenerationContext(**identity(item), before=(), evaluation_profile=item.evaluation,
+        objective=item.objective, steering=item.steering)
+    call = model_call({"request": item.model_dump(), "generation_context": context.model_dump()})
+    assert len(call.user) > 100_000
+    assert json.loads(call.user)["generation_context"]["evaluation_profile"] == item.evaluation.model_dump(mode="json")
 
 
 def test_rubric_gateway_is_independent_and_applies_only_evaluation_settings(monkeypatch):

@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import copy
+import re
 
 from jsonschema import Draft202012Validator, ValidationError
 
@@ -33,6 +34,8 @@ class Contracts:
             except (OSError, ValueError):
                 raise BenchError("shared_contract_unavailable", 503) from None
             self.validators[name] = Draft202012Validator(schema)
+        catalog = directory / "workflows.json"
+        self.workflows = json.loads(catalog.read_text()) if catalog.is_file() else []
 
     def validate(self, name: str, value: dict):
         try:
@@ -56,6 +59,12 @@ class Contracts:
                         return self.normalized(option, value)
         if isinstance(value, dict):
             result = copy.deepcopy(value)
+            if isinstance(node.get("additionalProperties"), dict):
+                result = {key: self.normalized(node["additionalProperties"], item) for key, item in result.items()}
+            for pattern, child in node.get("patternProperties", {}).items():
+                for key in result:
+                    if re.search(pattern, key):
+                        result[key] = self.normalized(child, result[key])
             for key, child in node.get("properties", {}).items():
                 if key in result:
                     result[key] = self.normalized(child, result[key])
@@ -77,10 +86,14 @@ class Contracts:
             "unit_id": unit["id"], "attempt_id": attempt["id"],
             "subject": {"text": subject["text"], "context": subject["context"]},
             "strategy": unit["strategy"], "parameters": unit["parameters"],
-            "consumer": unit.get("consumerBinding", settings["consumerBinding"]) if unit["strategy"].startswith("consumer.") else None,
+            "consumer": unit.get("consumerBinding", settings["consumerBinding"])
+                if unit["strategy"].startswith("consumer.") or unit["strategy"] == "prompt.check.v1" else None,
             "evaluation": settings["evaluatorProfile"], "assertions": unit["assertions"],
             "objective": unit["objective"], "steering": unit["steering"],
         }
+        if settings.get("schemaVersion") == "bench-experiment/v2":
+            request["workflow"] = settings["workflow"]
+            request["workflow_steps"] = unit["stepSettings"]
         schema = self.validators["execute-request"].schema
 
         def explicit(value, node):
@@ -93,8 +106,32 @@ class Contracts:
                     explicit(value[key], child)
 
         self.validate("execute-request", request)
+        if settings.get("schemaVersion") == "bench-experiment/v2":
+            self.validate_workflow(settings, unit)
         explicit(request["parameters"], schema["properties"]["parameters"])
         return request
+
+    def validate_workflow(self, settings, unit):
+        reference = settings["workflow"]
+        manifest = next((item for item in self.workflows if all(
+            item.get(key) == reference.get(key) for key in ("workflow_id", "version", "definition_sha256")
+        )), None)
+        if manifest is None:
+            raise BenchError("workflow_definition_unsupported")
+        if re.fullmatch(manifest["core_version_pattern"], settings["enhancerVersion"]) is None:
+            raise BenchError("workflow_core_incompatible")
+        if unit["strategy"] != manifest["strategy"]:
+            raise BenchError("workflow_strategy_fixed")
+        if not set(unit["stepSettings"]) <= set(manifest["configurable_steps"]):
+            raise BenchError("workflow_step_not_configurable")
+        if unit["assertions"] != settings["harnessAssertions"]:
+            raise BenchError("harness_evaluation_fixed")
+        step = unit["stepSettings"].get(manifest["model_step"], {})
+        binding = step.get("binding") or unit.get("consumerBinding")
+        if manifest["model_step"] and not manifest["optional_model"] and not binding:
+            raise BenchError("workflow_model_binding_required")
+        if any(target.get("evaluator_id") != "diagnostics" for target in unit["objective"].get("targets", [])):
+            raise BenchError("workflow_diagnostic_target_unsupported")
 
     def correlated(self, name: str, value: dict, request: dict) -> dict:
         self.validate(name, value)
@@ -117,6 +154,14 @@ class Contracts:
         if value["candidate"] != expected:
             raise BenchError("core_candidate_provenance_mismatch", 502)
         properties = self.validators["execute-request"].schema["properties"]
+        if request.get("workflow"):
+            if (value.get("workflow") != request["workflow"] or value.get("effective_workflow_steps")
+                    != self.normalized(properties["workflow_steps"], request["workflow_steps"])):
+                raise BenchError("core_workflow_settings_mismatch", 502)
+            receipt = value.get("workflow_result")
+            if value["status"] == "succeeded" and (receipt is None or receipt["workflow"] != request["workflow"]
+                    or receipt["definition_sha256"] != request["workflow"]["definition_sha256"]):
+                raise BenchError("core_workflow_provenance_mismatch", 502)
         if (value["effective_parameters"] != request["parameters"]
                 or value["evaluation_profile"] != self.normalized(properties["evaluation"], request["evaluation"])
                 or value["effective_objective"] != self.normalized(properties["objective"], request["objective"])

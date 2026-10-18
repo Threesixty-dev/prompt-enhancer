@@ -106,6 +106,8 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
     def publication(value: Publication):
         if value.image is not None and value.image.split("@", 1)[0] not in allowed_repositories:
             raise BenchError("image_repository_not_allowed", 403)
+        if value.definition.coreBuild and value.definition.coreBuild.image.split("@", 1)[0] not in allowed_repositories:
+            raise BenchError("image_repository_not_allowed", 403)
         # Exercise the authoritative request schema for every combination before import.
         from .definitions import effective_settings
 
@@ -131,8 +133,8 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
     def run_form_schema():
         schema = contracts.validators["execute-request"].schema
         return {"$defs": schema["$defs"], "properties": {
-            key: schema["properties"][key] for key in ("objective", "steering", "consumer")
-        }}
+            key: schema["properties"][key] for key in ("objective", "steering", "consumer", "workflow_steps")
+        }, "workflows": contracts.workflows}
 
     @app.get("/api/runs")
     def runs(limit: int = Query(100, ge=1, le=100), before: str | None = Query(None, max_length=80),

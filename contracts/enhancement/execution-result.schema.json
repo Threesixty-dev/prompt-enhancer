@@ -103,6 +103,55 @@
       "title": "CategoricalTarget",
       "type": "object"
     },
+    "CommentaryFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "aspect": {
+          "enum": [
+            "goal",
+            "scope",
+            "context",
+            "constraints",
+            "acceptance",
+            "deliverable",
+            "verification",
+            "ambiguity",
+            "other"
+          ],
+          "title": "Aspect",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "why": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Why",
+          "type": "string"
+        },
+        "suggestion": {
+          "maxLength": 800,
+          "minLength": 1,
+          "title": "Suggestion",
+          "type": "string"
+        }
+      },
+      "required": [
+        "aspect",
+        "severity",
+        "why",
+        "suggestion"
+      ],
+      "title": "CommentaryFinding",
+      "type": "object"
+    },
     "ConsumerBinding": {
       "additionalProperties": false,
       "properties": {
@@ -125,6 +174,114 @@
         "provider"
       ],
       "title": "ConsumerBinding",
+      "type": "object"
+    },
+    "ContextInference": {
+      "additionalProperties": false,
+      "properties": {
+        "task_type": {
+          "enum": [
+            "implement",
+            "fix",
+            "refactor",
+            "review",
+            "explain",
+            "plan",
+            "write",
+            "test",
+            "other"
+          ],
+          "title": "Task Type",
+          "type": "string"
+        },
+        "language": {
+          "enum": [
+            "en",
+            "pl",
+            "mixed",
+            "unknown"
+          ],
+          "title": "Language",
+          "type": "string"
+        },
+        "prompt_chars": {
+          "minimum": 0,
+          "title": "Prompt Chars",
+          "type": "integer"
+        },
+        "prompt_words": {
+          "minimum": 0,
+          "title": "Prompt Words",
+          "type": "integer"
+        },
+        "sentence_count": {
+          "minimum": 0,
+          "title": "Sentence Count",
+          "type": "integer"
+        },
+        "bullet_count": {
+          "minimum": 0,
+          "title": "Bullet Count",
+          "type": "integer"
+        },
+        "question_count": {
+          "minimum": 0,
+          "title": "Question Count",
+          "type": "integer"
+        },
+        "file_references": {
+          "minimum": 0,
+          "title": "File References",
+          "type": "integer"
+        },
+        "code_identifiers": {
+          "minimum": 0,
+          "title": "Code Identifiers",
+          "type": "integer"
+        },
+        "urls": {
+          "minimum": 0,
+          "title": "Urls",
+          "type": "integer"
+        },
+        "prior_context_supplied": {
+          "minimum": 0,
+          "title": "Prior Context Supplied",
+          "type": "integer"
+        },
+        "depends_on_prior_context": {
+          "title": "Depends On Prior Context",
+          "type": "boolean"
+        },
+        "verification_requested": {
+          "title": "Verification Requested",
+          "type": "boolean"
+        },
+        "missing_elements": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Elements",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_type",
+        "language",
+        "prompt_chars",
+        "prompt_words",
+        "sentence_count",
+        "bullet_count",
+        "question_count",
+        "file_references",
+        "code_identifiers",
+        "urls",
+        "prior_context_supplied",
+        "depends_on_prior_context",
+        "verification_requested"
+      ],
+      "title": "ContextInference",
       "type": "object"
     },
     "Delta": {
@@ -573,6 +730,166 @@
       "title": "Parameters",
       "type": "object"
     },
+    "Policy": {
+      "additionalProperties": false,
+      "properties": {
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "instructions": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Instructions",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "revision",
+        "instructions"
+      ],
+      "title": "Policy",
+      "type": "object"
+    },
+    "PromptCue": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "detected",
+            "missing",
+            "counted",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Count"
+        }
+      },
+      "required": [
+        "code",
+        "label",
+        "status"
+      ],
+      "title": "PromptCue",
+      "type": "object"
+    },
+    "PromptMetricReading": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "known",
+            "unknown",
+            "not_applicable",
+            "abstained",
+            "execution_error"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "numerator": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numerator"
+        },
+        "denominator": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Denominator"
+        },
+        "higher_is_better": {
+          "default": true,
+          "title": "Higher Is Better",
+          "type": "boolean"
+        },
+        "explanation_code": {
+          "title": "Explanation Code",
+          "type": "string"
+        },
+        "cues": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PromptCue"
+          },
+          "title": "Cues",
+          "type": "array"
+        }
+      },
+      "required": [
+        "key",
+        "display_name",
+        "description",
+        "state",
+        "explanation_code"
+      ],
+      "title": "PromptMetricReading",
+      "type": "object"
+    },
     "Provenance": {
       "additionalProperties": false,
       "properties": {
@@ -739,6 +1056,50 @@
       "title": "Provenance",
       "type": "object"
     },
+    "ReformulatedElement": {
+      "additionalProperties": false,
+      "properties": {
+        "element": {
+          "enum": [
+            "goal",
+            "scope",
+            "context",
+            "constraints",
+            "acceptance",
+            "deliverable",
+            "verification",
+            "other"
+          ],
+          "title": "Element",
+          "type": "string"
+        },
+        "original": {
+          "anyOf": [
+            {
+              "maxLength": 600,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original"
+        },
+        "suggested": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "title": "Suggested",
+          "type": "string"
+        }
+      },
+      "required": [
+        "element",
+        "suggested"
+      ],
+      "title": "ReformulatedElement",
+      "type": "object"
+    },
     "StageTiming": {
       "additionalProperties": false,
       "properties": {
@@ -842,6 +1203,390 @@
       ],
       "title": "TextProvenance",
       "type": "object"
+    },
+    "WorkflowCommentary": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "ok",
+            "no_active_model",
+            "model_error",
+            "reply_invalid",
+            "skipped"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "model_alias": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Alias"
+        },
+        "prompt_version": {
+          "default": "prompt-check-commentary-v2-complete-json",
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "inference_provider": {
+          "default": "local",
+          "enum": [
+            "local",
+            "litellm",
+            "openhands_acp"
+          ],
+          "title": "Inference Provider",
+          "type": "string"
+        },
+        "model_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Revision"
+        },
+        "model_license": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model License"
+        },
+        "redactor_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redactor Version"
+        },
+        "adapter_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adapter Version"
+        },
+        "findings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CommentaryFinding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "reformulated_prompt": {
+          "anyOf": [
+            {
+              "maxLength": 42000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reformulated Prompt"
+        },
+        "reformulated_elements": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReformulatedElement"
+          },
+          "title": "Reformulated Elements",
+          "type": "array"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "caveat": {
+          "default": "Commentary and rewrites come from a local model; they are suggestions, not metrics, and may be wrong. The deterministic cues above are what was actually detected.",
+          "title": "Caveat",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "WorkflowCommentary",
+      "type": "object"
+    },
+    "WorkflowReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "workflow": {
+          "$ref": "#/$defs/WorkflowReference"
+        },
+        "definition_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Definition Sha256",
+          "type": "string"
+        },
+        "configuration_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Configuration Sha256",
+          "type": "string"
+        },
+        "compatible_core": {
+          "title": "Compatible Core",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/WorkflowStepReceipt"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "diagnostics": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PromptMetricReading"
+          },
+          "title": "Diagnostics",
+          "type": "array"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextInference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "review": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkflowCommentary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "workflow",
+        "definition_sha256",
+        "configuration_sha256",
+        "compatible_core",
+        "steps"
+      ],
+      "title": "WorkflowReceipt",
+      "type": "object"
+    },
+    "WorkflowReference": {
+      "additionalProperties": false,
+      "properties": {
+        "workflow_id": {
+          "enum": [
+            "prompt-check",
+            "prompt-rewrite",
+            "prompt-clarify"
+          ],
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "version": {
+          "enum": [
+            "1.0.0",
+            "2.0.0"
+          ],
+          "title": "Version",
+          "type": "string"
+        },
+        "definition_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Definition Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "version",
+        "definition_sha256"
+      ],
+      "title": "WorkflowReference",
+      "type": "object"
+    },
+    "WorkflowStepReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "implementation": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Implementation",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "skipped",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Policy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsumerBinding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "enable_thinking": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enable Thinking"
+        }
+      },
+      "required": [
+        "step_id",
+        "implementation",
+        "status"
+      ],
+      "title": "WorkflowStepReceipt",
+      "type": "object"
+    },
+    "WorkflowStepSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsumerBinding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Policy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "enable_thinking": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enable Thinking"
+        }
+      },
+      "title": "WorkflowStepSettings",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -883,7 +1628,7 @@
       "type": "string"
     },
     "core_version": {
-      "default": "0.1.4",
+      "default": "0.2.0",
       "title": "Core Version",
       "type": "string"
     },
@@ -996,7 +1741,8 @@
     "strategy": {
       "enum": [
         "script.clarify.v1",
-        "consumer.rewrite.v1"
+        "consumer.rewrite.v1",
+        "prompt.check.v1"
       ],
       "title": "Strategy",
       "type": "string"
@@ -1019,14 +1765,14 @@
       "$ref": "#/$defs/Steering"
     },
     "generation_context_version": {
-      "const": "enhancement-generation.v1",
       "default": "enhancement-generation.v1",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
       "title": "Generation Context Version",
       "type": "string"
     },
     "generation_prompt_version": {
-      "const": "enhancement-rewrite.v2",
       "default": "enhancement-rewrite.v2",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
       "title": "Generation Prompt Version",
       "type": "string"
     },
@@ -1045,6 +1791,37 @@
       },
       "title": "Errors",
       "type": "array"
+    },
+    "workflow": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkflowReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "effective_workflow_steps": {
+      "patternProperties": {
+        "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$": {
+          "$ref": "#/$defs/WorkflowStepSettings"
+        }
+      },
+      "title": "Effective Workflow Steps",
+      "type": "object"
+    },
+    "workflow_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkflowReceipt"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

@@ -3,6 +3,20 @@
 Repository paths resolve from the approved checkout. Recheck current contracts
 when they differ from this guide; these notes are not an alternate schema.
 
+For new versioned-workflow definitions, use `bench-experiment/v2` and follow
+`docs/bench/versioned-workflows.md`. Pin one workflow reference and exact core
+release receipt; fix harness evaluation/assertions at the experiment level.
+Only declared step settings may vary. The table and strategy guidance below
+describe retained v1 definitions; do not apply their run-time image rebinding
+or mixed-strategy examples to v2.
+
+For the pre-Bench prompt logic, select `prompt-check` version `1.0.0`,
+`prompt-rewrite` or `prompt-clarify` version `2.0.0`. Each scores, infers context and
+optionally performs model review/rewrite using strategy `prompt.check.v1` and
+step ID `review`. Configure policy/model/parameters there, not in legacy
+objective/steering fields. Rewrite/clarify `1.0.0` remain the distinct legacy
+two-step flows; never change an existing pin to the new version in place.
+
 ## Fields and inheritance
 
 | Field | Authoring rule |

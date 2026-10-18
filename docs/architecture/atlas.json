@@ -440,7 +440,7 @@
         "tests/test_prompt_check.py",
         "frontend/src/features/prompt-check/PromptCheckPage.test.tsx"
       ],
-      "evidence": "Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Core/hook unchanged against origin/main. Six deterministic cue metrics plus optional labeled local-model commentary; source comments/tests prohibit prompt/commentary persistence. Deterministic preflight works without a loaded model; optional commentary/rewrite uses the active A08 runtime. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model.",
+      "evidence": "Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Core/hook unchanged against origin/main. Six deterministic cue metrics plus optional labeled local-model commentary; source comments/tests prohibit prompt/commentary persistence. Deterministic preflight works without a loaded model; optional commentary/rewrite uses the active A08 runtime. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records extracted Prompt Check components and six synthetic pre-Bench parity cases; source review and live model/hook qualification remain open.",
       "gap": "Current full model/hook installed experience and workflow-backed enhancement integration remain unqualified; deterministic cues are limited language/task heuristics.",
       "next": "Validate user draft retention, explicit apply, local-model unavailable fallback and opt-in hook failure behavior; route future workflow enhancement through same reviewed boundary. Review ADR 0024 and its gateway validation before accepting the inference boundary extension.",
       "gate": "B03/B07 V12",
@@ -1670,7 +1670,7 @@
         "docs/beta-acceptance-gates.md"
       ],
       "tests": [],
-      "evidence": "No production workflow store, run journal or scheduler found. Agent history and analysis jobs are different bounded contexts.",
+      "evidence": "No production workflow store, run journal or scheduler found. Agent history and analysis jobs are different bounded contexts. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records fixed versioned prompt compositions, v2 experiment pins and historical migration tests. This supplements the frozen observation without accepting the general graph engine/store gate.",
       "gap": "Immutable revisions, input snapshots, node attempts, stable-port joins, duplicate Run admission and interrupted recovery missing.",
       "next": "Add dedicated private workflow persistence and deterministic sequential chain/branch/join execution.",
       "gate": "W02",
@@ -1775,7 +1775,7 @@
         "docs/product-readiness-matrix-2026-09-12.md"
       ],
       "tests": [],
-      "evidence": "Acceptance requirements are documented; executable multimodal topology/placement qualification does not yet exist.",
+      "evidence": "Acceptance requirements are documented; executable multimodal topology/placement qualification does not yet exist. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records synthetic backend, desktop/mobile browser and pre-Bench parity checks for fixed prompt workflows. No real-model or general multimodal qualification is claimed.",
       "gap": "Series/parallel/mixed positive and rejection matrix, real CPU/NVIDIA overlap, restart/cancel/failure and ten-cycle cleanup evidence missing.",
       "next": "Generate contract cases, deterministic engine cases and exact-profile real inference cases, recording package/model/runtime hashes.",
       "gate": "W07",
@@ -2666,7 +2666,7 @@
         "docs/beta-acceptance-gates.md"
       ],
       "tests": [],
-      "evidence": "Approved WP requirement; existing prompt check is not this saved-workflow feature.",
+      "evidence": "Approved WP requirement; existing prompt check is not this saved-workflow feature. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records shared components, library workflow compositions and a Bench wrapper with independent harness judgments. Saved builder/composer/headless parity and update retention remain unqualified.",
       "gap": "Reject missing or incompatible inputs before loading.",
       "next": "Implement after required W contracts/engine/adapters and test the named WP gate.",
       "gate": "WP01",
@@ -2813,6 +2813,8 @@
     }
   ],
   "findings": [
+    "Later bounded evidence, 2026-10-18 logic alignment: docs/bench/versioned-workflows.md records rewrite/clarify version 2.0.0 using the pre-Bench score, context and optional model review/rewrite sequence. 372 affected backend tests, 62 focused follow-up checks, 48 desktop/mobile browser tests and six offline definitions pass. The UI distinguishes retained v1 Bench flows. This supplements MA18/W02/W07/WP08 without rebinding the frozen source observation or accepting wider gates.",
+    "Later bounded evidence, 2026-10-18: docs/bench/versioned-workflows.md and ADR 0027 record owner-approved reusable components, versioned compositions and immutable v2 experiment workflow/core/harness bindings. 517 backend tests pass with two Windows-only skips, followed by 111 focused checks; 42 desktop/mobile browser tests and four schema follow-up checks pass. Bench exposes three prompt workflows; two session workflows remain library/app compositions. The frozen October 8 source observation and MA18/W/WP acceptance statuses are unchanged.",
     "Later bounded evidence, 2026-10-14: docs/bench/core-version-resolution.md and proposed ADR 0026 record version-only Bench publications, per-Run catalog resolution and schema 2 migration. 237 synthetic Bench tests pass, including automatic registration after release verification and failure handling. This W02/W07/WP08 addendum does not recolor the frozen October 8 observation or accept general workflow/runtime gates.",
     "Audit scope is analytics/metrics only. No provider history, credentials, environment files, personal runtime, network calls, application windows or models accessed. No tests executed for this read-only inventory.",
     "Color is component-specific: ready means a bounded source/helper contract with historical passing evidence and reviewed implementation; it never certifies beta/native/installed readiness. partial includes implemented but unqualified features. absent marks the missing measured adapter, not absence of its UI/schema. mock is explicit synthetic preview only.",

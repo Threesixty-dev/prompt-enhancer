@@ -1,5 +1,42 @@
 # Product feature and readiness matrix
 
+## Workflow promotion portability correction - 2026-10-18
+
+Hosted Windows checks exposed POSIX-only directory synchronization and permission
+assertions in the synthetic Bench consumer checks. The bounded correction follows
+the existing atomic-file platform convention, preserves POSIX directory fsync and
+0600 modes, and keeps every retention scenario active on Windows. All 15 focused
+consumer tests pass locally, including failed-write preservation and propagated
+directory-sync failures. Hosted revalidation is pending; native Windows consumer
+support and general R26/runtime/release gates are not established by these tests.
+
+## Versioned components and workflows - 2026-10-18
+
+The owner-approved [component/workflow split](bench/versioned-workflows.md) is
+implemented locally on develop baseline `dbd5bf1`. Core `0.2.0` is a source
+candidate. Three prompt workflows have independent versions and Bench execution;
+session-analysis and session-links retain reusable library/app compositions.
+New v2 experiment revisions fix the workflow, exact core artifact and harness
+evaluation while allowing declared model/provider, policy and parameter changes.
+Legacy definitions and historical runs retain their identities and semantics.
+
+Owner follow-up aligns rewrite/clarify workflow version `2.0.0` with Prompt
+Check's score -> infer context -> optional model review/rewrite sequence. The
+UI displays ordered steps and distinguishes the retained v1 Bench flows. This
+adjustment passes 372 affected backend tests, 62 focused follow-up checks, 48
+desktop/mobile browser checks and six offline definition validations. All three
+review flows match the six synthetic pre-Bench score/context/input cases.
+Privacy/OpenAPI and generated-file checks pass; source review remains pending.
+
+Evidence: 517 affected backend tests pass with two Windows-specific tests skipped;
+111 focused follow-up tests pass after final compatibility corrections. The full
+desktop/mobile browser suite passes 42 checks, followed by four workflow checks
+after schema export. Six synthetic pre-Bench parity cases, four definition
+validations, owned loopback smoke, privacy and generated-source checks pass.
+These are overlapping bounded checks, not full release qualification. Generic
+session-input Bench transport, real models, hosted CI, owner source review and
+deployment remain open. MA18 and W/WP acceptance statuses are unchanged.
+
 ## Core version resolution per Run - 2026-10-14
 
 The [bounded Bench change](bench/core-version-resolution.md) separates Experiment

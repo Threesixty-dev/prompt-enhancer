@@ -61,6 +61,12 @@ reviewed and promoted first; do not claim the old Action is definition-only.
 
 ## Design the comparison
 
+For `bench-experiment/v2`, first read `docs/bench/versioned-workflows.md`. Fix one
+workflow version/digest, exact core artifact and harness evaluation per revision.
+Units may change only that workflow's supported model/provider bindings,
+policies and parameters. Legacy v1 mixed strategies and run-time image rebinding
+remain compatibility behavior, not the authoring rule for v2.
+
 Extract the user's hypothesis, cases, variants, intended models/evaluators and
 execution limits. Ask only for missing decisions that affect the intended
 comparison or require real configured bindings. Prepare independent parts while
