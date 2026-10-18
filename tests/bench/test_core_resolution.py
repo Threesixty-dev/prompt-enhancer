@@ -153,7 +153,7 @@ def test_v1_database_upgrade_preserves_runs_request_hashes_and_immutable_definit
     upgraded = Store(store.path)
     assert {run_id: upgraded.run(run_id) for run_id in before} == before
     with upgraded.connection() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         assert [tuple(row) for row in db.execute("SELECT * FROM definitions")] == definitions
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
     replacement = artifact(publication)

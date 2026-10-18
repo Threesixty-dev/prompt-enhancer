@@ -142,50 +142,38 @@ def execute_session_link_payload(payload: object) -> dict[str, object]:
         bge_snapshot = prepare_model_snapshot(
             BGE_RERANKER_V2_M3, allow_download=False
         )
-        qwen = TransformersLastTokenEmbeddingScorer(
-            QWEN3_EMBEDDING_06B,
-            qwen_snapshot,
-            device=resolved_device,
-            batch_size=min(8, QWEN3_EMBEDDING_06B.max_batch_size),
-        )
-        try:
-            qwen_rows = qwen.score(cases)
-        finally:
-            qwen.close()
-            del qwen
-            gc.collect()
-        bge = TransformersSequenceReranker(
-            BGE_RERANKER_V2_M3,
-            bge_snapshot,
-            device=resolved_device,
-            batch_size=min(8, BGE_RERANKER_V2_M3.max_batch_size),
-        )
-        try:
-            bge_rows = bge.score(cases)
-        finally:
-            bge.close()
-            del bge
-            gc.collect()
-
-    scores: list[dict[str, object]] = []
-    for case_index, case in enumerate(cases):
-        if len(qwen_rows[case_index]) != len(case.candidates) or len(
-            bge_rows[case_index]
-        ) != len(case.candidates):
-            raise SessionLinkRunnerError("invalid_model_score_shape")
-        for candidate_index, candidate in enumerate(case.candidates):
-            qwen_score = float(qwen_rows[case_index][candidate_index])
-            bge_score = float(bge_rows[case_index][candidate_index])
-            if not math.isfinite(qwen_score) or not math.isfinite(bge_score):
-                raise SessionLinkRunnerError("non_finite_model_score")
-            scores.append(
-                {
-                    "query_message_id": query_ids[case_index],
-                    "candidate_message_id": candidate.candidate_id,
-                    "qwen_score": round(qwen_score, 8),
-                    "bge_score": round(bge_score, 8),
-                }
+        def embedding(cases):
+            qwen = TransformersLastTokenEmbeddingScorer(
+                QWEN3_EMBEDDING_06B, qwen_snapshot, device=resolved_device,
+                batch_size=min(8, QWEN3_EMBEDDING_06B.max_batch_size),
             )
+            try:
+                return qwen.score(cases)
+            finally:
+                qwen.close()
+                del qwen
+                gc.collect()
+
+        def reranker(cases):
+            bge = TransformersSequenceReranker(
+                BGE_RERANKER_V2_M3, bge_snapshot, device=resolved_device,
+                batch_size=min(8, BGE_RERANKER_V2_M3.max_batch_size),
+            )
+            try:
+                return bge.score(cases)
+            finally:
+                bge.close()
+                del bge
+                gc.collect()
+
+        from ...workflows.session_links import SessionLinksWorkflow
+        try:
+            rows = SessionLinksWorkflow(embedding, reranker).run(query_ids, cases)
+            scores = [{"query_message_id": row["query_message_id"], "candidate_message_id": row["candidate_message_id"],
+                       "qwen_score": row["embedding_score"], "bge_score": row["reranker_score"]} for row in rows]
+        except ValueError as exc:
+            raise SessionLinkRunnerError(str(exc)) from None
+
     return {
         "schema_version": SESSION_LINK_RUNNER_SCHEMA_VERSION,
         "resolved_device": resolved_device,

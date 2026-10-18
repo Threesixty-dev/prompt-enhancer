@@ -17,8 +17,11 @@ export function countLabel(settings) {
 
 export function generationLabel(settings, unit) {
   if (unit.strategy === 'script.clarify.v1') return 'No model (packaged script)';
-  if (!unit.strategy?.startsWith('consumer.')) return 'Unknown';
-  const binding = { ...settings.consumerBinding, ...unit.consumerBinding };
+  if (!unit.strategy?.startsWith('consumer.') && unit.strategy !== 'prompt.check.v1') return 'Unknown';
+  const stepId = unit.strategy === 'prompt.check.v1' ? 'review' : 'rewrite';
+  const step = { ...settings.baseStepSettings?.[stepId], ...unit.stepSettings?.[stepId] };
+  const binding = step.binding || unit.stepBindings?.[stepId] || { ...settings.consumerBinding, ...unit.consumerBinding };
+  if (unit.strategy === 'prompt.check.v1' && !binding.binding_id) return 'No model (diagnostics only)';
   return `${binding.binding_id || 'Unknown alias'} (${binding.provider || 'unknown provider'})`;
 }
 
@@ -39,6 +42,10 @@ export function modelSummary(settings) {
 }
 
 export function variantDescription(settings, unit) {
+  if (unit.strategy === 'prompt.check.v1') {
+    const focus = { 'prompt-rewrite': 'Review focus: rewriting for clarity and testability.', 'prompt-clarify': 'Review focus: missing details and clarification questions.' };
+    return focus[settings.workflow?.workflow_id] || 'Prompt review with deterministic findings and optional model commentary.';
+  }
   const steering = { ...settings.baseSteering, ...unit.steering };
   const focus = steering.focus?.length ? steering.focus : aspects;
   if (unit.strategy === 'script.clarify.v1') {
@@ -97,6 +104,7 @@ export function variationOverview(settings, { attempts, onAttempt } = {}) {
 export function modelEvidence(result) {
   const box = node('div', undefined, 'model-evidence'); box.append(node('h3', 'Recorded model details'));
   const entries = [['Generation', result?.consumer_provenance]];
+  for (const step of result?.workflow_result?.steps || []) if (step.provenance) entries.push([`Workflow step: ${step.step_id}`, step.provenance]);
   for (const side of ['before', 'after']) for (const evaluator of result?.[side] || []) entries.push([`${side === 'before' ? 'Before' : 'After'} evaluator: ${evaluator.evaluator_id}`, evaluator.provenance]);
   for (const [label, provenance] of entries) {
     const card = node('div', undefined, 'model-evidence-card'); card.append(node('h4', label));

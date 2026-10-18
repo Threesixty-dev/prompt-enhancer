@@ -37,7 +37,9 @@ class ExecutionManager:
 
     def submit(self, request: ExecuteRequest) -> Progress:
         key = execution_id(request)
-        fingerprint = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
+        # Workflow defaults distinguish omission from an explicit provider-managed
+        # null. Reusing an identity must not collapse those different requests.
+        fingerprint = hashlib.sha256(request.model_dump_json(exclude_unset=request.workflow is not None).encode()).hexdigest()
         if existing := self.entries.get(key):
             if existing.fingerprint != fingerprint:
                 raise CoreError("identity_conflict")

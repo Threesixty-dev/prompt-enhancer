@@ -1,5 +1,6 @@
 """Consumer-owned gateway configuration with only fictional values."""
 import json
+import os
 from pathlib import Path
 import runpy
 import tomllib
@@ -21,5 +22,7 @@ def test_consumer_catalog_binds_alias_without_inventing_model_limits(tmp_path):
     assert config["sandbox_mode"] == "read-only" and config["web_search"] == "disabled"
     assert config["model_providers"]["bench_gateway"]["env_key"] == "LITELLM_API_KEY"
     assert config["model_providers"]["bench_gateway"]["wire_api"] == "responses"
-    assert catalog_path.stat().st_mode & 0o777 == 0o600
-    assert (tmp_path / "config.toml").stat().st_mode & 0o777 == 0o600
+    # Windows exposes read/write attributes here, not POSIX owner/group modes.
+    expected_mode = 0o666 if os.name == "nt" else 0o600
+    assert catalog_path.stat().st_mode & 0o777 == expected_mode
+    assert (tmp_path / "config.toml").stat().st_mode & 0o777 == expected_mode

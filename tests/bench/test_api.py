@@ -31,8 +31,8 @@ def test_run_form_uses_authoritative_schemas_behind_gateway(store, contracts):
         assert response.status_code == 200
         schema = contracts.validators["execute-request"].schema
         assert response.json() == {"$defs": schema["$defs"], "properties": {
-            key: schema["properties"][key] for key in ("objective", "steering", "consumer")
-        }}
+            key: schema["properties"][key] for key in ("objective", "steering", "consumer", "workflow_steps")
+        }, "workflows": contracts.workflows}
 
 
 def client_for(store, contracts):

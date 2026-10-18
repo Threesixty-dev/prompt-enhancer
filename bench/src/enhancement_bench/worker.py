@@ -102,6 +102,10 @@ class Worker:
             capabilities = client.capabilities()
             if capabilities.get("core_version") != run["effective"]["enhancerVersion"]:
                 raise BenchError("core_version_mismatch")
+            reference = run["effective"].get("workflow")
+            if reference and not any(all(manifest.get(key) == value for key, value in reference.items())
+                                     for manifest in capabilities.get("workflows", [])):
+                raise BenchError("core_workflow_unsupported")
             for item, request in requests:
                 if self._cancel_requested(run["id"]):
                     state, code = "cancelled", "cancelled_before_submission"

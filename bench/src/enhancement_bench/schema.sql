@@ -10,6 +10,13 @@ CREATE TABLE IF NOT EXISTS definitions (
   auto_run INTEGER NOT NULL, created REAL NOT NULL,
   PRIMARY KEY(stable_id, revision), UNIQUE(stable_id, generation)
 );
+CREATE TABLE IF NOT EXISTS core_artifacts (
+  core_version TEXT NOT NULL, variant TEXT NOT NULL, image TEXT NOT NULL,
+  receipt TEXT NOT NULL, registered REAL NOT NULL,
+  PRIMARY KEY(core_version, variant, image)
+);
+CREATE TRIGGER IF NOT EXISTS immutable_core_artifact BEFORE UPDATE ON core_artifacts
+BEGIN SELECT RAISE(ABORT, 'immutable_core_artifact'); END;
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL UNIQUE,
   stable_id TEXT NOT NULL, revision TEXT NOT NULL, generation INTEGER NOT NULL,

@@ -379,6 +379,34 @@
       "title": "Parameters",
       "type": "object"
     },
+    "Policy": {
+      "additionalProperties": false,
+      "properties": {
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "instructions": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Instructions",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "revision",
+        "instructions"
+      ],
+      "title": "Policy",
+      "type": "object"
+    },
     "Steering": {
       "additionalProperties": false,
       "properties": {
@@ -460,6 +488,92 @@
       ],
       "title": "Subject",
       "type": "object"
+    },
+    "WorkflowReference": {
+      "additionalProperties": false,
+      "properties": {
+        "workflow_id": {
+          "enum": [
+            "prompt-check",
+            "prompt-rewrite",
+            "prompt-clarify"
+          ],
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "version": {
+          "enum": [
+            "1.0.0",
+            "2.0.0"
+          ],
+          "title": "Version",
+          "type": "string"
+        },
+        "definition_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Definition Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "version",
+        "definition_sha256"
+      ],
+      "title": "WorkflowReference",
+      "type": "object"
+    },
+    "WorkflowStepSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsumerBinding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Policy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "enable_thinking": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enable Thinking"
+        }
+      },
+      "title": "WorkflowStepSettings",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -511,7 +625,8 @@
     "strategy": {
       "enum": [
         "script.clarify.v1",
-        "consumer.rewrite.v1"
+        "consumer.rewrite.v1",
+        "prompt.check.v1"
       ],
       "title": "Strategy",
       "type": "string"
@@ -547,6 +662,27 @@
     },
     "steering": {
       "$ref": "#/$defs/Steering"
+    },
+    "workflow": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkflowReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "workflow_steps": {
+      "maxProperties": 8,
+      "patternProperties": {
+        "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$": {
+          "$ref": "#/$defs/WorkflowStepSettings"
+        }
+      },
+      "title": "Workflow Steps",
+      "type": "object"
     }
   },
   "required": [
