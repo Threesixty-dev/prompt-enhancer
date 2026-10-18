@@ -4,7 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from .contracts import Evaluation, Evaluator, ExecuteRequest, GenerationContext, Provenance, Subject
+from .contracts import Evaluation, Evaluator, ExecuteRequest, GenerationContext, ModelCall, Provenance, Subject
+from ..core.errors import CoreError
 
 
 # Only these package-owned diagnostics may cross the worker boundary.
@@ -14,14 +15,6 @@ WORKER_ERROR_CODES = frozenset({
     "consumer_workspace_unavailable", "remote_execution_unconfirmed",
     "remote_cleanup_unconfirmed", "worker_input_too_large",
 })
-
-
-class CoreError(Exception):
-    def __init__(self, code: str, *, uncertain: bool = False, operation_id: str | None = None):
-        self.code = code
-        self.uncertain = uncertain
-        self.operation_id = operation_id
-        super().__init__(code)
 
 
 @dataclass(frozen=True)
@@ -36,6 +29,14 @@ class Consumer(Protocol):
 
     def validate(self, request: ExecuteRequest) -> None: ...
     async def generate(self, request: ExecuteRequest, context: GenerationContext) -> Candidate: ...
+
+
+class ModelProvider(Protocol):
+    provider: str
+    provenance: Provenance
+
+    def validate_call(self, call: ModelCall) -> None: ...
+    async def complete(self, call: ModelCall) -> Candidate: ...
 
 
 class EvaluationProvider(Protocol):

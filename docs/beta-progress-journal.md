@@ -1,5 +1,50 @@
 # Beta progress journal: published handoff
 
+## 2026-10-18 - Align prompt workflows with pre-Bench logical steps
+
+The owner requested both a logic adjustment and clear presentation of each flow.
+Rewrite and clarification version `2.0.0` now score, infer context and optionally
+perform model review with an optional rewrite, using the same sequence as Prompt
+Check. Default policies focus on rewriting or clarifying missing details. Their
+v1 direct-rewrite and deterministic-placeholder versions retain their digests
+and behavior. The UI shows explicit names and ordered steps on experiment,
+setup and result pages. Session workflows already preserve their old sequences.
+
+Evidence: 372 affected backend tests, 62 focused checks after the final
+policy-version receipt correction, 48 desktop/mobile browser tests and six
+offline definition validations pass. The six pre-Bench synthetic cases now
+cover all three review flows. Privacy/OpenAPI, syntax and generated-file checks
+pass. Workflow/version notation initially triggered the email canary; the prose
+was corrected without relaxing the scanner. Source remains an unpublished core
+`0.2.0` candidate; existing experiment pins and broader acceptance gates remain
+unchanged. See [the workflow record](bench/versioned-workflows.md).
+
+## 2026-10-18 - Versioned core components and fixed experiment workflows
+
+Task branch `codex/versioned-workflows` starts from owner-selected develop
+`dbd5bf1`. [ADR 0027](adr/0027-versioned-core-components-and-workflows.md) records
+the agreed reusable components, versioned workflow compositions and separate
+harness evaluation. The local implementation extracts the pre-Bench Prompt
+Check/session logic, exposes three prompt workflows to Bench and fixes v2
+experiment workflow/core/harness identities. Supported variant settings remain
+model/provider bindings, policies and step parameters. Existing definitions,
+history and app privacy boundaries have compatibility coverage.
+
+Evidence: 517 affected backend tests pass with two Windows-only skips; 111
+overlapping focused checks pass after the final compatibility fixes. All 42
+desktop/mobile browser tests pass, with four workflow checks repeated after
+schema export. Six synthetic golden cases match the pre-Bench Prompt Check
+metrics, context and model-facing policy/input. Four definitions, loopback CLI,
+worker-to-core HTTP integration with synthetic runtime, syntax, privacy,
+architecture generation and whitespace checks pass. See the
+[implementation record](bench/versioned-workflows.md#local-validation---2026-10-18).
+
+Source review is pending. Core `0.2.0` is an unpublished candidate; existing
+experiment pins are unchanged. Session workflows are reusable library/app
+compositions but need a separate typed Bench transport and harness before that
+use. No models, production data, deployment or publication were used. Broader
+MA18/W/WP, device, real-model and release acceptance gates remain open.
+
 ## 2026-10-14 - Resolve Bench core versions per Run
 
 On `develop` baseline `f7c380e`, the owner-requested

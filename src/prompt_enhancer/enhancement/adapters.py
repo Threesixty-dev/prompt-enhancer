@@ -10,7 +10,7 @@ import uuid
 from pydantic import Field, SecretStr, field_validator, model_validator
 
 from ..infrastructure.text_models.manifests import TEXT_MODEL_MANIFESTS, TextModelTask
-from .contracts import Evaluation, Evaluator, ExecuteRequest, GenerationContext, Identifier, Metric, Provenance, Subject, WireModel
+from .contracts import Evaluation, Evaluator, ExecuteRequest, GenerationContext, Identifier, Metric, ModelCall, Provenance, Subject, WireModel
 from .ports import Candidate, CoreError
 from .process import run_worker
 
@@ -99,8 +99,15 @@ class ProcessConsumer:
             reasoning_effort=config.reasoning_effort)
 
     def validate(self, request: ExecuteRequest):
+        self.validate_generation(request.parameters.generation)
+
+    def validate_call(self, call: ModelCall):
+        self.validate_generation(call.generation)
+        if self.provider == "openhands_acp" and call.enable_thinking is not None:
+            raise CoreError("acp_thinking_parameter_unsupported")
+
+    def validate_generation(self, generation):
         if self.provider == "openhands_acp":
-            generation = request.parameters.generation
             if generation.max_tokens is not None or generation.temperature is not None:
                 raise CoreError("acp_generation_parameter_unsupported")
             if importlib.util.find_spec("openhands") is None:
@@ -108,11 +115,18 @@ class ProcessConsumer:
 
     async def generate(self, request: ExecuteRequest, context: GenerationContext) -> Candidate:
         self.validate(request)
+        return await self._invoke({"request": request.model_dump(), "generation_context": context.model_dump()})
+
+    async def complete(self, call: ModelCall) -> Candidate:
+        self.validate_call(call)
+        value = await self._invoke({"call": call.model_dump()})
+        return Candidate(value.text, value.provenance.model_copy(update={"rubric_version": call.policy_version}))
+
+    async def _invoke(self, inputs: dict) -> Candidate:
         operation_id = str(uuid.uuid4()) if self.provider == "openhands_acp" else None
         try:
-            payload = await run_worker({"operation": self.provider, "request": request.model_dump(),
+            payload = await run_worker({"operation": self.provider, **inputs,
                 "operation_id": operation_id, "config": self.config.model_dump(mode="json"),
-                "generation_context": context.model_dump(),
                 "credential": self.credential.get_secret_value(),
                 "gateway_access": _access_payload(self.gateway_access)}, remote=True)
         except CoreError as exc:

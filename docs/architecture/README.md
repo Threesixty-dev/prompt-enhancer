@@ -2,6 +2,17 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 18 [versioned workflow implementation](../bench/versioned-workflows.md)
+records the owner-approved component/workflow split and fixed v2 experiment pins.
+It preserves v1 history and documents the prompt-only Bench transport separately
+from the extracted session workflow libraries. The frozen atlas observation and
+broader workflow acceptance gates remain unchanged.
+
+The owner's subsequent logic adjustment gives rewrite/clarification workflow
+version `2.0.0` the pre-Bench score, context-inference and optional review/rewrite
+sequence. The UI identifies their ordered steps and retains the old v1 Bench
+flows under explicit legacy labels. Evidence is recorded in the same task guide.
+
 The October 14 [core version resolution candidate](../bench/core-version-resolution.md)
 and proposed [ADR 0026](../adr/0026-core-version-resolution-at-run-creation.md)
 move Bench image binding to new-Run admission while retaining historical digests.

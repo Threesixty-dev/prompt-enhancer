@@ -81,7 +81,9 @@ def create_app(manager: ExecutionManager, *, api_token: str) -> FastAPI:
 
     @app.get("/v1/capabilities", response_model=Capabilities)
     async def capabilities():
+        from ..workflows.catalog import catalog
         return {"protocol_version": PROTOCOL_VERSION, "core_version": CORE_VERSION,
+            "workflows": catalog(),
             "strategies": ["script.clarify.v1", "consumer.rewrite.v1"],
             "consumers": [{"binding_id": key, "provider": value.provider,
                 "provenance": value.provenance.model_dump()} for key, value in manager.engine.consumers.items()],

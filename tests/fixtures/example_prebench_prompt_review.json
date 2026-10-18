@@ -1,0 +1,821 @@
+{
+  "source_revision": "6fa1100e01e37f477ca7b65daba51706927f2502",
+  "policy_sha256": "acf4496668d7d0c4b725fe3dcb6dab085886f2431cfcaf4c517ac40b68a22818",
+  "cases": [
+    {
+      "id": "example-sparse",
+      "prompt": "Add a fictional widget.",
+      "prior": [],
+      "readings": [
+        {
+          "key": "prompt.task_definition_coverage",
+          "display_name": "Task definition coverage",
+          "description": "On the focus request only, detected action, target, and intended-outcome cues divided by three non-overlapping rubric factors.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.problem_evidence_quality",
+          "display_name": "Problem evidence quality",
+          "description": "For detected diagnosis tasks, observed behavior, expected behavior, reproduction, and environment cues divided by four rubric factors.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.context_sufficiency",
+          "display_name": "Context cue coverage",
+          "description": "On the focus request only, detected current-state, environment or version, and relevant-boundary cues divided by three non-overlapping rubric factors.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.constraint_precision",
+          "display_name": "Constraint precision candidates",
+          "description": "Constraint clauses containing a concrete value, boundary, platform, version, or explicit prohibition divided by detected constraint clauses.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.acceptance_testability",
+          "display_name": "Acceptance testability cues",
+          "description": "Detected requirement clauses with an observable check, threshold, comparison, or explicit pass condition divided by detected requirements.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.deliverable_contract",
+          "display_name": "Deliverable contract cues",
+          "description": "Detected deliverable clauses with an explicit format, interface, location, audience, or compatibility cue divided by deliverable clauses.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        }
+      ],
+      "context": {
+        "task_type": "implement",
+        "language": "unknown",
+        "prompt_chars": 23,
+        "prompt_words": 4,
+        "sentence_count": 1,
+        "bullet_count": 0,
+        "question_count": 0,
+        "file_references": 0,
+        "code_identifiers": 0,
+        "urls": 0,
+        "prior_context_supplied": 0,
+        "depends_on_prior_context": true,
+        "verification_requested": false,
+        "missing_elements": [
+          "any constraint (what must not change, limits, platform)",
+          "an acceptance criterion (how you will know it is done)",
+          "the deliverable (what should exist at the end, where, in what form)",
+          "how the result should be verified (tests, build, inspection)"
+        ]
+      },
+      "model_input": "Earlier conversation: none supplied.\n\nPrompt to review:\nAdd a fictional widget.\n\nDeterministic findings:\n- Task definition coverage: abstained (unsupported_language)\n- Problem evidence quality: abstained (unsupported_language)\n- Context cue coverage: abstained (unsupported_language)\n- Constraint precision candidates: abstained (unsupported_language)\n- Acceptance testability cues: abstained (unsupported_language)\n- Deliverable contract cues: abstained (unsupported_language)\n- task type guess: implement; language: unknown; depends on earlier conversation: yes; verification requested: no"
+    },
+    {
+      "id": "example-diagnostic",
+      "prompt": "Fix the fictional parser in example.py. It returns an empty list for valid input. Expected: preserve valid items. Return a patch and verify with unit tests.",
+      "prior": [],
+      "readings": [
+        {
+          "key": "prompt.task_definition_coverage",
+          "display_name": "Task definition coverage",
+          "description": "On the focus request only, detected action, target, and intended-outcome cues divided by three non-overlapping rubric factors.",
+          "state": "known",
+          "value": 0.6666666666666666,
+          "numerator": 2,
+          "denominator": 3,
+          "higher_is_better": true,
+          "explanation_code": "task_definition_cues",
+          "cues": [
+            {
+              "code": "task.action",
+              "label": "what to do (an action verb)",
+              "status": "detected",
+              "count": 1
+            },
+            {
+              "code": "task.target",
+              "label": "what to act on (the target)",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "task.outcome",
+              "label": "the intended result",
+              "status": "detected",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "key": "prompt.problem_evidence_quality",
+          "display_name": "Problem evidence quality",
+          "description": "For detected diagnosis tasks, observed behavior, expected behavior, reproduction, and environment cues divided by four rubric factors.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "diagnostic_task_not_detected",
+          "cues": []
+        },
+        {
+          "key": "prompt.context_sufficiency",
+          "display_name": "Context cue coverage",
+          "description": "On the focus request only, detected current-state, environment or version, and relevant-boundary cues divided by three non-overlapping rubric factors.",
+          "state": "known",
+          "value": 0.3333333333333333,
+          "numerator": 1,
+          "denominator": 3,
+          "higher_is_better": true,
+          "explanation_code": "context_cues",
+          "cues": [
+            {
+              "code": "context.current_state",
+              "label": "current state",
+              "status": "detected",
+              "count": 1
+            },
+            {
+              "code": "context.environment",
+              "label": "environment or version",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "context.boundary",
+              "label": "relevant boundary (files, modules, scope)",
+              "status": "missing",
+              "count": 0
+            }
+          ]
+        },
+        {
+          "key": "prompt.constraint_precision",
+          "display_name": "Constraint precision candidates",
+          "description": "Constraint clauses containing a concrete value, boundary, platform, version, or explicit prohibition divided by detected constraint clauses.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "constraints_unobserved",
+          "cues": []
+        },
+        {
+          "key": "prompt.acceptance_testability",
+          "display_name": "Acceptance testability cues",
+          "description": "Detected requirement clauses with an observable check, threshold, comparison, or explicit pass condition divided by detected requirements.",
+          "state": "known",
+          "value": 0.5,
+          "numerator": 1,
+          "denominator": 2,
+          "higher_is_better": true,
+          "explanation_code": "acceptance_check_cues",
+          "cues": [
+            {
+              "code": "acceptance.requirements",
+              "label": "requirement clauses",
+              "status": "counted",
+              "count": 2
+            },
+            {
+              "code": "acceptance.checkable",
+              "label": "checkable requirements (observable check, threshold, pass condition)",
+              "status": "counted",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "key": "prompt.deliverable_contract",
+          "display_name": "Deliverable contract cues",
+          "description": "Detected deliverable clauses with an explicit format, interface, location, audience, or compatibility cue divided by deliverable clauses.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "deliverables_unobserved",
+          "cues": []
+        }
+      ],
+      "context": {
+        "task_type": "fix",
+        "language": "en",
+        "prompt_chars": 156,
+        "prompt_words": 26,
+        "sentence_count": 4,
+        "bullet_count": 0,
+        "question_count": 0,
+        "file_references": 1,
+        "code_identifiers": 0,
+        "urls": 0,
+        "prior_context_supplied": 0,
+        "depends_on_prior_context": false,
+        "verification_requested": true,
+        "missing_elements": [
+          "what to act on (the target)",
+          "environment or version",
+          "relevant boundary (files, modules, scope)",
+          "any constraint (what must not change, limits, platform)",
+          "the deliverable (what should exist at the end, where, in what form)"
+        ]
+      },
+      "model_input": "Earlier conversation: none supplied.\n\nPrompt to review:\nFix the fictional parser in example.py. It returns an empty list for valid input. Expected: preserve valid items. Return a patch and verify with unit tests.\n\nDeterministic findings:\n- Task definition coverage: 2/3 (missing: what to act on (the target))\n- Problem evidence quality: unknown (diagnostic_task_not_detected)\n- Context cue coverage: 1/3 (missing: environment or version, relevant boundary (files, modules, scope))\n- Constraint precision candidates: unknown (constraints_unobserved)\n- Acceptance testability cues: 1/2\n- Deliverable contract cues: unknown (deliverables_unobserved)\n- task type guess: fix; language: en; depends on earlier conversation: no; verification requested: yes"
+    },
+    {
+      "id": "example-context",
+      "prompt": "Continue with the same approach.",
+      "prior": [
+        {
+          "role": "user",
+          "content": "The fictional widget uses a queue. Preserve ordering."
+        },
+        {
+          "role": "assistant",
+          "content": "A fictional bounded queue design is ready."
+        }
+      ],
+      "readings": [
+        {
+          "key": "prompt.task_definition_coverage",
+          "display_name": "Task definition coverage",
+          "description": "On the focus request only, detected action, target, and intended-outcome cues divided by three non-overlapping rubric factors.",
+          "state": "known",
+          "value": 0.3333333333333333,
+          "numerator": 1,
+          "denominator": 3,
+          "higher_is_better": true,
+          "explanation_code": "task_definition_cues",
+          "cues": [
+            {
+              "code": "task.action",
+              "label": "what to do (an action verb)",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "task.target",
+              "label": "what to act on (the target)",
+              "status": "detected",
+              "count": 1
+            },
+            {
+              "code": "task.outcome",
+              "label": "the intended result",
+              "status": "missing",
+              "count": 0
+            }
+          ]
+        },
+        {
+          "key": "prompt.problem_evidence_quality",
+          "display_name": "Problem evidence quality",
+          "description": "For detected diagnosis tasks, observed behavior, expected behavior, reproduction, and environment cues divided by four rubric factors.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "diagnostic_task_not_detected",
+          "cues": []
+        },
+        {
+          "key": "prompt.context_sufficiency",
+          "display_name": "Context cue coverage",
+          "description": "On the focus request only, detected current-state, environment or version, and relevant-boundary cues divided by three non-overlapping rubric factors.",
+          "state": "known",
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 3,
+          "higher_is_better": true,
+          "explanation_code": "context_cues",
+          "cues": [
+            {
+              "code": "context.current_state",
+              "label": "current state",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "context.environment",
+              "label": "environment or version",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "context.boundary",
+              "label": "relevant boundary (files, modules, scope)",
+              "status": "missing",
+              "count": 0
+            }
+          ]
+        },
+        {
+          "key": "prompt.constraint_precision",
+          "display_name": "Constraint precision candidates",
+          "description": "Constraint clauses containing a concrete value, boundary, platform, version, or explicit prohibition divided by detected constraint clauses.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "constraints_unobserved",
+          "cues": []
+        },
+        {
+          "key": "prompt.acceptance_testability",
+          "display_name": "Acceptance testability cues",
+          "description": "Detected requirement clauses with an observable check, threshold, comparison, or explicit pass condition divided by detected requirements.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "requirements_unknown",
+          "cues": []
+        },
+        {
+          "key": "prompt.deliverable_contract",
+          "display_name": "Deliverable contract cues",
+          "description": "Detected deliverable clauses with an explicit format, interface, location, audience, or compatibility cue divided by deliverable clauses.",
+          "state": "known",
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 1,
+          "higher_is_better": true,
+          "explanation_code": "deliverable_detail_cues",
+          "cues": [
+            {
+              "code": "deliverables.detected",
+              "label": "deliverable clauses",
+              "status": "counted",
+              "count": 1
+            },
+            {
+              "code": "deliverables.detailed",
+              "label": "detailed deliverables (format, interface, location, audience, compatibility)",
+              "status": "counted",
+              "count": 0
+            }
+          ]
+        }
+      ],
+      "context": {
+        "task_type": "other",
+        "language": "en",
+        "prompt_chars": 32,
+        "prompt_words": 5,
+        "sentence_count": 1,
+        "bullet_count": 0,
+        "question_count": 0,
+        "file_references": 0,
+        "code_identifiers": 0,
+        "urls": 0,
+        "prior_context_supplied": 2,
+        "depends_on_prior_context": true,
+        "verification_requested": false,
+        "missing_elements": [
+          "what to do (an action verb)",
+          "the intended result",
+          "current state",
+          "environment or version",
+          "relevant boundary (files, modules, scope)",
+          "any constraint (what must not change, limits, platform)",
+          "an acceptance criterion (how you will know it is done)",
+          "how the result should be verified (tests, build, inspection)"
+        ]
+      },
+      "model_input": "Earlier conversation (most recent last):\nuser: The fictional widget uses a queue. Preserve ordering.\nassistant: A fictional bounded queue design is ready.\n\nPrompt to review:\nContinue with the same approach.\n\nDeterministic findings:\n- Task definition coverage: 1/3 (missing: what to do (an action verb), the intended result)\n- Problem evidence quality: unknown (diagnostic_task_not_detected)\n- Context cue coverage: 0/3 (missing: current state, environment or version, relevant boundary (files, modules, scope))\n- Constraint precision candidates: unknown (constraints_unobserved)\n- Acceptance testability cues: unknown (requirements_unknown)\n- Deliverable contract cues: 0/1\n- task type guess: other; language: en; depends on earlier conversation: yes; verification requested: no"
+    },
+    {
+      "id": "example-unknown",
+      "prompt": "...",
+      "prior": [],
+      "readings": [
+        {
+          "key": "prompt.task_definition_coverage",
+          "display_name": "Task definition coverage",
+          "description": "On the focus request only, detected action, target, and intended-outcome cues divided by three non-overlapping rubric factors.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.problem_evidence_quality",
+          "display_name": "Problem evidence quality",
+          "description": "For detected diagnosis tasks, observed behavior, expected behavior, reproduction, and environment cues divided by four rubric factors.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.context_sufficiency",
+          "display_name": "Context cue coverage",
+          "description": "On the focus request only, detected current-state, environment or version, and relevant-boundary cues divided by three non-overlapping rubric factors.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.constraint_precision",
+          "display_name": "Constraint precision candidates",
+          "description": "Constraint clauses containing a concrete value, boundary, platform, version, or explicit prohibition divided by detected constraint clauses.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.acceptance_testability",
+          "display_name": "Acceptance testability cues",
+          "description": "Detected requirement clauses with an observable check, threshold, comparison, or explicit pass condition divided by detected requirements.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        },
+        {
+          "key": "prompt.deliverable_contract",
+          "display_name": "Deliverable contract cues",
+          "description": "Detected deliverable clauses with an explicit format, interface, location, audience, or compatibility cue divided by deliverable clauses.",
+          "state": "abstained",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "unsupported_language",
+          "cues": []
+        }
+      ],
+      "context": {
+        "task_type": "other",
+        "language": "unknown",
+        "prompt_chars": 3,
+        "prompt_words": 1,
+        "sentence_count": 1,
+        "bullet_count": 0,
+        "question_count": 0,
+        "file_references": 0,
+        "code_identifiers": 0,
+        "urls": 0,
+        "prior_context_supplied": 0,
+        "depends_on_prior_context": true,
+        "verification_requested": false,
+        "missing_elements": [
+          "any constraint (what must not change, limits, platform)",
+          "an acceptance criterion (how you will know it is done)",
+          "the deliverable (what should exist at the end, where, in what form)",
+          "how the result should be verified (tests, build, inspection)"
+        ]
+      },
+      "model_input": "Earlier conversation: none supplied.\n\nPrompt to review:\n...\n\nDeterministic findings:\n- Task definition coverage: abstained (unsupported_language)\n- Problem evidence quality: abstained (unsupported_language)\n- Context cue coverage: abstained (unsupported_language)\n- Constraint precision candidates: abstained (unsupported_language)\n- Acceptance testability cues: abstained (unsupported_language)\n- Deliverable contract cues: abstained (unsupported_language)\n- task type guess: other; language: unknown; depends on earlier conversation: yes; verification requested: no"
+    },
+    {
+      "id": "example-polish",
+      "prompt": "Napisz testy dla fikcyjnego parsera. Nie zmieniaj interfejsu. Zwr\u00f3\u0107 poprawk\u0119 i uruchom testy.",
+      "prior": [],
+      "readings": [
+        {
+          "key": "prompt.task_definition_coverage",
+          "display_name": "Task definition coverage",
+          "description": "On the focus request only, detected action, target, and intended-outcome cues divided by three non-overlapping rubric factors.",
+          "state": "known",
+          "value": 0.3333333333333333,
+          "numerator": 1,
+          "denominator": 3,
+          "higher_is_better": true,
+          "explanation_code": "task_definition_cues",
+          "cues": [
+            {
+              "code": "task.action",
+              "label": "what to do (an action verb)",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "task.target",
+              "label": "what to act on (the target)",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "task.outcome",
+              "label": "the intended result",
+              "status": "detected",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "key": "prompt.problem_evidence_quality",
+          "display_name": "Problem evidence quality",
+          "description": "For detected diagnosis tasks, observed behavior, expected behavior, reproduction, and environment cues divided by four rubric factors.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "diagnostic_task_not_detected",
+          "cues": []
+        },
+        {
+          "key": "prompt.context_sufficiency",
+          "display_name": "Context cue coverage",
+          "description": "On the focus request only, detected current-state, environment or version, and relevant-boundary cues divided by three non-overlapping rubric factors.",
+          "state": "known",
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 3,
+          "higher_is_better": true,
+          "explanation_code": "context_cues",
+          "cues": [
+            {
+              "code": "context.current_state",
+              "label": "current state",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "context.environment",
+              "label": "environment or version",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "context.boundary",
+              "label": "relevant boundary (files, modules, scope)",
+              "status": "missing",
+              "count": 0
+            }
+          ]
+        },
+        {
+          "key": "prompt.constraint_precision",
+          "display_name": "Constraint precision candidates",
+          "description": "Constraint clauses containing a concrete value, boundary, platform, version, or explicit prohibition divided by detected constraint clauses.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "constraints_unobserved",
+          "cues": []
+        },
+        {
+          "key": "prompt.acceptance_testability",
+          "display_name": "Acceptance testability cues",
+          "description": "Detected requirement clauses with an observable check, threshold, comparison, or explicit pass condition divided by detected requirements.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "requirements_unknown",
+          "cues": []
+        },
+        {
+          "key": "prompt.deliverable_contract",
+          "display_name": "Deliverable contract cues",
+          "description": "Detected deliverable clauses with an explicit format, interface, location, audience, or compatibility cue divided by deliverable clauses.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "deliverables_unobserved",
+          "cues": []
+        }
+      ],
+      "context": {
+        "task_type": "test",
+        "language": "pl",
+        "prompt_chars": 93,
+        "prompt_words": 13,
+        "sentence_count": 3,
+        "bullet_count": 0,
+        "question_count": 0,
+        "file_references": 0,
+        "code_identifiers": 0,
+        "urls": 0,
+        "prior_context_supplied": 0,
+        "depends_on_prior_context": false,
+        "verification_requested": true,
+        "missing_elements": [
+          "what to do (an action verb)",
+          "what to act on (the target)",
+          "current state",
+          "environment or version",
+          "relevant boundary (files, modules, scope)",
+          "any constraint (what must not change, limits, platform)",
+          "an acceptance criterion (how you will know it is done)",
+          "the deliverable (what should exist at the end, where, in what form)"
+        ]
+      },
+      "model_input": "Earlier conversation: none supplied.\n\nPrompt to review:\nNapisz testy dla fikcyjnego parsera. Nie zmieniaj interfejsu. Zwr\u00f3\u0107 poprawk\u0119 i uruchom testy.\n\nDeterministic findings:\n- Task definition coverage: 1/3 (missing: what to do (an action verb), what to act on (the target))\n- Problem evidence quality: unknown (diagnostic_task_not_detected)\n- Context cue coverage: 0/3 (missing: current state, environment or version, relevant boundary (files, modules, scope))\n- Constraint precision candidates: unknown (constraints_unobserved)\n- Acceptance testability cues: unknown (requirements_unknown)\n- Deliverable contract cues: unknown (deliverables_unobserved)\n- task type guess: test; language: pl; depends on earlier conversation: no; verification requested: yes"
+    },
+    {
+      "id": "example-long-context",
+      "prompt": "Review the fictional widget and list findings.",
+      "prior": [
+        {
+          "role": "user",
+          "content": "Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. "
+        },
+        {
+          "role": "assistant",
+          "content": "Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. "
+        }
+      ],
+      "readings": [
+        {
+          "key": "prompt.task_definition_coverage",
+          "display_name": "Task definition coverage",
+          "description": "On the focus request only, detected action, target, and intended-outcome cues divided by three non-overlapping rubric factors.",
+          "state": "known",
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 3,
+          "higher_is_better": true,
+          "explanation_code": "task_definition_cues",
+          "cues": [
+            {
+              "code": "task.action",
+              "label": "what to do (an action verb)",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "task.target",
+              "label": "what to act on (the target)",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "task.outcome",
+              "label": "the intended result",
+              "status": "missing",
+              "count": 0
+            }
+          ]
+        },
+        {
+          "key": "prompt.problem_evidence_quality",
+          "display_name": "Problem evidence quality",
+          "description": "For detected diagnosis tasks, observed behavior, expected behavior, reproduction, and environment cues divided by four rubric factors.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "diagnostic_task_not_detected",
+          "cues": []
+        },
+        {
+          "key": "prompt.context_sufficiency",
+          "display_name": "Context cue coverage",
+          "description": "On the focus request only, detected current-state, environment or version, and relevant-boundary cues divided by three non-overlapping rubric factors.",
+          "state": "known",
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 3,
+          "higher_is_better": true,
+          "explanation_code": "context_cues",
+          "cues": [
+            {
+              "code": "context.current_state",
+              "label": "current state",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "context.environment",
+              "label": "environment or version",
+              "status": "missing",
+              "count": 0
+            },
+            {
+              "code": "context.boundary",
+              "label": "relevant boundary (files, modules, scope)",
+              "status": "missing",
+              "count": 0
+            }
+          ]
+        },
+        {
+          "key": "prompt.constraint_precision",
+          "display_name": "Constraint precision candidates",
+          "description": "Constraint clauses containing a concrete value, boundary, platform, version, or explicit prohibition divided by detected constraint clauses.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "constraints_unobserved",
+          "cues": []
+        },
+        {
+          "key": "prompt.acceptance_testability",
+          "display_name": "Acceptance testability cues",
+          "description": "Detected requirement clauses with an observable check, threshold, comparison, or explicit pass condition divided by detected requirements.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "requirements_unknown",
+          "cues": []
+        },
+        {
+          "key": "prompt.deliverable_contract",
+          "display_name": "Deliverable contract cues",
+          "description": "Detected deliverable clauses with an explicit format, interface, location, audience, or compatibility cue divided by deliverable clauses.",
+          "state": "unknown",
+          "value": null,
+          "numerator": null,
+          "denominator": null,
+          "higher_is_better": true,
+          "explanation_code": "deliverables_unobserved",
+          "cues": []
+        }
+      ],
+      "context": {
+        "task_type": "review",
+        "language": "en",
+        "prompt_chars": 46,
+        "prompt_words": 7,
+        "sentence_count": 1,
+        "bullet_count": 0,
+        "question_count": 0,
+        "file_references": 0,
+        "code_identifiers": 0,
+        "urls": 0,
+        "prior_context_supplied": 2,
+        "depends_on_prior_context": false,
+        "verification_requested": false,
+        "missing_elements": [
+          "what to do (an action verb)",
+          "what to act on (the target)",
+          "the intended result",
+          "current state",
+          "environment or version",
+          "relevant boundary (files, modules, scope)",
+          "any constraint (what must not change, limits, platform)",
+          "an acceptance criterion (how you will know it is done)"
+        ]
+      },
+      "model_input": "Earlier conversation (most recent last):\nuser: Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. Fictional context. \u2026\nassistant: Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response. Fictional response.  \u2026\n\nPrompt to review:\nReview the fictional widget and list findings.\n\nDeterministic findings:\n- Task definition coverage: 0/3 (missing: what to do (an action verb), what to act on (the target), the intended result)\n- Problem evidence quality: unknown (diagnostic_task_not_detected)\n- Context cue coverage: 0/3 (missing: current state, environment or version, relevant boundary (files, modules, scope))\n- Constraint precision candidates: unknown (constraints_unobserved)\n- Acceptance testability cues: unknown (requirements_unknown)\n- Deliverable contract cues: unknown (deliverables_unobserved)\n- task type guess: review; language: en; depends on earlier conversation: no; verification requested: no"
+    }
+  ]
+}

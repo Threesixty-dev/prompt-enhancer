@@ -41,6 +41,19 @@ function disclosure(title, content, key) {
   element.append(node('summary', title), content); return element;
 }
 const evidence = (title, value, key) => disclosure(title, node('pre', json(value)), key);
+const workflowManifest = reference => reference && runSchema?.workflows?.find(item =>
+  item.workflow_id === reference.workflow_id && item.version === reference.version && item.definition_sha256 === reference.definition_sha256);
+function workflowOverview(reference) {
+  const manifest = workflowManifest(reference), box = node('div', undefined, 'workflow-overview');
+  box.append(metadata([['Workflow', reference.workflow_id + ' / ' + reference.version]]));
+  if (manifest?.presentation) {
+    box.append(node('h3', manifest.presentation.title));
+    const steps = node('ol'); steps.setAttribute('aria-label', 'Workflow logic steps');
+    for (const label of manifest.presentation.logic_steps) steps.append(node('li', label));
+    box.append(steps, node('p', manifest.presentation.relationship, 'hint'));
+  }
+  return box;
+}
 function patch(container, value, build) {
   const signature = json(value);
   if (snapshots.get(container) === signature) return;
@@ -147,6 +160,7 @@ function statsPage(d) {
 function experimentPage(d) {
   pageHeading(d.title, 'Review the experiment and open a run to inspect its results.', [[d.title]], [refreshButton(), link('New run', newRunPath(d), 'button')]);
   const overview = node('section', undefined, 'surface'); overview.append(metadata([['Revision', d.revision], ['Enhancer version', d.enhancerVersion]]), modelSummary(d), node('p', 'Model aliases are configured selections. Reported model identities appear in each attempt after execution.', 'hint'));
+  if (d.workflow) overview.append(workflowOverview(d.workflow), metadata([['Pinned core image', d.coreBuild.image]]), node('p', 'Workflow steps, core build and harness evaluation are fixed for this experiment revision.', 'hint'));
   const revisionLabel = node('label', 'Revision'); revisionLabel.htmlFor = 'revision'; const select = node('select'); select.id = 'revision';
   for (const version of experiments.filter(item => item.stableId === d.stableId)) { const option = node('option', 'Revision ' + version.revision); option.value = version.revision; select.append(option); }
   select.value = d.revision; select.onchange = () => navigate(historyPath(activeRoute, { filters: { ...activeRoute.filters, revision: select.value } }));
@@ -183,6 +197,7 @@ function renderRun(r) {
       cancel.onclick = async () => { cancel.disabled = true; try { await api('/api/runs/' + encodeURIComponent(r.id) + '/cancel', {}); await refresh(); } catch (error) { tell(error.message); cancel.disabled = false; } }; actions.append(cancel);
     } else if (terminal.has(r.status) && !r.cleanup_pending && !r.reconciliation_required) actions.append(link('Rerun with changes', newRunPath(definition, r.id), 'button'));
     intro.append(actions, metadata([['Run', r.id], ['Enhancer version', r.effective.enhancerVersion], ['Correlation', r.correlation_id], r.error_code ? ['Error', r.error_code] : null, r.cleanup_pending ? ['Cleanup', 'Unconfirmed: execution slot held'] : null]), modelSummary(r.effective), evidence('Effective run settings', r.effective, 'effective'), evidence('Run history', r.events, 'events'));
+    if (r.effective.workflow) intro.append(workflowOverview(r.effective.workflow));
     if (r.reconciliation_required) {
       const form = node('form'); form.append(node('p', 'Verify that the remote consumer has stopped before releasing the execution slot.', 'hint'));
       const label = node('label', 'Reconciliation evidence reference'); label.htmlFor = 'reconcile-reference'; const reference = node('input'); reference.id = 'reconcile-reference'; reference.required = true; reference.pattern = '[A-Za-z0-9][A-Za-z0-9._-]{0,95}';
@@ -200,6 +215,17 @@ function renderRun(r) {
       const comparison = node('div', undefined, 'comparison');
       for (const [label, text, cls] of [['Original prompt', subject.text, 'prompt'], ['Enhanced prompt', attempt.result?.enhanced_prompt ?? 'No enhanced prompt available.', 'prompt candidate']]) { const column = node('div'); column.append(node('h3', label), node('div', text, cls)); comparison.append(column); }
       panel.append(comparison);
+      if (attempt.result?.workflow_result) {
+        const workflow = attempt.result.workflow_result;
+        panel.append(metadata([['Workflow', workflow.workflow.workflow_id + ' / ' + workflow.workflow.version]]));
+        if (workflow.review) {
+          const review = node('section'); review.append(node('h3', 'Workflow review'), node('p', workflow.review.notes || 'Review state: ' + workflow.review.state));
+          for (const finding of workflow.review.findings || []) review.append(node('p', finding.severity + ': ' + finding.why + ' ' + finding.suggestion));
+          if (!attempt.result.enhanced_prompt) review.append(node('p', 'This workflow returned no rewrite. After measurements and deltas remain unavailable.', 'hint'));
+          panel.append(review);
+        }
+        panel.append(evidence('Workflow diagnostics (separate from harness evaluation)', workflow, attempt.id + '-workflow'));
+      }
       if (attempt.result) panel.append(modelEvidence(attempt.result), metricsTable(attempt.result), evidence('Complete result, provider provenance, timings and assertions', attempt.result, attempt.id));
       else panel.append(node('p', 'Reported model: unknown. No result provenance is available yet.', 'hint'));
       if (attempt.error_code) panel.append(node('p', attempt.error_code, 'hint')); fragment.append(panel);
@@ -212,6 +238,9 @@ function newRunPage(d, source) {
   pageHeading(source ? 'Rerun experiment' : 'New run', d.title + ' / revision ' + d.revision + '. Adjust settings for this run.', [[d.title, experimentPath(d)], [source ? 'Rerun' : 'New run']]);
   const form = node('form'); form.id = 'run-form'; form.noValidate = true;
   const intro = node('section', undefined, 'surface'); intro.append(node('h2', 'Run configuration'), node('p', source ? 'Prefilled from run ' + source.id.slice(0, 8) + '. The original result stays unchanged.' : 'Start from the experiment defaults. Each selected unit has its own settings.', 'hint'), metadata([['Enhancer version', d.enhancerVersion], ['Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision]]));
+  const workflow = workflowManifest(d.workflow);
+  if (d.workflow && !workflow) throw new Error('This workflow version is unavailable in the run form.');
+  if (workflow) intro.append(workflowOverview(d.workflow), metadata([['Pinned core image', d.coreBuild.image]]), node('p', 'Workflow, step implementations, core build and harness evaluation stay fixed. Model bindings, policies and supported parameters can vary.', 'hint'));
   const subjects = node('fieldset', undefined, 'field-group'); subjects.append(node('legend', 'Input cases (subjects)'));
   const subjectInputs = d.subjects.map(subject => {
     const label = node('label', undefined, 'check-option'), input = node('input'); input.type = 'checkbox'; input.checked = !source || source.effective.subjects.some(s => s.id === subject.id);
@@ -228,19 +257,26 @@ function newRunPage(d, source) {
     const parameters = schemaField(d.parameterSchema, settings.parameters, { id: unit.id + '-parameters', label: 'Parameters' });
     const objective = schemaField(runSchema.properties.objective, settings.objective, { id: unit.id + '-objective', label: 'Objective', definitions: runSchema.$defs });
     const steering = schemaField(runSchema.properties.steering, settings.steering, { id: unit.id + '-steering', label: 'Steering', definitions: runSchema.$defs });
-    fields.append(parameters.element, disclosure('Objective and targets', objective.element), disclosure('Style and steering', steering.element));
+    fields.append(parameters.element);
+    if (unit.strategy !== 'prompt.check.v1') fields.append(disclosure('Objective and targets', objective.element), disclosure('Style and steering', steering.element));
     let consumer;
-    if (unit.strategy.startsWith('consumer.')) {
+    let steps;
+    if (workflow) {
+      const properties = Object.fromEntries(Object.keys(workflow.configurable_steps).map(key => [key, { $ref: '#/$defs/WorkflowStepSettings' }]));
+      const values = Object.fromEntries(Object.keys(properties).map(key => [key, saved ? { binding: saved.consumerBinding, ...saved.stepSettings?.[key] } : { ...d.baseStepSettings?.[key], ...unit.stepSettings?.[key] }]));
+      steps = schemaField({ type: 'object', properties, additionalProperties: false }, values, { id: unit.id + '-steps', label: 'Workflow steps', definitions: runSchema.$defs });
+      if (Object.keys(properties).length) fields.append(steps.element, node('p', 'Unspecified step fields inherit experiment settings. Model aliases resolve through the configured provider. Policies and generation settings apply only to this step.', 'hint'));
+    } else if (unit.strategy.startsWith('consumer.')) {
       consumer = schemaField({ $ref: '#/$defs/ConsumerBinding' }, settings.consumerBinding, { id: unit.id + '-consumer', label: 'Consumer model', definitions: runSchema.$defs });
       fields.append(consumer.element, node('p', 'Use an operator-configured model alias. The evaluator profile stays the same for every unit.', 'hint'));
     }
-    card.append(fields); form.append(card); return { unit, enabled, parameters, objective, steering, consumer };
+    card.append(fields); form.append(card); return { unit, enabled, parameters, objective, steering, consumer, steps };
   });
   const actions = node('div', undefined, 'form-actions'); const submit = node('button', 'Start run'); submit.type = 'submit';
   actions.append(node('p', 'Settings are saved with this run. The experiment definition is unchanged.', 'hint'), link('Cancel', source ? runPath(source) : experimentPath(d), 'button secondary'), submit); form.append(actions);
   const updatePreview = () => {
     const selected = { ...d, subjects: d.subjects.filter(subject => subjectInputs.some(([id, input]) => id === subject.id && input.checked)),
-      units: editors.filter(editor => editor.enabled.checked).map(editor => ({ ...editor.unit, steering: editor.steering.read(), consumerBinding: editor.consumer?.read() })) };
+      units: editors.filter(editor => editor.enabled.checked).map(editor => ({ ...editor.unit, steering: editor.steering.read(), consumerBinding: editor.consumer?.read() || editor.unit.consumerBinding, stepSettings: editor.steps?.read() })) };
     patch(preview, selected, () => { const content = document.createDocumentFragment(); content.append(variationOverview(selected), modelSummary(selected)); return content; });
   };
   form.addEventListener('input', updatePreview); form.addEventListener('change', updatePreview); updatePreview();
@@ -251,9 +287,11 @@ function newRunPage(d, source) {
     const selected = editors.filter(editor => editor.enabled.checked), subjectIds = subjectInputs.filter(([, input]) => input.checked).map(([id]) => id);
     if (!selected.length || !subjectIds.length) { tell('Select at least one unit and one subject.'); return; }
     const overrides = { parameters: {}, unitParameters: {}, unitObjectives: {}, unitSteering: {}, unitConsumerBindings: {}, unitIds: selected.map(editor => editor.unit.id), subjectIds };
+    if (workflow) overrides.unitStepSettings = {};
     for (const editor of selected) {
       const id = editor.unit.id; overrides.unitParameters[id] = editor.parameters.read(); overrides.unitObjectives[id] = editor.objective.read(); overrides.unitSteering[id] = editor.steering.read();
       if (editor.consumer) overrides.unitConsumerBindings[id] = editor.consumer.read();
+      if (editor.steps) overrides.unitStepSettings[id] = editor.steps.read();
     }
     const body = { stableId: d.stableId, revision: d.revision, overrides, ...(source ? { retryOf: source.id } : {}) }, signature = json(body);
     if (!pending || pending.signature !== signature) pending = { signature, requestId: crypto.randomUUID() };
@@ -298,6 +336,10 @@ async function loadRoute(focus = false) {
       }
       definition = experiments.find(d => d.stableId === route.id && (!(source?.revision || route.revision) || d.revision === (source?.revision || route.revision)));
       if (!definition) throw new Error('Experiment revision not found.');
+      if (definition.workflow) {
+        runSchema ||= await api('/api/run-form-schema');
+        if (epoch !== routeEpoch) return;
+      }
       if (['experiment', 'stats'].includes(route.kind)) {
         route.filters = { ...route.filters, experiment: definition.stableId, revision: definition.revision };
         const page = await api(historyPath(route, { api: true, before: route.before }));

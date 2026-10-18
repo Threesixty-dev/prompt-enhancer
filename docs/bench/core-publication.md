@@ -9,6 +9,12 @@ replace the worker or consumer, deploy the API/UI, change model bindings or star
 an Experiment. Definitions select a core version; each Run keeps its saved image
 digest. See [Run-time version resolution](core-version-resolution.md).
 
+For `bench-experiment/v2`, the definition also pins that exact image and verified
+build fingerprint. Registration keeps earlier artifact receipts available, so a
+later catalog replacement cannot change those runs or reruns. Changing a v2
+artifact pin requires a new experiment revision. See
+[versioned workflows](versioned-workflows.md).
+
 ## Choose whether a core release is needed
 
 When preparing an Experiment, establish whether to reuse an existing core or

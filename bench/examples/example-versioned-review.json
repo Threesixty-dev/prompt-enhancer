@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "bench-experiment/v2",
+  "stableId": "example-versioned-review",
+  "revision": "1",
+  "generation": 1,
+  "title": "Example versioned prompt review",
+  "enhancerVersion": "0.2.0",
+  "autoRun": false,
+  "subjects": [
+    {
+      "id": "example-widget",
+      "text": "Fix the fictional widget parser. Return a patch and verify empty input.",
+      "context": []
+    }
+  ],
+  "units": [
+    {
+      "id": "example-review",
+      "title": "Example review",
+      "strategy": "prompt.check.v1",
+      "parameters": {},
+      "objective": {},
+      "steering": {},
+      "assertions": [],
+      "stepSettings": {}
+    }
+  ],
+  "consumerBinding": {
+    "binding_id": "example-review-model",
+    "provider": "inference"
+  },
+  "evaluatorProfile": {
+    "profile_id": "example-profile",
+    "revision": "1",
+    "evaluators": [
+      {
+        "evaluator_id": "prompt",
+        "kind": "deterministic",
+        "binding_id": "deterministic.v1",
+        "target": null,
+        "rubric": null,
+        "generation": null
+      }
+    ]
+  },
+  "baseParameters": {
+    "timeout_seconds": 120,
+    "generation": {
+      "max_output_chars": 20000,
+      "max_tokens": 1100,
+      "temperature": 0.2
+    }
+  },
+  "parameterSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "timeout_seconds",
+      "generation"
+    ],
+    "properties": {
+      "timeout_seconds": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600
+      },
+      "generation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "max_output_chars",
+          "max_tokens",
+          "temperature"
+        ],
+        "properties": {
+          "max_output_chars": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 20000
+          },
+          "max_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 16,
+            "maximum": 8192
+          },
+          "temperature": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    }
+  },
+  "objective": {
+    "objective_id": "prompt-clarity",
+    "revision": "1",
+    "description": "Improve clarity and testability while preserving intent. Mark unavailable details with placeholders.",
+    "targets": []
+  },
+  "baseSteering": {
+    "profile": "conservative.v1",
+    "style": "preserve",
+    "focus": [],
+    "instructions": null
+  },
+  "workflow": {
+    "workflow_id": "prompt-check",
+    "version": "1.0.0",
+    "definition_sha256": "f0d1466c9240d5377e73b4156326c6290b7b548e2cee2dd5d5bc877c9be5e3e7"
+  },
+  "coreBuild": {
+    "variant": "default",
+    "image": "registry.example.com/example/enhancer@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "buildInputSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "baseStepSettings": {},
+  "harnessAssertions": []
+}

@@ -31,7 +31,10 @@ def comparisons(db, where, parameters):
       json_extract(a.result,'$.after') AS after_metrics,
       json_extract(a.result,'$.deltas') AS deltas,
       json_extract(a.result,'$.strategy') AS strategy,
-      json_extract(a.result,'$.consumer_binding.binding_id') AS model,
+      COALESCE(json_extract(a.result,'$.effective_workflow_steps.review.binding.binding_id'),
+               json_extract(a.result,'$.effective_workflow_steps.rewrite.binding.binding_id'),
+               json_extract(a.result,'$.consumer_binding.binding_id')) AS model,
+      json_extract(a.result,'$.workflow_result.configuration_sha256') AS workflow_configuration,
       json_extract(a.result,'$.consumer_provenance') AS generation
       FROM runs r JOIN attempts a ON a.run_id=r.id
       WHERE {where} AND a.result IS NOT NULL ORDER BY r.created DESC,r.id DESC,a.position
@@ -53,6 +56,8 @@ def comparisons(db, where, parameters):
                 }
                 config = {**scope, "scopeKey": digest(scope), "variant": row["unit_id"],
                           "strategy": row["strategy"], "model": row["model"], "generation": generation}
+                if row["workflow_configuration"]:
+                    config["workflowConfiguration"] = row["workflow_configuration"]
                 key = digest(config)
                 if key not in groups:
                     if len(groups) >= MAX_GROUPS:

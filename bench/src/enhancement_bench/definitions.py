@@ -8,7 +8,7 @@ import re
 from typing import Annotated, Any, Literal
 
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_serializer, model_validator
 
 from .errors import BenchError
 
@@ -38,6 +38,12 @@ class Subject(StrictModel):
     context: list[dict[str, str]] = Field(default_factory=list, max_length=8)
 
 
+class CoreBuild(StrictModel):
+    variant: Literal["default", "models"]
+    image: str = Field(pattern=IMAGE.pattern)
+    buildInputSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class ExperimentUnit(StrictModel):
     id: Identifier
     title: str = Field(min_length=1, max_length=120)
@@ -47,10 +53,11 @@ class ExperimentUnit(StrictModel):
     objective: dict[str, Any] = Field(default_factory=dict)
     steering: dict[str, Any] = Field(default_factory=dict)
     consumerBinding: dict[str, Any] = Field(default_factory=dict)
+    stepSettings: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
 
 
 class Experiment(StrictModel):
-    schemaVersion: Literal["bench-experiment/v1"]
+    schemaVersion: Literal["bench-experiment/v1", "bench-experiment/v2"]
     stableId: Identifier
     revision: Identifier
     generation: int = Field(ge=1, le=2**53 - 1)
@@ -65,9 +72,33 @@ class Experiment(StrictModel):
     parameterSchema: dict[str, Any]
     objective: dict[str, Any]
     baseSteering: dict[str, Any]
+    workflow: dict[str, Any] | None = None
+    coreBuild: CoreBuild | None = None
+    harnessAssertions: list[dict[str, Any]] = Field(default_factory=list, max_length=32)
+    baseStepSettings: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
+
+    @model_serializer(mode="wrap")
+    def preserve_legacy_shape(self, handler):
+        value = handler(self)
+        if self.schemaVersion == "bench-experiment/v1":
+            for key in ("workflow", "coreBuild", "harnessAssertions", "baseStepSettings"):
+                value.pop(key, None)
+            for unit in value["units"]:
+                unit.pop("stepSettings", None)
+        return value
 
     @model_validator(mode="after")
     def validate_definition(self):
+        if self.schemaVersion == "bench-experiment/v2":
+            if self.workflow is None or self.coreBuild is None:
+                raise ValueError("workflow_and_core_build_required")
+            if len({unit.strategy for unit in self.units}) != 1:
+                raise ValueError("workflow_strategy_fixed")
+            if any(unit.assertions for unit in self.units):
+                raise ValueError("harness_assertions_belong_to_experiment")
+        elif (self.workflow is not None or self.coreBuild is not None or self.harnessAssertions
+              or self.baseStepSettings or any(unit.stepSettings for unit in self.units)):
+            raise ValueError("versioned_experiment_required")
         for values in (self.subjects, self.units):
             if len({item.id for item in values}) != len(values):
                 raise ValueError("duplicate_identifier")
@@ -99,6 +130,8 @@ class Publication(StrictModel):
 
     @model_validator(mode="after")
     def validate_image(self):
+        if self.definition.schemaVersion == "bench-experiment/v2" and self.schemaVersion != "bench-publication/v2":
+            raise ValueError("versioned_definition_publication_required")
         if self.schemaVersion == "bench-publication/v2":
             if self.image is not None or self.coreVersion is not None:
                 raise ValueError("definition_only_publication_required")
@@ -131,10 +164,15 @@ class Overrides(StrictModel):
     unitObjectives: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
     unitSteering: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
     unitConsumerBindings: dict[Identifier, dict[str, Any]] = Field(default_factory=dict)
+    unitStepSettings: dict[Identifier, dict[Identifier, dict[str, Any]]] = Field(default_factory=dict)
+
+
+def _definition_fields(definition):
+    return definition.model_dump()
 
 
 def definition_payload(definition: Definition) -> dict:
-    value = definition.model_dump()
+    value = _definition_fields(definition)
     # Preserve the identity of v1 publications that predate per-unit bindings.
     for unit in value["units"]:
         if not unit["consumerBinding"]:
@@ -149,16 +187,20 @@ def effective_settings(definition: Definition, overrides: Overrides) -> dict:
     selected_subjects = set(overrides.subjectIds or known_subjects)
     if (not selected_units <= known_units or not selected_subjects <= known_subjects
             or not (set(overrides.unitParameters) | set(overrides.unitObjectives) | set(overrides.unitSteering)
-                    | set(overrides.unitConsumerBindings)) <= selected_units):
+                    | set(overrides.unitConsumerBindings) | set(overrides.unitStepSettings)) <= selected_units):
         raise BenchError("unknown_selection")
-    result = definition.model_dump()
+    if definition.schemaVersion == "bench-experiment/v1" and overrides.unitStepSettings:
+        raise BenchError("versioned_experiment_required")
+    result = _definition_fields(definition)
     result["subjects"] = [s for s in result["subjects"] if s["id"] in selected_subjects]
     result["units"] = [u for u in result["units"] if u["id"] in selected_units]
     validator = Draft202012Validator(definition.parameterSchema)
     for unit in result["units"]:
         binding = unit["consumerBinding"] | overrides.unitConsumerBindings.get(unit["id"], {})
-        if unit["strategy"].startswith("consumer."):
+        if unit["strategy"].startswith("consumer.") or unit["strategy"] == "prompt.check.v1":
             unit["consumerBinding"] = (definition.consumerBinding or {}) | binding
+            if not unit["consumerBinding"]:
+                unit["consumerBinding"] = None
         else:
             if binding:
                 raise BenchError("consumer_binding_requires_consumer_strategy")
@@ -174,7 +216,16 @@ def effective_settings(definition: Definition, overrides: Overrides) -> dict:
                              | overrides.unitObjectives.get(unit["id"], {}))
         unit["steering"] = (definition.baseSteering | unit["steering"] | overrides.steering
                             | overrides.unitSteering.get(unit["id"], {}))
+        if definition.schemaVersion == "bench-experiment/v2":
+            step_overrides = overrides.unitStepSettings.get(unit["id"], {})
+            steps = definition.baseStepSettings | unit["stepSettings"] | step_overrides
+            unit["stepSettings"] = {
+                key: definition.baseStepSettings.get(key, {}) | unit["stepSettings"].get(key, {})
+                     | step_overrides.get(key, {}) for key in steps}
+            unit["assertions"] = list(definition.harnessAssertions)
     result["overrides"] = overrides.model_dump()
+    if not overrides.unitStepSettings:
+        result["overrides"].pop("unitStepSettings")
     canonical(result)
     return result
 
@@ -184,11 +235,11 @@ def configuration_summary(effective: dict) -> dict:
     units = []
     for unit in effective["units"]:
         binding = None
-        if unit["strategy"].startswith("consumer."):
+        if unit["strategy"].startswith("consumer.") or unit["strategy"] == "prompt.check.v1":
             source = (effective.get("consumerBinding") or {}) | (unit.get("consumerBinding") or {})
             binding = {key: source.get(key) for key in ("binding_id", "provider")}
         units.append({"id": unit["id"], "strategy": unit["strategy"], "consumerBinding": binding})
-    return {
+    summary = {
         "enhancerVersion": effective["enhancerVersion"],
         "caseCount": len(effective["subjects"]),
         "units": units,
@@ -197,3 +248,10 @@ def configuration_summary(effective: dict) -> dict:
             for evaluator in effective["evaluatorProfile"].get("evaluators", [])
         ]},
     }
+    if effective.get("workflow"):
+        summary["workflow"] = effective["workflow"]
+        summary["coreBuild"] = effective["coreBuild"]
+        for unit, source in zip(summary["units"], effective["units"]):
+            unit["stepBindings"] = {key: value.get("binding") for key, value in source.get("stepSettings", {}).items()
+                                    if value.get("binding")}
+    return summary
