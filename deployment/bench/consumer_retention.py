@@ -74,11 +74,13 @@ class Retention:
             pending.replace(path)
         finally:
             pending.unlink(missing_ok=True)
-        fd = os.open(self.directory, os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        # Windows cannot open a directory with os.open; the file was synced above.
+        if os.name != "nt":
+            fd = os.open(self.directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
 
     async def release(self, service, conversation_id: UUID):
         async with service._conversation_lifecycle(conversation_id):

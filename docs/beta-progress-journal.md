@@ -1,5 +1,21 @@
 # Beta progress journal: published handoff
 
+## 2026-10-18 - Repair Windows checks before workflow promotion
+
+Hosted validation of the workflow candidate exposed four existing filesystem
+portability failures in the synthetic consumer tests. Receipt writes now follow
+the repository's atomic-file convention: sync the file on every platform, replace
+it atomically, and additionally sync its parent directory on POSIX. Windows cannot
+open that directory through `os.open`. Tests check Windows read/write attributes
+separately from POSIX owner/group modes; no retention scenario is skipped.
+
+Evidence: all 15 focused consumer tests pass locally, including Windows-path
+file-sync coverage, preservation of the prior receipt after a file-sync failure,
+and propagation/descriptor cleanup after a POSIX directory-sync failure. The
+deployed Linux consumer retains directory durability and private file modes.
+Hosted Windows revalidation and source promotion remain pending. This correction
+does not qualify a native Windows consumer or change the frozen atlas/gates.
+
 ## 2026-10-18 - Align prompt workflows with pre-Bench logical steps
 
 The owner requested both a logic adjustment and clear presentation of each flow.

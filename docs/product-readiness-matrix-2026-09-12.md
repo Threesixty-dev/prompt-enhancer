@@ -1,5 +1,15 @@
 # Product feature and readiness matrix
 
+## Workflow promotion portability correction - 2026-10-18
+
+Hosted Windows checks exposed POSIX-only directory synchronization and permission
+assertions in the synthetic Bench consumer checks. The bounded correction follows
+the existing atomic-file platform convention, preserves POSIX directory fsync and
+0600 modes, and keeps every retention scenario active on Windows. All 15 focused
+consumer tests pass locally, including failed-write preservation and propagated
+directory-sync failures. Hosted revalidation is pending; native Windows consumer
+support and general R26/runtime/release gates are not established by these tests.
+
 ## Versioned components and workflows - 2026-10-18
 
 The owner-approved [component/workflow split](bench/versioned-workflows.md) is

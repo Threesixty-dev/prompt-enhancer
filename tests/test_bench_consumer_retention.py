@@ -1,9 +1,11 @@
 """Synthetic native-history retention and runtime-release failure cases."""
 import asyncio
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 import runpy
 import shutil
+import stat
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -63,7 +65,76 @@ def test_completed_history_survives_release_and_retention_controller_restart(tmp
     reloaded = Retention(tmp_path / "receipts", 7)
     assert reloaded.read(service.identifier) == retained
     assert asyncio.run(reloaded.retain(service, service.identifier)) == retained
-    assert reloaded.path(service.identifier).stat().st_mode & 0o777 == 0o600
+    # Windows exposes read/write attributes here, not POSIX owner/group modes.
+    assert reloaded.path(service.identifier).stat().st_mode & 0o777 == (0o666 if os.name == "nt" else 0o600)
+
+
+def test_windows_receipt_syncs_the_file_without_opening_the_directory(tmp_path, monkeypatch):
+    retention = Retention(tmp_path / "receipts", 7)
+    identifier = uuid4()
+    synced = []
+
+    def sync_file(fd):
+        assert stat.S_ISREG(os.fstat(fd).st_mode)
+        synced.append(fd)
+        os.fsync(fd)
+
+    def reject_directory_open(*args, **kwargs):
+        pytest.fail("Windows receipt writes must not open a directory descriptor")
+
+    monkeypatch.setitem(Retention.write.__globals__, "os", SimpleNamespace(**(vars(os) | {
+        "name": "nt", "fsync": sync_file, "open": reject_directory_open,
+    })))
+    retention.write(identifier, {"conversation_id": str(identifier)})
+    assert len(synced) == 1
+    assert retention.read(identifier) == {"conversation_id": str(identifier)}
+    assert not list(retention.directory.glob("*.pending"))
+
+
+def test_failed_file_sync_preserves_the_previous_receipt(tmp_path, monkeypatch):
+    retention = Retention(tmp_path / "receipts", 7)
+    identifier = uuid4()
+    original = {"conversation_id": str(identifier), "cleanup_confirmed": False}
+    retention.write(identifier, original)
+
+    def fail_sync(fd):
+        raise OSError("example-file-sync-failure")
+
+    monkeypatch.setitem(Retention.write.__globals__, "os", SimpleNamespace(**(vars(os) | {
+        "fsync": fail_sync,
+    })))
+    with pytest.raises(OSError, match="example-file-sync-failure"):
+        retention.write(identifier, {**original, "cleanup_confirmed": True})
+    assert retention.read(identifier) == original
+    assert not list(retention.directory.glob("*.pending"))
+
+
+def test_posix_directory_sync_failure_remains_visible_and_closes_descriptor(tmp_path, monkeypatch):
+    retention = Retention(tmp_path / "receipts", 7)
+    identifier = uuid4()
+    directory_fd = object()
+    closed = []
+
+    def open_directory(path, flags):
+        assert path == retention.directory
+        return directory_fd
+
+    def sync(fd):
+        if fd is directory_fd:
+            raise OSError("example-directory-sync-failure")
+        os.fsync(fd)
+
+    def close(fd):
+        assert fd is directory_fd
+        closed.append(fd)
+
+    monkeypatch.setitem(Retention.write.__globals__, "os", SimpleNamespace(**(vars(os) | {
+        "name": "posix", "open": open_directory, "fsync": sync, "close": close,
+    })))
+    with pytest.raises(OSError, match="example-directory-sync-failure"):
+        retention.write(identifier, {"conversation_id": str(identifier)})
+    assert closed == [directory_fd]
+    assert not list(retention.directory.glob("*.pending"))
 
 
 @pytest.mark.parametrize("options", [dict(status="running"), dict(active=True),
