@@ -41,7 +41,8 @@
             "deterministic",
             "classifier",
             "embedding",
-            "rubric"
+            "rubric",
+            "rerank"
           ],
           "title": "Kind",
           "type": "string"
@@ -234,7 +235,7 @@
       "type": "string"
     },
     "core_version": {
-      "default": "0.2.0",
+      "default": "0.3.0",
       "title": "Core Version",
       "type": "string"
     },

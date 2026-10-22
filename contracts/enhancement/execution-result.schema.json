@@ -346,7 +346,8 @@
             "deterministic",
             "classifier",
             "embedding",
-            "rubric"
+            "rubric",
+            "rerank"
           ],
           "title": "Kind",
           "type": "string"
@@ -415,7 +416,8 @@
             "deterministic",
             "classifier",
             "embedding",
-            "rubric"
+            "rubric",
+            "rerank"
           ],
           "title": "Kind",
           "type": "string"
@@ -1430,7 +1432,9 @@
         "version": {
           "enum": [
             "1.0.0",
-            "2.0.0"
+            "1.1.0",
+            "2.0.0",
+            "2.1.0"
           ],
           "title": "Version",
           "type": "string"
@@ -1628,7 +1632,7 @@
       "type": "string"
     },
     "core_version": {
-      "default": "0.2.0",
+      "default": "0.3.0",
       "title": "Core Version",
       "type": "string"
     },

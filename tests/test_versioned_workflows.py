@@ -14,14 +14,14 @@ from prompt_enhancer.enhancement.engine import EnhancementEngine
 from prompt_enhancer.enhancement.evaluators import DeterministicEvaluation
 from prompt_enhancer.enhancement.ports import Candidate, CoreError
 from prompt_enhancer.infrastructure.language import DeterministicEnglishPolishDetector
-from prompt_enhancer.workflows.catalog import WORKFLOWS, catalog
+from prompt_enhancer.workflows.catalog import LEGACY_WORKFLOWS, WORKFLOWS, catalog, resolve
 from prompt_enhancer.workflows.prompts import PromptWorkflowInput, PromptWorkflowRunner
 from prompt_enhancer.workflows.session_links import SessionLinksWorkflow
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def request(workflow_id="prompt-rewrite", *, version="1.0.0", **changes):
+def request(workflow_id="prompt-rewrite", *, version="1.1.0", **changes):
     definition = next(item for item in WORKFLOWS if item.workflow_id == workflow_id and item.version == version)
     value = json.loads((ROOT / "contracts/enhancement/examples/script-request.json").read_text())
     value.update(strategy=definition.strategy, workflow=definition.reference(),
@@ -52,7 +52,7 @@ def engine(model, evaluator=None):
     return EnhancementEngine({"example-model": model}, {"deterministic.v1": evaluator or DeterministicEvaluation()})
 
 
-@pytest.mark.parametrize("workflow_id,version", [("prompt-rewrite", "1.0.0"), ("prompt-rewrite", "2.0.0"), ("prompt-clarify", "2.0.0")])
+@pytest.mark.parametrize("workflow_id,version", [("prompt-rewrite", "1.1.0"), ("prompt-rewrite", "2.1.0"), ("prompt-clarify", "2.1.0")])
 def test_harness_judgments_cannot_change_workflow_messages(workflow_id, version):
     class Judge:
         kind = "deterministic"
@@ -64,7 +64,7 @@ def test_harness_judgments_cannot_change_workflow_messages(workflow_id, version)
                 metrics=(Metric(key="prompt.task_definition_coverage", state="known", value=self.score, reason="example"),))
 
     first, second = Model(), Model()
-    if version == "2.0.0":
+    if version == "2.1.0":
         first.text = second.text = '{"notes":"Fictional review."}'
     item = request(workflow_id, version=version)
     a = asyncio.run(engine(first, Judge(0)).execute(item, lambda _: None))
@@ -74,7 +74,7 @@ def test_harness_judgments_cannot_change_workflow_messages(workflow_id, version)
     assert first.calls == second.calls
     assert a.workflow_result.diagnostics == b.workflow_result.diagnostics
     assert a.workflow_result.configuration_sha256 == b.workflow_result.configuration_sha256
-    if version == "1.0.0":
+    if version == "1.1.0":
         payload = json.loads(first.calls[0].user)
         assert set(payload) == {"subject", "workflow_diagnostics", "objective", "steering"}
     assert "evaluation" not in PromptWorkflowInput.model_fields
@@ -145,7 +145,7 @@ def test_uncertain_review_failure_is_not_downgraded_to_commentary():
     assert result.status == "uncertain" and result.enhanced_prompt is None
 
 
-@pytest.mark.parametrize("workflow_id,version", [("prompt-check", "1.0.0"), ("prompt-rewrite", "2.0.0"), ("prompt-clarify", "2.0.0")])
+@pytest.mark.parametrize("workflow_id,version", [("prompt-check", "1.1.0"), ("prompt-rewrite", "2.1.0"), ("prompt-clarify", "2.1.0")])
 def test_prebench_golden_metrics_context_model_input_and_policy(workflow_id, version):
     fixture = json.loads((ROOT / "tests/fixtures/example_prebench_prompt_review.json").read_text())
     assert hashlib.sha256(_SYSTEM_PROMPT.encode()).hexdigest() == fixture["policy_sha256"]
@@ -184,7 +184,7 @@ def test_adjusted_flows_review_after_scoring_and_context(workflow_id, reply, rev
         return await complete(call)
     model.complete = review
     runner = PromptWorkflowRunner({"example-model": model}, diagnostics=diagnostics)
-    result = asyncio.run(runner.run(PromptWorkflowInput.from_execution(request(workflow_id, version="2.0.0", parameters={}))))
+    result = asyncio.run(runner.run(PromptWorkflowInput.from_execution(request(workflow_id, version="2.1.0", parameters={}))))
     assert events == ["score", "review"]
     assert [step.step_id for step in result.receipt.steps] == ["diagnose", "context", "review"]
     assert result.receipt.context is not None and result.receipt.review.state == review_state
@@ -196,13 +196,13 @@ def test_adjusted_flows_review_after_scoring_and_context(workflow_id, reply, rev
 
 @pytest.mark.parametrize("workflow_id", ["prompt-rewrite", "prompt-clarify"])
 def test_adjusted_flows_preserve_optional_model_and_configurable_review(workflow_id):
-    item = request(workflow_id, version="2.0.0", consumer=None)
+    item = request(workflow_id, version="2.1.0", consumer=None)
     result = asyncio.run(PromptWorkflowRunner({}).run(PromptWorkflowInput.from_execution(item)))
     assert result.receipt.context is not None and result.receipt.review.state == "no_active_model"
     assert result.receipt.steps[-1].status == "skipped" and result.text is None
     assert result.receipt.review.prompt_version == "workflow-" + workflow_id.removeprefix("prompt-") + "-review.v1"
     model = Model('{"notes":"Fictional review."}')
-    item = request(workflow_id, version="2.0.0", consumer=None, workflow_steps={"review": {
+    item = request(workflow_id, version="2.1.0", consumer=None, workflow_steps={"review": {
         "binding": {"binding_id": "example-model", "provider": "inference"},
         "policy": {"policy_id": "example-review", "revision": "2", "instructions": "Review the fictional request as JSON."},
         "generation": {"max_tokens": 128, "temperature": None}, "enable_thinking": None}})
@@ -211,7 +211,7 @@ def test_adjusted_flows_preserve_optional_model_and_configurable_review(workflow
     assert model.calls[0].system == "Review the fictional request as JSON."
     assert model.calls[0].generation.max_tokens == 128 and model.calls[0].enable_thinking is None
     with pytest.raises(ValidationError, match="workflow_step_not_configurable"):
-        request(workflow_id, version="2.0.0", workflow_steps={"rewrite": {}})
+        request(workflow_id, version="2.1.0", workflow_steps={"rewrite": {}})
 
 
 def test_existing_workflow_digests_keep_their_original_logic():
@@ -226,6 +226,26 @@ def test_existing_workflow_digests_keep_their_original_logic():
     assert [step.step_id for step in direct.workflow_result.steps] == ["diagnose", "rewrite"]
     assert [step.step_id for step in scripted.workflow_result.steps] == ["diagnose", "clarify"]
     assert direct.workflow_result.context is None and scripted.workflow_result.review is None
+
+
+@pytest.mark.parametrize("historical", LEGACY_WORKFLOWS)
+def test_core_03_workflow_manifests_preserve_logic_and_historical_compatibility(historical):
+    from prompt_enhancer.enhancement.contracts import WorkflowReference
+    version = "1.1.0" if historical.version == "1.0.0" else "2.1.0"
+    current = next(item for item in WORKFLOWS
+                   if item.workflow_id == historical.workflow_id and item.version == version)
+    old_ref = WorkflowReference.model_validate(historical.reference())
+    new_ref = WorkflowReference.model_validate(current.reference())
+    assert resolve(old_ref, "0.2.0") == historical
+    assert resolve(new_ref, "0.3.0") == current
+    with pytest.raises(ValueError, match="workflow_core_incompatible"):
+        resolve(old_ref, "0.3.0")
+    with pytest.raises(ValueError, match="workflow_core_incompatible"):
+        resolve(new_ref, "0.2.0")
+    compatibility = {"version", "compatible_core", "core_version_pattern"}
+    assert {k: v for k, v in historical.payload().items() if k not in compatibility} == {
+        k: v for k, v in current.payload().items() if k not in compatibility}
+    assert historical.sha256 != current.sha256
 
 
 def test_step_binding_policy_and_parameters_are_effective():
@@ -263,8 +283,8 @@ def test_fixed_workflow_structure_and_harness_separation_reject_invalid_configur
 
 
 def test_workflow_definition_digest_and_version_are_checked():
-    reference = WORKFLOWS[0].reference()
-    for key, value in (("version", "2.0.0"), ("definition_sha256", "0" * 64)):
+    reference = request("prompt-check").workflow.model_dump()
+    for key, value in (("version", "2.1.0"), ("definition_sha256", "0" * 64)):
         with pytest.raises(ValidationError): request("prompt-check", workflow=reference | {key: value})
     assert json.loads((ROOT / "contracts/enhancement/workflows.json").read_text()) == catalog()
 

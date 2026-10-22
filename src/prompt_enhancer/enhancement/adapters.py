@@ -27,6 +27,7 @@ class ConsumerConfig(WireModel):
     access_client_id_env: str | None = Field(default=None, pattern=r"^ENHANCEMENT_[A-Z0-9_]+$")
     access_client_secret_env: str | None = Field(default=None, pattern=r"^ENHANCEMENT_[A-Z0-9_]+$")
     tokenizer_revision: str | None = None
+    gateway_model_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,160}$")
     # The static worker must already expose this reviewed command. The core
     # never launches a new worker host or accesses a local provider account.
     acp_command: tuple[str, ...] = ("codex-acp",)
@@ -53,6 +54,8 @@ class ConsumerConfig(WireModel):
 
     @model_validator(mode="after")
     def inference_uses_verified_tls(self):
+        if self.gateway_model_id is not None and self.provider != "inference":
+            raise ValueError("gateway_model_id_requires_inference")
         if self.provider != "inference" and self.reasoning_effort is not None:
             raise ValueError("reasoning_effort_requires_inference")
         if self.provider == "inference" and not self.endpoint.startswith("https://"):
@@ -187,6 +190,21 @@ class ProcessTextEvaluation:
 
 def _access_payload(access):
     return {key: value.get_secret_value() for key, value in access.items()} if access else {}
+
+
+def gateway_transport(adapter, settings, config):
+    if config.gateway_model_id is not None:
+        return adapter(settings, expected_route_id=config.gateway_model_id)
+    return adapter(settings)
+
+
+def reported_gateway_model(response, config):
+    reported = response.get("model")
+    # Some servers return a local weights path. A checked gateway route binds
+    # the request, while the unrecognized upstream model identity stays unknown.
+    if config.gateway_model_id is not None and reported != config.model:
+        return None
+    return reported
 
 
 class InferenceRubricEvaluation:

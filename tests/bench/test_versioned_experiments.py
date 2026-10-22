@@ -10,15 +10,15 @@ from enhancement_bench.errors import BenchError
 
 
 def release(image="a"):
-    return CoreImage(schemaVersion="core-release/v1", coreVersion="0.2.0", variant="default",
+    return CoreImage(schemaVersion="core-release/v1", coreVersion="0.3.0", variant="default",
         image="registry.example.com/example/enhancer@sha256:" + image * 64, buildInputSha256="c" * 64,
         validatedSourceRevision="d" * 40, action="built", runtimeVerified=True)
 
 
 def definition(publication, contracts):
     value = publication.definition.model_dump()
-    manifest = next(item for item in contracts.workflows if item["workflow_id"] == "prompt-clarify")
-    value.update(schemaVersion="bench-experiment/v2", enhancerVersion="0.2.0", autoRun=False,
+    manifest = next(item for item in contracts.workflows if item["workflow_id"] == "prompt-clarify" and item["version"] == "1.1.0")
+    value.update(schemaVersion="bench-experiment/v2", enhancerVersion="0.3.0", autoRun=False,
         workflow={key: manifest[key] for key in ("workflow_id", "version", "definition_sha256")},
         coreBuild={"variant": "default", "image": release().image, "buildInputSha256": "c" * 64},
         harnessAssertions=[], consumerBinding=None)
@@ -122,13 +122,13 @@ def test_protocol_round_trip_checks_workflow_and_effective_step_settings(publica
     item = ExecuteRequest.model_validate(value)
     result = asyncio.run(EnhancementEngine({}, {"deterministic.v1": DeterministicEvaluation()}).execute(item, lambda _: None)).model_dump(mode="json")
     assert result["status"] == "succeeded"
-    contracts.result(result, value, "0.2.0")
+    contracts.result(result, value, "0.3.0")
     result["workflow"]["definition_sha256"] = "0" * 64
     with pytest.raises(BenchError, match="core_workflow_settings_mismatch"):
-        contracts.result(result, value, "0.2.0")
+        contracts.result(result, value, "0.3.0")
 
 
-@pytest.mark.parametrize("version", ["1.0.0", "2.0.0"])
+@pytest.mark.parametrize("version", ["1.1.0", "2.1.0"])
 def test_model_filters_follow_step_binding_instead_of_unused_default(store, publication, contracts, version):
     from enhancement_bench.history import RunFilters
     value = definition(publication, contracts).model_dump()
@@ -162,7 +162,7 @@ def test_adjusted_review_workflows_round_trip_through_bench(publication, contrac
             return Candidate('{"notes":"Fictional review with no rewrite."}',
                 Provenance(provider="inference", adapter_version="example.v1", model="example-review"))
     value = definition(publication, contracts).model_dump()
-    manifest = next(item for item in contracts.workflows if item["workflow_id"] == workflow_id and item["version"] == "2.0.0")
+    manifest = next(item for item in contracts.workflows if item["workflow_id"] == workflow_id and item["version"] == "2.1.0")
     value["workflow"] = {key: manifest[key] for key in ("workflow_id", "version", "definition_sha256")}
     value["units"][0].update(strategy=manifest["strategy"], stepSettings={"review": {
         "binding": {"binding_id": "example-review", "provider": "inference"}}})
@@ -171,7 +171,7 @@ def test_adjusted_review_workflows_round_trip_through_bench(publication, contrac
     result = asyncio.run(runner.execute(ExecuteRequest.model_validate(payload), lambda _: None)).model_dump(mode="json")
     assert result["status"] == "succeeded" and result["after"] == []
     assert [step["step_id"] for step in result["workflow_result"]["steps"]] == ["diagnose", "context", "review"]
-    contracts.result(result, payload, "0.2.0")
+    contracts.result(result, payload, "0.3.0")
 
 
 def test_bench_worker_executes_versioned_workflow_through_real_core_http(store, publication, contracts):

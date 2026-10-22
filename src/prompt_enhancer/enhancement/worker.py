@@ -12,7 +12,7 @@ import uuid
 
 from pydantic import SecretStr
 
-from .adapters import ConsumerConfig, TextEvaluatorConfig
+from .adapters import ConsumerConfig, TextEvaluatorConfig, gateway_transport, reported_gateway_model
 from .contracts import ExecuteRequest, Evaluator, GenerationContext, ModelCall, Subject
 from .ports import CoreError, WORKER_ERROR_CODES
 from ..core.prompt_rewrite import REWRITE_INSTRUCTION, parse_candidate
@@ -73,14 +73,14 @@ def inference(payload):
         body["max_tokens"] = generation.max_tokens
     if generation.temperature is not None:
         body["temperature"] = generation.temperature
-    status, data, _ = LiteLLMChat(settings)(config.model, json.dumps(body).encode())
+    status, data, _ = gateway_transport(LiteLLMChat, settings, config)(config.model, json.dumps(body).encode())
     if status != 200:
         raise CoreError("consumer_failed", uncertain=True)
     response = json.loads(data)
     text = completed_chat_content(data)
     if text is None:
         raise CoreError("consumer_reply_invalid")
-    return {"text": model_reply(text, call, payload), "reported_model": response.get("model")}
+    return {"text": model_reply(text, call, payload), "reported_model": reported_gateway_model(response, config)}
 
 
 def rubric_inference(payload):
@@ -107,7 +107,7 @@ def rubric_inference(payload):
             body["max_tokens"] = spec.generation.max_tokens
         if spec.generation.temperature is not None:
             body["temperature"] = spec.generation.temperature
-    status, data, _ = LiteLLMChat(settings)(config.model, json.dumps(body).encode())
+    status, data, _ = gateway_transport(LiteLLMChat, settings, config)(config.model, json.dumps(body).encode())
     if status != 200:
         raise CoreError("evaluator_failed", uncertain=True)
     response = json.loads(data)
@@ -119,7 +119,7 @@ def rubric_inference(payload):
         metric = Metric(key="rubric.label", state="abstained", reason="rubric_abstained")
     else:
         metric = Metric(key="rubric.label", state="known", label=reply["label"], reason="model_interpretation")
-    return {"metric": metric.model_dump(), "reported_model": response.get("model")}
+    return {"metric": metric.model_dump(), "reported_model": reported_gateway_model(response, config)}
 
 
 def openhands(payload):
@@ -248,6 +248,9 @@ def typed_evaluation(payload):
 
 
 def main():
+    from .gateway_embeddings import embedding_inference
+    from .gateway_nli import nli_inference
+    from .gateway_rerank import rerank_inference
     output = sys.stdout
     try:
         raw = sys.stdin.buffer.read(1_000_001)
@@ -256,7 +259,9 @@ def main():
         payload = json.loads(raw)
         with open(os.devnull, "w") as quiet, redirect_stdout(quiet), redirect_stderr(quiet):
             operation = {"openhands_acp": openhands, "inference": inference,
-                "typed_evaluation": typed_evaluation, "rubric_inference": rubric_inference}[payload["operation"]]
+                "typed_evaluation": typed_evaluation, "rubric_inference": rubric_inference,
+                "embedding_inference": embedding_inference, "nli_inference": nli_inference,
+                "rerank_inference": rerank_inference}[payload["operation"]]
             value = operation(payload)
     except CoreError as exc:
         value = {"error": exc.code if exc.code in WORKER_ERROR_CODES else "provider_failed",
