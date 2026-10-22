@@ -14,6 +14,7 @@ WORKER_ERROR_CODES = frozenset({
     "consumer_reply_invalid", "candidate_invalid", "openhands_sdk_version_unsupported",
     "consumer_workspace_unavailable", "remote_execution_unconfirmed",
     "remote_cleanup_unconfirmed", "worker_input_too_large",
+    "evaluator_model_mismatch",
 })
 
 

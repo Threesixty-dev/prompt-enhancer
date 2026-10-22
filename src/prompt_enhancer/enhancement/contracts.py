@@ -73,7 +73,7 @@ class Parameters(WireModel):
 
 class Evaluator(WireModel):
     evaluator_id: Identifier
-    kind: Literal["deterministic", "classifier", "embedding", "rubric"]
+    kind: Literal["deterministic", "classifier", "embedding", "rubric", "rerank"]
     binding_id: Identifier
     target: Text | None = None
     rubric: Literal["task_definition", "constraint_precision", "acceptance_testability", "deliverable_contract"] | None = None
@@ -81,8 +81,8 @@ class Evaluator(WireModel):
 
     @model_validator(mode="after")
     def typed_parameters(self) -> Evaluator:
-        if (self.target is not None) != (self.kind in {"classifier", "embedding"}):
-            raise ValueError("target_required_only_for_classifier_or_embedding")
+        if (self.target is not None) != (self.kind in {"classifier", "embedding", "rerank"}):
+            raise ValueError("target_required_for_pair_evaluation")
         if (self.rubric is not None) != (self.kind == "rubric"):
             raise ValueError("rubric_required_only_for_rubric_evaluation")
         if self.generation is not None and self.kind != "rubric":
@@ -145,7 +145,7 @@ class Steering(WireModel):
 
 class WorkflowReference(WireModel):
     workflow_id: Literal["prompt-check", "prompt-rewrite", "prompt-clarify"]
-    version: Literal["1.0.0", "2.0.0"]
+    version: Literal["1.0.0", "1.1.0", "2.0.0", "2.1.0"]
     definition_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
@@ -239,7 +239,7 @@ class Metric(WireModel):
 
 class Evaluation(WireModel):
     evaluator_id: Identifier
-    kind: Literal["deterministic", "classifier", "embedding", "rubric"]
+    kind: Literal["deterministic", "classifier", "embedding", "rubric", "rerank"]
     provenance: Provenance
     metrics: tuple[Metric, ...]
 
@@ -371,7 +371,7 @@ class ConsumerCapability(WireModel):
 
 class EvaluatorCapability(WireModel):
     binding_id: Identifier
-    kind: Literal["deterministic", "classifier", "embedding", "rubric"]
+    kind: Literal["deterministic", "classifier", "embedding", "rubric", "rerank"]
     provenance: Provenance
 
 

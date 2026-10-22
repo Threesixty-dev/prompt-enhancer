@@ -92,6 +92,7 @@ class EnhancementEngine:
             "deterministic": {"prompt.task_definition_coverage", "prompt.problem_evidence_quality",
                 "prompt.context_sufficiency", "prompt.constraint_precision", "prompt.acceptance_testability", "prompt.deliverable_contract"},
             "classifier": {"nli.label"}, "embedding": {"embedding.similarity"}, "rubric": {"rubric.label"},
+            "rerank": {"rerank.relevance"},
         }
         by_id = {spec.evaluator_id: spec for spec in request.evaluation.evaluators}
         for check in request.assertions:
@@ -103,7 +104,7 @@ class EnhancementEngine:
             kind = by_id[target.evaluator_id].kind
             if target.metric_key not in supported_keys[kind]:
                 raise CoreError("objective_metric_unsupported")
-            if (target.kind == "numeric") != (kind in {"deterministic", "embedding"}):
+            if (target.kind == "numeric") != (kind in {"deterministic", "embedding", "rerank"}):
                 raise CoreError("objective_target_kind_mismatch")
             if target.kind == "categorical":
                 labels = {"present", "absent"} if kind == "rubric" else {"entailment", "neutral", "contradiction"}

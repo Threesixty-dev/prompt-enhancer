@@ -1,7 +1,7 @@
 """Reviewed, immutable compositions; no request-supplied executable graph."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 
@@ -19,6 +19,7 @@ class WorkflowDefinition:
     optional_model: bool = False
     version: str = "1.0.0"
     compatible_core: str = ">=0.2.0,<0.3.0"
+    core_version_pattern: str = r"^0\.2\.[0-9]+$"
 
     @property
     def uses_review(self):
@@ -28,7 +29,7 @@ class WorkflowDefinition:
         return {
             "workflow_id": self.workflow_id, "version": self.version,
             "compatible_core": self.compatible_core, "strategy": self.strategy,
-            "core_version_pattern": r"^0\.2\.[0-9]+$",
+            "core_version_pattern": self.core_version_pattern,
             "input_contract": "prompt-subject.v1",
             "output_contract": "prompt-review.v1" if self.uses_review else "enhanced-prompt.v1",
             "steps": [{"step_id": key, "implementation": implementation}
@@ -62,7 +63,7 @@ class WorkflowDefinition:
         return {"workflow_id": self.workflow_id, "version": self.version, "definition_sha256": self.sha256}
 
 
-WORKFLOWS = (
+LEGACY_WORKFLOWS = (
     WorkflowDefinition("prompt-check", "prompt.check.v1", (
         ("diagnose", "prompt-evaluation.v1"), ("context", "prompt-context.v1"),
         ("review", "prompt-commentary.v1")), "review", optional_model=True),
@@ -76,6 +77,14 @@ WORKFLOWS = (
     WorkflowDefinition("prompt-clarify", "prompt.check.v1", (
         ("diagnose", "prompt-evaluation.v1"), ("context", "prompt-context.v1"),
         ("review", "prompt-commentary.v1")), "review", optional_model=True, version="2.0.0"),
+)
+
+# Compatibility is part of the immutable digest. Retain every 0.2.x pin and
+# publish new manifest versions for the unchanged workflow logic on 0.3.x.
+WORKFLOWS = LEGACY_WORKFLOWS + tuple(
+    replace(item, version="1.1.0" if item.version == "1.0.0" else "2.1.0",
+            compatible_core=">=0.3.0,<0.4.0", core_version_pattern=r"^0\.3\.[0-9]+$")
+    for item in LEGACY_WORKFLOWS
 )
 
 

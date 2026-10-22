@@ -180,9 +180,27 @@ corresponding binding fields `null`. Results preserve those unknown values;
 an alias, successful reply or container version does not prove a model revision.
 Local model manifests still require their pinned revision and reviewed license.
 
-Classifier and embedding adapters use reviewed local manifests and offline
-caches. They cannot use this chat/rubric endpoint. The operator-configured local
-path is described next; actual model and device qualification remains separate.
+Core `0.3.0` additionally accepts `embedding_evaluators`, `classifier_evaluators`
+and `rerank_evaluators` in the reviewed core configuration. Each entry uses the
+same inference endpoint, credential environment reference and optional Access
+references as the rubric entry. Supply explicit model revision/license/tokenizer
+provenance, plus `dimensions` for embeddings and a reviewed `manifest_key` for NLI.
+These adapters call fixed `/v1/embeddings`, `/v1/bench/nli` and `/v1/rerank` routes.
+NLI expects the native paired-text Xinference flexible-model protocol, including
+all three class scores. It does not ask a chat model to simulate classification.
+
+Set `gateway_model_id` to the actual LiteLLM route ID for embeddings and rubric
+judging; reranking requires it. The transport rejects missing or different route
+headers. The NLI pass-through does not report that header and rejects this field;
+qualify its fixed target and model binding separately. Route identity confirms
+routing, not independently verified weights. Unrecognized reported model names
+are omitted when route verification is configured; configured provenance remains
+explicitly configured. The API-created NLI pass-through header must be updated
+when its upstream key rotates if the gateway does not resolve environment references.
+
+Existing local classifier and embedding adapters continue to use reviewed
+manifests and offline caches. The operator-configured local path is described
+next; actual model and device qualification remains separate.
 
 Coolify may add a private reverse proxy when the owner approves the deployment.
 Set `BENCH_ORIGIN` to its exact HTTPS origin and preserve the Host header. The

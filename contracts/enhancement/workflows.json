@@ -220,5 +220,227 @@
       ],
       "relationship": "Uses the pre-Bench Prompt Check sequence. The review may return findings without a rewrite."
     }
+  },
+  {
+    "workflow_id": "prompt-check",
+    "version": "1.1.0",
+    "compatible_core": ">=0.3.0,<0.4.0",
+    "strategy": "prompt.check.v1",
+    "core_version_pattern": "^0\\.3\\.[0-9]+$",
+    "input_contract": "prompt-subject.v1",
+    "output_contract": "prompt-review.v1",
+    "steps": [
+      {
+        "step_id": "diagnose",
+        "implementation": "prompt-evaluation.v1"
+      },
+      {
+        "step_id": "context",
+        "implementation": "prompt-context.v1"
+      },
+      {
+        "step_id": "review",
+        "implementation": "prompt-commentary.v1"
+      }
+    ],
+    "model_step": "review",
+    "optional_model": true,
+    "configurable_steps": {
+      "review": [
+        "binding",
+        "policy",
+        "generation",
+        "enable_thinking"
+      ]
+    },
+    "defaults": {
+      "policy_version": "prompt-check-commentary-v2-complete-json",
+      "max_tokens": 1100,
+      "temperature": 0.2,
+      "enable_thinking": false
+    },
+    "definition_sha256": "af3b0ff3b4d52fea88c8890221fdf055e599d8375a1259d12f3a76c94cb87e3d",
+    "presentation": {
+      "title": "Prompt Check (pre-Bench flow)",
+      "logic_steps": [
+        "Score prompt",
+        "Infer context",
+        "Optional model review and rewrite"
+      ],
+      "relationship": "Uses the pre-Bench Prompt Check sequence. The review may return findings without a rewrite."
+    }
+  },
+  {
+    "workflow_id": "prompt-rewrite",
+    "version": "1.1.0",
+    "compatible_core": ">=0.3.0,<0.4.0",
+    "strategy": "consumer.rewrite.v1",
+    "core_version_pattern": "^0\\.3\\.[0-9]+$",
+    "input_contract": "prompt-subject.v1",
+    "output_contract": "enhanced-prompt.v1",
+    "steps": [
+      {
+        "step_id": "diagnose",
+        "implementation": "prompt-evaluation.v1"
+      },
+      {
+        "step_id": "rewrite",
+        "implementation": "prompt-rewrite.v3"
+      }
+    ],
+    "model_step": "rewrite",
+    "optional_model": false,
+    "configurable_steps": {
+      "rewrite": [
+        "binding",
+        "policy",
+        "generation",
+        "enable_thinking"
+      ]
+    },
+    "defaults": {
+      "policy_version": "workflow-rewrite.v1"
+    },
+    "definition_sha256": "aa1473c76dd1eb308ca3bc88ea8772d0d91432c02a69c4e720bf3ecc8ec1831b",
+    "presentation": {
+      "title": "Direct rewrite (Bench legacy)",
+      "logic_steps": [
+        "Score prompt",
+        "Request a rewrite"
+      ],
+      "relationship": "Retained Bench flow for existing experiment pins. Does not use the pre-Bench review sequence."
+    }
+  },
+  {
+    "workflow_id": "prompt-clarify",
+    "version": "1.1.0",
+    "compatible_core": ">=0.3.0,<0.4.0",
+    "strategy": "script.clarify.v1",
+    "core_version_pattern": "^0\\.3\\.[0-9]+$",
+    "input_contract": "prompt-subject.v1",
+    "output_contract": "enhanced-prompt.v1",
+    "steps": [
+      {
+        "step_id": "diagnose",
+        "implementation": "prompt-evaluation.v1"
+      },
+      {
+        "step_id": "clarify",
+        "implementation": "script.clarify.v1"
+      }
+    ],
+    "model_step": null,
+    "optional_model": false,
+    "configurable_steps": {},
+    "defaults": {
+      "policy_version": "script.clarify.v1"
+    },
+    "definition_sha256": "7452b9b8481bce36c63ef12b9d64c03ee8df609882cfd117964e9083c51dbb74",
+    "presentation": {
+      "title": "Rule-based clarification (Bench legacy)",
+      "logic_steps": [
+        "Score prompt",
+        "Add clarification placeholders"
+      ],
+      "relationship": "Retained Bench flow for existing experiment pins. Does not use the pre-Bench review sequence."
+    }
+  },
+  {
+    "workflow_id": "prompt-rewrite",
+    "version": "2.1.0",
+    "compatible_core": ">=0.3.0,<0.4.0",
+    "strategy": "prompt.check.v1",
+    "core_version_pattern": "^0\\.3\\.[0-9]+$",
+    "input_contract": "prompt-subject.v1",
+    "output_contract": "prompt-review.v1",
+    "steps": [
+      {
+        "step_id": "diagnose",
+        "implementation": "prompt-evaluation.v1"
+      },
+      {
+        "step_id": "context",
+        "implementation": "prompt-context.v1"
+      },
+      {
+        "step_id": "review",
+        "implementation": "prompt-commentary.v1"
+      }
+    ],
+    "model_step": "review",
+    "optional_model": true,
+    "configurable_steps": {
+      "review": [
+        "binding",
+        "policy",
+        "generation",
+        "enable_thinking"
+      ]
+    },
+    "defaults": {
+      "policy_version": "workflow-rewrite-review.v1",
+      "max_tokens": 1100,
+      "temperature": 0.2,
+      "enable_thinking": false
+    },
+    "definition_sha256": "7504ce8970cdea46f51e5e365b9130ea78473230dc68de91bd8efec031e026b3",
+    "presentation": {
+      "title": "Rewrite review (pre-Bench flow)",
+      "logic_steps": [
+        "Score prompt",
+        "Infer context",
+        "Optional model review and rewrite"
+      ],
+      "relationship": "Uses the pre-Bench Prompt Check sequence. The review may return findings without a rewrite."
+    }
+  },
+  {
+    "workflow_id": "prompt-clarify",
+    "version": "2.1.0",
+    "compatible_core": ">=0.3.0,<0.4.0",
+    "strategy": "prompt.check.v1",
+    "core_version_pattern": "^0\\.3\\.[0-9]+$",
+    "input_contract": "prompt-subject.v1",
+    "output_contract": "prompt-review.v1",
+    "steps": [
+      {
+        "step_id": "diagnose",
+        "implementation": "prompt-evaluation.v1"
+      },
+      {
+        "step_id": "context",
+        "implementation": "prompt-context.v1"
+      },
+      {
+        "step_id": "review",
+        "implementation": "prompt-commentary.v1"
+      }
+    ],
+    "model_step": "review",
+    "optional_model": true,
+    "configurable_steps": {
+      "review": [
+        "binding",
+        "policy",
+        "generation",
+        "enable_thinking"
+      ]
+    },
+    "defaults": {
+      "policy_version": "workflow-clarify-review.v1",
+      "max_tokens": 1100,
+      "temperature": 0.2,
+      "enable_thinking": false
+    },
+    "definition_sha256": "f94b53abfeb176c67aa1e5048f80b64b6d922f3216a6da8cf3060df122a562fb",
+    "presentation": {
+      "title": "Clarification review (pre-Bench flow)",
+      "logic_steps": [
+        "Score prompt",
+        "Infer context",
+        "Optional model review and rewrite"
+      ],
+      "relationship": "Uses the pre-Bench Prompt Check sequence. The review may return findings without a rewrite."
+    }
   }
 ]

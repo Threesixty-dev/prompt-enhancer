@@ -1,7 +1,7 @@
 # Versioned core components and workflows
 
 The owner-approved design is [ADR 0027](../adr/0027-versioned-core-components-and-workflows.md).
-The source candidate is core `0.2.0`; publication and runtime qualification are
+The source candidate is core `0.3.0`; publication and runtime qualification are
 separate. Existing experiment files, definition identities and run snapshots are
 not rewritten.
 
@@ -61,6 +61,13 @@ build needs a new core version. The prompt workflow versions support stable
 `0.2.x` cores; an experiment still pins one exact
 version and image. Session workflows expose independent version and step metadata
 on their classes; their existing result contracts are preserved.
+
+Core `0.3.x` adds gateway harness evaluators without changing prompt workflow
+logic. Its manifest versions are Prompt Check `1.1.0`, direct rewrite and
+rule-based clarification `1.1.0`, and review rewrite/clarification `2.1.0`.
+The compatibility range is part of the digest, so these are new manifests rather
+than changes to existing pins. The catalog retains every `0.2.x` manifest for
+historical Bench definitions; the current core rejects incompatible older pins.
 
 ## Experiment contract
 
