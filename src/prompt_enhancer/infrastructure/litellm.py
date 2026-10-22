@@ -40,8 +40,11 @@ class _PrivateHTTPSConnection(http.client.HTTPSConnection):
 
 
 class LiteLLMChat:
-    def __init__(self, settings: LiteLLMSettings) -> None:
+    _path = "/v1/chat/completions"
+
+    def __init__(self, settings: LiteLLMSettings, *, expected_route_id: str | None = None) -> None:
         self._settings = settings
+        self._expected_route_id = expected_route_id
 
     def __call__(self, alias: str, body: bytes) -> tuple[int, bytes, str]:
         reply = self._request(alias, body, stream=False)
@@ -49,6 +52,17 @@ class LiteLLMChat:
 
     def open_chat(self, alias: str, body: bytes) -> InferenceStream:
         return self._request(alias, body, stream=True)
+
+    def _prepare_payload(self, payload: dict, *, stream: bool) -> dict | None:
+        if not isinstance(payload.get("messages"), list):
+            return None
+        payload.pop("chat_template_kwargs", None)
+        if self._settings.reasoning_effort is not None:
+            payload["reasoning_effort"] = self._settings.reasoning_effort
+        payload.update({"model": self._settings.model, "stream": stream, "no-log": True})
+        if not stream:
+            payload.pop("stream_options", None)
+        return payload
 
     def _request(self, alias: str, body: bytes, *, stream: bool) -> InferenceStream:
         config = self._settings
@@ -60,7 +74,10 @@ class LiteLLMChat:
             if len(body) > MAX_STREAM_BYTES:
                 return failure
             payload = json.loads(body)
-            if not isinstance(payload, dict) or not isinstance(payload.get("messages"), list):
+            if not isinstance(payload, dict):
+                return failure
+            payload = self._prepare_payload(payload, stream=stream)
+            if payload is None:
                 return failure
         except (ValueError, TypeError):
             return failure
@@ -125,12 +142,6 @@ class LiteLLMChat:
                 actual = hashlib.sha256(connection.sock.getpeercert(binary_form=True)).digest()
                 if not hmac.compare_digest(pin, actual):
                     return failure
-            payload.pop("chat_template_kwargs", None)
-            if config.reasoning_effort is not None:
-                payload["reasoning_effort"] = config.reasoning_effort
-            payload.update({"model": config.model, "stream": stream, "no-log": True})
-            if not stream:
-                payload.pop("stream_options", None)
             headers = {
                 "Host": url.netloc,
                 "User-Agent": "prompt-enhancer-bench/1.0",
@@ -142,10 +153,15 @@ class LiteLLMChat:
             if config.access_client_id is not None and config.access_client_secret is not None:
                 headers["CF-Access-Client-Id"] = config.access_client_id.get_secret_value()
                 headers["CF-Access-Client-Secret"] = config.access_client_secret.get_secret_value()
-            connection.request("POST", "/v1/chat/completions", json.dumps(payload).encode(), headers)
+            connection.request("POST", self._path, json.dumps(payload).encode(), headers)
             response = connection.getresponse()
             # Never follow redirects or propagate gateway errors/headers.
             if response.status != 200:
+                return failure
+            if self._expected_route_id is not None and (
+                not hasattr(response, "getheader")
+                or response.getheader("x-litellm-model-id") != self._expected_route_id
+            ):
                 return failure
             content_type = response.getheader("Content-Type", "application/json") if hasattr(response, "getheader") else "application/json"
             if stream and "text/event-stream" in content_type:
@@ -179,6 +195,52 @@ class LiteLLMChat:
         finally:
             if not retained:
                 finish()
+
+
+class LiteLLMEmbedding(LiteLLMChat):
+    """Two explicit texts over the same bounded, cancellable TLS transport."""
+
+    _path = "/v1/embeddings"
+
+    def _prepare_payload(self, payload: dict, *, stream: bool) -> dict | None:
+        inputs = payload.get("input")
+        if (stream or set(payload) != {"input"} or not isinstance(inputs, list)
+                or len(inputs) != 2
+                or any(not isinstance(text, str) or not 1 <= len(text) <= 20_000 for text in inputs)):
+            return None
+        return {"model": self._settings.model, "input": inputs,
+                "encoding_format": "float", "truncate": False, "no-log": True}
+
+
+class LiteLLMNli(LiteLLMChat):
+    """Three-way paired-text classification through Xinference's native API."""
+
+    _path = "/v1/bench/nli"
+
+    def _prepare_payload(self, payload: dict, *, stream: bool) -> dict | None:
+        if (stream or set(payload) != {"premise", "hypothesis", "model_revision"}
+                or any(not isinstance(payload.get(key), str) or not 1 <= len(payload[key]) <= 20_000
+                       for key in ("premise", "hypothesis"))
+                or payload.get("model_revision") != self._settings.model_revision):
+            return None
+        return {"model": self._settings.model,
+                "args": [{"text": payload["premise"], "text_pair": payload["hypothesis"]}],
+                "top_k": None, "truncation": False}
+
+
+class LiteLLMRerank(LiteLLMChat):
+    """One explicit query/document pair; no provider or endpoint overrides."""
+
+    _path = "/v1/rerank"
+
+    def _prepare_payload(self, payload: dict, *, stream: bool) -> dict | None:
+        if (stream or set(payload) != {"query", "document"}
+                or any(not isinstance(payload.get(key), str) or not 1 <= len(payload[key]) <= 20_000
+                       for key in ("query", "document"))):
+            return None
+        return {"model": self._settings.model, "query": payload["query"],
+                "documents": [payload["document"]], "top_n": 1,
+                "return_documents": False, "no-log": True}
 
 
 class LiteLLMProvider:

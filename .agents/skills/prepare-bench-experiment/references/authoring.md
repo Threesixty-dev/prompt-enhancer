@@ -77,6 +77,7 @@ draft, but must not be reported as runtime-ready.
 | `deterministic` | Approved deterministic binding; target, rubric and generation are null. | Numeric `prompt.*` metrics listed in `engine.py`; unknown values stay unknown. |
 | `embedding` | Configured binding and nonempty synthetic `target`; no rubric or generation. | Numeric `embedding.similarity`; similarity alone is not task-success evidence. |
 | `classifier` | Configured binding and nonempty synthetic `target`; no rubric or generation. | Categorical `nli.label`; labels are not numeric deltas. |
+| `rerank` | Configured gateway binding and nonempty synthetic query `target`; no rubric or generation. | Numeric `rerank.relevance`; a descriptive pair score, not a calibrated probability. |
 | `rubric` | Configured binding and supported rubric; target is null; generation settings are optional if the adapter supports them. | Categorical `rubric.label`; absent, present and abstention remain distinct. |
 
 Use unique evaluator IDs. Every assertion and objective target must refer to an

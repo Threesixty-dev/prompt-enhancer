@@ -14,6 +14,9 @@ from .adapters import ConsumerConfig, InferenceRubricEvaluation, ProcessConsumer
 from .contracts import WireModel
 from .engine import EnhancementEngine
 from .evaluators import DeterministicEvaluation
+from .gateway_embeddings import EmbeddingEvaluatorConfig, InferenceEmbeddingEvaluation
+from .gateway_nli import ClassifierEvaluatorConfig, InferenceClassifierEvaluation
+from .gateway_rerank import RerankEvaluatorConfig, InferenceRerankEvaluation
 from .http import create_app
 from .manager import ExecutionManager
 
@@ -22,6 +25,9 @@ class CoreConfiguration(WireModel):
     consumers: tuple[ConsumerConfig, ...] = Field(default=(), max_length=8)
     evaluators: tuple[TextEvaluatorConfig, ...] = Field(default=(), max_length=8)
     rubric_evaluators: tuple[ConsumerConfig, ...] = Field(default=(), max_length=8)
+    embedding_evaluators: tuple[EmbeddingEvaluatorConfig, ...] = Field(default=(), max_length=8)
+    classifier_evaluators: tuple[ClassifierEvaluatorConfig, ...] = Field(default=(), max_length=8)
+    rerank_evaluators: tuple[RerankEvaluatorConfig, ...] = Field(default=(), max_length=8)
     max_active: int = Field(default=1, ge=1, le=4)
     max_retained: int = Field(default=32, ge=1, le=128)
 
@@ -65,6 +71,30 @@ def compose(config: CoreConfiguration, *, enabled: bool, environment: dict[str, 
         if not credential:
             raise ValueError("evaluator_credential_missing")
         evaluators[item.binding_id] = InferenceRubricEvaluation(item, SecretStr(credential),
+            gateway_access=_gateway_access(item, environment))
+    for item in config.embedding_evaluators:
+        if item.binding_id in evaluators:
+            raise ValueError("duplicate_evaluator_binding")
+        credential = environment.get(item.credential_env)
+        if not credential:
+            raise ValueError("evaluator_credential_missing")
+        evaluators[item.binding_id] = InferenceEmbeddingEvaluation(item, SecretStr(credential),
+            gateway_access=_gateway_access(item, environment))
+    for item in config.classifier_evaluators:
+        if item.binding_id in evaluators:
+            raise ValueError("duplicate_evaluator_binding")
+        credential = environment.get(item.credential_env)
+        if not credential:
+            raise ValueError("evaluator_credential_missing")
+        evaluators[item.binding_id] = InferenceClassifierEvaluation(item, SecretStr(credential),
+            gateway_access=_gateway_access(item, environment))
+    for item in config.rerank_evaluators:
+        if item.binding_id in evaluators:
+            raise ValueError("duplicate_evaluator_binding")
+        credential = environment.get(item.credential_env)
+        if not credential:
+            raise ValueError("evaluator_credential_missing")
+        evaluators[item.binding_id] = InferenceRerankEvaluation(item, SecretStr(credential),
             gateway_access=_gateway_access(item, environment))
     manager = ExecutionManager(EnhancementEngine(consumers, evaluators), enabled=enabled,
         max_active=config.max_active, max_retained=config.max_retained)
