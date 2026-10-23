@@ -1,0 +1,21 @@
+{
+  "subjectIds": [
+    "example-sparse",
+    "example-complete",
+    "example-missing-deliverable",
+    "example-conflicting-requirements",
+    "example-missing-context",
+    "example-supplied-context",
+    "example-quoted-instructions",
+    "example-untrusted-prior-message",
+    "example-unverifiable-acceptance",
+    "example-noncoding-target-mismatch",
+    "example-polish",
+    "example-mixed-language",
+    "example-unsupported-language",
+    "example-unicode-literals",
+    "example-markup-literals",
+    "example-whitespace",
+    "example-minimal"
+  ]
+}
