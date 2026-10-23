@@ -93,6 +93,19 @@ test('metric charts show pairs, models and variants, preserve unknowns and survi
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('diagnostics-only model labels remain distinct from missing metadata', async ({ page }) => {
+  const { comparisons } = await fixture(page);
+  const absent = { ...comparisons.groups[0], strategy: 'prompt.check.v1', model: null, generation: {}, before: null, after: null, delta: null, count: 0, excluded: 1 };
+  comparisons.groups.push({ ...absent, variant: 'example-control', generationState: 'no_active_model' }, { ...absent, variant: 'example-missing' });
+  await page.goto('/stats');
+  const metrics = page.getByRole('region', { name: 'Metric comparisons' });
+  await expect(metrics.getByText('example-control / No model (diagnostics only)', { exact: true })).toBeVisible();
+  await expect(metrics.getByText('example-missing / Unknown model alias', { exact: true })).toBeVisible();
+  await expect(metrics.getByText('No model (diagnostics only)', { exact: true })).toBeVisible();
+  await expect(metrics.getByText('Unknown model alias', { exact: true })).toBeVisible();
+  await expect(metrics.locator('.comparison-overall')).toContainText('3 paired observations');
+});
+
 test('invalid date range does not navigate or submit, and stale filtered responses cannot replace the page', async ({ page }) => {
   await fixture(page); await page.goto('/experiments');
   await filters(page).getByLabel('Created from (UTC)').fill('2026-10-11');

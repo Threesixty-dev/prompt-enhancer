@@ -189,3 +189,16 @@ invalid page bounds, cross-experiment/revision listing, empty history, direct
 result navigation and unchanged DOM identity during polling. JavaScript syntax
 passes. This is local UI evidence; it does not establish deployment or model
 qualification.
+
+## Diagnostics-only chart identity - 2026-10-23
+
+- Scope: MA18/W02/W05 presentation, based on reviewed develop `977cc641`.
+- Defect: paired charts labelled an explicitly skipped optional model as an
+  unknown model alias. The stored review already distinguished these states.
+- Correction: carry the recorded review state into comparison metadata and keep
+  diagnostics-only observations separate from absent historical model metadata.
+  The UI labels only explicit `no_active_model` as no model; unknown stays unknown.
+- Evidence: 21 synthetic history/aggregation tests and 12 desktop/mobile browser
+  checks pass, including both states in the same chart and unchanged paired means.
+- Bounds: no model call, stored-result mutation or scientific-score change. Owner
+  review, promotion and deployed presentation verification remain separate gates.

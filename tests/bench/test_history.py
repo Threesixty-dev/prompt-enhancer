@@ -147,6 +147,23 @@ def test_evaluator_versions_are_separate_and_mismatched_passes_are_excluded(stor
     assert sum(g["excluded"] for g in groups) == 1
 
 
+def test_diagnostics_only_is_distinct_from_missing_model_metadata(store, publication, result_template):
+    store.import_publication(changed(publication, autoRun=False))
+    result = copy.deepcopy(result_template)
+    result.update(strategy="prompt.check.v1", consumer_binding=None, consumer_provenance=None,
+                  effective_workflow_steps={}, enhanced_prompt=None, after=[], deltas=[])
+    result["workflow_result"] = {"review": {"state": "no_active_model", "notes": "EXAMPLE_PRIVATE_NOTE"}}
+    save_result(store, publication, result)
+    result["workflow_result"] = None
+    save_result(store, publication, result)
+    payload = store.run_history(10, None, RunFilters())
+    groups = [g for g in payload["summary"]["comparisons"]["groups"] if g["metric"] == "prompt.task_definition_coverage"]
+    assert len(groups) == 2
+    assert {g.get("generationState") for g in groups} == {None, "no_active_model"}
+    assert all(g["model"] is None and g["count"] == 0 and g["excluded"] == 1 for g in groups)
+    assert "EXAMPLE_PRIVATE_NOTE" not in json.dumps(payload)
+
+
 def test_comparison_group_limit_is_explicit_and_filters_scope_results(store, publication, result_template, monkeypatch):
     import enhancement_bench.comparisons as module
 
