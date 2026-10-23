@@ -12,6 +12,10 @@ before implementation or validation. Open the skill files directly if a skill
 invocation tool is unavailable; no personal skill installation is required.
 Keep the existing-core/new-core decision explicit and use the separate core
 release skill when a new version is needed.
+For running or interpreting existing experiments, load the tracked
+`operate-bench-experiment` skill from that table. It documents the shared client,
+receipt recovery, outcome interpretation and private exports. Personal installed
+skill copies do not replace this checkout's instructions.
 
 Follow the imported requirements and these privacy rules for every task:
 

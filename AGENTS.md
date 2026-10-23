@@ -6,6 +6,8 @@ This is a privacy-sensitive repository for local coding-agent analytics.
 
 These requirements apply to both Codex and Claude Code. Resolve every path from
 the selected repository root and use the tracked skills in `.agents/skills/`.
+Personal installed copies may be older. When a matching skill is available by
+name, still read the tracked version for this checkout's current contract.
 
 1. Before substantive repository work, read and apply
    `.agents/skills/prompt-enhancer-development/SKILL.md` in full.
@@ -18,6 +20,7 @@ the selected repository root and use the tracked skills in `.agents/skills/`.
 | Task | Required additional reading |
 | --- | --- |
 | Prepare, revise, validate or publish an Experiment; design cases, variants or model comparisons | `.agents/skills/prepare-bench-experiment/SKILL.md` |
+| Run, observe, inspect, cancel or export an existing Experiment; interpret its results | `.agents/skills/operate-bench-experiment/SKILL.md`, `docs/bench/client.md` and `docs/bench/handoff.md` |
 | Prepare or publish a new core version for Bench | `.agents/skills/deploy-enhancement-core/SKILL.md` and `docs/bench/core-publication.md` |
 | Deploy or operate Bench services | `docs/bench/deployment.md`; for API/UI deployment, also `docs/bench/continuous-deployment.md` |
 

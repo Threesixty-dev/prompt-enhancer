@@ -169,6 +169,13 @@ class EnhancementEngine:
                         "generation_context_version": "workflow-input.v1",
                         "generation_prompt_version": output.provenance.rubric_version
                             if output.provenance and output.provenance.rubric_version else "not_applicable"})
+                    # Keep the receipt, but never treat a failed step as a valid review without a rewrite.
+                    if any(step.status == "failed" for step in output.receipt.steps):
+                        review = output.receipt.review
+                        code = {"reply_invalid": "workflow_review_reply_invalid",
+                                "model_error": "workflow_review_model_error"}.get(
+                                    review.state if review else None, "workflow_step_failed")
+                        raise CoreError(code)
                 else:
                     generation_context = GenerationContext(**identity(request), before=result.before,
                         evaluation_profile=request.evaluation, objective=request.objective, steering=request.steering)

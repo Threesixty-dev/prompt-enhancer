@@ -207,13 +207,31 @@ function renderRun(r) {
       if (attempt.result?.workflow_result) {
         const workflow = attempt.result.workflow_result;
         panel.append(metadata([['Workflow', workflow.workflow.workflow_id + ' / ' + workflow.workflow.version]]));
+        const failed = workflow.steps.some(step => step.status === 'failed') || ['reply_invalid', 'model_error'].includes(workflow.review?.state);
+        if (failed) {
+          panel.append(node('p', 'Workflow failed. Retained measurements are partial evidence; this attempt is not a valid completed review.'));
+          if (attempt.status === 'succeeded') panel.append(node('p', 'Historical status mismatch: the recorded execution says succeeded, but a workflow step failed. The stored result is unchanged.', 'hint'));
+        }
+        const steps = node('ol'); steps.setAttribute('aria-label', 'Recorded workflow steps');
+        for (const step of workflow.steps) steps.append(node('li', step.step_id + ': ' + step.status));
+        panel.append(steps);
         if (workflow.review) {
-          const review = node('section'); review.append(node('h3', 'Workflow review'), node('p', workflow.review.notes || 'Review state: ' + workflow.review.state));
+          const review = node('section');
+          const labels = { ok: 'Valid review', reply_invalid: 'Review failed: invalid response', model_error: 'Review failed: model request failed', no_active_model: 'Review skipped: no model configured', skipped: 'Review skipped' };
+          review.append(node('h3', 'Workflow review'), node('p', labels[workflow.review.state] || 'Review state: ' + workflow.review.state));
+          if (workflow.review.notes) review.append(node('p', workflow.review.notes));
           for (const finding of workflow.review.findings || []) review.append(node('p', finding.severity + ': ' + finding.why + ' ' + finding.suggestion));
-          if (!attempt.result.enhanced_prompt) review.append(node('p', 'This workflow returned no rewrite. After measurements and deltas remain unavailable.', 'hint'));
+          if (!attempt.result.enhanced_prompt) review.append(node('p', failed
+            ? 'No valid rewrite is available because the workflow failed. After measurements and deltas are unavailable.'
+            : 'This workflow returned no rewrite. After measurements and deltas remain unavailable.', 'hint'));
           panel.append(review);
         }
         panel.append(evidence('Workflow diagnostics (separate from harness evaluation)', workflow, attempt.id + '-workflow'));
+      }
+      if (attempt.result?.errors?.length) {
+        const errors = node('section'); errors.append(node('h3', 'Execution errors'));
+        for (const error of attempt.result.errors) errors.append(node('p', error.code + ' (stage: ' + error.stage + ')'));
+        panel.append(errors);
       }
       if (attempt.result) panel.append(modelEvidence(attempt.result), metricsTable(attempt.result), evidence('Complete result, provider provenance, timings and assertions', attempt.result, attempt.id));
       else panel.append(node('p', 'Reported model: unknown. No result provenance is available yet.', 'hint'));

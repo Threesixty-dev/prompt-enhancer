@@ -1,5 +1,64 @@
 # Beta progress journal: published handoff
 
+## 2026-10-23 - Add the Bench client and private analysis contract
+
+The owner approved the [client/export implementation](bench/client.md) on the
+existing handoff branch, based on reviewed develop `cdcfb5f`. The client provides
+discovery, shared API preflight, receipt-backed submission, bounded observation,
+inspection, cancellation acknowledgement and explicit-cohort export. Its JSON
+envelopes distinguish admission, execution, assertions and observation timeouts.
+The preflight validates every request and core registration; worker/provider/model
+readiness remains explicitly unverified. No model call is made by preflight.
+
+Versioned JSON and six CSV tables retain zero, missingness, labels, provenance,
+workflow order, configuration fingerprints, timings, assertions and exclusion
+reasons. A bundled schema/dictionary and final hash manifest accompany each
+private export. Text fields and credentials are omitted; the derived records
+remain sensitive. Submission receipts are durable before admission, and retrying
+a lost acknowledgement reuses the request identity without duplicate generation.
+
+Evidence: the 363-test affected Bench/core suite and 22 desktop/mobile checks
+pass. The final 73-test focused run covers export order/configuration provenance,
+unresolvable contract references and v2 HTTP/storage/export agreement. The CLI journey uses actual subprocesses and
+an owned loopback API from outside the checkout, with synthetic model/container
+doubles. The final client wheel builds offline; its schema command and packaged
+export dictionary work outside the checkout. Privacy, JavaScript syntax,
+generated-atlas and whitespace checks pass.
+No deployment, real-model qualification or source publication occurs here.
+Independent onboarding and frozen-candidate acceptance remain open.
+
+The follow-up instruction audit adds tracked `operate-bench-experiment` routing
+for Codex and Claude, covering the shared client, admission recovery, explicit
+cohorts and interpretation. Authoring/release guidance now consistently separates
+v2 artifact pins from legacy v1 catalog resolution. Repository instructions take
+precedence over older personal skill copies. All four skill validators and ten
+documented parser forms pass; no model or service request is made by these checks.
+Runtime generation policies and typed evaluator inputs are documented separately
+from operating-agent skills. Independent agent/user walkthrough remains open.
+
+## 2026-10-23 - Prepare Bench handoff and propagate review failures
+
+The [bounded handoff task](bench/handoff.md#correction-task-card---2026-10-23)
+starts from reviewed develop `cdcfb5f`. Invalid review responses and confirmed
+model failures reproduce a false successful execution in all three review flows.
+The execution wrapper now retains their receipts and before measurements while
+reporting a failure. It does not evaluate an absent candidate or run assertions.
+Valid reviews without rewrites and optional model skips retain their semantics.
+
+The Bench result page shows review state, recorded step outcomes and execution
+errors without opening raw JSON. It warns about historical success/failure
+contradictions without changing stored records. The guide adds the UI journey,
+result dictionary, existing AI API contract, operational limits and handoff gates;
+the README removes duplicated terminology and separates v2 pins from v1 behavior.
+
+Evidence: six failing-before regressions, 84 passing affected core/worker/API
+tests, and 22 passing desktop/mobile checks. The real core HTTP application,
+synthetic model and container double exercise durable partial failure, skipped
+remaining attempts, retention cleanup, stored API agreement and later admission.
+All inputs are independently authored synthetic fixtures. No live model call,
+deployment, source publication or merge is performed. New artifact versions,
+frozen-candidate verification and independent onboarding remain required.
+
 ## 2026-10-23 - Explain unscored Bench readings and correct coding cues
 
 The [evaluator coverage candidate](bench/evaluator-coverage.md) adds an explicit

@@ -19,6 +19,13 @@ from .runtime import DockerRuntime, DockerSettings
 from .store import Store
 from .worker import Worker
 from .client import static_consumer_ready
+from . import operator_cli
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, _message):
+        operator_cli.emit(None, error="invalid_arguments")
+        raise SystemExit(2)
 
 
 def default_contracts() -> Path:
@@ -100,11 +107,12 @@ def register_core_image(artifact: CoreImage, endpoint: str, **credentials) -> di
 
 
 def parser():
-    value = argparse.ArgumentParser(prog="enhancement-bench")
+    value = Parser(prog="enhancement-bench", description="Private Bench operations; use command --help for inputs and limits.")
     value.add_argument("--contracts", type=Path, default=default_contracts())
     sub = value.add_subparsers(dest="command", required=True)
     validate = sub.add_parser("validate")
     validate.add_argument("definitions", nargs="+", type=Path)
+    validate.add_argument("--json", action="store_true", help="Emit a versioned machine-readable validation receipt.")
     serve = sub.add_parser("serve")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", default=8088, type=int)
@@ -116,16 +124,26 @@ def parser():
     deliver.add_argument("publication", type=Path)
     register = sub.add_parser("register-core")
     register.add_argument("receipt", type=Path)
+    operator_cli.add_commands(sub)
     return value
 
 
 def main():
     args = parser().parse_args()
     try:
+        if args.command in operator_cli.COMMANDS:
+            data, status = operator_cli.execute(args)
+            operator_cli.emit(args.command, data=data)
+            if status:
+                raise SystemExit(status)
+            return
         contracts = Contracts(args.contracts)
         if args.command == "validate":
             validate_definitions(args.definitions, contracts)
-            print(f"Validated {len(args.definitions)} synthetic experiment definitions.")
+            if args.json:
+                operator_cli.emit(args.command, data={"validated": True, "definitionCount": len(args.definitions), "modelReadiness": "unverified"})
+            else:
+                print(f"Validated {len(args.definitions)} synthetic experiment definitions.")
             return
         if args.command == "envelope":
             definition = validate_definition(args.definition, contracts)
@@ -165,8 +183,12 @@ def main():
             for signum in (signal.SIGINT, signal.SIGTERM):
                 signal.signal(signum, lambda *_: worker.stop.set())
             worker.serve()
-    except (BenchError, KeyError, ValueError) as error:
-        print(error.code if isinstance(error, BenchError) else "invalid_bench_configuration")
+    except (BenchError, KeyError, ValueError, TypeError, AttributeError, OSError, RecursionError) as error:
+        code = error.code if isinstance(error, BenchError) else "invalid_bench_configuration"
+        if args.command in operator_cli.COMMANDS or getattr(args, "json", False):
+            operator_cli.emit(args.command, error=code)
+            raise SystemExit(4 if code == "wait_timeout" else 2) from None
+        print(code)
         raise SystemExit(1) from None
 
 

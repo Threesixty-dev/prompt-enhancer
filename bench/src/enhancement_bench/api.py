@@ -14,19 +14,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 from typing import Literal
 
-from .definitions import CoreImage, Definition, Overrides, Publication, StrictModel
+from .definitions import CoreImage, Definition, Overrides, Publication, RunInput, RunPlan, StrictModel
 from .errors import BenchError
 from .history import RunFilters, RunStatus
 from .protocol import Contracts
 from .store import Store
-
-
-class RunInput(StrictModel):
-    stableId: str
-    revision: str
-    requestId: str
-    overrides: Overrides
-    retryOf: str | None = None
 
 
 class ReconcileInput(StrictModel):
@@ -129,6 +121,10 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
     def experiments():
         return {"experiments": store.definitions()}
 
+    @app.get("/api/client-contracts")
+    def client_contracts():
+        return contracts.payload()
+
     @app.get("/api/run-form-schema")
     def run_form_schema():
         schema = contracts.validators["execute-request"].schema
@@ -154,8 +150,7 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
     def run(run_id: str):
         return store.run(run_id)
 
-    @app.post("/api/runs", status_code=202)
-    def enqueue(value: RunInput):
+    def validate_plan(value: RunPlan):
         from .definitions import effective_settings
 
         definition = next((d for d in store.definitions() if d["stableId"] == value.stableId and d["revision"] == value.revision), None)
@@ -168,6 +163,16 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
         for subject in effective["subjects"]:
             for unit in effective["units"]:
                 contracts.request(request_run, {"id": str(uuid4()), "subject_id": subject["id"], "unit_id": unit["id"]})
+        return definition, effective
+
+    @app.post("/api/runs/preflight")
+    def preflight(value: RunPlan):
+        definition, effective = validate_plan(value)
+        return store.preflight(definition, effective)
+
+    @app.post("/api/runs", status_code=202)
+    def enqueue(value: RunInput):
+        validate_plan(value)
         return {"runId": store.enqueue_ui(value.stableId, value.revision, value.overrides,
                                           value.requestId, value.retryOf)}
 

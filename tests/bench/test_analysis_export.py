@@ -1,0 +1,262 @@
+"""Hand-computable analysis, missingness, provenance and private-file evidence."""
+
+import copy
+import csv
+import hashlib
+import json
+import os
+
+from jsonschema import Draft202012Validator
+import pytest
+
+from enhancement_bench.analysis import analysis_schema, dataset, inspect_run, project_run, validated_run, write_export
+from enhancement_bench.errors import BenchError
+from enhancement_bench.private_io import read_json, write_json
+from test_client_worker import make_worker
+
+
+@pytest.fixture
+def completed(store, publication, contracts, result_template):
+    assertion = {"evaluator_id": "prompt", "metric_key": "prompt.task_definition_coverage", "operator": "minimum_delta", "threshold": 0}
+    for unit in publication.definition.units:
+        unit.assertions = [assertion]
+    result_template["assertions"] = [{"assertion": assertion, "outcome": "passed", "observed": 0.5}]
+    result_template["assertion_outcome"] = "passed"
+    result_template["timings"] = [{"stage": stage, "seconds": seconds} for stage, seconds in (
+        ("evaluate_original", 0), ("generate", 0.25), ("evaluate_candidate", 0.125), ("compare", 0.01))]
+    run_id = store.import_publication(publication)["runId"]
+    worker, _, _ = make_worker(store, contracts, result_template)
+    worker.step()
+    return validated_run(store.run(run_id), contracts)
+
+
+def metric_pair(run):
+    result = run["attempts"][0]["result"]
+    left, right = result["before"][0]["metrics"][0], result["after"][0]["metrics"][0]
+    delta = next(d for d in result["deltas"] if d["metric_key"] == left["key"])
+    left.update(state="known", value=0, label=None)
+    right.update(state="known", value=0.5, label=None)
+    delta.update(state="comparable", value=0.5, reason="same_evaluator")
+    return result, left, right, delta
+
+
+def row_for(run):
+    rows = project_run(run)["metrics"]
+    return next(row for row in rows if row["attempt_id"] == run["attempts"][0]["id"]
+                and row["metric_key"] == run["attempts"][0]["result"]["before"][0]["metrics"][0]["key"])
+
+
+def test_numeric_zero_and_pair_delta_match_json_csv_and_schema(completed, tmp_path):
+    metric_pair(completed)
+    value = dataset([completed])
+    Draft202012Validator(analysis_schema()).validate(value)
+    manifest = write_export(tmp_path / "analysis", value)
+    assert manifest["rowCounts"] == {"runs": 1, "attempts": 2, "metrics": 12, "assertions": 2, "timings": 8, "errors": 0}
+    row = row_for(completed)
+    assert row["before_value"] == 0 and row["after_value"] == 0.5 and row["delta_value"] == 0.5
+    assert row["pair_eligible"] and row["exclusion_reason"] is None
+    with (tmp_path / "analysis" / "metrics.csv").open() as stream:
+        rows = list(csv.DictReader(stream))
+    exported = next(item for item in rows if item["attempt_id"] == row["attempt_id"] and item["metric_key"] == row["metric_key"])
+    assert float(exported["before_value"]) == 0 and float(exported["delta_value"]) == 0.5
+    assert exported["before_label"] == "" and exported["pair_eligible"] == "true"
+    assert read_json(tmp_path / "analysis" / "analysis.json", limit=1_000_000) == value
+    for name, info in manifest["files"].items():
+        contents = (tmp_path / "analysis" / name).read_bytes()
+        assert info == {"bytes": len(contents), "sha256": hashlib.sha256(contents).hexdigest()}
+
+
+@pytest.mark.parametrize("state", ["unknown", "abstained", "not_applicable", "execution_error"])
+def test_unavailable_readings_remain_distinct_and_never_become_zero(completed, state):
+    _, left, _, delta = metric_pair(completed)
+    left.update(state=state, value=None, label=None, reason="example-unavailable")
+    delta.update(state="unknown", value=None, reason="metric_unknown")
+    row = row_for(completed)
+    assert row["before_state"] == state and row["before_reason"] == "example-unavailable"
+    assert row["before_value"] is None and row["delta_value"] is None and not row["pair_eligible"]
+    assert row["exclusion_reason"] == ("attempt_not_successful" if state == "execution_error" else "reading_unavailable")
+
+
+def test_missing_after_evaluator_and_unexecuted_attempt_are_explicit(completed):
+    result, _, _, _ = metric_pair(completed)
+    result.update(after=[], deltas=[], candidate=None, enhanced_prompt=None)
+    completed["attempts"][1].update(status="skipped", result=None, request=None)
+    completed["status"] = "failed"
+    tables = project_run(completed)
+    row = row_for(completed)
+    assert row["after_state"] == "missing" and row["after_value"] is None and row["delta_state"] == "missing"
+    assert tables["attempts"][0]["missing_after_evaluators"] == ["prompt"]
+    absent = tables["attempts"][1]
+    assert not absent["result_recorded"] and absent["technical_outcome"] == "incomplete"
+    assert absent["generation_provenance"] is None
+    check = next(item for item in tables["assertions"] if item["attempt_id"] == absent["attempt_id"])
+    assert check["outcome"] == "not_evaluated" and check["observed"] is None and not check["recorded"]
+
+
+def test_categorical_labels_are_preserved_without_numeric_delta(completed):
+    _, left, right, delta = metric_pair(completed)
+    left.update(value=None, label="neutral")
+    right.update(value=None, label="entailment")
+    delta.update(state="not_comparable", value=None, reason="categorical_metric")
+    row = row_for(completed)
+    assert (row["before_label"], row["after_label"]) == ("neutral", "entailment")
+    assert row["delta_value"] is None and row["exclusion_reason"] == "categorical_metric" and not row["pair_eligible"]
+
+
+@pytest.mark.parametrize("cause", ["provenance", "delta", "cleanup", "review"])
+def test_invalid_pairs_are_excluded_with_specific_reason(completed, cause):
+    result, _, _, delta = metric_pair(completed)
+    expected = {"provenance": "provenance_mismatch", "delta": "delta_mismatch", "cleanup": "run_unsettled", "review": "attempt_not_successful"}
+    if cause == "provenance":
+        result["after"][0]["provenance"]["model_revision"] = "example-new-revision"
+    elif cause == "delta":
+        delta["value"] = 0.9
+    elif cause == "cleanup":
+        completed["cleanup_pending"] = 1
+    else:
+        result["workflow_result"] = {"steps": [{"step_id": "review", "implementation": "example-review.v1", "status": "failed"}], "review": {"state": "reply_invalid"}}
+        report = inspect_run(completed)
+        assert report["status"] == "succeeded" and report["technicalOutcomes"]["failed"] == 1
+    row = row_for(completed)
+    assert not row["pair_eligible"] and row["exclusion_reason"] == expected[cause]
+
+
+def test_comparison_scope_separates_versions_but_retains_variant_identity(completed):
+    original = row_for(completed)
+    changed = copy.deepcopy(completed)
+    changed["revision"] = "2"
+    assert row_for(changed)["comparison_scope"] != original["comparison_scope"]
+    changed = copy.deepcopy(completed)
+    changed["image"] = "registry.example.com/example/core@sha256:" + "f" * 64
+    assert row_for(changed)["comparison_scope"] != original["comparison_scope"]
+    attempts = project_run(completed)["attempts"]
+    assert attempts[0]["unit_id"] != attempts[1]["unit_id"]
+
+
+def test_export_records_order_step_provenance_and_generation_versions(completed):
+    result = completed["attempts"][0]["result"]
+    provenance = copy.deepcopy(result["before"][0]["provenance"])
+    result["workflow_result"] = {"steps": [
+        {"step_id": key, "implementation": "example-step.v1", "status": "succeeded", "provenance": provenance}
+        for key in ("score", "context", "review")]}
+    result.update(generation_context_version="example-context.v1", generation_prompt_version="example-prompt.v2")
+    row = project_run(completed)["attempts"][0]
+    assert row["workflow_step_order"] == ["score", "context", "review"]
+    assert row["workflow_steps"]["review"]["provenance"]["metric_version"] == provenance["metric_version"]
+    assert row["generation_context_version"] == "example-context.v1"
+    assert row["generation_prompt_version"] == "example-prompt.v2"
+    assert [step["stepId"] for step in inspect_run(completed)["attempts"][0]["workflowSteps"]] == row["workflow_step_order"]
+    result["workflow_result"]["steps"].append(result["workflow_result"]["steps"][0])
+    with pytest.raises(BenchError, match="analysis_duplicate_step"):
+        project_run(completed)
+
+
+def test_configuration_fingerprints_distinguish_overrides_without_exporting_text(completed):
+    before = project_run(completed)
+    completed["effective"]["units"][0]["objective"]["description"] = "An independent fictional objective."
+    completed["effective"]["units"][0]["steering"]["instructions"] = "Independent fictional steering."
+    completed["effective"]["subjects"][0]["context"] = [{"kind": "note", "text": "Independent fictional context."}]
+    after = project_run(completed)
+    assert before["runs"][0]["effective_settings_sha256"] != after["runs"][0]["effective_settings_sha256"]
+    for field in ("objective_sha256", "steering_sha256", "context_sha256"):
+        assert before["attempts"][0][field] != after["attempts"][0][field]
+    assert "Independent fictional" not in json.dumps(after)
+
+
+def test_duplicate_runs_metrics_and_impossible_states_are_rejected(completed):
+    with pytest.raises(BenchError, match="duplicate_run"):
+        dataset([completed, completed])
+    changed = copy.deepcopy(completed)
+    metrics = changed["attempts"][0]["result"]["before"][0]["metrics"]
+    metrics.append(copy.deepcopy(metrics[0]))
+    with pytest.raises(BenchError, match="analysis_duplicate_metric"):
+        dataset([changed])
+    _, left, _, _ = metric_pair(completed)
+    left.update(state="unknown", value=0)
+    with pytest.raises(BenchError, match="analysis_metric_invalid"):
+        dataset([completed])
+
+
+def test_tampered_correlation_and_input_are_rejected_before_export(completed, contracts):
+    changed = copy.deepcopy(completed)
+    changed["attempts"][0]["result"]["correlation_id"] = "example-other"
+    with pytest.raises(BenchError, match="core_correlation_mismatch"):
+        validated_run(changed, contracts)
+    changed = copy.deepcopy(completed)
+    changed["effective"]["subjects"][0]["text"] = "An independently authored fictional changed input."
+    with pytest.raises(BenchError, match="run_request_mismatch"):
+        validated_run(changed, contracts)
+
+
+def test_export_omits_text_targets_policies_and_provider_content(completed, tmp_path):
+    canary = "example-private-content-canary"
+    completed["effective"]["subjects"][0]["text"] = canary
+    completed["effective"]["evaluatorProfile"]["evaluators"][0]["target"] = canary
+    result = completed["attempts"][0]["result"]
+    result["enhanced_prompt"] = canary
+    result["workflow_result"] = {"review": {"state": "ok", "notes": canary, "findings": [canary]}, "steps": [
+        {"step_id": "review", "implementation": "example-review.v1", "status": "succeeded",
+         "policy": {"policy_id": "example-policy", "revision": "1", "instructions": canary},
+         "generation": {"temperature": None, "max_tokens": None}}]}
+    manifest = write_export(tmp_path / "analysis", dataset([completed]))
+    assert not manifest["containsPromptText"]
+    for path in (tmp_path / "analysis").iterdir():
+        assert canary not in path.read_text()
+    data = read_json(tmp_path / "analysis" / "analysis.json")
+    steps = data["tables"]["attempts"][0]["workflow_steps"]
+    assert steps["review"]["policy"]["instructions_sha256"] == hashlib.sha256(canary.encode()).hexdigest()
+    assert steps["review"]["generation"]["temperature"] is None
+
+
+def test_artifacts_are_private_and_existing_files_are_never_replaced(completed, tmp_path):
+    output = tmp_path / "analysis"
+    write_export(output, dataset([completed]))
+    before = (output / "manifest.json").read_bytes()
+    with pytest.raises(BenchError, match="output_exists"):
+        write_export(output, dataset([completed]))
+    assert (output / "manifest.json").read_bytes() == before
+    if os.name != "nt":
+        assert output.stat().st_mode & 0o777 == 0o700
+        assert all(path.stat().st_mode & 0o777 == 0o600 for path in output.iterdir())
+
+
+def test_linked_receipt_and_linked_export_parent_are_refused(completed, tmp_path):
+    target = tmp_path / "original.json"
+    write_json(target, {"example": "private"})
+    link = tmp_path / "receipt.json"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation unavailable on this platform")
+    with pytest.raises(BenchError, match="file_link_forbidden"):
+        read_json(link)
+    directory = tmp_path / "linked"
+    directory.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(BenchError, match="file_link_forbidden"):
+        write_export(directory / "analysis", dataset([completed]))
+    assert read_json(target) == {"example": "private"}
+
+
+def test_partial_export_is_removed_without_a_completion_manifest(completed, tmp_path, monkeypatch):
+    import enhancement_bench.analysis as module
+    original = module.write_new
+    def fail(path, data):
+        if path.name == "metrics.csv":
+            raise BenchError("file_write_failed")
+        original(path, data)
+    monkeypatch.setattr(module, "write_new", fail)
+    with pytest.raises(BenchError, match="file_write_failed"):
+        write_export(tmp_path / "analysis", dataset([completed]))
+    assert not (tmp_path / "analysis").exists()
+
+
+def test_export_limits_fail_before_publishing_manifest(completed, tmp_path, monkeypatch):
+    import enhancement_bench.analysis as module
+    value = dataset([completed])
+    monkeypatch.setattr(module, "MAX_EXPORT_ROWS", 1)
+    with pytest.raises(BenchError, match="export_too_large"):
+        dataset([completed])
+    monkeypatch.setattr(module, "MAX_EXPORT_BYTES", 1)
+    with pytest.raises(BenchError, match="export_too_large"):
+        write_export(tmp_path / "analysis", value)
+    assert not (tmp_path / "analysis").exists()

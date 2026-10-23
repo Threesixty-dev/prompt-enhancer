@@ -413,7 +413,7 @@ Dependencies: MA06
 
 **Tests:** [`tests/test_prompt_check.py`](../../tests/test_prompt_check.py) — identical-lf-normalized<br>[`frontend/src/features/prompt-check/PromptCheckPage.test.tsx`](../../frontend/src/features/prompt-check/PromptCheckPage.test.tsx) — identical-lf-normalized
 
-**Evidence:** Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Core/hook unchanged against origin/main. Six deterministic cue metrics plus optional labeled local-model commentary; source comments/tests prohibit prompt/commentary persistence. Deterministic preflight works without a loaded model; optional commentary/rewrite uses the active A08 runtime. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records extracted Prompt Check components and six synthetic pre-Bench parity cases; source review and live model/hook qualification remain open.
+**Evidence:** Read-only source/test inspection 2026-10-08. No tests or native/provider/model execution rerun by this audit. Historical ledger evidence must be rebound to a current commit/package. Core/hook unchanged against origin/main. Six deterministic cue metrics plus optional labeled local-model commentary; source comments/tests prohibit prompt/commentary persistence. Deterministic preflight works without a loaded model; optional commentary/rewrite uses the active A08 runtime. Later proposal (2026-10-09): ADR 0024 adds reviewed inference-provider selection on main 6fa1100; see the journal for synthetic evidence. This does not rebind the frozen October 8 source observation or qualify an external model. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records extracted Prompt Check components and six synthetic pre-Bench parity cases; source review and live model/hook qualification remain open. Later bounded evidence (2026-10-23): docs/bench/handoff.md records failed-review propagation, historical status warnings and synthetic core/HTTP/storage/browser checks. docs/bench/client.md adds tracked agent routing, local structured CLI, durable admission recovery and private versioned export evidence; worker/model readiness and independent onboarding remain unqualified. Source review, a new release and independent handoff qualification remain open; acceptance status is unchanged.
 
 **Gap:** Current full model/hook installed experience and workflow-backed enhancement integration remain unqualified; deterministic cues are limited language/task heuristics.
 
@@ -1245,7 +1245,7 @@ Dependencies: W01
 
 **Tests:** No executable test/implementation at this level.
 
-**Evidence:** No production workflow store, run journal or scheduler found. Agent history and analysis jobs are different bounded contexts. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records fixed versioned prompt compositions, v2 experiment pins and historical migration tests. This supplements the frozen observation without accepting the general graph engine/store gate.
+**Evidence:** No production workflow store, run journal or scheduler found. Agent history and analysis jobs are different bounded contexts. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records fixed versioned prompt compositions, v2 experiment pins and historical migration tests. This supplements the frozen observation without accepting the general graph engine/store gate. Later bounded evidence (2026-10-23): docs/bench/handoff.md records failed-review propagation, historical status warnings and synthetic core/HTTP/storage/browser checks. docs/bench/client.md adds tracked agent routing, local structured CLI, durable admission recovery and private versioned export evidence; worker/model readiness and independent onboarding remain unqualified. Source review, a new release and independent handoff qualification remain open; acceptance status is unchanged.
 
 **Gap:** Immutable revisions, input snapshots, node attempts, stable-port joins, duplicate Run admission and interrupted recovery missing.
 
@@ -1293,7 +1293,7 @@ Dependencies: W01, W02, W03, W04, A10
 
 **Tests:** No executable test/implementation at this level.
 
-**Evidence:** No Blueprint/React Flow editor route or production builder source found; model hardware catalog is only a prerequisite.
+**Evidence:** No Blueprint/React Flow editor route or production builder source found; model hardware catalog is only a prerequisite. Later bounded evidence (2026-10-23): docs/bench/handoff.md records failed-review propagation, historical status warnings and synthetic core/HTTP/storage/browser checks. docs/bench/client.md adds tracked agent routing, local structured CLI, durable admission recovery and private versioned export evidence; worker/model readiness and independent onboarding remain unqualified. Source review, a new release and independent handoff qualification remain open; acceptance status is unchanged.
 
 **Gap:** Typed canvas, accessible list alternative, Build/Run/Results views, saved templates and task-specific profile recommendations absent.
 
@@ -1325,7 +1325,7 @@ Dependencies: W01, W02, W03, W04, W05, W06
 
 **Tests:** No executable test/implementation at this level.
 
-**Evidence:** Acceptance requirements are documented; executable multimodal topology/placement qualification does not yet exist. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records synthetic backend, desktop/mobile browser and pre-Bench parity checks for fixed prompt workflows. No real-model or general multimodal qualification is claimed.
+**Evidence:** Acceptance requirements are documented; executable multimodal topology/placement qualification does not yet exist. Later bounded evidence (2026-10-18): docs/bench/versioned-workflows.md records synthetic backend, desktop/mobile browser and pre-Bench parity checks for fixed prompt workflows. No real-model or general multimodal qualification is claimed. Later bounded evidence (2026-10-23): docs/bench/handoff.md records failed-review propagation, historical status warnings and synthetic core/HTTP/storage/browser checks. docs/bench/client.md adds tracked agent routing, local structured CLI, durable admission recovery and private versioned export evidence; worker/model readiness and independent onboarding remain unqualified. Source review, a new release and independent handoff qualification remain open; acceptance status is unchanged.
 
 **Gap:** Series/parallel/mixed positive and rejection matrix, real CPU/NVIDIA overlap, restart/cancel/failure and ten-cycle cleanup evidence missing.
 

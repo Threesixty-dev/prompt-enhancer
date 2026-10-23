@@ -99,10 +99,11 @@ Report core version, variant, immutable digest, validated source SHA, action
 which checkout's build inputs were validated; a reused image may have originally
 been built at another commit with identical inputs. Do not claim it was rebuilt.
 
-Bench resolves the current registered image when creating each Run, including
-reruns. Use the verified release receipt with `enhancement-bench register-core`
+For legacy v1 definitions, Bench resolves the current registered image when
+creating each Run, including reruns. V2 uses its exact artifact pin. Use the
+verified release receipt with `enhancement-bench register-core`
 when registration is authorized. It uses the configured Bench HTTPS origin and
-gateway access, and updates only the version/variant catalog. Registration does
+gateway access, recording the artifact and current version/variant binding. Registration does
 not start an Experiment or prove worker-host availability/model readiness.
 The Action registers the verified receipt after successful runtime verification.
 Confirm the registration acknowledgement separately from publication; if delivery
@@ -112,7 +113,8 @@ the image. Do not invent missing legacy provenance.
 Return to `.agents/skills/prepare-bench-experiment/SKILL.md` when an experiment
 needs the new version.
 Changing `enhancerVersion` requires a new experiment revision/generation.
-Replacing the registered image for the same version does not; old Runs retain
-their image digests. Publish changed definitions through `Publish Experiments` only
+Selecting a replacement registered image also requires a new v2 revision; legacy
+v1 new runs can resolve a changed catalog binding. Old runs retain their image
+digests. Publish changed definitions through `Publish Experiments` only
 when requested. Keep core release, experiment import, run execution and assertion
 outcomes separate in the final report.

@@ -113,6 +113,10 @@ def test_prompt_check_without_model_and_standalone_invocation():
     assert result.text is None and result.provenance is None
     assert result.receipt.review.state == "no_active_model"
     assert result.receipt.steps[-1].status == "skipped"
+    measured = asyncio.run(EnhancementEngine({}, {"deterministic.v1": DeterministicEvaluation()}).execute(item, lambda _: None))
+    assert measured.status == "succeeded" and not measured.errors
+    assert measured.before and not measured.after and measured.candidate is None
+    assert measured.workflow_result.review.state == "no_active_model"
 
 
 def test_explicit_null_generation_controls_remain_provider_managed():
@@ -289,13 +293,40 @@ def test_workflow_definition_digest_and_version_are_checked():
     assert json.loads((ROOT / "contracts/enhancement/workflows.json").read_text()) == catalog()
 
 
-def test_invalid_review_and_deadline_do_not_fabricate_output():
-    for model, parameters, expected in ((Model('{}'), {}, "succeeded"),
-                                        (Model(block=True), {"timeout_seconds": 1}, "timed_out")):
-        result = asyncio.run(engine(model).execute(request("prompt-check", parameters=parameters), lambda _: None))
-        assert result.status == expected and result.enhanced_prompt is None and not result.after
-        if expected == "succeeded":
-            assert result.workflow_result.review.state == "reply_invalid"
+@pytest.mark.parametrize("workflow_id,version", [
+    ("prompt-check", "1.1.0"), ("prompt-rewrite", "2.1.0"), ("prompt-clarify", "2.1.0"),
+])
+@pytest.mark.parametrize("review_state", ["reply_invalid", "model_error"])
+def test_failed_review_fails_execution_and_retains_partial_evidence(workflow_id, version, review_state):
+    class FailedModel(Model):
+        async def complete(self, call):
+            self.calls.append(call)
+            if review_state == "model_error":
+                raise CoreError("consumer_failed")
+            return Candidate('{}', self.provenance)
+
+    model, stages = FailedModel(), []
+    item = request(workflow_id, version=version, assertions=[{
+        "evaluator_id": "prompt", "metric_key": "prompt.task_definition_coverage",
+        "operator": "minimum_delta", "threshold": 0,
+    }])
+    result = asyncio.run(engine(model).execute(item, stages.append))
+    assert result.status == "failed"
+    assert result.errors[0].code == "workflow_review_" + review_state
+    assert result.errors[0].stage == "generate" and not result.errors[0].retryable
+    assert result.before and result.workflow_result.diagnostics and result.workflow_result.context
+    assert result.workflow_result.review.state == review_state
+    assert [step.status for step in result.workflow_result.steps] == ["succeeded", "succeeded", "failed"]
+    assert result.candidate is None and result.enhanced_prompt is None and not result.after
+    assert result.assertion_outcome == "not_evaluated" and not result.assertions and not result.deltas
+    assert stages == ["evaluate_original", "generate"] and len(model.calls) == 1
+    assert [timing.stage for timing in result.timings] == stages
+
+
+def test_review_deadline_does_not_fabricate_output():
+    result = asyncio.run(engine(Model(block=True)).execute(
+        request("prompt-check", parameters={"timeout_seconds": 1}), lambda _: None))
+    assert result.status == "timed_out" and result.enhanced_prompt is None and not result.after
 
 
 def test_pair_workflow_scores_the_same_pairs_in_order_and_rejects_incomplete_scores():

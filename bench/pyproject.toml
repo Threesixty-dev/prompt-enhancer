@@ -19,4 +19,4 @@ enhancement-bench = "enhancement_bench.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-enhancement_bench = ["static/*", "*.sql", "*.json"]
+enhancement_bench = ["static/*", "*.sql", "*.json", "*.md"]
