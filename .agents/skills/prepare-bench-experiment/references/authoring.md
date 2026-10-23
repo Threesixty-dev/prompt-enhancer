@@ -6,34 +6,38 @@ when they differ from this guide; these notes are not an alternate schema.
 For new versioned-workflow definitions, use `bench-experiment/v2` and follow
 `docs/bench/versioned-workflows.md`. Pin one workflow reference and exact core
 release receipt; fix harness evaluation/assertions at the experiment level.
-Only declared step settings may vary. The table and strategy guidance below
-describe retained v1 definitions; do not apply their run-time image rebinding
-or mixed-strategy examples to v2.
+Only declared step settings may vary. Retained v1 strategy behavior is identified
+below; do not apply its run-time image rebinding or mixed strategies to v2.
 
-For the pre-Bench prompt logic, select `prompt-check` version `1.0.0`,
-`prompt-rewrite` or `prompt-clarify` version `2.0.0`. Each scores, infers context and
-optionally performs model review/rewrite using strategy `prompt.check.v1` and
-step ID `review`. Configure policy/model/parameters there, not in legacy
-objective/steering fields. Rewrite/clarify `1.0.0` remain the distinct legacy
-two-step flows; never change an existing pin to the new version in place.
+Select the workflow version/digest from the authoritative workflow catalog and
+verify compatibility with the chosen released core. Do not treat a version in
+an example as the latest or as evidence of deployment. Review compositions score,
+infer context and optionally review/rewrite, using strategy `prompt.check.v1` and
+model step `review`. Configure policy/model/parameters on that step. Retained
+direct-rewrite and deterministic clarification compositions have different steps;
+inspect the selected manifest. Never update an imported pin in place.
 
 ## Fields and inheritance
 
 | Field | Authoring rule |
 | --- | --- |
-| `schemaVersion` | Use `bench-experiment/v1` while that is the supported definition contract. |
+| `schemaVersion` | Use `bench-experiment/v2` for new definitions; preserve v1 for existing compatibility cases. |
 | `stableId` | Stable logical experiment identity; unique for a new experiment. |
 | `revision` | Immutable string identity. A changed definition gets a new value. |
 | `generation` | Positive integer controlling revision ordering, independently of the revision string. |
-| `enhancerVersion` | Exact core version resolved to an immutable image when each Run is created. |
+| `enhancerVersion` | Exact reviewed core version, compatible with the selected workflow. |
+| `coreBuild` | V2: variant, immutable image and build-input fingerprint from a verified registered release receipt. |
+| `workflow` | V2: exact workflow ID, version and definition digest. |
 | `subjects` | Shared synthetic input cases, each with unique `id`, `text`, and explicit context. |
 | `units` | Comparison configurations, each with a unique `id`, title and packaged strategy. |
 | `consumerBinding` | Default generation binding for consumer units; null for a script-only experiment. |
-| `evaluatorProfile` | One versioned evaluator profile used by every sibling unit and both passes. |
+| `evaluatorProfile` | One versioned harness profile used by every sibling unit and both passes; v2 generation cannot consume its judgments. |
+| `harnessAssertions` | V2: shared assertions at experiment level; unit assertions must be empty. |
+| `baseStepSettings` | V2: defaults for manifest-declared configurable steps; units may override supported fields. |
 | `baseParameters` | Explicit timeout and full generation settings. |
 | `parameterSchema` | Closed JSON object schema validating every effective unit parameter set; no remote refs. |
-| `objective` | Versioned generation goal and typed targets, separate from assertions. |
-| `baseSteering` | Default profile, style, focus and optional generation instructions. |
+| `objective` | Legacy generation goal; v2 targets can refer only to workflow diagnostics, separately from harness assertions. |
+| `baseSteering` | Legacy generation steering; configure v2 review instructions through step policy. |
 | `autoRun` | Whether an eligible imported revision should automatically queue a run. |
 
 Read actual limits from `definitions.py` and the shared request contract. Bench
@@ -80,11 +84,12 @@ draft, but must not be reported as runtime-ready.
 | `rerank` | Configured gateway binding and nonempty synthetic query `target`; no rubric or generation. | Numeric `rerank.relevance`; a descriptive pair score, not a calibrated probability. |
 | `rubric` | Configured binding and supported rubric; target is null; generation settings are optional if the adapter supports them. | Categorical `rubric.label`; absent, present and abstention remain distinct. |
 
-Use unique evaluator IDs. Every assertion and objective target must refer to an
-evaluator in the shared profile and a metric it actually produces. Use numeric
-targets for deterministic/embedding metrics and categorical targets for
-classifier/rubric labels. Read allowed labels and rubric IDs from the contracts
-and engine instead of deriving labels from model prose.
+Use unique evaluator IDs. Every harness assertion must refer to an evaluator in
+the shared profile and a metric it produces. Legacy objective targets use that
+profile too; v2 generation targets use only workflow diagnostics. Use numeric
+targets for numeric metrics and categorical targets for labels where supported.
+Read allowed labels and rubric IDs from the contracts and engine instead of
+deriving labels from model prose.
 
 The current assertion operators are `minimum_value` (after value) and
 `minimum_delta` (after minus before), both numeric lower bounds. There is no

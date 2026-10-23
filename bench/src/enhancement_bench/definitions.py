@@ -167,6 +167,46 @@ class Overrides(StrictModel):
     unitStepSettings: dict[Identifier, dict[Identifier, dict[str, Any]]] = Field(default_factory=dict)
 
 
+class RunPlan(StrictModel):
+    stableId: Identifier
+    revision: Identifier
+    overrides: Overrides = Field(default_factory=Overrides)
+
+
+class RunInput(RunPlan):
+    requestId: str
+    retryOf: str | None = None
+
+
+class PreflightChecks(StrictModel):
+    definition: Literal["passed"]
+    requests: Literal["passed"]
+    coreArtifact: Literal["registered"]
+    workerLiveness: Literal["unverified"]
+    providerAuthentication: Literal["unverified"]
+    modelReadiness: Literal["unverified"]
+
+
+class QueueState(StrictModel):
+    queued: int = Field(ge=0)
+    running: int = Field(ge=0)
+    cleanup: int = Field(ge=0)
+    reconciliation: int = Field(ge=0)
+
+
+class PreflightReceipt(StrictModel):
+    schemaVersion: Literal["bench-preflight/v1"]
+    valid: Literal[True]
+    stableId: Identifier
+    revision: Identifier
+    attemptCount: int = Field(ge=1, le=512)
+    coreVersion: CoreVersion
+    image: str = Field(pattern=IMAGE.pattern)
+    checks: PreflightChecks
+    queue: QueueState
+    executionReadiness: Literal["unverified"]
+
+
 def _definition_fields(definition):
     return definition.model_dump()
 

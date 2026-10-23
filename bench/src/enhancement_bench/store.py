@@ -189,6 +189,25 @@ class Store:
             return self._enqueue(db, Definition.model_validate_json(row["body"]),
                                  overrides, "ui", f"ui:{request_id}", retry_of)
 
+    def preflight(self, definition: Definition, effective: dict) -> dict:
+        with self.connection() as db:
+            db.execute("BEGIN")
+            image = self._resolve_core(db, definition)
+            counts = db.execute("""SELECT
+                COUNT(CASE WHEN status='queued' THEN 1 END) AS queued,
+                COUNT(CASE WHEN status='running' THEN 1 END) AS running,
+                COUNT(CASE WHEN cleanup_pending=1 THEN 1 END) AS cleanup,
+                COUNT(CASE WHEN reconciliation_required=1 THEN 1 END) AS reconciliation
+                FROM runs""").fetchone()
+        return {"schemaVersion": "bench-preflight/v1", "valid": True,
+                "stableId": definition.stableId, "revision": definition.revision,
+                "attemptCount": len(effective["subjects"]) * len(effective["units"]),
+                "coreVersion": definition.enhancerVersion, "image": image,
+                "checks": {"definition": "passed", "requests": "passed", "coreArtifact": "registered",
+                           "workerLiveness": "unverified", "providerAuthentication": "unverified",
+                           "modelReadiness": "unverified"},
+                "queue": dict(counts), "executionReadiness": "unverified"}
+
     def definitions(self) -> list[dict]:
         with self.connection() as db:
             rows = db.execute("SELECT * FROM definitions ORDER BY stable_id,generation DESC").fetchall()

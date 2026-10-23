@@ -93,7 +93,57 @@ test('review-only results show commentary and unavailable after measurements', a
   } }];
   await page.goto('/experiments/' + definition.stableId + '/runs/' + run.id);
   await expect(page.getByRole('heading', { name: 'Workflow review', exact: true })).toBeVisible();
+  await expect(page.getByText('Valid review', { exact: true })).toBeVisible();
   await expect(page.getByText('The fictional request needs no rewrite.', { exact: true })).toBeVisible();
   await expect(page.getByText('This workflow returned no rewrite. After measurements and deltas remain unavailable.', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+for (const [reviewState, label] of [['reply_invalid', 'Review failed: invalid response'], ['model_error', 'Review failed: model request failed']]) {
+  for (const status of ['failed', 'succeeded']) {
+    test(`${reviewState} is visible with recorded execution status ${status}`, async ({ page }) => {
+      const { definition, run } = await fixture(page);
+      const unit = run.effective.units[0], subject = run.effective.subjects[0];
+      run.status = status;
+      run.attempts = [{ id: 'example-review-attempt', position: 0, unit_id: unit.id, subject_id: subject.id, status, result: {
+        enhanced_prompt: null, before: [], after: [], deltas: [], errors: status === 'failed'
+          ? [{ code: 'workflow_review_' + reviewState, stage: 'generate', retryable: false }] : [],
+        workflow_result: { workflow: definition.workflow, diagnostics: [],
+          steps: [{ step_id: 'diagnose', status: 'succeeded' }, { step_id: 'context', status: 'succeeded' }, { step_id: 'review', status: 'failed' }],
+          review: { state: reviewState, notes: null, findings: [] },
+        },
+      } }];
+      await page.goto('/experiments/' + definition.stableId + '/runs/' + run.id);
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+      await expect(page.getByText('Workflow failed. Retained measurements are partial evidence; this attempt is not a valid completed review.', { exact: true })).toBeVisible();
+      await expect(page.getByRole('list', { name: 'Recorded workflow steps' }).getByRole('listitem')).toHaveText([
+        'diagnose: succeeded', 'context: succeeded', 'review: failed',
+      ]);
+      await expect(page.getByText('No valid rewrite is available because the workflow failed. After measurements and deltas are unavailable.', { exact: true })).toBeVisible();
+      await expect(page.getByText('This workflow returned no rewrite. After measurements and deltas remain unavailable.', { exact: true })).toHaveCount(0);
+      if (status === 'succeeded') {
+        await expect(page.getByText('Historical status mismatch:', { exact: false })).toBeVisible();
+        await expect(page.locator('.run-heading .badge')).toHaveText('succeeded');
+      } else {
+        await expect(page.getByText('workflow_review_' + reviewState + ' (stage: generate)', { exact: true })).toBeVisible();
+        await expect(page.getByText('Historical status mismatch:', { exact: false })).toHaveCount(0);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    });
+  }
+}
+
+test('optional review without a model is explicitly skipped', async ({ page }) => {
+  const { definition, run } = await fixture(page);
+  const unit = run.effective.units[0], subject = run.effective.subjects[0];
+  run.attempts = [{ id: 'example-review-attempt', position: 0, unit_id: unit.id, subject_id: subject.id, status: 'succeeded', result: {
+    enhanced_prompt: null, before: [], after: [], deltas: [], workflow_result: {
+      workflow: definition.workflow, steps: [{ step_id: 'review', status: 'skipped' }], diagnostics: [],
+      review: { state: 'no_active_model', notes: null, findings: [] },
+    },
+  } }];
+  await page.goto('/experiments/' + definition.stableId + '/runs/' + run.id);
+  await expect(page.getByText('Review skipped: no model configured', { exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Recorded workflow steps' })).toHaveText('review: skipped');
+  await expect(page.getByText('Workflow failed.', { exact: false })).toHaveCount(0);
 });

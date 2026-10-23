@@ -1,0 +1,4 @@
+interface:
+  display_name: "Operate Bench Experiment"
+  short_description: "Run, inspect and export private Bench experiments"
+  default_prompt: "Use $operate-bench-experiment to run or inspect the selected Bench revision and export its explicit analysis cohort."

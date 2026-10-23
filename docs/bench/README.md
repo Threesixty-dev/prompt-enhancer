@@ -4,6 +4,13 @@ Standalone private benchmark storage and UI for `enhancement.v1`. Only explicitl
 authored synthetic subjects are supported in this MWE. Definitions and responses
 are sensitive even when their inputs are fictional; keep the service private.
 
+Start with the [handoff guide](handoff.md) for the UI journey, result-state
+dictionary, AI client contract and remaining qualification gates. It distinguishes
+tested local changes from deployed capability.
+
+The [client and export guide](client.md) documents the candidate JSON CLI,
+durable submission receipts, read-only preflight and private analysis tables.
+
 New `bench-experiment/v2` definitions follow the
 [versioned workflow contract](versioned-workflows.md): one workflow version, exact
 core build and harness evaluation per revision. Variants can change supported
@@ -27,13 +34,14 @@ Client labels follow the experiment definition and execution contracts:
 | Experiment | Definition with a stable identity, subjects and units. |
 | Revision | An immutable version of an experiment definition. |
 | Run | Execution of a revision with its effective settings and overrides saved. |
-| Unit | A strategy with parameters, objective, steering, assertions and any consumer binding. |
+| Unit | A comparison variant. In v2 it uses the revision's fixed workflow with supported model, policy and parameter settings. |
 | Subject | An input prompt and any explicitly supplied context. |
 | Attempt | Execution of one unit for one subject within a run. |
 | Result | The enhanced prompt, evaluations, deltas, assertions, timings and provenance from an attempt. |
 | Enhancer | The engine that evaluates, generates and reevaluates a prompt. |
 | Consumer | The generation role used by consumer-backed strategies. |
 | Evaluator profile | The evaluators and settings shared by units for before/after comparisons. |
+| Harness | The Bench/core execution wrapper that judges before/after prompts independently of the workflow's internal diagnostics. |
 
 A strategy is a property of a unit. A prompt is part of a subject. Use **Units**,
 **Subjects** and **Results** for those entities in navigation, headings and forms;
@@ -41,7 +49,7 @@ use **Strategy**, **Original prompt** and **Enhanced prompt** for their properti
 
 ## Local development
 
-The combined source checkout must contain B's authoritative
+The combined source checkout must contain the authoritative
 `contracts/enhancement/` and `src/prompt_enhancer/enhancement/`. During parallel
 development set `BENCH_CONTRACTS` to the exact shared-contract directory; the bench
 does not maintain copied or alternate execution schemas.
@@ -67,26 +75,14 @@ process with an exclusive file lock. Production runs the worker in its named
 container so ephemeral cores can share its network namespace. Do not start two
 workers against the same SQLite database or duplicate the static worker namespace.
 
-## Domain language
-
-- An **Experiment** is a versioned definition with defaults and sibling Experiment Units.
-- An **Experiment Unit** is one configuration being compared. Strategy is a setting on it.
-- A **Subject** is an input prompt shared by the selected Experiment Units.
-- A **Run** executes an Experiment revision with immutable effective settings.
-  UI Runs may override the defaults without editing the Experiment.
-- **Prompt Enhancer core** evaluates, enhances, reevaluates and compares.
-- A **Consumer** supplies enhancement inference; OpenHands or Codex owns its runtime.
-- An **Evaluator** measures the before/after prompts independently of the Consumer.
-- **Test Bench** imports Experiments, schedules Runs, starts core containers and
-  stores/presents results. There is no separate testing harness.
-
 ## Experiments and delivery
 
-Author a new JSON file directly in `experiments/` and push it to the configured
-publication branch. The `Publish Experiments` GitHub Action validates the files
-and delivers version-referencing definitions to Test Bench. Bench resolves each
-new Run's `enhancerVersion` from its registered core catalog and freezes that
-image digest on the Run. `autoRun: true` queues a Run automatically on import;
+Prepare a new JSON file in `experiments/` through the owner-reviewed contribution
+flow. The `Publish Experiments` GitHub Action validates approved files on the
+configured publication branch and delivers definitions to Test Bench. A v2
+definition pins the exact registered core artifact; its runs and reruns retain
+that digest. Legacy v1 definitions resolve `enhancerVersion` from the registered
+catalog when creating each new run. `autoRun: true` queues a Run automatically on import;
 its status and results appear in the UI. No manual import or UI Run is needed.
 
 Keep `stableId` for later revisions and change both `revision` and `generation`.
@@ -122,16 +118,20 @@ and per-unit steering; the API also accepts `unitObjectives`. Targets guide
 generation and remain separate from assertions. Every run freezes the merged
 objective and steering for each unit. Rerun copies those effective settings.
 The measured baseline, evaluator profile and generation context/prompt versions
-are retained with the core result; the core sends these measurements to the
-consumer before requesting a candidate.
+are retained with the core result. In legacy v1 strategies, the consumer receives
+baseline measurements before requesting a candidate. Versioned workflows use
+their declared internal diagnostics; independent harness judgments remain outside
+the generation context.
 
 Publication schema `bench-publication/v2` contains only `definition` alongside
-the envelope schema version. The definition references `enhancerVersion`.
+the envelope schema version. The definition references `enhancerVersion`; a v2
+experiment additionally pins its exact core artifact.
 Verified core-release receipts register version/variant-to-image bindings through
 `POST /api/core-images`; their images must use an allowlisted repository and an
-immutable SHA-256 digest. New Runs and reruns resolve the current binding; queued,
-running and historical Runs retain their original digests. A rebuilt image for
-the same core version needs registration, without an Experiment revision change.
+immutable SHA-256 digest. Legacy v1 Runs and reruns resolve the current binding;
+queued, running and historical Runs retain their original digests. A v2 Run
+retains the revision's pinned artifact, including on rerun. Selecting another
+artifact requires a new v2 revision; changed build inputs require a new core version.
 Repeated Run requests return their original Run without resolving again.
 There is no runtime Git SHA lookup. The definition's `revision`
 is an immutable string identity, while integer `generation` determines ordering.
@@ -139,13 +139,15 @@ Duplicate delivery is a no-op. A conflicting payload for an existing revision or
 generation is rejected atomically. A disabled revision is not eligible for auto-run.
 
 An unavailable version fails Run admission with `core_version_unavailable`.
-An import that would auto-run rolls back atomically; `autoRun: false` definitions
-can be imported before their core is registered. Legacy v1 envelopes remain
+An import that would auto-run rolls back atomically. Legacy v1 definitions with
+`autoRun: false` can be imported before their core is registered; v2 definitions
+always require prior registration of their pinned artifact. Legacy v1 envelopes remain
 accepted and may seed a missing catalog entry; redelivery never replaces a newer
 registration. See [resolution and migration](core-version-resolution.md).
 
 The gateway protects `POST /api/publications`, `POST /api/core-images`,
-`GET /api/experiments`, `GET /api/runs`, `GET /api/runs/{id}`, `POST /api/runs`,
+`GET /api/experiments`, `GET /api/client-contracts`, `GET /api/runs`,
+`GET /api/runs/{id}`, `POST /api/runs`, `POST /api/runs/preflight`,
 `POST /api/runs/{id}/cancel`, and `POST /api/runs/{id}/reconcile`. UI run creation
 includes `stableId`, `revision`, a UUID `requestId`, explicit `overrides`, and an
 optional `retryOf`. Reusing a request ID with changed settings fails with 409.
@@ -173,7 +175,8 @@ operator attestation, not an automatically verified model success.
 
 The bench retains complete results in its private volume until the operator
 performs a reviewed retention operation. There is no automatic deletion of Bench
-results or public export endpoint. Dedicated OpenHands conversation history has
+results or public export endpoint. The candidate client writes explicit private
+analysis cohorts locally; see [client and export](client.md). Dedicated OpenHands conversation history has
 a separate configurable seven-day default; successful runtime cleanup no longer
 deletes it immediately. Uncertain conversations remain held for reconciliation.
 See the [deployment policy](deployment.md#operator-configuration).
@@ -217,14 +220,16 @@ or start a Run. The old publisher-side `BENCH_CORE_IMAGES` setting is no longer
 read. Migrated legacy entries retain unknown build provenance until replaced by
 a verified receipt; do not fabricate a fingerprint from stale image labels.
 
-Experiment publication validates and delivers version-only definitions without
-registry access. A new Run whose version is absent from the catalog reports
-`core_version_unavailable`; use the separate manual
+Experiment publication validates and delivers definitions without registry
+access. V2 import requires its verified pinned artifact to be registered first;
+`autoRun: false` does not waive that requirement. A legacy v1 Run whose version
+is absent from the catalog reports `core_version_unavailable`; use the separate manual
 [Publish Core workflow](core-publication.md) to verify and register the selected
-version before retrying. A definition with `autoRun: false` can be imported before
-registration. A definition-only change can reuse a registered core, and rebuilding
-the same build inputs can register a replacement digest without a new Experiment
-revision. Changed build inputs require a new core version. Delivery sends the
+version before retrying. A legacy v1 definition with `autoRun: false` can be
+imported before registration. A definition-only change can reuse a registered
+core. Replacing a catalog entry does not change a v2 artifact pin; selecting a
+different artifact requires a new revision. Changed build inputs require a new
+core version. Delivery sends the
 required Origin and optional gateway credentials, refuses redirects, and emits
 only a content-free acknowledgement. Bench has no application login or import
 token. Registry access belongs to the separate core-release job and worker.
