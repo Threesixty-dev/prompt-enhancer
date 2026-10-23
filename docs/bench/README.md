@@ -11,6 +11,10 @@ tested local changes from deployed capability.
 The [client and export guide](client.md) documents the candidate JSON CLI,
 durable submission receipts, read-only preflight and private analysis tables.
 
+The [robustness qualification suite](robustness-experiment.md) defines 240 planned
+case/variant attempts, an initial smoke selection, expected missing-data states,
+offline fault coverage, and explicit runtime acceptance gates for core 0.3.2.
+
 New `bench-experiment/v2` definitions follow the
 [versioned workflow contract](versioned-workflows.md): one workflow version, exact
 core build and harness evaluation per revision. Variants can change supported
