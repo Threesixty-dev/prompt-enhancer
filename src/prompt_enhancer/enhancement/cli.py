@@ -47,7 +47,8 @@ def _gateway_access(config: ConsumerConfig, environment: dict[str, str]):
 
 def compose(config: CoreConfiguration, *, enabled: bool, environment: dict[str, str]):
     consumers = {}
-    evaluators = {"deterministic.v1": DeterministicEvaluation()}
+    evaluators = {"deterministic.v1": DeterministicEvaluation(),
+                  "deterministic.v2": DeterministicEvaluation(version="v2")}
     for item in config.consumers:
         if item.binding_id in consumers:
             raise ValueError("duplicate_consumer_binding")

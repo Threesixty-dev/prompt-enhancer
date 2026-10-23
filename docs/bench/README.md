@@ -158,6 +158,10 @@ comparable deltas, assertions, errors, stage progress and complete provenance.
 It distinguishes unknown metric values from zero and assertion failure from
 execution failure. Manual reruns do not require a Git commit.
 
+The [evaluator coverage correction](evaluator-coverage.md) documents the proposed
+`deterministic.v2` coding-request cues and explanations for unscored readings.
+Existing experiment pins and recorded results remain immutable.
+
 ## Recovery and retention
 
 Restart converts active runs to interrupted; it never resumes agent turns.
