@@ -1,6 +1,7 @@
 import { node, schemaField, validateForm } from './forms.js';
 import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary, variationOverview, variantDescription } from './overview.js';
 import { filterToolbar, hasFilters, historyCharts, historyPath, readFilters, statsPreview } from './history.js';
+import { metricsTable } from './metrics.js';
 
 const $ = id => document.getElementById(id);
 const json = value => JSON.stringify(value, null, 2);
@@ -175,18 +176,6 @@ function experimentPage(d) {
   $('page-content').replaceChildren(variationOverview(d), overview, heading, history.preview, history.filters, list, history.pagination); renderHistory();
 }
 
-function metricsTable(result) {
-  const wrap = node('div', undefined, 'table-scroll'), table = node('table'), head = node('thead'), header = node('tr');
-  for (const title of ['Evaluator / metric', 'Before', 'After', 'Delta']) header.append(node('th', title)); head.append(header); table.append(head);
-  const body = node('tbody');
-  const display = metric => !metric ? 'unknown' : metric.state !== 'known' && metric.value == null ? metric.state + (metric.reason ? ' (' + metric.reason + ')' : '') : typeof metric.value === 'number' ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(metric.value) : metric.label ?? 'unknown';
-  for (const evaluator of result.before || []) for (const metric of evaluator.metrics || []) {
-    const after = result.after?.find(x => x.evaluator_id === evaluator.evaluator_id)?.metrics.find(x => x.key === metric.key);
-    const delta = result.deltas?.find(x => x.evaluator_id === evaluator.evaluator_id && x.metric_key === metric.key);
-    const row = node('tr'); for (const value of [evaluator.evaluator_id + ' / ' + metric.key, display(metric), display(after), display(delta)]) row.append(node('td', String(value))); body.append(row);
-  }
-  table.append(body); wrap.append(table); return wrap;
-}
 function renderRun(r) {
   const container = $('run-detail'); if (!container || document.activeElement?.closest('#run-detail form')) return;
   patch(container, r, () => {

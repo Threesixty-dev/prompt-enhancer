@@ -7,10 +7,11 @@ from pydantic import ValidationError
 
 from enhancement_bench.definitions import CoreImage, Definition, Overrides, Publication, effective_settings
 from enhancement_bench.errors import BenchError
+from prompt_enhancer.enhancement import CORE_VERSION
 
 
 def release(image="a"):
-    return CoreImage(schemaVersion="core-release/v1", coreVersion="0.3.0", variant="default",
+    return CoreImage(schemaVersion="core-release/v1", coreVersion=CORE_VERSION, variant="default",
         image="registry.example.com/example/enhancer@sha256:" + image * 64, buildInputSha256="c" * 64,
         validatedSourceRevision="d" * 40, action="built", runtimeVerified=True)
 
@@ -18,7 +19,7 @@ def release(image="a"):
 def definition(publication, contracts):
     value = publication.definition.model_dump()
     manifest = next(item for item in contracts.workflows if item["workflow_id"] == "prompt-clarify" and item["version"] == "1.1.0")
-    value.update(schemaVersion="bench-experiment/v2", enhancerVersion="0.3.0", autoRun=False,
+    value.update(schemaVersion="bench-experiment/v2", enhancerVersion=CORE_VERSION, autoRun=False,
         workflow={key: manifest[key] for key in ("workflow_id", "version", "definition_sha256")},
         coreBuild={"variant": "default", "image": release().image, "buildInputSha256": "c" * 64},
         harnessAssertions=[], consumerBinding=None)
@@ -122,10 +123,12 @@ def test_protocol_round_trip_checks_workflow_and_effective_step_settings(publica
     item = ExecuteRequest.model_validate(value)
     result = asyncio.run(EnhancementEngine({}, {"deterministic.v1": DeterministicEvaluation()}).execute(item, lambda _: None)).model_dump(mode="json")
     assert result["status"] == "succeeded"
-    contracts.result(result, value, "0.3.0")
+    contracts.result(result, value, CORE_VERSION)
+    with pytest.raises(BenchError, match="core_version_mismatch"):
+        contracts.result(result, value, "0.0.0")
     result["workflow"]["definition_sha256"] = "0" * 64
     with pytest.raises(BenchError, match="core_workflow_settings_mismatch"):
-        contracts.result(result, value, "0.3.0")
+        contracts.result(result, value, CORE_VERSION)
 
 
 @pytest.mark.parametrize("version", ["1.1.0", "2.1.0"])
@@ -171,10 +174,11 @@ def test_adjusted_review_workflows_round_trip_through_bench(publication, contrac
     result = asyncio.run(runner.execute(ExecuteRequest.model_validate(payload), lambda _: None)).model_dump(mode="json")
     assert result["status"] == "succeeded" and result["after"] == []
     assert [step["step_id"] for step in result["workflow_result"]["steps"]] == ["diagnose", "context", "review"]
-    contracts.result(result, payload, "0.3.0")
+    contracts.result(result, payload, CORE_VERSION)
 
 
-def test_bench_worker_executes_versioned_workflow_through_real_core_http(store, publication, contracts):
+@pytest.mark.parametrize("binding", ["deterministic.v1", "deterministic.v2"])
+def test_bench_worker_executes_versioned_workflow_through_real_core_http(store, publication, contracts, binding):
     import httpx
     from fastapi.testclient import TestClient
     from enhancement_bench.client import CoreClient
@@ -184,11 +188,13 @@ def test_bench_worker_executes_versioned_workflow_through_real_core_http(store, 
     from prompt_enhancer.enhancement.http import create_app
     from prompt_enhancer.enhancement.manager import ExecutionManager
     from test_client_worker import SyntheticRuntime
-    value = definition(publication, contracts)
+    payload = definition(publication, contracts).model_dump()
+    payload["evaluatorProfile"]["evaluators"][0]["binding_id"] = binding
+    value = Definition.model_validate(payload)
     store.register_core_image(release())
     store.import_publication(Publication(schemaVersion="bench-publication/v2", definition=value))
     run_id = store.enqueue_ui(value.stableId, value.revision, Overrides(), str(uuid4()))
-    manager = ExecutionManager(EnhancementEngine({}, {"deterministic.v1": DeterministicEvaluation()}), enabled=True)
+    manager = ExecutionManager(EnhancementEngine({}, {binding: DeterministicEvaluation(version=binding.rsplit(".", 1)[1])}), enabled=True)
     runtime = SyntheticRuntime()
     token = "example-versioned-core-access-value-only"
     with TestClient(create_app(manager, api_token=token)) as core:
@@ -202,5 +208,6 @@ def test_bench_worker_executes_versioned_workflow_through_real_core_http(store, 
     run = store.run(run_id)
     assert run["status"] == "succeeded" and not run["cleanup_pending"]
     assert run["attempts"][0]["result"]["workflow_result"]["workflow"] == value.workflow
+    assert run["attempts"][0]["result"]["before"][0]["provenance"]["adapter_version"] == binding.replace("deterministic", "prompt-evaluation")
     assert runtime.launched == [release().image] and len(runtime.cleaned) == 1
     assert not manager.entries

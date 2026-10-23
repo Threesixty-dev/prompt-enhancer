@@ -2,6 +2,11 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 23 [Bench evaluator coverage candidate](../bench/evaluator-coverage.md)
+records a versioned coding-cue correction and explicit unscored-result displays.
+Its bounded synthetic evidence supplements MA18/W03/W05/W07 without changing
+the frozen source observation, existing evaluator pins or acceptance statuses.
+
 The October 18 owner-approved [development CI policy](../ci-quality-gate.md)
 makes full backend/frontend, Bench browser/runtime and hosted-container checks
 manual. Fast integrity/privacy and PR metadata checks remain automatic, with
