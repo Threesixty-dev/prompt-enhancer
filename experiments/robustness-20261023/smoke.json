@@ -1,0 +1,10 @@
+{
+  "subjectIds": [
+    "example-complete"
+  ],
+  "unitIds": [
+    "concise",
+    "notes-only",
+    "diagnostics-only"
+  ]
+}
