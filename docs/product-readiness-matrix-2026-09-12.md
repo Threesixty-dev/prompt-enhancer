@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Bench evaluator coverage candidate - 2026-10-23
+
+The bounded [coverage correction](bench/evaluator-coverage.md) proposes core
+0.3.1 with an optional `deterministic.v2` binding and explicit result-state
+presentation. It fixes missed coding artifacts/prohibitions without rewriting
+v1 results, workflow diagnostics or session-analytics identities. Six synthetic
+inputs, negative cases, version/provenance checks, owned HTTP/worker integration
+and 50 desktop/mobile browser checks provide bounded evidence. Owner review,
+release, deployment and selection in a new experiment revision remain open.
+MA18, W03/W05/W07 and general metric/model acceptance statuses do not change.
+
 ## Manual development regression suites - 2026-10-18
 
 The owner approved [manual heavy CI](ci-quality-gate.md): full platform/backend,

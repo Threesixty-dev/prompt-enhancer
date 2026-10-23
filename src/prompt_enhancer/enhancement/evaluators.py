@@ -18,17 +18,21 @@ from .ports import CoreError
 class DeterministicEvaluation:
     kind = "deterministic"
 
-    def __init__(self):
-        engine = DEFAULT_COACHING_METRIC_ENGINE
+    def __init__(self, *, version="v1"):
+        from .prompt_cues import PROMPT_CUE_METRIC_ENGINE
+        engines = {"v1": DEFAULT_COACHING_METRIC_ENGINE, "v2": PROMPT_CUE_METRIC_ENGINE}
+        if version not in engines:
+            raise ValueError("unsupported_prompt_evaluator_version")
+        engine = engines[version]
         redactor = DeterministicLocalRedactor()
         self.provenance = Provenance(
-            provider="deterministic", adapter_version="prompt-evaluation.v1",
+            provider="deterministic", adapter_version=f"prompt-evaluation.{version}",
             metric_version=engine.engine_version, rubric_version=engine.rubric_version,
             redactor_version=redactor.version,
         )
         self.evaluator = DeterministicPromptEvaluator(
             pseudonymize=lambda scope, text: hashlib.sha256(f"{scope}:{text}".encode()).hexdigest(),
-            redactor=redactor, language_detector=DeterministicEnglishPolishDetector(),
+            redactor=redactor, language_detector=DeterministicEnglishPolishDetector(), engine=engine,
         )
 
     def validate(self, spec: Evaluator) -> None:

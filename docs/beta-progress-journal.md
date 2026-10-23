@@ -1,5 +1,20 @@
 # Beta progress journal: published handoff
 
+## 2026-10-23 - Explain unscored Bench readings and correct coding cues
+
+The [evaluator coverage candidate](bench/evaluator-coverage.md) adds an explicit
+`deterministic.v2` binding in core 0.3.1 and explains measurement states in Bench.
+It recognizes requested patch/test artifacts and explicit prohibitions while
+preserving v1, workflow diagnostics, session analytics and historical results.
+Known numeric zero, unknown, abstained, not applicable, evaluation error, missing
+readings and categorical transitions remain distinct.
+
+Synthetic evidence covers all six reviewed inputs, negative cue cases, language
+and context guards, provenance/version rejection, owned HTTP for both bindings,
+Bench worker round trips and 50 desktop/mobile browser checks. Source review,
+core publication, Bench deployment and a new experiment revision remain pending.
+General metric, workflow and real-model acceptance gates are unchanged.
+
 ## 2026-10-18 - Make heavy development CI manual
 
 The owner explicitly approved manual-only full Ubuntu/Windows backend,

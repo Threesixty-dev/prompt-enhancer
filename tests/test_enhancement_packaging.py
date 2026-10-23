@@ -8,13 +8,15 @@ import sys
 import time
 
 import httpx
+import pytest
 
 from prompt_enhancer.enhancement.contracts import ExecutionResult
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_headless_cli_subprocess_uses_real_http_and_has_no_application_store(tmp_path):
+@pytest.mark.parametrize("binding", ["deterministic.v1", "deterministic.v2"])
+def test_headless_cli_subprocess_uses_real_http_and_has_no_application_store(tmp_path, binding):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -40,6 +42,7 @@ def test_headless_cli_subprocess_uses_real_http_and_has_no_application_store(tmp
             else:
                 raise AssertionError("core_not_ready")
             payload = json.loads((ROOT / "contracts/enhancement/examples/script-request.json").read_text())
+            payload["evaluation"]["evaluators"][0]["binding_id"] = binding
             accepted = client.post("/v1/executions", json=payload)
             assert accepted.status_code == 202
             key = accepted.json()["execution_id"]
@@ -50,6 +53,7 @@ def test_headless_cli_subprocess_uses_real_http_and_has_no_application_store(tmp
                 time.sleep(0.02)
             result = ExecutionResult.model_validate(response.json())
             assert result.status == "succeeded" and result.before and result.after
+            assert result.before[0].provenance.adapter_version == binding.replace("deterministic", "prompt-evaluation")
             assert client.delete(f"/v1/executions/{key}").status_code == 204
         assert not list(tmp_path.rglob("*.sqlite*"))
         assert not list(tmp_path.rglob("*.jsonl"))
