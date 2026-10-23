@@ -26,6 +26,17 @@ def docker(args, *, capture=False, input=None):
     return result.stdout
 
 
+def check_operator_cli(image):
+    output = docker(["run", "--rm", "--network", "none", "--read-only", "--cap-drop=ALL",
+                     "--security-opt=no-new-privileges", "--label", "enhancement-bench.test=cli-smoke",
+                     "--entrypoint", "enhancement-bench", image, "schema", "run-plan"], capture=True)
+    result = json.loads(output)
+    assert result["schemaVersion"] == "bench-cli/v1" and result["ok"] is True
+    assert result["command"] == "schema" and result["data"]["type"] == "object"
+    assert {"stableId", "revision"} <= set(result["data"]["required"])
+    print("Packaged operator CLI returned the run-plan contract without network access.")
+
+
 def inner():
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -230,9 +241,13 @@ def main():
     parser.add_argument("--core-image", default="local/enhancement-core:bench-validation")
     parser.add_argument("--bench-image", default="local/enhancement-bench:validation")
     parser.add_argument("--model-runtime", action="store_true")
+    parser.add_argument("--cli-only", action="store_true", help="Check the packaged operator command without a core image or model calls.")
     args = parser.parse_args()
     if args.inner:
         inner()
+        return
+    check_operator_cli(args.bench_image)
+    if args.cli_only:
         return
     root = Path(__file__).resolve().parents[2]
     digests = json.loads(docker(["image", "inspect", args.core_image, "--format", "{{json .RepoDigests}}"], capture=True))

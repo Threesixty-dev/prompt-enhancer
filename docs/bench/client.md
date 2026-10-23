@@ -14,6 +14,10 @@ dictionary rather than maintaining a separate command or analysis contract.
 Use `enhancement-bench` from the reviewed Bench Python environment. In a source
 checkout, `python -m enhancement_bench.cli` is equivalent. The existing
 [development setup](README.md#local-development) installs its dependencies.
+The container builds its virtual environment at the final runtime path so the
+installed console command retains a valid interpreter. Verify a candidate image
+with `python tests/bench/docker_smoke.py --cli-only --bench-image <candidate>`;
+this runs the packaged command without networking, credentials or model calls.
 Remote client commands fetch authoritative contracts from the selected Bench API
 and work outside a repository checkout. Offline definition validation still needs
 the matching source contracts or an explicit `BENCH_CONTRACTS` directory.
@@ -190,3 +194,18 @@ hashes and absent text fields do not make these files safe for public upload.
   model calls or retries. Fixtures use synthetic runtime/container doubles.
 - Remaining: source review, reviewed release/deployment, frozen-candidate live
   qualification, supported-platform file protection and an unaided walkthrough.
+
+## Packaged command correction - 2026-10-23
+
+- Atlas/gates: MA18 and W02/W05/W07; human/AI operator entry point.
+- Baseline: reviewed develop `8bd1245`.
+- Defect: copying the virtual environment to a different runtime directory left
+  the installed command pointing to its absent build-time interpreter. The
+  documented module entry point remained usable.
+- Change: build and run the environment at the same path. The container smoke
+  now executes the installed command and checks its run-plan schema; `--cli-only`
+  isolates this check from core images, credentials and model execution.
+- Evidence: the repaired local image passes the isolated command check; all 68
+  affected client/runtime tests pass, including the owned-loopback CLI journey.
+- Remaining: owner review and deployment of this packaging correction. Existing
+  live qualification uses the module entry point and does not verify this image.
