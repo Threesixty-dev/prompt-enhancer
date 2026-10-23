@@ -17,6 +17,8 @@ def test_worker_failure_is_sanitized():
 
 @pytest.mark.parametrize("code,uncertain,expected", [
     ("consumer_reply_invalid", False, "consumer_reply_invalid"),
+    ("nli_tokenizer_unavailable", False, "nli_tokenizer_unavailable"),
+    ("nli_tokenization_failed", False, "nli_tokenization_failed"),
     ("remote_cleanup_unconfirmed", True, "remote_cleanup_unconfirmed"),
     ("fictional private exception", False, "provider_failed"),
     ({"fictional": "exception"}, True, "remote_execution_unconfirmed"),

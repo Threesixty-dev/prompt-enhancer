@@ -92,6 +92,7 @@ def test_runtime_probe_is_offline_bounded_and_cleans_only_its_container(release_
     assert "--read-only" in run and "--cap-drop=ALL" in run
     assert "--volume" not in run and "--mount" not in run and "--env" not in run
     assert run[-2:] == ["0.1.0", variant] and options["timeout"] == 60
+    assert "nli_tokenizer import verify_artifacts; verify_artifacts()" in run[run.index("-c") + 1]
     assert calls[1][0] == ["docker", "rm", "--force", name]
     assert calls[2][0][3:5] == ["--filter", "name=^/" + name + "$"]
 

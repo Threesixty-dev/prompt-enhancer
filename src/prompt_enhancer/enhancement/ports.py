@@ -15,6 +15,7 @@ WORKER_ERROR_CODES = frozenset({
     "consumer_workspace_unavailable", "remote_execution_unconfirmed",
     "remote_cleanup_unconfirmed", "worker_input_too_large",
     "evaluator_model_mismatch",
+    "nli_tokenizer_unavailable", "nli_tokenization_failed",
 })
 
 

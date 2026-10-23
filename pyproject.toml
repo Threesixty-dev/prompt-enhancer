@@ -27,6 +27,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+enhancement-tokenizers = [
+  # Apache-2.0; offline paired-input admission, without model runtime or weights.
+  "tokenizers==0.22.2",
+]
 enhancement-acp = [
   # MIT; isolated static-worker client, never required by desktop composition.
   "openhands-sdk==1.49.1; python_version >= '3.12'",
@@ -34,6 +38,7 @@ enhancement-acp = [
 dev = [
   "huggingface-hub>=0.36.2,<1",
   "pytest>=8.4.1,<9",
+  "tokenizers==0.22.2",
 ]
 models = [
   "huggingface-hub>=0.36.2,<1",

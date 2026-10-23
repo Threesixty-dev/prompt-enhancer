@@ -16,6 +16,7 @@ test('results distinguish missing, unknown, abstained, ineligible, failed and ca
         reading('example.ineligible', 'not_applicable', { reason: 'example_task_ineligible' }),
         reading('example.failure', 'execution_error', { reason: 'evaluator_failed' }),
         reading('example.nli', 'known', { label: 'neutral' }),
+        reading('example.nli-limit', 'unknown', { reason: 'input_too_long' }),
       ] }];
       result.after = [{ ...evaluator, metrics: [
         reading('example.zero', 'known', { value: 0.5 }),
@@ -24,6 +25,7 @@ test('results distinguish missing, unknown, abstained, ineligible, failed and ca
         reading('example.ineligible', 'not_applicable', { reason: 'example_task_ineligible' }),
         reading('example.failure', 'known', { value: 0 }),
         reading('example.nli', 'known', { label: 'entailment' }),
+        reading('example.nli-limit', 'known', { label: 'neutral' }),
         reading('example.after-only', 'known', { value: 1 }),
       ] }];
       result.deltas = result.before[0].metrics.map(metric => ({
@@ -38,9 +40,10 @@ test('results distinguish missing, unknown, abstained, ineligible, failed and ca
   await page.goto('/');
   await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
   const panel = page.getByRole('region', { name: 'Evaluator measurements' }).first();
-  await expect(panel.locator('.measurement-coverage')).toHaveText('Before and after: 8 known \u00b7 1 unknown \u00b7 1 abstained \u00b7 2 not applicable \u00b7 1 evaluation error \u00b7 1 not recorded');
+  await expect(panel.locator('.measurement-coverage')).toHaveText('Before and after: 9 known \u00b7 2 unknown \u00b7 1 abstained \u00b7 2 not applicable \u00b7 1 evaluation error \u00b7 1 not recorded');
   await expect(panel.getByRole('row').filter({ hasText: 'example.zero' }).getByRole('cell').nth(1)).toHaveText('0');
   await expect(panel).toContainText('Unknown: no constraint clause detected');
+  await expect(panel).toContainText('Unknown: input exceeds the evaluator token limit');
   await expect(panel).toContainText('Abstained: rubric evaluator declined to classify');
   await expect(panel).toContainText('Evaluation error: evaluator request failed');
   await expect(panel).toContainText('No numeric delta: before abstained, after known');

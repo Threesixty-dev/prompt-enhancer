@@ -1,5 +1,20 @@
 # Product feature and readiness matrix
 
+## NLI input admission candidate - 2026-10-24
+
+The [bounded input correction](bench/nli-input-admission.md) prepares core
+`0.3.3` and adapter `litellm-nli.v2`. Exact paired-token counts use both supported
+NLI tokenizer revisions and verified bytes. Oversized inputs remain unknown with
+an explicit UI/export reason; missing assets fail locally, and remote uncertainty
+still requires reconciliation. Existing experiment revisions keep their pins.
+
+Bounded evidence: 509 affected unit/integration checks across regression and final
+focused runs, two desktop/mobile checks, and a built default image whose owned
+offline, read-only probe verifies both tokenizers and input admission. No remote
+model call is made by these checks. Owner review, publication, a new pinned cohort,
+live qualification and independent onboarding remain open. MA18 and W03/W05/W07
+acceptance statuses do not change.
+
 ## Bench client and private analysis candidate - 2026-10-23
 
 The [client guide](bench/client.md) implements handoff gates 3-5 to a bounded

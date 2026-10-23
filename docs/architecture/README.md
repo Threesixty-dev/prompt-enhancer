@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 24 [NLI input admission candidate](../bench/nli-input-admission.md)
+adds exact local paired-token checks and explicit unknown readings for oversized
+inputs. Its synthetic tests and offline packaged probe supplement MA18/W03/W05/W07;
+source review, release and live qualification remain open. The frozen observation
+and acceptance statuses are unchanged.
+
 The October 23 [Bench client/export candidate](../bench/client.md) adds a shared
 API preflight, durable admission receipts and versioned private analysis tables.
 Its synthetic recovery/CLI/export evidence supplements MA18/W02/W05/W07; live

@@ -1,5 +1,23 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Bound NLI input before remote inference
+
+The [NLI input admission candidate](bench/nli-input-admission.md) starts from
+reviewed develop `977cc641`. Core `0.3.3` counts complete premise/hypothesis pairs
+with pinned, hash-verified tokenizer files before constructing the gateway client.
+Oversized pairs produce an explicit unknown reading; other evaluators continue.
+Missing or corrupt tokenizer assets fail locally. Unconfirmed remote operations
+retain their existing reconciliation requirement. Adapter `litellm-nli.v2`
+records the change, and Bench explains the unavailable measurement.
+
+Evidence: 509 affected unit/integration checks pass across regression and final
+focused runs, along with two desktop/mobile browser checks. The default core
+image builds and an owned offline, read-only container verifies both tokenizer
+pins and input admission without credentials or a gateway call. The container
+is removed after the probe. Source review, a separate core release, a new pinned
+experiment revision and live qualification remain open. Existing cohorts and
+MA18/W03/W05/W07 acceptance statuses remain unchanged.
+
 ## 2026-10-23 - Add the Bench client and private analysis contract
 
 The owner approved the [client/export implementation](bench/client.md) on the

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
 from prompt_enhancer.enhancement.adapters import reported_gateway_model
+from prompt_enhancer.enhancement import gateway_nli
 from prompt_enhancer.enhancement.cli import CoreConfiguration, compose
 from prompt_enhancer.enhancement.contracts import Evaluator, Subject
 from prompt_enhancer.enhancement.gateway_embeddings import (
@@ -127,6 +128,7 @@ def classifier_reply():
 
 
 def test_native_nli_keeps_categorical_result_without_inventing_identity(monkeypatch):
+    monkeypatch.setattr(gateway_nli, "input_too_long", lambda *args: False)
     monkeypatch.setattr(litellm, "LiteLLMNli", lambda settings:
         lambda *args: (200, json.dumps(classifier_reply()).encode(), "application/json"))
     result = nli_inference(payload("classifier"))
@@ -142,6 +144,7 @@ def test_native_nli_keeps_categorical_result_without_inventing_identity(monkeypa
     [{"label": "entailment", "score": .8}, {"label": "entailment", "score": .1}, {"label": "neutral", "score": .1}],
 ])
 def test_nli_partial_duplicate_tied_or_malformed_scores_are_unknown(monkeypatch, reply):
+    monkeypatch.setattr(gateway_nli, "input_too_long", lambda *args: False)
     monkeypatch.setattr(litellm, "LiteLLMNli", lambda settings:
         lambda *args: (200, json.dumps(reply).encode(), "application/json"))
     result = nli_inference(payload("classifier"))
@@ -194,7 +197,8 @@ def test_rerank_contract_requires_target_and_forbids_generation():
         Evaluator(evaluator_id="example", kind="rerank", binding_id="example", target="Example", generation={})
 
 
-def test_core_executes_all_evaluator_types_before_and_after_one_workflow(monkeypatch):
+@pytest.mark.parametrize("oversized_nli", [False, True])
+def test_core_executes_all_evaluator_types_before_and_after_one_workflow(monkeypatch, oversized_nli):
     from collections import Counter
     from prompt_enhancer.enhancement import adapters, gateway_embeddings, gateway_nli, gateway_rerank
     from prompt_enhancer.enhancement.adapters import InferenceRubricEvaluation
@@ -204,6 +208,7 @@ def test_core_executes_all_evaluator_types_before_and_after_one_workflow(monkeyp
     from prompt_enhancer.enhancement.worker import rubric_inference
     from test_enhancement_core import request
 
+    monkeypatch.setattr(gateway_nli, "input_too_long", lambda *args: oversized_nli)
     calls = Counter()
     responses = {
         "embedding": {"model": "example-alias", "data": [
@@ -250,8 +255,15 @@ def test_core_executes_all_evaluator_types_before_and_after_one_workflow(monkeyp
     assert stages == ["evaluate_original", "generate", "evaluate_candidate", "compare"]
     assert {e.kind for e in result.before} == {e.kind for e in result.after} == {
         "deterministic", "embedding", "classifier", "rerank", "rubric"}
-    assert calls == Counter(embedding=2, nli=2, rerank=2, rubric=2)
+    assert calls == Counter(embedding=2, nli=0 if oversized_nli else 2, rerank=2, rubric=2)
     assert all(left.provenance == right.provenance for left, right in zip(result.before, result.after))
     assert next(d for d in result.deltas if d.metric_key == "rerank.relevance").value == 0
-    assert next(d for d in result.deltas if d.metric_key == "nli.label").state == "not_comparable"
+    assert next(d for d in result.deltas if d.metric_key == "nli.label").state == (
+        "unknown" if oversized_nli else "not_comparable")
+    for side in (result.before, result.after):
+        nli = next(e for e in side if e.kind == "classifier")
+        assert nli.provenance.adapter_version == "litellm-nli.v2"
+        if oversized_nli:
+            assert nli.metrics[0].state == "unknown" and nli.metrics[0].reason == "input_too_long"
+            assert nli.metrics[0].value is None and nli.metrics[0].label is None
     assert '"embedding": [' not in result.model_dump_json()

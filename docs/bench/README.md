@@ -15,6 +15,10 @@ The [robustness qualification suite](robustness-experiment.md) defines 240 plann
 case/variant attempts, an initial smoke selection, expected missing-data states,
 offline fault coverage, and explicit runtime acceptance gates for core 0.3.2.
 
+The [NLI input admission candidate](nli-input-admission.md) records the core 0.3.3
+paired-token guard, explicit unavailable readings and offline tokenizer packaging.
+Source tests and packaging evidence remain separate from live qualification.
+
 New `bench-experiment/v2` definitions follow the
 [versioned workflow contract](versioned-workflows.md): one workflow version, exact
 core build and harness evaluation per revision. Variants can change supported
