@@ -34,9 +34,11 @@ the JSON schema. Import contracts only; do not construct a runtime or load model
 For the publication directory, check uniqueness of both `(stableId, revision)`
 and `(stableId, generation)` across files. Both the validation CLI and
 `bench/ci.py` check these identities across their selected files. The publisher
-prepares version-only envelopes without registry access; it cannot build,
+prepares definition envelopes without registry access; it cannot build,
 publish or register images. Use the separate `Publish Core` Action and
 `deploy-enhancement-core` skill for an explicitly requested new core release.
+V2 definitions include exact artifact pins and require prior registration even
+when `autoRun` is false. Legacy v1 resolves the version catalog at run admission.
 
 Inspect `EnhancementEngine.validate` for script restrictions, supported metric
 keys, objective kinds and provider-specific validation. Model validation alone
@@ -81,3 +83,9 @@ Report validation in separate terms:
 
 No credentials, production prompts, result payloads or screenshots belong in
 validation reports or repository evidence.
+
+For an authorized existing-revision run, use the tracked
+`operate-bench-experiment` skill and `docs/bench/client.md`. The client supports
+`validate --json` for structured local evidence and server `preflight` for
+admission checks. Neither establishes actual model availability. Use saved
+submission receipts and explicit run cohorts for later execution/analysis.

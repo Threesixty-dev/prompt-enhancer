@@ -31,6 +31,8 @@ installation, signing, or a new product decision.
   `.agents/skills/deploy-enhancement-core/SKILL.md` and
   `docs/bench/core-publication.md`. Follow the required-reading table in root
   `AGENTS.md` for service deployment.
+  For operating existing revisions or interpreting/exporting runs, read
+  `.agents/skills/operate-bench-experiment/SKILL.md` and `docs/bench/client.md`.
 - Backend wiring: `src/prompt_enhancer/bootstrap.py` and HTTP composition.
 - Provider/privacy: `infrastructure/providers/`, application ingestion,
   `privacy.py`; external provider sessions remain read-only and uninspected by

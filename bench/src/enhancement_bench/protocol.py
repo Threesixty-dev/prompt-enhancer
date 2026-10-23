@@ -8,7 +8,7 @@ from pathlib import Path
 import copy
 import re
 
-from jsonschema import Draft202012Validator, ValidationError
+from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 from .errors import BenchError
 
@@ -36,6 +36,46 @@ class Contracts:
             self.validators[name] = Draft202012Validator(schema)
         catalog = directory / "workflows.json"
         self.workflows = json.loads(catalog.read_text()) if catalog.is_file() else []
+
+    def payload(self):
+        return {"schemaVersion": "bench-contracts/v1", "protocolVersion": PROTOCOL,
+                "schemas": {key: value.schema for key, value in self.validators.items()}, "workflows": self.workflows}
+
+    @classmethod
+    def from_payload(cls, payload):
+        def local_references(value, root):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key in {"$id", "$dynamicRef"}:
+                        return False
+                    if key == "$ref":
+                        if not isinstance(child, str) or not child.startswith("#/$defs/"):
+                            return False
+                        target = root
+                        for part in child[2:].split("/"):
+                            target = target[part.replace("~1", "/").replace("~0", "~")]
+                        if not isinstance(target, (dict, bool)):
+                            return False
+                    if not local_references(child, root):
+                        return False
+                return True
+            return not isinstance(value, list) or all(local_references(child, root) for child in value)
+        try:
+            if (payload.get("schemaVersion") != "bench-contracts/v1" or payload.get("protocolVersion") != PROTOCOL
+                    or set(payload["schemas"]) != {"execute-request", "execution-result", "progress", "readiness"}
+                    or not isinstance(payload["workflows"], list) or len(payload["workflows"]) > 128):
+                raise ValueError
+            instance = cls.__new__(cls)
+            instance.directory, instance.validators = None, {}
+            for name, schema in payload["schemas"].items():
+                if not isinstance(schema, dict) or not local_references(schema, schema):
+                    raise ValueError
+                Draft202012Validator.check_schema(schema)
+                instance.validators[name] = Draft202012Validator(schema)
+            instance.workflows = payload["workflows"]
+            return instance
+        except (KeyError, TypeError, ValueError, AttributeError, RecursionError, SchemaError):
+            raise BenchError("remote_contracts_invalid") from None
 
     def validate(self, name: str, value: dict):
         try:
@@ -159,8 +199,9 @@ class Contracts:
                     != self.normalized(properties["workflow_steps"], request["workflow_steps"])):
                 raise BenchError("core_workflow_settings_mismatch", 502)
             receipt = value.get("workflow_result")
-            if value["status"] == "succeeded" and (receipt is None or receipt["workflow"] != request["workflow"]
-                    or receipt["definition_sha256"] != request["workflow"]["definition_sha256"]):
+            if ((value["status"] == "succeeded" and receipt is None)
+                    or receipt is not None and (receipt["workflow"] != request["workflow"]
+                        or receipt["definition_sha256"] != request["workflow"]["definition_sha256"])):
                 raise BenchError("core_workflow_provenance_mismatch", 502)
         if (value["effective_parameters"] != request["parameters"]
                 or value["evaluation_profile"] != self.normalized(properties["evaluation"], request["evaluation"])

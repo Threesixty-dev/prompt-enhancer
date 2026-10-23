@@ -2,6 +2,16 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 23 [Bench client/export candidate](../bench/client.md) adds a shared
+API preflight, durable admission receipts and versioned private analysis tables.
+Its synthetic recovery/CLI/export evidence supplements MA18/W02/W05/W07; live
+qualification and independent onboarding remain open.
+
+The October 23 [Bench handoff correction](../bench/handoff.md) propagates failed
+workflow steps to execution failures and explains historical contradictions in
+the UI. Its synthetic core/HTTP/storage/browser evidence supplements
+MA18/W02/W05/W07; the dated observation and acceptance statuses remain unchanged.
+
 The October 23 [Bench evaluator coverage candidate](../bench/evaluator-coverage.md)
 records a versioned coding-cue correction and explicit unscored-result displays.
 Its bounded synthetic evidence supplements MA18/W03/W05/W07 without changing

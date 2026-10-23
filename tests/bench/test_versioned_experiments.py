@@ -126,6 +126,11 @@ def test_protocol_round_trip_checks_workflow_and_effective_step_settings(publica
     contracts.result(result, value, CORE_VERSION)
     with pytest.raises(BenchError, match="core_version_mismatch"):
         contracts.result(result, value, "0.0.0")
+    invalid_failure = copy.deepcopy(result)
+    invalid_failure["status"] = "failed"
+    invalid_failure["workflow_result"]["definition_sha256"] = "0" * 64
+    with pytest.raises(BenchError, match="core_workflow_provenance_mismatch"):
+        contracts.result(invalid_failure, value, CORE_VERSION)
     result["workflow"]["definition_sha256"] = "0" * 64
     with pytest.raises(BenchError, match="core_workflow_settings_mismatch"):
         contracts.result(result, value, CORE_VERSION)
@@ -211,3 +216,90 @@ def test_bench_worker_executes_versioned_workflow_through_real_core_http(store, 
     assert run["attempts"][0]["result"]["before"][0]["provenance"]["adapter_version"] == binding.replace("deterministic", "prompt-evaluation")
     assert runtime.launched == [release().image] and len(runtime.cleaned) == 1
     assert not manager.entries
+
+
+@pytest.mark.parametrize("review_state", ["ok", "reply_invalid", "model_error"])
+def test_review_outcome_survives_http_storage_cleanup_and_recovery(store, publication, contracts, review_state, tmp_path):
+    import httpx
+    from fastapi.testclient import TestClient
+    from enhancement_bench.api import create_app as bench_app
+    from enhancement_bench.client import CoreClient
+    from enhancement_bench.store import Store
+    from enhancement_bench.worker import Worker
+    from prompt_enhancer.enhancement.contracts import Provenance
+    from prompt_enhancer.enhancement.engine import EnhancementEngine
+    from prompt_enhancer.enhancement.evaluators import DeterministicEvaluation
+    from prompt_enhancer.enhancement.http import create_app
+    from prompt_enhancer.enhancement.manager import ExecutionManager
+    from prompt_enhancer.enhancement.ports import Candidate, CoreError
+    from test_client_worker import SyntheticRuntime
+
+    class Model:
+        provider = "inference"
+        mode, calls = review_state, 0
+        provenance = Provenance(provider="inference", adapter_version="example.v1", model="example-review")
+        def validate_call(self, call): pass
+        async def complete(self, call):
+            self.calls += 1
+            if self.mode == "model_error":
+                raise CoreError("consumer_failed")
+            return Candidate('{"notes":"Fictional review without a rewrite."}' if self.mode == "ok" else '{}',
+                self.provenance)
+
+    payload = definition(publication, contracts).model_dump()
+    manifest = next(item for item in contracts.workflows if item["workflow_id"] == "prompt-check" and item["version"] == "1.1.0")
+    payload["workflow"] = {key: manifest[key] for key in ("workflow_id", "version", "definition_sha256")}
+    payload["units"][0].update(strategy=manifest["strategy"], stepSettings={"review": {
+        "binding": {"binding_id": "example-review", "provider": "inference"}}})
+    payload["units"].append(copy.deepcopy(payload["units"][0]) | {"id": "example-second-review"})
+    value = Definition.model_validate(payload)
+    store.register_core_image(release())
+    store.import_publication(Publication(schemaVersion="bench-publication/v2", definition=value))
+    run_id = store.enqueue_ui(value.stableId, value.revision, Overrides(), str(uuid4()))
+    model, runtime = Model(), SyntheticRuntime()
+    manager = ExecutionManager(EnhancementEngine({"example-review": model}, {"deterministic.v1": DeterministicEvaluation()}), enabled=True)
+    token = "example-versioned-core-access-value-only"
+    with TestClient(create_app(manager, api_token=token)) as core:
+        def transport(request):
+            response = core.request(request.method, request.url.path, content=request.content,
+                headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+            return httpx.Response(response.status_code, content=response.content, headers=response.headers)
+        worker = Worker(store, contracts, runtime, poll_seconds=0.001,
+            client_factory=lambda endpoint, contracts: CoreClient(endpoint, contracts, transport=httpx.MockTransport(transport)))
+        assert worker.step()
+        retained = Store(store.path).run(run_id)
+        failed = review_state != "ok"
+        assert retained["status"] == ("failed" if failed else "succeeded"), retained["error_code"]
+        assert [attempt["status"] for attempt in retained["attempts"]] == (["failed", "skipped"] if failed else ["succeeded", "succeeded"])
+        assert model.calls == (1 if failed else 2)
+        result = retained["attempts"][0]["result"]
+        assert result["workflow_result"]["review"]["state"] == review_state and result["before"]
+        assert result["candidate"] is None and result["enhanced_prompt"] is None and not result["after"]
+        assert result["assertion_outcome"] == "not_evaluated"
+        assert not retained["cleanup_pending"] and not retained["reconciliation_required"]
+        assert len(runtime.cleaned) == 1 and not manager.entries
+        if failed:
+            assert result["errors"][0]["code"] == "workflow_review_" + review_state
+            assert retained["attempts"][1]["result"] is None
+            model.mode = "ok"
+            recovery = store.enqueue_ui(value.stableId, value.revision, Overrides(), str(uuid4()))
+            assert worker.step() and store.run(recovery)["status"] == "succeeded"
+            assert model.calls == 3 and len(runtime.cleaned) == 2 and not manager.entries
+            assert store.run(run_id) == retained
+    with TestClient(bench_app(Store(store.path), contracts, allowed_repositories=(), origin="http://testserver")) as client:
+        response = client.get("/api/runs/" + run_id)
+        assert response.status_code == 200 and response.json() == retained
+    from enhancement_bench.analysis import dataset, inspect_run, validated_run, write_export
+    from enhancement_bench.protocol import Contracts
+    export_contracts = Contracts.from_payload(contracts.payload())
+    checked = validated_run(response.json(), export_contracts)
+    assert inspect_run(checked)["attempts"][0]["reviewState"] == review_state
+    analysis = dataset([checked])
+    manifest = write_export(tmp_path / "analysis", analysis)
+    assert manifest["rowCounts"]["attempts"] == 2
+    row = analysis["tables"]["attempts"][0]
+    assert row["technical_outcome"] == ("failed" if failed else "succeeded")
+    assert row["workflow_step_order"] == [step["step_id"] for step in result["workflow_result"]["steps"]]
+    assert row["generation_context_version"] == result["generation_context_version"]
+    assert all(metric["after_state"] == "missing" and metric["after_value"] is None
+               and not metric["pair_eligible"] for metric in analysis["tables"]["metrics"])

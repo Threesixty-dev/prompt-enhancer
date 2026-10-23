@@ -1,5 +1,49 @@
 # Product feature and readiness matrix
 
+## Bench client and private analysis candidate - 2026-10-23
+
+The [client guide](bench/client.md) implements handoff gates 3-5 to a bounded
+local source level: structured discovery/preflight/run/wait/inspect/cancel/export,
+saved admission receipts, server-provided execution contracts and versioned
+private JSON/CSV tables. Preflight does not qualify worker or provider readiness.
+Exports preserve unknown/zero/label states, provenance, ordered steps, effective
+configuration fingerprints, assertions and numeric exclusions without prompt text.
+
+Local evidence: 363 affected Bench/core tests and 22 desktop/mobile checks pass.
+The final 73-test focused run covers the additional order/provenance,
+malformed-reference and v2 HTTP/storage/export cases. Tests exercise lost acknowledgements, failed receipt writes, duplicate
+admission, timeout/cancel, cleanup holds, correlation mismatch, missing results,
+private files and partial exports. A subprocess CLI journey operates through an
+owned loopback API outside the checkout; providers and containers are synthetic.
+The final offline wheel passes a schema-command and export-resource smoke outside
+the checkout. Privacy, JavaScript syntax, generated-atlas and whitespace checks
+pass. Source review,
+reviewed deployment, supported-platform file protection, live qualification and
+independent onboarding remain open. MA18 and W02/W05/W07 acceptance statuses stay
+unchanged; no public/production artifacts or historical rows are rewritten.
+
+Instruction follow-up: Codex/Claude entry points require the tracked operation
+skill; authoring and release skills distinguish v2 pins from legacy v1 behavior.
+All four skill validators and ten command-parser forms pass. This establishes
+instruction structure and command agreement, not unaided agent or user success.
+
+## Bench handoff failure reporting candidate - 2026-10-23
+
+The [handoff guide and correction](bench/handoff.md) record the supported human
+and AI paths and open qualification gates. Failed model review steps now fail a
+new execution while preserving diagnostics and completed measurements; valid
+no-rewrite reviews and optional model skips remain valid. Bench explains failed
+reviews, their ordered steps, errors and historical status mismatches explicitly.
+
+Bounded local evidence: six regression cases fail before the correction; all 84
+affected core/worker/API tests and 22 desktop/mobile browser checks pass after it.
+The worker integration uses the real core HTTP application with a synthetic
+provider and container double; it verifies durable partial results, stopping
+remaining attempts, cleanup and a later successful run. Source review, a new
+core release, deployed qualification and an unaided walkthrough remain open.
+The later client/export candidate is recorded above. MA18 and W02/W05/W07 statuses do not
+change. No production records, experiment definitions or artifacts are rewritten.
+
 ## Bench evaluator coverage candidate - 2026-10-23
 
 The bounded [coverage correction](bench/evaluator-coverage.md) proposes core

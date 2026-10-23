@@ -51,8 +51,9 @@ runtime prerequisites before publishing an experiment that needs it. Follow
 checkout prerequisite before proceeding with core work.
 
 `Publish Experiments` delivers version-referencing definitions and cannot build,
-publish or register a core. Bench resolves the registered image when creating
-each Run, including reruns. A missing image is a separate release prerequisite,
+publish or register a core. A v2 definition requires its exact registered
+artifact at import and retains that pin on runs and reruns. Legacy v1 definitions
+resolve the registered version binding at new-Run admission. A missing image is a separate release prerequisite,
 not permission to bump versions, retag an artifact or invoke core publication.
 Honor explicit core deployment authorization already provided in this task.
 Before publication, verify the approved workflow has this separation. If it
@@ -113,9 +114,11 @@ Changing it after import requires a new revision too.
 Pin `enhancerVersion` to a reviewed core version. Existing retained
 versions may differ from the checkout's `CORE_VERSION`; do not silently rewrite
 the requested version or change core code to make publication succeed. Resolve
-runtime/model readiness separately from local definition validation. Registering
-a rebuilt image for that same version does not require a new Experiment revision;
-existing Runs keep their recorded image digests.
+runtime/model readiness separately from local definition validation. For v2,
+also pin `coreBuild` to the verified release receipt. Selecting another image
+requires a new revision even when its version string matches. Only legacy v1
+new runs follow a changed version-catalog binding; existing runs retain their
+recorded digests. Changed build inputs require a new core version.
 
 Use closed `parameterSchema` definitions and explicit effective parameters.
 Overrides merge shallowly: replace the whole nested `generation` object when
@@ -136,6 +139,9 @@ and evaluator bindings, core version, limits, assertions and `autoRun` choice.
 State which checks passed and which runtime prerequisites remain unverified.
 Do not claim success from schema validity, a publication acknowledgement or a
 run's execution status alone.
+For an authorized run or analysis of existing results, continue with
+`.agents/skills/operate-bench-experiment/SKILL.md`; it covers the shared client,
+admission recovery, explicit cohorts and versioned private exports.
 
 If publication is requested, inspect `.github/workflows/bench-publish.yml` and the
 current nonsecret publication-branch setting. Follow the repository's PR and
@@ -144,7 +150,8 @@ do not rely on an implicit CLI repository. Existing authorization for this task
 still applies; preparation alone does not grant publishing or model execution.
 
 `Publish Experiments` validates all top-level definitions before delivering them,
-newest generation first. Image resolution occurs at new-Run admission. It is not a single-file
+newest generation first. V2 import verifies its registered artifact pin; legacy
+v1 image resolution occurs at new-Run admission. It is not a single-file
 dispatch, core release or Bench API/UI deployment. Delivery is idempotent; eligible
 `autoRun: true` revisions can queue a run. The Action stops at import
 acknowledgement. Track publication, execution status and assertion outcomes as

@@ -122,7 +122,11 @@ pre-Bench instructions, rich cue fractions, context selection and strict respons
 parser. A valid review may have no rewrite. No candidate is fabricated in that
 case: after measurements are absent, deltas/assertions remain unknown. Invalid
 review replies retain diagnostics with `reply_invalid`; confirmed model failure
-retains `model_error`. Uncertain remote execution and cancellation still follow
+retains `model_error`. The [handoff correction candidate](handoff.md) propagates
+these failed steps to an execution failure while preserving the receipt and
+completed before measurements. Historical results keep their stored status; the
+candidate UI explains a nested failure even when that status says succeeded.
+Uncertain remote execution and cancellation still follow
 the execution manager's cleanup/quarantine policy. The newer redactor's privacy
 fix is intentionally retained.
 
