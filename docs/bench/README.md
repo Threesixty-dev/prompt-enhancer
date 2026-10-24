@@ -13,7 +13,9 @@ durable submission receipts, read-only preflight and private analysis tables.
 
 The [robustness qualification suite](robustness-experiment.md) defines 240 planned
 case/variant attempts, an initial smoke selection, expected missing-data states,
-offline fault coverage, and explicit runtime acceptance gates for core 0.3.2.
+offline fault coverage, and explicit runtime acceptance gates. Revision 2 pins
+released core 0.3.3 and adds a separate NLI boundary smoke; revision 1 retains
+its original core 0.3.2 artifact and history.
 
 The [NLI input admission candidate](nli-input-admission.md) records the core 0.3.3
 paired-token guard, explicit unavailable readings and offline tokenizer packaging.

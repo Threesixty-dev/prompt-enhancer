@@ -1,5 +1,26 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Prepare the released-core qualification revision
+
+Core `0.3.3` is released from reviewed main `52dff00`, with offline tokenizer,
+runtime, cleanup and catalog-registration checks complete. The readiness
+correction deployed at `e2ddb7e` passes controller health and authenticated
+serving-revision verification under the existing gateway policy.
+
+The [revision-2 task card](bench/robustness-experiment.md#revision-2-task-card---2026-10-24)
+starts from develop `0b0b36d`. Three new immutable definitions retain the existing
+240-attempt matrix and change only revision/generation and core pins. The run
+plan includes nine ordinary and six NLI boundary smoke attempts outside the main
+cohort, preserving unknown reasons and independent candidate admission.
+
+Local evidence: 20 definitions and 240 new effective requests validate; exact
+r1/r2 comparison and the released build fingerprint agree. All 62 targeted
+synthetic publication, pipeline and privacy tests pass. Named source/promotion
+reviews, definition publication and live qualification remain pending. Remote
+stop evidence must precede reconciliation or inference. No live model call is
+made by this preparation; acceptance statuses and independent onboarding remain
+open.
+
 ## 2026-10-24 - Separate deployment health from sensitive log access
 
 The [readiness correction](bench/continuous-deployment.md#readiness-verification-correction---2026-10-24)
