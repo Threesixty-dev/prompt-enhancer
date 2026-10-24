@@ -8,11 +8,13 @@ metric cells agree with the API, and private exports retain typed values and
 explicit missingness. The live ACP system event includes the formal schema.
 
 The [main result](bench/robustness-experiment.md#revision-3-live-result---2026-10-24)
-stops after 56 successful attempts and one uncertain NLI worker operation.
+stops after 56 successful attempts when the whole-run deadline cancels NLI.
 Eleven siblings are skipped; 172 later attempts never start. Fresh model-host
 completion evidence permits reconciliation, and the historical interruption and
 verified partial export remain preserved. Offline tokenization accepts the input;
-the generic stored error does not establish the underlying worker cause.
+the deployed 1,800-second run limit and 1,801-second run duration establish
+the cancellation cause. The 68-attempt batch exceeded that independent budget.
+Future standard batches contain at most one case and four variants.
 
 An expired browser session leaves old results visible with a generic fetch
 error. A separate source candidate labels them stale, offers reconnection and
