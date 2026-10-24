@@ -1,5 +1,23 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Release core 0.3.5 and prepare qualification revision 4
+
+Owner-approved PRs #84/#85 merge the gateway diagnostics and evaluator recovery
+correction. Publish Core `40116214512` builds and registers core `0.3.5` default
+from reviewed main `62e0d4e`, with verified runtime identity, tokenizer and probe
+cleanup. API deployment `40116199747` passes image health and protected revision
+checks after repeating only its initially failed HTTP 404 verification job.
+Worker/relay rollout remains a separate prerequisite.
+
+The [revision-4 task card](bench/robustness-experiment.md#revision-4-task-card---2026-10-24)
+pins that exact receipt in three new definitions. Only immutable identity and
+core selection differ from revision 3. All 26 definitions, 240 new semantic
+requests and 58 existing synthetic publication/binding/pipeline tests pass.
+The operation plan preserves 15 separate smoke attempts, 240 fresh main pairs
+and at most four standard attempts per run. No older success is counted toward
+the new artifact's coverage. Named definition reviews, publication, worker/relay
+rollout, live qualification and independent onboarding remain open.
+
 ## 2026-10-24 - Preserve evaluator transport diagnostics and hold uncertain work
 
 Bounded recovery reaches 139 successful unique pairs of the 240-attempt core

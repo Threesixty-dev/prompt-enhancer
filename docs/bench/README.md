@@ -12,13 +12,14 @@ The [client and export guide](client.md) documents the candidate JSON CLI,
 durable submission receipts, read-only preflight and private analysis tables.
 
 The [gateway failure and recovery guide](gateway-failure-recovery.md) explains
-the proposed content-free transport diagnostics and reconciliation for uncertain
-evaluator calls, including runs with generation disabled.
+the content-free transport diagnostics released in core 0.3.5 and reconciliation
+for uncertain evaluator calls, including runs with generation disabled.
 
 The [robustness qualification suite](robustness-experiment.md) defines 240 planned
 case/variant attempts, an initial smoke selection, expected missing-data states,
-offline fault coverage, and explicit runtime acceptance gates. Revision 3 is
-prepared against released core 0.3.4 with the same 15 smoke and 240 main attempts.
+offline fault coverage, and explicit runtime acceptance gates. Revision 4 is
+prepared against released core 0.3.5 with the same 15 smoke and 240 main attempts.
+Revision 3 preserves its partial core 0.3.4 result as a separate cohort.
 Revision 2 retains the failed core 0.3.3 smoke; revision 1 retains its original
 core 0.3.2 artifact and history.
 
