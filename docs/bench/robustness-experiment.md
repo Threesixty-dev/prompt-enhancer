@@ -14,6 +14,11 @@ smoke selections and main matrix have not started. The failure and proposed
 adapter correction are recorded below. Independent data-scientist onboarding
 remains a separate handoff gate.
 
+Revision 3 is prepared with `autoRun: false` for released core 0.3.4. Only the
+revision/generation identity and exact core artifact pin change from revision 2.
+No revision-3 definition has been published or run. The source correction and
+release are complete; fresh smoke qualification remains required.
+
 Core 0.3.3 default was built from reviewed main
 `52dff00e5057fa2c64810e5ee36a24afdad56c03`. Publish Core completed its offline
 runtime identity, pinned-tokenizer, cleanup and catalog-registration gates.
@@ -113,17 +118,57 @@ future model compliance.
 - Process bound: one focused reproduction and one affected regression selection;
   existing smoke stop rules and per-attempt limits remain in effect.
 
+## Revision-3 task card - 2026-10-24
+
+PRs #77 and #78 completed the reviewed ACP schema correction. Publish Core run
+`40096081387` built core `0.3.4` default from main
+`8fd3da6da118f1b020e261d3c9585c8eaecd5bf3`. The workflow passed source validation,
+offline core/protocol and tokenizer verification, probe cleanup and Bench
+registration. The local build fingerprint agrees with the release summary.
+These gates establish the artifact and registration, not model compliance or
+worker-host pull availability.
+
+Each revision-3 definition pins:
+
+- Core version: `0.3.4`, variant `default`.
+- Image digest: `sha256:30fcf75a894385ffffbc3f75108ce085c655e3569f6f1a165a7548a7c3fd9630`.
+- Build inputs: `043d68b1ea9d12b0df7cdf383f3f9d966cdf9b7ad60f26993279ba6f523b2de6`.
+
+Task scope and gates:
+
+- Task / atlas scope: qualify the released ACP schema correction through the
+  unchanged prompt workflow matrix; MA18 and W02/W03/W05/W07.
+- Approved baseline: develop `e4d6e82`; released core source is the reviewed
+  main promotion above, whose complete tree matches the approved correction.
+- Allowed changes: three revision-3 definitions and their evidence/navigation
+  documentation. Existing revisions and failure evidence are retained.
+- Comparison: exact r2/r3 equality except revision, generation, enhancer version,
+  image and build fingerprint. Cases, policies, workflow pins, bindings, harness,
+  assertions, limits and smoke selections remain identical.
+- Identity evidence: the read-only Bench API contains both earlier revisions for
+  all three stable IDs and no revision/generation 3. Check again at publication.
+- Completion boundary: canonical/semantic validation and source review readiness.
+  Named definition merges, publication, runtime preflight, live smoke/main runs
+  and UI/API/export agreement remain separate gates.
+- Resource bound: nine ordinary smoke attempts, six NLI boundary smoke attempts,
+  then 204 standard and 36 isolated boundary attempts. Preserve the existing
+  180-second limit, stop on technical failure or uncertainty, and never silently
+  retry or count the earlier failed cohort as qualification of this build.
+- Owner decisions: core 0.3.4 publication is authorized and complete; experiment
+  publication/run authorization is retained, subject to specific source and
+  promotion reviews. Independent data-scientist onboarding remains open.
+
 ## Design
 
 | Definition under `experiments/` | Workflow | Cases | Variants | Attempts |
 | --- | --- | ---: | ---: | ---: |
-| `example-robustness-prompt-check-20261023-r2.json` | `prompt-check` 1.1.0 | 20 | 4 | 80 |
-| `example-robustness-prompt-rewrite-20261023-r2.json` | `prompt-rewrite` 2.1.0 | 20 | 4 | 80 |
-| `example-robustness-prompt-clarify-20261023-r2.json` | `prompt-clarify` 2.1.0 | 20 | 4 | 80 |
+| `example-robustness-prompt-check-20261023-r3.json` | `prompt-check` 1.1.0 | 20 | 4 | 80 |
+| `example-robustness-prompt-rewrite-20261023-r3.json` | `prompt-rewrite` 2.1.0 | 20 | 4 | 80 |
+| `example-robustness-prompt-clarify-20261023-r3.json` | `prompt-clarify` 2.1.0 | 20 | 4 | 80 |
 | Total | Three separately pinned workflow revisions | 20 shared | 4 shared | 240 |
 
-All stable IDs are the filename without `-r2.json`; revision is `2`, generation
-is `2`. Workflow definition digests come from the authoritative catalog. Each
+All stable IDs are the filename without `-r3.json`; revision is `3`, generation
+is `3`. Workflow definition digests come from the authoritative catalog. Each
 attempt uses one subject and one variant; before/after are not extra attempts.
 There is one observation per pair, so stochastic stability and statistical
 effectiveness cannot be inferred from this qualification matrix.
@@ -201,7 +246,7 @@ evaluator may apply its own tokenizer limit. The two maximum-size cases must
 not be reported as proof that the review model saw all input. Requirements beyond
 these boundaries remain a limitation for the handoff until explicitly resolved.
 
-### NLI boundary smoke for revision 2
+### NLI boundary smoke for revision 3
 
 `nli-boundary-smoke.json` selects the 7,000-character case with `concise` and
 `diagnostics-only`: two attempts per workflow, six additional attempts in a
@@ -286,7 +331,7 @@ additional publishable definitions. For example, after authorized import:
 
 ```sh
 enhancement-bench preflight \
-  --experiment example-robustness-prompt-check-20261023 --revision 2 \
+  --experiment example-robustness-prompt-check-20261023 --revision 3 \
   --overrides experiments/robustness-20261023/smoke.json
 ```
 
@@ -341,3 +386,12 @@ boundary smoke attempts, then 204 standard and 36 isolated boundary attempts.
 All 62 targeted publication, synthetic pipeline and privacy tests pass. These
 are local checks; no revision-2 model execution or UI/export qualification is
 claimed by this evidence.
+
+Revision-3 local evidence on 2026-10-24: all 23 definitions pass canonical
+identity/schema validation, and all 240 new requests pass core semantic checks.
+Exact comparison against r2 permits only revision, generation, core version,
+image and build fingerprint changes. Nine ordinary and six NLI boundary smoke
+attempts remain separate from the 240-attempt main cohort. The core fingerprint
+matches the verified release, and all 51 targeted publication, synthetic pipeline
+and privacy tests pass. No revision-3 live model or UI/export qualification is
+claimed by these preparation checks.

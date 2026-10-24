@@ -1,5 +1,21 @@
 # Product feature and readiness matrix
 
+## Core 0.3.4 qualification definitions - 2026-10-24
+
+The ACP correction is reviewed and promoted through PRs #77/#78. Core `0.3.4`
+default is built from main `8fd3da6`; Publish Core `40096081387` passes offline
+runtime/tokenizer verification, cleanup and Bench registration. The verified
+artifact is a release prerequisite, not evidence of fresh model compliance.
+
+The [revision-3 definitions](bench/robustness-experiment.md#revision-3-task-card---2026-10-24)
+retain the complete 240-attempt matrix and 15 separate smoke attempts. All 23
+definitions and 240 new semantic requests validate, and exact comparison permits
+only identity/core-pin changes. Earlier definitions and failed-run history stay
+intact. All 51 targeted publication, synthetic pipeline and privacy tests pass.
+Named definition reviews, publication, runtime preflight, live execution,
+UI/API/export qualification and independent onboarding remain open. MA18 and
+W02/W03/W05/W07 acceptance statuses are unchanged.
+
 ## ACP response schema candidate - 2026-10-24
 
 The [revision-2 smoke result](bench/robustness-experiment.md#revision-2-smoke-result-and-acp-schema-candidate---2026-10-24)
