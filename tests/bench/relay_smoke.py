@@ -140,6 +140,7 @@ for entry in Path('/proc').iterdir():
         if command[1:4] == [b'-m', b'uvicorn', b'consumer_retention:create_app']:
             environment=(entry/'environ').read_bytes()
             assert b'EXAMPLE_STACK_CANARY=' not in environment
+            assert b'PATH=/opt/bench-consumer/bin:' in environment
             matched+=1
     except (FileNotFoundError,PermissionError): pass
 assert matched==1

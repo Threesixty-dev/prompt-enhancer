@@ -1,5 +1,21 @@
 # Product feature and readiness matrix
 
+## ACP failure reporting and partial qualification - 2026-10-25
+
+The [revision-5 live cohort](bench/robustness-experiment.md#revision-5-partial-live-result---2026-10-25)
+completes 15 technical smoke successes and 209 main attempts: 200 successes,
+eight invalid reviews and one interrupted embedding request. The recovery hold
+keeps 31 pairs unsubmitted. All 8,944 observed UI cells and 67,999 typed CSV cells
+agree with the APIs, manifest hashes and analysis schema. This is partial
+qualification; historical failures and unknown measurements remain explicit.
+
+The [core 0.3.7 candidate](bench/consumer-failure-reporting.md) negotiates typed
+ACP failure metadata, preserves safe categories and remote uncertainty, and
+explains failures in Bench. All 612 affected tests and 14 desktop/mobile checks
+pass, with packaged startup and isolated pinned-SDK failure/success probes. Review, publication,
+coordinated deployment, remote-stop recovery, remaining live coverage and
+independent onboarding remain open. MA18/W02/W03/W05/W07 acceptance is unchanged.
+
 ## Core 0.3.6 qualification definitions - 2026-10-24
 
 PRs #90/#91 repair the full Bench compatibility gate. Core 0.3.6 completes reviewed

@@ -1674,7 +1674,7 @@
       "type": "string"
     },
     "core_version": {
-      "default": "0.3.6",
+      "default": "0.3.7",
       "title": "Core Version",
       "type": "string"
     },

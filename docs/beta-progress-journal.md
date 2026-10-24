@@ -1,5 +1,25 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Preserve partial qualification and classify ACP failures
+
+The [revision-5 cohort](bench/robustness-experiment.md#revision-5-partial-live-result---2026-10-25)
+completes 15 technical smoke successes and 209 main attempts: 200 technical
+successes, eight invalid reviews and one interrupted embedding evaluation.
+The maximum-prompt boundary stops before workflow execution with a gateway I/O
+timeout and an explicit recovery hold; 31 pairs remain unsubmitted. All 8,944
+smoke/main UI cells and 67,999 typed CSV cells match the APIs and verified private
+exports. Earlier failures remain intact and are not reclassified from inference.
+
+The [consumer failure candidate](bench/consumer-failure-reporting.md), based on
+reviewed develop `b3d42e7`, proposes core 0.3.7 and a versioned ACP failure adapter.
+It preserves safe failure categories through the worker, inspection, UI and
+export while retaining remote uncertainty. All 612 affected core/Bench tests and
+14 desktop/mobile checks pass; packaged startup and isolated pinned-SDK probes
+verify readiness, adapter selection, failure classification and output preservation.
+Source review, publication,
+coordinated deployment, fresh qualification and independent onboarding remain
+open. MA18/W02/W03/W05/W07 acceptance statuses are unchanged.
+
 ## 2026-10-24 - Release core 0.3.6 and prepare qualification revision 5
 
 Owner-approved PRs #90/#91 repair the three missed compatibility expectations.
