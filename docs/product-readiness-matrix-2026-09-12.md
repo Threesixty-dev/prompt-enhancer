@@ -1,5 +1,20 @@
 # Product feature and readiness matrix
 
+## ACP response schema candidate - 2026-10-24
+
+The [revision-2 smoke result](bench/robustness-experiment.md#revision-2-smoke-result-and-acp-schema-candidate---2026-10-24)
+establishes published definitions, confirmed prior recovery, five returned before
+evaluators and completed cleanup. Its first attempt fails on an invalid review
+enum; two sibling attempts are skipped and no subsequent cohort starts. The UI
+and validated private export preserve that failure and expected missing values.
+
+The ACP adapter dropped the formal response schema while forwarding the policy.
+Proposed core `0.3.4` and adapter `openhands-acp-1.49.1.v5` retain the full schema
+as model guidance with strict parsing unchanged. A failing-before regression and
+152 passing affected tests support source review only. Named merges, core
+publication, immutable experiment repinning and fresh live qualification remain
+open. MA18 and W02/W03/W05/W07 acceptance and independent onboarding remain open.
+
 ## Core 0.3.3 qualification definitions - 2026-10-24
 
 Core `0.3.3` completed its reviewed release, offline tokenizer/runtime probe and

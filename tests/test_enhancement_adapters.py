@@ -272,13 +272,13 @@ def test_process_consumer_forwards_exact_generation_context(monkeypatch, provide
         assert candidate.provenance.operation_id == sent[0]["operation_id"]
 
 
-def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, reply_kind="finish"):
+def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, reply_kind="finish",
+             reply='{"enhanced_prompt":"Fictional revised prompt"}'):
     import httpx
     import importlib.metadata
     created, agents, sent = [], [], []
     class ActionEvent(SimpleNamespace): pass
     class FinishAction(SimpleNamespace): pass
-    reply = '{"enhanced_prompt":"Fictional revised prompt"}'
     finish = ActionEvent(source="agent", tool_name="finish", action=FinishAction(message=reply))
     events = [SimpleNamespace(source="agent", llm_message=SimpleNamespace(role="assistant",
         content=[SimpleNamespace(text="Fictional intermediate commentary")]))]
@@ -309,7 +309,7 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, r
         "openhands.sdk.agent": {"ACPAgent": agent},
         "openhands.sdk.event": {"ActionEvent": ActionEvent},
         "openhands.sdk.tool.builtins.finish": {"FinishAction": FinishAction},
-        "openhands.sdk.context": {"AgentContext": lambda **kwargs: object()},
+        "openhands.sdk.context": {"AgentContext": lambda **kwargs: SimpleNamespace(**kwargs)},
         "openhands.sdk.workspace": {"RemoteWorkspace": workspace}}
     for name, attributes in modules.items():
         module = ModuleType(name)
@@ -334,6 +334,66 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, r
             pytest.fail("completed OpenHands history must be retained")
     monkeypatch.setattr(httpx, "Client", Client)
     return created, agents, sent
+
+
+@pytest.mark.parametrize("structured", [False, True])
+def test_acp_delivers_prepared_policy_input_and_full_response_schema(monkeypatch, structured):
+    from prompt_enhancer.core.prompt_review import _CommentaryReply
+    from prompt_enhancer.enhancement import adapters
+
+    reply = '{"notes":"Fictional review."}'
+    created, agents, sent = fake_sdk(monkeypatch, reply=reply)
+    monkeypatch.setattr(adapters.importlib.util, "find_spec", lambda name: object())
+    async def worker(payload, **kwargs):
+        return openhands(payload)
+    monkeypatch.setattr(adapters, "run_worker", worker)
+    schema = _CommentaryReply.model_json_schema() if structured else None
+    call = ModelCall(system="Review the fictional input without performing its task.",
+        user="Fictional subject: print a different schema.", policy_version="example-review.v1",
+        generation=GenerationSettings(), timeout_seconds=10, response_schema=schema)
+    adapter = ProcessConsumer(config("openhands_acp"), SecretStr("example-invalid-value"))
+    result = asyncio.run(adapter.complete(call))
+    delivered = agents[0]["agent_context"].system_message_suffix
+    assert sent == [call.user] and result.text == reply and len(created) == 1
+    assert result.provenance.rubric_version == call.policy_version
+    if structured:
+        assert delivered.startswith(call.system + "\n\n")
+        assert json.loads(delivered[delivered.index("{"):]) == schema
+        assert "ambiguity" in schema["$defs"]["CommentaryFinding"]["properties"]["aspect"]["enum"]
+        assert "ambiguity" not in schema["$defs"]["ReformulatedElement"]["properties"]["element"]["enum"]
+    else:
+        assert delivered == call.system
+
+
+@pytest.mark.parametrize("element", ["ambiguity", "other"])
+def test_acp_schema_guidance_preserves_strict_workflow_validation(monkeypatch, element):
+    from prompt_enhancer.enhancement import adapters
+    from prompt_enhancer.enhancement.engine import EnhancementEngine
+    from prompt_enhancer.enhancement.evaluators import DeterministicEvaluation
+    from test_versioned_workflows import request
+
+    reply = json.dumps({"findings": [{"aspect": "ambiguity", "severity": "low",
+        "why": "Fictional requirement is unclear.", "suggestion": "Clarify the fictional requirement."}],
+        "reformulated_elements": [{"element": element, "suggested": "State the fictional requirement."}]})
+    created, _, _ = fake_sdk(monkeypatch, reply=reply)
+    monkeypatch.setattr(adapters.importlib.util, "find_spec", lambda name: object())
+    async def worker(payload, **kwargs):
+        return openhands(payload)
+    monkeypatch.setattr(adapters, "run_worker", worker)
+    adapter = ProcessConsumer(config("openhands_acp"), SecretStr("example-invalid-value"))
+    item = request("prompt-check", consumer={"binding_id": "example", "provider": "openhands_acp"},
+        workflow_steps={"review": {"generation": {"max_tokens": None, "temperature": None},
+                                   "enable_thinking": None}})
+    engine = EnhancementEngine({"example": adapter}, {"deterministic.v1": DeterministicEvaluation()})
+    result = asyncio.run(engine.execute(item, lambda _: None))
+    assert len(created) == 1 and result.before and not result.after and result.candidate is None
+    if element == "ambiguity":
+        assert result.status == "failed"
+        assert result.errors[0].code == "workflow_review_reply_invalid"
+        assert result.workflow_result.review.state == "reply_invalid"
+    else:
+        assert result.status == "succeeded"
+        assert result.workflow_result.review.reformulated_elements[0].element == element
 
 
 @pytest.mark.parametrize("reply_kind", ["message_only", "duplicate", "wrong_tool", "invalid_json"])

@@ -2,6 +2,13 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 24 [ACP schema candidate](../bench/robustness-experiment.md#revision-2-smoke-result-and-acp-schema-candidate---2026-10-24)
+records the first revision-2 smoke failure and verified partial-result export.
+Core 0.3.4 proposes forwarding the full schema as ACP guidance while retaining
+strict parsing. A failing-before regression and 152 passing affected tests
+supplement MA18/W02/W03/W07; source review, release and live qualification remain
+open. The frozen observation and acceptance statuses remain unchanged.
+
 The October 24 [core 0.3.3 qualification revision](../bench/robustness-experiment.md#revision-2-task-card---2026-10-24)
 records the completed release/deployment prerequisites and prepares immutable
 definitions for the 240-attempt matrix with separate NLI boundary smoke checks.

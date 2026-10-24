@@ -1,5 +1,20 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Stop failed smoke and preserve the ACP response contract
+
+The [revision-2 smoke result](bench/robustness-experiment.md#revision-2-smoke-result-and-acp-schema-candidate---2026-10-24)
+follows approved publication and confirmed recovery. Its first attempt fails on
+an invalid review enum; two attempts are skipped and subsequent runs stop. All
+five before evaluators return, cleanup completes, and the expected diagnostic
+unknown remains explicit. UI/API and private JSON/CSV failure evidence agree.
+
+Proposed core `0.3.4` forwards the previously omitted response schema through ACP
+system instructions and records adapter `openhands-acp-1.49.1.v5`. The strict
+parser still rejects invalid output; guidance does not guarantee model compliance.
+The schema-delivery regression fails before correction, then all 152 affected
+tests pass. Source/core review, publication, a new pinned cohort, live smoke and
+independent onboarding remain open. Acceptance statuses remain unchanged.
+
 ## 2026-10-24 - Prepare the released-core qualification revision
 
 Core `0.3.3` is released from reviewed main `52dff00`, with offline tokenizer,
