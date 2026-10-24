@@ -1,5 +1,24 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Release core 0.3.4 and prepare qualification revision 3
+
+PRs #77 and #78 complete the reviewed ACP schema correction. Publish Core run
+`40096081387` builds the default artifact from main `8fd3da6`, verifies its offline
+runtime/tokenizer identity and cleanup, and registers it with Bench. The release
+fingerprint matches the local reviewed source.
+
+The [revision-3 task card](bench/robustness-experiment.md#revision-3-task-card---2026-10-24)
+starts from develop `e4d6e82`. It retains all cases, policies, bindings, harness,
+assertions and limits; only revision/generation and core pins change. All 23
+definitions and 240 new semantic requests validate, with the same 15 smoke and
+240 main attempts. Read-only API metadata confirms the new identities are unused.
+All 51 targeted publication, synthetic pipeline and privacy tests pass.
+
+The failed revision-2 cohort remains preserved. Definition review/publication,
+fresh runtime preflight, complete live qualification and independent onboarding
+remain open. No revision-3 model call is submitted during preparation, and no
+acceptance status changes.
+
 ## 2026-10-24 - Stop failed smoke and preserve the ACP response contract
 
 The [revision-2 smoke result](bench/robustness-experiment.md#revision-2-smoke-result-and-acp-schema-candidate---2026-10-24)

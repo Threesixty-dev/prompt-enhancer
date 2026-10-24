@@ -2,6 +2,13 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 24 [core 0.3.4 qualification revision](../bench/robustness-experiment.md#revision-3-task-card---2026-10-24)
+records the reviewed ACP correction's completed release and registration. New
+revision-3 definitions preserve the cases and settings while pinning that exact
+artifact. Canonical and semantic checks supplement MA18/W07; definition reviews,
+publication and fresh live qualification remain open. Historical cohorts and the
+frozen acceptance statuses remain unchanged.
+
 The October 24 [ACP schema candidate](../bench/robustness-experiment.md#revision-2-smoke-result-and-acp-schema-candidate---2026-10-24)
 records the first revision-2 smoke failure and verified partial-result export.
 Core 0.3.4 proposes forwarding the full schema as ACP guidance while retaining
