@@ -218,7 +218,8 @@ def create_app():
 
     @router.get("/retention")
     async def policy():
-        return {"version": "bench-retention.v1", "retention_days": retention.seconds // 86400,
+        return {"version": "bench-retention.v1", "failure_guard": "bench-acp-failure.v1",
+                "retention_days": retention.seconds // 86400,
                 "sweep_error": getattr(app.state, "retention_error", False)}
 
     @router.post("/conversations/{conversation_id}/release")

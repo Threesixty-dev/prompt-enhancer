@@ -74,6 +74,38 @@ Every revision-5 definition pins core `0.3.6`, variant `default`:
 - Build inputs: `3b19f547f2b87623c3cded5b1e692ec826bc11c257040b8f1ce7e6d6eac35a5f`.
 - Validated source: `3b424e81f23d86bd42ecbe628af791916bb4050a`; action `built`.
 
+## Revision-5 partial live result - 2026-10-25
+
+Owner-reviewed PRs #92/#93 promote the three definitions. Publication completes
+from the reviewed main revision. The separate smoke cohort completes all 15
+attempts technically; assertions are one passed, two failed and twelve unknown.
+All 600 smoke UI/API cells and 4,554 typed CSV cells agree with the stored data,
+export manifest and schema.
+
+The one-pair main cohort reaches 209 of 240 attempts: 200 technical successes,
+eight completed invalid reviews, and one interrupted embedding evaluation.
+The interrupted maximum-prompt case reports `gateway_io_timeout` during
+`evaluate_original`; its workflow never starts. Cleanup is complete, but remote
+completion remains unconfirmed and reconciliation is required. The controller
+stops; 31 pairs remain unsubmitted. No failed pair is replayed or rewritten.
+
+An owner-authorized generation-key budget increase allows the earlier pause to
+resume with only unsubmitted independent pairs. The eight invalid reviews remain
+historical failures; their exact cause cannot be reconstructed from discarded
+provider details. They are not relabelled as proven budget errors.
+
+Main assertions are 48 passed, ten failed, 142 unknown and nine not evaluated.
+All 8,344 rendered main UI/API cells and 63,445 typed CSV cells agree. The six
+private exports contain 209 runs, 209 attempts, 2,086 metric rows, 418 assertion
+rows, 715 timing rows and nine errors; manifest hashes and analysis schema pass.
+Missing workflow evidence and absent after readings remain absent, not zero.
+
+The [consumer failure reporting candidate](consumer-failure-reporting.md)
+addresses a separately reproduced failure-classification gap. It is not deployed
+into this frozen cohort. Actual remote-stop evidence, deliberate recovery,
+remaining coverage and independent onboarding stay open. No complete or
+error-free qualification is claimed; acceptance statuses are unchanged.
+
 ## Historical release prerequisites
 
 Core 0.3.3 default was built from reviewed main

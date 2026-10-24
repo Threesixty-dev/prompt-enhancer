@@ -77,7 +77,7 @@ def main():
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     write_codex_config(directory, model, endpoint)
     # Coolify can inject unrelated stack secrets; the agent receives only its two credentials.
-    environment = {"PATH": os.environ["PATH"], "HOME": "/runtime/consumer",
+    environment = {"PATH": "/opt/bench-consumer/bin:" + os.environ["PATH"], "HOME": "/runtime/consumer",
                    "CODEX_HOME": str(directory), "SESSION_API_KEY": os.environ["BENCH_CONSUMER_API_TOKEN"],
                    "LITELLM_API_KEY": os.environ["BENCH_LITELLM_TOKEN"],
                    "OH_DISABLE_TELEMETRY": "true", "OPENHANDS_SUPPRESS_BANNER": "1",

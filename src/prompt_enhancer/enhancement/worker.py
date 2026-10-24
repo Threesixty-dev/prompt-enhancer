@@ -122,6 +122,23 @@ def rubric_inference(payload):
     return {"metric": metric.model_dump(), "reported_model": reported_gateway_model(response, config)}
 
 
+def acp_failure_code(conversation):
+    from openhands.sdk.event.conversation_error import ConversationErrorEvent
+
+    allowed = {"[-32603] bench_consumer_upstream_" + kind: "consumer_upstream_" + kind
+               for kind in ("connection", "access", "limit", "request", "service", "unknown")}
+    try:
+        for event in reversed(list(conversation.state.events)):
+            if (isinstance(event, ConversationErrorEvent) and event.source == "agent"
+                    and event.code in {"ACPPromptError", "ACPAuthRequired"}):
+                # The pinned SDK formats the guard's fixed JSON-RPC message this
+                # way. Never infer a cause from model text or arbitrary details.
+                return allowed.get(event.detail, "remote_execution_unconfirmed")
+    except Exception:
+        pass
+    return "remote_execution_unconfirmed"
+
+
 def openhands(payload):
     if importlib.metadata.version("openhands-sdk") != "1.49.1":
         raise CoreError("openhands_sdk_version_unsupported")
@@ -149,6 +166,8 @@ def openhands(payload):
             if (policy.status_code != 200 or policy.json().get("version") != "bench-retention.v1"
                     or policy.json().get("sweep_error") is True):
                 raise CoreError("remote_cleanup_unconfirmed")
+            if policy.json().get("failure_guard") != "bench-acp-failure.v1":
+                raise CoreError("consumer_failure_protocol_unavailable")
         prepared = workspace.execute_command(f"mkdir -m 700 -- {directory}", cwd="/tmp", timeout=10)
         if prepared.exit_code != 0:
             raise CoreError("consumer_workspace_unavailable")
@@ -168,10 +187,13 @@ def openhands(payload):
         conversation = Conversation(agent=agent, workspace=workspace,
             conversation_id=conversation_id, delete_on_close=False, visualizer=None)
         conversation.send_message(call.user)
-        conversation.run()
+        try:
+            conversation.run()
+        except Exception:
+            raise CoreError(acp_failure_code(conversation), uncertain=True) from None
         status = conversation.state.execution_status
         if getattr(status, "value", status) != "finished":
-            raise CoreError("remote_execution_unconfirmed", uncertain=True)
+            raise CoreError(acp_failure_code(conversation), uncertain=True)
         with httpx.Client(timeout=10, follow_redirects=False, trust_env=False,
                           headers={"X-Session-API-Key": payload["credential"]}) as client:
             response = client.get(f"{config.endpoint}/api/conversations/{conversation_id}")

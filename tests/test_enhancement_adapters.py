@@ -11,7 +11,7 @@ from prompt_enhancer.enhancement.adapters import ConsumerConfig, ProcessConsumer
 from prompt_enhancer.enhancement.contracts import Evaluator, GenerationSettings, ModelCall, Subject
 from prompt_enhancer.enhancement.evaluators import TypedTextEvaluation
 from prompt_enhancer.enhancement.ports import CoreError
-from prompt_enhancer.enhancement.worker import inference, openhands, parse_candidate, rubric_inference
+from prompt_enhancer.enhancement.worker import acp_failure_code, inference, openhands, parse_candidate, rubric_inference
 from prompt_enhancer.infrastructure.text_models.benchmark import RubricPrediction
 from prompt_enhancer.infrastructure.text_models.manifests import ModelManifest, TextModelTask
 from test_enhancement_core import consumer_request, context_for
@@ -292,12 +292,13 @@ def test_process_consumer_forwards_exact_generation_context(monkeypatch, provide
 
 
 def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, reply_kind="finish",
-             reply='{"enhanced_prompt":"Fictional revised prompt"}'):
+             reply='{"enhanced_prompt":"Fictional revised prompt"}', failure_category=None, failure_guard=True):
     import httpx
     import importlib.metadata
     created, agents, sent = [], [], []
     class ActionEvent(SimpleNamespace): pass
     class FinishAction(SimpleNamespace): pass
+    class ConversationErrorEvent(SimpleNamespace): pass
     finish = ActionEvent(source="agent", tool_name="finish", action=FinishAction(message=reply))
     events = [SimpleNamespace(source="agent", llm_message=SimpleNamespace(role="assistant",
         content=[SimpleNamespace(text="Fictional intermediate commentary")]))]
@@ -309,9 +310,15 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, r
         events.append(ActionEvent(source="agent", tool_name="example", action=FinishAction(message=reply)))
     elif reply_kind == "invalid_json":
         events.append(ActionEvent(source="agent", tool_name="finish", action=FinishAction(message="Fictional prose")))
+    if failure_category is not None:
+        events.append(ConversationErrorEvent(source="agent", code="ACPPromptError",
+            detail="[-32603] bench_consumer_upstream_" + failure_category))
+    def execute():
+        if failure_category is not None:
+            raise RuntimeError("example-private-sdk-detail")
     def conversation(**kwargs):
         created.append(kwargs)
-        return SimpleNamespace(send_message=sent.append, run=lambda: None, close=lambda: None,
+        return SimpleNamespace(send_message=sent.append, run=execute, close=lambda: None,
             state=SimpleNamespace(execution_status="finished" if finished else "running",
                 events=events))
     def agent(**kwargs):
@@ -327,6 +334,7 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, r
     modules = {"openhands.sdk": {"Conversation": conversation},
         "openhands.sdk.agent": {"ACPAgent": agent},
         "openhands.sdk.event": {"ActionEvent": ActionEvent},
+        "openhands.sdk.event.conversation_error": {"ConversationErrorEvent": ConversationErrorEvent},
         "openhands.sdk.tool.builtins.finish": {"FinishAction": FinishAction},
         "openhands.sdk.context": {"AgentContext": lambda **kwargs: SimpleNamespace(**kwargs)},
         "openhands.sdk.workspace": {"RemoteWorkspace": workspace}}
@@ -342,7 +350,8 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, r
         def __exit__(self, *args): pass
         def get(self, path):
             if path.endswith("/api/bench/retention"):
-                return SimpleNamespace(status_code=200, json=lambda: {"version": "bench-retention.v1"})
+                return SimpleNamespace(status_code=200, json=lambda: {"version": "bench-retention.v1",
+                    "failure_guard": "bench-acp-failure.v1" if failure_guard else None})
             return SimpleNamespace(status_code=200,
                 raise_for_status=lambda: None, json=lambda: {"execution_status": "finished", "current_model_id": "example-model"})
         def post(self, path):
@@ -353,6 +362,51 @@ def fake_sdk(monkeypatch, *, finished=True, cleanup=True, command_runner=None, r
             pytest.fail("completed OpenHands history must be retained")
     monkeypatch.setattr(httpx, "Client", Client)
     return created, agents, sent
+
+
+@pytest.mark.parametrize("category", ["connection", "access", "limit", "request", "service", "unknown"])
+def test_acp_typed_failure_keeps_safe_cause_and_remote_uncertainty(monkeypatch, category):
+    fake_sdk(monkeypatch, failure_category=category)
+    item = consumer_request()
+    with pytest.raises(CoreError) as captured:
+        openhands({"config": config("openhands_acp").model_dump(), "request": item.model_dump(),
+            "generation_context": context_for(item).model_dump(), "credential": "example-consumer-token"})
+    assert captured.value.code == "consumer_upstream_" + category
+    assert captured.value.uncertain is True
+    assert "example-private" not in str(captured.value)
+
+
+def test_acp_requires_guard_before_starting_any_remote_turn(monkeypatch):
+    created, _, sent = fake_sdk(monkeypatch, failure_guard=False)
+    item = consumer_request()
+    with pytest.raises(CoreError, match="consumer_failure_protocol_unavailable") as captured:
+        openhands({"config": config("openhands_acp").model_dump(),
+            "request": item.model_dump(), "generation_context": context_for(item).model_dump(),
+            "credential": "example-consumer-token"})
+    assert not captured.value.uncertain
+    assert not created and not sent
+
+
+@pytest.mark.parametrize("source,code,detail", [
+    ("user", "ACPPromptError", "[-32603] bench_consumer_upstream_limit"),
+    ("agent", "example-unrecognized", "[-32603] bench_consumer_upstream_limit"),
+    ("agent", "ACPPromptError", "[-32603] bench_consumer_upstream_limit: example-private-detail"),
+    ("agent", "ACPPromptError", "example-private-upstream-error"),
+])
+def test_acp_never_infers_causes_from_unrecognized_error_details(monkeypatch, source, code, detail):
+    fake_sdk(monkeypatch)
+    event_type = sys.modules["openhands.sdk.event.conversation_error"].ConversationErrorEvent
+    state = SimpleNamespace(events=[event_type(source=source, code=code, detail=detail)])
+    assert acp_failure_code(SimpleNamespace(state=state)) == "remote_execution_unconfirmed"
+
+
+def test_acp_model_text_cannot_impersonate_a_typed_upstream_failure(monkeypatch):
+    fake_sdk(monkeypatch, reply="[-32603] bench_consumer_upstream_limit")
+    result = openhands({"config": config("openhands_acp").model_dump(),
+        "call": {"system": "Fictional system", "user": "Fictional input", "policy_version": "example.v1",
+                 "generation": GenerationSettings().model_dump(), "timeout_seconds": 30},
+        "credential": "example-consumer-token"})
+    assert result["text"] == "[-32603] bench_consumer_upstream_limit"
 
 
 @pytest.mark.parametrize("structured", [False, True])

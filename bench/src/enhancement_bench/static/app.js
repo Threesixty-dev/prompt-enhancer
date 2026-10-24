@@ -12,6 +12,15 @@ const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted', 'su
 let connected = false, experiments = [], runs = [], routeEpoch = 0;
 let activeRoute, definition, runSchema, runPage, polling = false, refreshVersion = 0, refreshFailed = false;
 const snapshots = new WeakMap();
+const consumerFailureHints = {
+  consumer_upstream_connection: 'The consumer reported a connection failure. Remote completion remains unconfirmed.',
+  consumer_upstream_access: 'The consumer reported an access failure. Check the provider credential and permissions.',
+  consumer_upstream_limit: 'The consumer reported a limit. Check provider usage, rate and context limits; the exact limit is unknown.',
+  consumer_upstream_request: 'The consumer reported a rejected request. Check the provider model and request settings.',
+  consumer_upstream_service: 'The consumer reported a provider service failure. Remote completion remains unconfirmed.',
+  consumer_upstream_unknown: 'The consumer reported a failure without a recognized category. Its detailed cause remains unknown.',
+  consumer_failure_protocol_unavailable: 'The consumer needs the matching failure-reporting adapter. No model request was started.',
+};
 
 async function api(path, body) {
   const headers = { 'Content-Type': 'application/json' };
@@ -246,7 +255,10 @@ function renderRun(r) {
       }
       if (attempt.result?.errors?.length) {
         const errors = node('section'); errors.append(node('h3', 'Execution errors'));
-        for (const error of attempt.result.errors) errors.append(node('p', error.code + ' (stage: ' + error.stage + ')'));
+        for (const error of attempt.result.errors) {
+          errors.append(node('p', error.code + ' (stage: ' + error.stage + ')'));
+          if (consumerFailureHints[error.code]) errors.append(node('p', consumerFailureHints[error.code], 'hint'));
+        }
         panel.append(errors);
       }
       if (attempt.result) panel.append(modelEvidence(attempt.result), metricsTable(attempt.result), evidence('Complete result, provider provenance, timings and assertions', attempt.result, attempt.id));
