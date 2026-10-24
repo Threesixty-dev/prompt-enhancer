@@ -47,6 +47,7 @@ core artifact.
 | `deliverables_unobserved` | No deliverable clause was detected; a detector miss remains possible. |
 | `abstained` / `rubric_abstained` | The rubric model explicitly declined to classify. |
 | `rubric_reply_invalid` | The reply was malformed or incomplete; distinct from an explicit abstention. |
+| `unknown` / `input_too_long` | The complete input exceeds the evaluator's token limit; no model call or score for that reading. See the [NLI admission candidate](nli-input-admission.md). |
 | `not_applicable` | The evaluator recorded inapplicability. |
 | `execution_error` | Evaluation failed; distinct from a valid abstention. |
 | Missing reading | No reading was recorded for that side. |

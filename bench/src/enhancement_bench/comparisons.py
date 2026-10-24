@@ -35,6 +35,7 @@ def comparisons(db, where, parameters):
                json_extract(a.result,'$.effective_workflow_steps.rewrite.binding.binding_id'),
                json_extract(a.result,'$.consumer_binding.binding_id')) AS model,
       json_extract(a.result,'$.workflow_result.configuration_sha256') AS workflow_configuration,
+      json_extract(a.result,'$.workflow_result.review.state') AS review_state,
       json_extract(a.result,'$.consumer_provenance') AS generation
       FROM runs r JOIN attempts a ON a.run_id=r.id
       WHERE {where} AND a.result IS NOT NULL ORDER BY r.created DESC,r.id DESC,a.position
@@ -58,6 +59,8 @@ def comparisons(db, where, parameters):
                           "strategy": row["strategy"], "model": row["model"], "generation": generation}
                 if row["workflow_configuration"]:
                     config["workflowConfiguration"] = row["workflow_configuration"]
+                if row["review_state"]:
+                    config["generationState"] = row["review_state"]
                 key = digest(config)
                 if key not in groups:
                     if len(groups) >= MAX_GROUPS:

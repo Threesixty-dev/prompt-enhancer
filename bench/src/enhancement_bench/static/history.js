@@ -131,7 +131,7 @@ export function historyCharts(summary, route) {
 }
 
 const metricNumber = value => value == null ? 'Unknown' : new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value);
-const modelLabel = row => row.strategy?.startsWith('script.') ? 'No model (script)' : row.model || 'Unknown model alias';
+const modelLabel = row => row.generationState === 'no_active_model' ? 'No model (diagnostics only)' : row.strategy?.startsWith('script.') ? 'No model (script)' : row.model || 'Unknown model alias';
 const generationLabel = row => [modelLabel(row), row.generation?.reported_model || row.generation?.model, row.generation?.model_revision].filter(Boolean).join(' / ');
 
 function pairedBars(rows, domain) {
@@ -180,7 +180,7 @@ function comparisonCharts(comparisons) {
     const overall = node('article', undefined, 'comparison-overall'); overall.append(node('h4', 'Before / After mean'), pairedBars([combine(rows, scope.metric)], domain));
     const variants = node('article'); variants.append(node('h4', 'By variant and model'), pairedBars(rows.map(row => ({ ...row, label: row.variant + ' / ' + generationLabel(row) })), domain));
     const models = new Map();
-    for (const row of rows) { const key = JSON.stringify([row.model, row.generation, row.strategy?.startsWith('script.')]); if (!models.has(key)) models.set(key, []); models.get(key).push(row); }
+    for (const row of rows) { const key = JSON.stringify([row.model, row.generation, row.generationState, row.strategy?.startsWith('script.')]); if (!models.has(key)) models.set(key, []); models.get(key).push(row); }
     const modelChart = node('article'); modelChart.append(node('h4', 'By generation model'), pairedBars([...models.values()].map(rows => combine(rows, generationLabel(rows[0]))), domain));
     const grid = node('div', undefined, 'metric-comparison-grid'); grid.append(variants, modelChart);
     const provenance = node('details'); provenance.dataset.key = 'comparison-provenance'; provenance.append(node('summary', 'Evaluation identity'), node('pre', JSON.stringify({ coreVersion: scope.coreVersion, evaluator: scope.evaluator, kind: scope.kind, ...scope.provenance }, null, 2)));

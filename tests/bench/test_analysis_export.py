@@ -93,6 +93,23 @@ def test_missing_after_evaluator_and_unexecuted_attempt_are_explicit(completed):
     assert check["outcome"] == "not_evaluated" and check["observed"] is None and not check["recorded"]
 
 
+def test_input_limit_reason_survives_json_and_csv_without_numeric_imputation(completed, tmp_path):
+    _, left, _, delta = metric_pair(completed)
+    left.update(state="unknown", value=None, label=None, reason="input_too_long")
+    delta.update(state="unknown", value=None, reason="metric_unknown")
+    row = row_for(completed)
+    assert row["before_reason"] == "input_too_long" and not row["pair_eligible"]
+    assert row["exclusion_reason"] == "reading_unavailable"
+    value = dataset([completed])
+    write_export(tmp_path / "analysis", value)
+    with (tmp_path / "analysis" / "metrics.csv").open() as stream:
+        exported = next(item for item in csv.DictReader(stream)
+            if item["attempt_id"] == row["attempt_id"] and item["metric_key"] == row["metric_key"])
+    assert exported["before_reason"] == "input_too_long"
+    assert exported["before_value"] == exported["before_label"] == exported["delta_value"] == ""
+    assert read_json(tmp_path / "analysis" / "analysis.json", limit=1_000_000) == value
+
+
 def test_categorical_labels_are_preserved_without_numeric_delta(completed):
     _, left, right, delta = metric_pair(completed)
     left.update(value=None, label="neutral")

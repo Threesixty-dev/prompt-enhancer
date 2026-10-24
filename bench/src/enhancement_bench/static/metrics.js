@@ -11,6 +11,7 @@ const reasons = {
   rubric_abstained: 'rubric evaluator declined to classify',
   rubric_reply_invalid: 'rubric reply was invalid or incomplete',
   evaluator_failed: 'evaluator request failed',
+  input_too_long: 'input exceeds the evaluator token limit',
   workflow_no_candidate: 'workflow produced no candidate',
   provenance_mismatch: 'evaluator identities or versions differ',
 };

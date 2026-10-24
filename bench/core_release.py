@@ -33,6 +33,7 @@ def verify_runtime(image: str, version: str, variant: str):
         "from prompt_enhancer.enhancement import CORE_VERSION, PROTOCOL_VERSION; "
         "assert CORE_VERSION == sys.argv[1]; "
         "assert PROTOCOL_VERSION == 'enhancement.v1'; "
+        "from prompt_enhancer.enhancement.nli_tokenizer import verify_artifacts; verify_artifacts(); "
         "[(importlib.import_module(module)) for module in "
         "(['torch', 'transformers'] if sys.argv[2] == 'models' else [])]"
     )
