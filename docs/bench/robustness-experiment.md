@@ -8,10 +8,11 @@ stored results, and analysis. It is a finite regression and boundary matrix;
 passing it does not prove that every possible input or infrastructure failure is
 covered. It is not a study of developer ability or a universal quality score.
 
-Revision 2 is prepared with `autoRun: false` for core 0.3.3. No live attempt from
-this revision has run. Local validation proves structure and orchestration with synthetic
-providers, not current authentication, model availability, latency or model
-quality. Independent data-scientist onboarding remains a separate handoff gate.
+Revision 2 is published with `autoRun: false` for core 0.3.3. Its first ordinary
+smoke run stopped with one failed attempt and two skipped attempts. The remaining
+smoke selections and main matrix have not started. The failure and proposed
+adapter correction are recorded below. Independent data-scientist onboarding
+remains a separate handoff gate.
 
 Core 0.3.3 default was built from reviewed main
 `52dff00e5057fa2c64810e5ee36a24afdad56c03`. Publish Core completed its offline
@@ -57,6 +58,60 @@ Every revision-2 definition pins:
   evidence is still required before resolving an earlier operation's hold.
 - Result: the local evidence below supports review; source publication and live
   qualification remain pending. No model or temporary service is started here.
+
+## Revision-2 smoke result and ACP schema candidate - 2026-10-24
+
+The reviewed definitions reached main through PRs #75 and #76, and Publish
+Experiments completed successfully. Read-only model-host completion evidence
+allowed explicit reconciliation of the earlier interrupted cohort. Its original
+status remains interrupted; reconciliation does not turn it into a success.
+The admission check then found no queued/running work or recovery holds.
+
+The first `example-complete` / `concise` attempt failed at generation with
+`workflow_review_reply_invalid`. All five before evaluators returned; the review
+followed successful diagnose/context steps. Its completed synthetic reply was
+valid JSON but used the finding-only `ambiguity` label in a
+`reformulated_elements[].element` field, whose enum excludes that label. No
+candidate or after evaluation was accepted. Cleanup completed with no hold.
+The run skipped its other two attempts and the controller stopped before any
+additional smoke or main run. This is a technical failure, not an assertion loss.
+
+The single unknown before reading was expected: `problem_evidence_quality`
+reported `diagnostic_task_not_detected` for an implementation request. The UI
+shows that reason and marks absent after/delta cells as not recorded. A validated
+private export retained one run, three attempts, one error, ten metric readings,
+six assertion rows and two timing records; manifest hashes and every JSON/CSV
+cell agree. Private operation references and response text stay outside Git.
+
+The ACP adapter delivered the review policy and its shorthand enum list, but
+dropped `ModelCall.response_schema`. The formal schema was absent from the native
+system event. These are distinct observations: the invalid enum caused rejection;
+the omitted schema is a transport defect, and its correction cannot guarantee
+future model compliance.
+
+### Correction task card
+
+- Task / atlas scope: preserve structured response contracts through ACP;
+  MA18 and W02/W03/W07, based on reviewed develop `d07cd02`.
+- Allowed changes: ACP message construction, adapter/core version provenance,
+  synthetic regressions and evidence documentation. Existing experiment pins,
+  validation rules, model settings and historical results stay intact.
+- Implementation: proposed core `0.3.4`, adapter `openhands-acp-1.49.1.v5`, appends
+  the complete JSON Schema to ACP system instructions. The prepared user message
+  and policy are preserved. Schema-free calls retain their original instructions.
+- Enforcement boundary: this is model guidance, not provider-enforced constrained
+  decoding. Strict workflow parsing remains authoritative. Invalid replies are
+  not repaired, relabelled, retried or accepted as successful.
+- Evidence: the schema-delivery regression fails on the previous implementation;
+  152 affected adapter, workflow, parser, engine, packaging and publication tests
+  pass with the correction. Synthetic valid/invalid enum cases cover the entire
+  process-consumer/ACP/workflow path and retain partial failure evidence.
+- Completion boundary: source review readiness only. Named merges, core version
+  approval/publication, a new immutable experiment revision and fresh live smoke
+  qualification remain required before the main matrix proceeds. No additional
+  inference runs or deployment changes were made during correction preparation.
+- Process bound: one focused reproduction and one affected regression selection;
+  existing smoke stop rules and per-attempt limits remain in effect.
 
 ## Design
 
