@@ -57,9 +57,29 @@ jobs:
           bench/.venv/bin/python -m pytest -q tests/bench
           python scripts/privacy_scan.py
           node --check bench/src/enhancement_bench/static/app.js
-      - name: Build on Coolify and verify the running API revision
+      - name: Build on Coolify and verify the API image health
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           COOLIFY_ACCESS_CLIENT_ID: ${{ secrets.COOLIFY_ACCESS_CLIENT_ID }}
           COOLIFY_ACCESS_CLIENT_SECRET: ${{ secrets.COOLIFY_ACCESS_CLIENT_SECRET }}
         run: python scripts/deploy_bench.py deploy
+
+  verify-serving-revision:
+    needs: build-deploy
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: bench-publication
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Verify the protected Bench serves the deployed revision
+        env:
+          BENCH_DELIVERY_URL: ${{ vars.BENCH_DELIVERY_URL }}
+          BENCH_CF_ACCESS_CLIENT_ID: ${{ secrets.BENCH_CF_ACCESS_CLIENT_ID }}
+          BENCH_CF_ACCESS_CLIENT_SECRET: ${{ secrets.BENCH_CF_ACCESS_CLIENT_SECRET }}
+        run: python scripts/deploy_bench.py verify-bench

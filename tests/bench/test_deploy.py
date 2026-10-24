@@ -21,17 +21,17 @@ def environment():
         "COOLIFY_TOKEN": "example-controller-not-a-secret",
         "COOLIFY_ACCESS_CLIENT_ID": "example-controller-id",
         "COOLIFY_ACCESS_CLIENT_SECRET": "example-controller-secret",
-        "BENCH_PUBLIC_URL": "https://bench.example.com",
+        "BENCH_DELIVERY_URL": "https://bench.example.com",
         "BENCH_CF_ACCESS_CLIENT_ID": "example-bench-id",
         "BENCH_CF_ACCESS_CLIENT_SECRET": "example-bench-secret",
     }
 
 
 class Response:
-    status = 200
-
-    def __init__(self, value):
-        self.value = json.dumps(value).encode()
+    def __init__(self, value, *, status=200, headers=None):
+        self.value = value if isinstance(value, bytes) else json.dumps(value).encode()
+        self.status = status
+        self.headers = {"Content-Type": "application/json", "Cache-Control": "no-store"} if headers is None else headers
 
     def read(self, size):
         return self.value[:size]
@@ -53,7 +53,7 @@ class Client:
         value = next(self.values)
         if isinstance(value, Exception):
             raise value
-        return Response(value)
+        return value if isinstance(value, Response) else Response(value)
 
 
 def test_only_the_source_revision_and_selected_api_are_changed():
@@ -129,33 +129,47 @@ def healthy_app(**changes):
             "image": "local/enhancement-bench:api-" + "a" * 40, **changes}
 
 
-def receipt(timestamp=NOW, revision="a" * 40):
-    return f"BENCH_READY_V1 revision={revision} time_ms={timestamp}"
+def readiness(**changes):
+    return {"ready": True, "schemaVersion": "bench.v1", "revision": "a" * 40, **changes}
 
 
-def test_readiness_uses_only_controller_credentials_and_bounded_logs(capsys):
-    client = Client([healthy_app(), {"logs": "example-private-canary\n" + receipt()}])
-    assert deploy.ready_receipt(environment(), client, not_before_ms=NOW, now_ms=NOW) == NOW
-    for request in client.calls:
-        assert request.full_url.startswith("https://controller.example.com/api/v1/services/example-service/")
-        assert request.get_header("Cf-access-client-id") == "example-controller-id"
-        assert request.get_header("Cf-access-client-secret") == "example-controller-secret"
-    assert client.calls[-1].full_url.endswith("/applications/example-api/logs?lines=20")
-    assert "example-private-canary" not in capsys.readouterr().out
+def test_controller_health_does_not_require_sensitive_log_access():
+    client = Client([healthy_app()])
+    assert deploy.controller_ready(environment(), client)
+    assert len(client.calls) == 1
+    assert client.calls[0].full_url.endswith("/applications/example-api")
+    assert client.calls[0].get_header("Cf-access-client-id") == "example-controller-id"
+    assert client.calls[0].get_header("Cf-access-client-secret") == "example-controller-secret"
 
 
-@pytest.mark.parametrize("line", [
-    receipt(revision="b" * 40), receipt(NOW - 1), receipt(NOW + 5_001),
-    "prefix " + receipt(), receipt() + " extra", "ready", "",
+@pytest.mark.parametrize("value", [
+    readiness(revision="b" * 40), readiness(ready=False), readiness(ready=1),
+    readiness(schemaVersion="example.invalid"), {}, [], b"not json", b"x" * 4097,
+    Response(readiness(), status=202),
+    Response(readiness(), headers={"Content-Type": "text/html", "Cache-Control": "no-store"}),
+    Response(readiness(), headers={"Content-Type": "application/json"}),
+    Response(readiness(), headers={"Content-Type": "application/json", "Cache-Control": "no-store", "Age": "1"}),
 ])
-def test_wrong_stale_future_or_malformed_receipts_cannot_pass(line):
-    client = Client([healthy_app(), {"logs": line}])
-    assert deploy.ready_receipt(environment(), client, not_before_ms=NOW, now_ms=NOW) is None
+def test_wrong_unready_cached_or_malformed_bench_response_cannot_pass(value):
+    client = Client([value])
+    assert not deploy.bench_ready(environment(), client)
 
 
-def test_old_receipt_expires_even_if_it_followed_deployment():
-    client = Client([healthy_app(), {"logs": receipt(NOW - 90_001)}])
-    assert deploy.ready_receipt(environment(), client, not_before_ms=NOW - 100_000, now_ms=NOW) is None
+def test_protected_readiness_uses_separate_credentials_and_fresh_requests(capsys):
+    value = Response(readiness(), headers={"Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "private, no-store", "Age": "0"})
+    client = Client([value, value])
+    deploy.verify(environment(), client, public=True, monotonic=lambda: 0, sleep=lambda _: None)
+    assert len(client.calls) == 2
+    assert client.calls[0].full_url != client.calls[1].full_url
+    for request in client.calls:
+        assert request.full_url.startswith("https://bench.example.com/health/ready?check=")
+        assert request.get_header("Cf-access-client-id") == "example-bench-id"
+        assert request.get_header("Cf-access-client-secret") == "example-bench-secret"
+        assert request.get_header("Cache-control") == "no-cache"
+        assert request.get_header("Authorization") is None and request.data is None
+    output = capsys.readouterr().out
+    assert "example-bench" not in output and "example-controller" not in output
 
 
 @pytest.mark.parametrize("changes", [
@@ -164,33 +178,33 @@ def test_old_receipt_expires_even_if_it_followed_deployment():
 ])
 def test_unhealthy_or_wrong_image_never_passes(changes):
     client = Client([healthy_app(**changes)])
-    assert deploy.ready_receipt(environment(), client, not_before_ms=NOW, now_ms=NOW) is None
+    assert not deploy.controller_ready(environment(), client)
     assert len(client.calls) == 1
 
 
-def test_repeated_receipt_is_not_two_health_checks():
-    client = Client([healthy_app(), {"logs": receipt()}, healthy_app(), {"logs": receipt()}])
+def test_one_successful_observation_is_not_enough():
+    client = Client([readiness(), readiness(ready=False)])
     clock = iter([0, 0, 150, 301])
     with pytest.raises(RuntimeError, match="bench_revision_health_timeout"):
-        deploy.verify(environment(), client, monotonic=lambda: next(clock), sleep=lambda _: None,
-                      wall_time_ns=lambda: NOW * 1_000_000)
+        deploy.verify(environment(), client, public=True, monotonic=lambda: next(clock), sleep=lambda _: None)
 
 
-def test_two_new_receipts_required_after_a_health_failure():
-    values = []
-    for timestamp in [NOW, None, NOW, NOW + 1, NOW + 2]:
-        values.extend([healthy_app(), {"logs": receipt(timestamp)}] if timestamp else [healthy_app(status="running:unhealthy")])
+@pytest.mark.parametrize("public", [False, True])
+def test_two_new_checks_required_after_a_health_failure(public):
+    values = ([readiness(), readiness(ready=False), readiness(), readiness()] if public else
+              [healthy_app(), healthy_app(status="running:unhealthy"), healthy_app(), healthy_app()])
     client = Client(values)
-    deploy.verify(environment(), client, monotonic=lambda: 0, sleep=lambda _: None,
-                  wall_time_ns=lambda: NOW * 1_000_000)
-    assert len(client.calls) == 9
+    deploy.verify(environment(), client, public=public, monotonic=lambda: 0, sleep=lambda _: None)
+    assert len(client.calls) == 4
 
 
-def test_controller_access_error_fails_without_polling_for_five_minutes():
-    failure = urllib.error.HTTPError("https://controller.example.com", 403, "", {}, None)
+@pytest.mark.parametrize("public", [False, True])
+@pytest.mark.parametrize("status", [301, 302, 401, 403, 404])
+def test_access_error_fails_without_polling_for_five_minutes(public, status):
+    failure = urllib.error.HTTPError("https://example.com", status, "", {}, None)
     client = Client([failure])
     with pytest.raises(urllib.error.HTTPError):
-        deploy.verify(environment(), client)
+        deploy.verify(environment(), client, public=public)
     assert len(client.calls) == 1
 
 
@@ -203,9 +217,15 @@ def test_workflow_scopes_deployment_and_does_not_wait_for_unrelated_quality():
     triggers = config.get("on", config.get(True))
     assert triggers["push"]["branches"] == ["main"]
     assert config["concurrency"]["cancel-in-progress"] is False
-    assert set(config["jobs"]) == {"build-deploy"}
+    assert set(config["jobs"]) == {"build-deploy", "verify-serving-revision"}
     assert config["jobs"]["build-deploy"]["environment"] == "production"
-    assert "BENCH_CF_ACCESS" not in str(config) and "check-health" not in str(config)
+    verifier = config["jobs"]["verify-serving-revision"]
+    assert verifier["environment"] == "bench-publication" and verifier["needs"] == "build-deploy"
+    assert verifier["if"] == "github.ref == 'refs/heads/main'"
+    assert "BENCH_CF_ACCESS" not in str(config["jobs"]["build-deploy"])
+    assert "COOLIFY_TOKEN" not in str(verifier) and "COOLIFY_ACCESS" not in str(verifier)
+    assert "scripts/deploy_bench.py verify-bench" in str(verifier["steps"])
+    assert "continue-on-error" not in str(verifier)
     assert "require_quality_run" not in str(config)
     steps = str(config["jobs"]["build-deploy"]["steps"])
     assert "scripts/deploy_bench.py deploy" in steps
@@ -234,4 +254,31 @@ def test_cli_deployment_waits_for_readiness_before_success(monkeypatch):
     monkeypatch.setattr(deploy, "deploy", lambda *_: NOW)
     monkeypatch.setattr(deploy, "verify", lambda *args, **kwargs: calls.append(kwargs))
     assert deploy.main(["deploy"]) == 0
-    assert calls == [{"not_before_ms": NOW}]
+    assert calls == [{}]
+
+
+@pytest.mark.parametrize("key,value", [
+    ("DEPLOY_BRANCH", "develop"), ("DEPLOY_REVISION", "main"),
+    ("BENCH_DELIVERY_URL", "http://bench.example.com"),
+    ("BENCH_DELIVERY_URL", "https://bench.example.com/path"),
+    ("BENCH_CF_ACCESS_CLIENT_ID", ""), ("BENCH_CF_ACCESS_CLIENT_SECRET", "example\nsecret"),
+])
+def test_invalid_bench_configuration_never_reaches_network(key, value):
+    client = Client([])
+    with pytest.raises(ValueError):
+        deploy.verify({**environment(), key: value}, client, public=True)
+    assert client.calls == []
+
+
+def test_public_verification_requires_no_controller_credentials():
+    env = {key: value for key, value in environment().items() if "COOLIFY" not in key}
+    deploy.verify(env, Client([readiness(), readiness()]), public=True,
+                  monotonic=lambda: 0, sleep=lambda _: None)
+
+
+def test_cli_verifier_only_observes_without_restarting(monkeypatch):
+    calls = []
+    monkeypatch.setattr(deploy, "deploy", lambda *_: pytest.fail("verification must not restart"))
+    monkeypatch.setattr(deploy, "verify", lambda *args, **kwargs: calls.append(kwargs))
+    assert deploy.main(["verify-bench"]) == 0
+    assert calls == [{"public": True}]

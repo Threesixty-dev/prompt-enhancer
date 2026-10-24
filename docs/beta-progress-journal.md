@@ -1,5 +1,19 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Separate deployment health from sensitive log access
+
+The [readiness correction](bench/continuous-deployment.md#readiness-verification-correction---2026-10-24)
+starts from reviewed develop `68761fc`. Controller metadata proves selected-image
+health, then a dependent job verifies two fresh responses from the protected
+Bench readiness endpoint using the existing publication gateway credentials.
+Each job receives only its destination's credentials; neither reads log bodies.
+
+Evidence: 123 affected deployment tests pass across the main and focused loopback
+runs, including revision mismatch, unavailable/cached/malformed responses, bounded
+reads, consecutive health, denied access and redirect isolation. Source review,
+promotion and hosted verification remain open. No token permissions, core pins,
+experiment results or remote recovery holds change; R26 remains partial.
+
 ## 2026-10-24 - Bound NLI input before remote inference
 
 The [NLI input admission candidate](bench/nli-input-admission.md) starts from
