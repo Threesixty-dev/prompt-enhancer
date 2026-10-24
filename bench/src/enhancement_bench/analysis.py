@@ -17,7 +17,7 @@ from .private_io import local_path, write_json, write_new
 from .remote import identifier
 from .store import TERMINAL
 
-VERSION = "bench-analysis/v1"
+VERSION = "bench-analysis/v2"
 MAX_EXPORT_ROWS = 50_000
 MAX_EXPORT_BYTES = 64_000_000
 STATES = ("known", "unknown", "abstained", "not_applicable", "execution_error", "missing")
@@ -46,7 +46,8 @@ TABLES = {
         "position": "integer", "threshold": "number", "observed": "number?", "recorded": "boolean",
     },
     "timings": {"run_id": "string", "attempt_id": "string", "stage": "string", "seconds": "number"},
-    "errors": {"run_id": "string", "attempt_id": "string", "stage": "string", "code": "string", "retryable": "boolean"},
+    "errors": {"run_id": "string", "attempt_id": "string", "stage": "string", "code": "string", "retryable": "boolean",
+               "validation_reason": "string?", "validation_field": "string?"},
 }
 
 
@@ -123,6 +124,72 @@ def technical_outcome(attempt):
                          or result.get("errors") or failed_review or failed_step or failed_evaluation) else "succeeded"
 
 
+def continuation_decision(run):
+    """A settled result permits only independent work, never automatic replay."""
+    try:
+        return _continuation_decision(run)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return {"decision": "stop", "reason": "result_evidence_invalid", "replayAllowed": False}
+
+
+def _continuation_decision(run):
+    def decision(allowed, reason):
+        return {"decision": "continue_independent_case" if allowed else "stop", "reason": reason, "replayAllowed": False}
+
+    if run["cleanup_pending"] or run["reconciliation_required"]:
+        return decision(False, "recovery_required")
+    if run.get("status") not in {"succeeded", "failed"}:
+        return decision(False, "run_not_settled_success_or_review_failure")
+    if run.get("error_code") not in {None, "core_failed"}:
+        return decision(False, "operational_failure")
+    if run["status"] == "succeeded" and run.get("error_code") is not None:
+        return decision(False, "contradictory_outcome")
+    attempts = run.get("attempts", [])
+    if not attempts or any(a.get("status") not in {"succeeded", "failed"} for a in attempts):
+        return decision(False, "incomplete_selection")
+    effective = run["effective"]
+    if [(a["subject_id"], a["unit_id"]) for a in attempts] != [
+        (s["id"], u["id"]) for s in effective["subjects"] for u in effective["units"]
+    ]:
+        return decision(False, "incomplete_selection")
+    expected = [e["evaluator_id"] for e in effective["evaluatorProfile"]["evaluators"]]
+    failures = 0
+    for attempt in attempts:
+        result = attempt.get("result") or {}
+        if [e["evaluator_id"] for e in result.get("before", [])] != expected:
+            return decision(False, "incomplete_evaluation")
+        if technical_outcome(attempt) == "succeeded":
+            expected_after = expected if result.get("candidate") is not None else []
+            if [e["evaluator_id"] for e in result.get("after", [])] != expected_after:
+                return decision(False, "incomplete_evaluation")
+            continue
+        workflow = result.get("workflow_result") or {}
+        errors = result.get("errors") or []
+        completed_review_failure = (
+            attempt.get("status") == result.get("status") == "failed"
+            and (workflow.get("review") or {}).get("state") == "reply_invalid"
+            and [(s.get("step_id"), s.get("status")) for s in workflow.get("steps", [])]
+                == [("diagnose", "succeeded"), ("context", "succeeded"), ("review", "failed")]
+            and len(errors) == 1 and errors[0].get("code") == "workflow_review_reply_invalid"
+            and errors[0].get("stage") == "generate"
+            and bool(result.get("consumer_provenance"))
+            and not any(m["state"] == "execution_error" for e in result.get("before", []) for m in e["metrics"])
+            and not result.get("candidate") and not result.get("enhanced_prompt")
+            and not result.get("after") and not result.get("deltas")
+        )
+        if not completed_review_failure:
+            return decision(False, "technical_failure_requires_inspection")
+        failures += 1
+    if (run["status"] == "failed") != bool(failures):
+        return decision(False, "contradictory_outcome")
+    return decision(True, "completed_invalid_review" if failures else "completed_successfully")
+
+
+def review_validation_issue(result):
+    review = (result.get("workflow_result") or {}).get("review") or {}
+    return review.get("validation_issue") or {}
+
+
 def inspect_run(run):
     attempts, states = [], Counter()
     expected = {e["evaluator_id"] for e in run["effective"]["evaluatorProfile"]["evaluators"]}
@@ -138,13 +205,16 @@ def inspect_run(run):
                               for step in (result.get("workflow_result") or {}).get("steps", [])],
             "missingEvaluators": {side: sorted(expected - {e["evaluator_id"] for e in result.get(side, [])}) for side in ("before", "after")},
             "assertionOutcome": result.get("assertion_outcome", "not_evaluated"),
-            "errors": [{"code": e["code"], "stage": e["stage"]} for e in result.get("errors", [])]})
+            "errors": [{"code": e["code"], "stage": e["stage"],
+                        "validationIssue": review_validation_issue(result) or None
+                            if e["code"] == "workflow_review_reply_invalid" else None} for e in result.get("errors", [])]})
     return {"schemaVersion": "bench-inspection/v1", "runId": run["id"], "status": run["status"],
         "assertionOutcome": run["assertion_outcome"], "cleanupPending": bool(run["cleanup_pending"]),
         "reconciliationRequired": bool(run["reconciliation_required"]),
         "attemptCounts": dict(Counter(a["status"] for a in attempts)),
         "technicalOutcomes": dict(Counter(a["technicalOutcome"] for a in attempts)),
-        "readingStates": {state: states[state] for state in STATES if state != "missing"}, "attempts": attempts}
+        "readingStates": {state: states[state] for state in STATES if state != "missing"}, "attempts": attempts,
+        "continuation": continuation_decision(run)}
 
 
 def metric_index(result, side, expected):
@@ -261,7 +331,9 @@ def project_run(run):
         for timing in result.get("timings", []):
             tables["timings"].append({**base, "stage": timing["stage"], "seconds": timing["seconds"]})
         for error in result.get("errors", []):
-            tables["errors"].append({**base, "stage": error["stage"], "code": error["code"], "retryable": error["retryable"]})
+            issue = review_validation_issue(result) if error["code"] == "workflow_review_reply_invalid" else {}
+            tables["errors"].append({**base, "stage": error["stage"], "code": error["code"], "retryable": error["retryable"],
+                                    "validation_reason": issue.get("reason"), "validation_field": issue.get("field")})
     return tables
 
 

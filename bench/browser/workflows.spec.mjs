@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
-async function fixture(page, workflowId = 'prompt-check', version = '1.0.0') {
-  const definition = JSON.parse(await readFile(new URL('../examples/example-versioned-review.json', import.meta.url), 'utf8'));
+async function fixture(page, workflowId = 'prompt-check', version = '1.0.0', definitionFile = '../examples/example-versioned-review.json') {
+  const definition = JSON.parse(await readFile(new URL(definitionFile, import.meta.url), 'utf8'));
   const catalog = JSON.parse(await readFile(new URL('../../contracts/enhancement/workflows.json', import.meta.url), 'utf8'));
   const workflow = catalog.find(item => item.workflow_id === workflowId && item.version === version);
   definition.workflow = Object.fromEntries(['workflow_id', 'version', 'definition_sha256'].map(key => [key, workflow[key]]));
@@ -14,6 +14,68 @@ async function fixture(page, workflowId = 'prompt-check', version = '1.0.0') {
   await page.route('**/api/runs/example-versioned-run', route => route.fulfill({ json: run }));
   return { definition, run };
 }
+
+for (const [id, version] of [['prompt-check', '1.1.0'], ['prompt-rewrite', '2.1.0'], ['prompt-clarify', '2.1.0']]) {
+  test(`${id} diagram follows its revision, evaluator order and selected variant`, async ({ page }) => {
+    const { definition } = await fixture(page, id, version, `../../experiments/example-robustness-${id}-20261023-r4.json`);
+    await page.goto('/experiments/' + definition.stableId + '?revision=4');
+    const flow = page.getByRole('region', { name: 'Experiment flow', exact: true });
+    await expect(flow.getByRole('heading', { name: 'Experiment flow', exact: true })).toBeVisible();
+    await expect(flow).toContainText('20 cases');
+    await expect(flow).toContainText('80 attempts');
+    await expect(flow.getByRole('list', { name: 'Before evaluator order' }).locator('strong')).toHaveText(definition.evaluatorProfile.evaluators.map(e => e.evaluator_id));
+    await expect(flow.getByRole('list', { name: 'After evaluator order' }).locator('strong')).toHaveText(definition.evaluatorProfile.evaluators.map(e => e.evaluator_id));
+    await expect(flow.getByRole('list', { name: 'Diagram workflow steps' }).getByRole('listitem')).toHaveText(['Score prompt', 'Infer context', 'Optional model review and rewrite']);
+    await expect(flow).toContainText('Harness scores are kept outside its model input');
+    await expect(flow).toContainText('provider managed (unknown)');
+    await flow.getByLabel('Flow variant').selectOption('structured');
+    await expect(flow).toContainText(definition.units.find(u => u.id === 'structured').stepSettings.review.policy.policy_id);
+    await flow.getByLabel('Flow variant').selectOption('diagnostics-only');
+    await expect(flow).toContainText('No model (diagnostics only)');
+    await expect(flow).toContainText('The review step is skipped');
+    await expect(flow.getByRole('list', { name: 'After evaluator order' })).toHaveCount(0);
+    await expect(flow).toContainText('After measurements are absent');
+    await expect(flow).toContainText('operator reconciliation');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
+test('run diagram uses frozen binding and policies, and shows safe validation diagnostics', async ({ page }) => {
+  const { definition, run } = await fixture(page);
+  run.status = 'failed';
+  run.continuation = { decision: 'continue_independent_case', reason: 'completed_invalid_review', replayAllowed: false };
+  run.effective.units[0].stepSettings = { review: { binding: { binding_id: 'example-frozen-model', provider: 'inference' } } };
+  run.attempts = [{ id: 'example-invalid-attempt', position: 0, unit_id: run.effective.units[0].id,
+    subject_id: run.effective.subjects[0].id, status: 'failed', result: {
+      status: 'failed', before: [], after: [], deltas: [], errors: [{ code: 'workflow_review_reply_invalid', stage: 'generate' }],
+      workflow_result: { workflow: definition.workflow, steps: [{ step_id: 'review', status: 'failed' }], review: {
+        state: 'reply_invalid', validation_issue: { reason: 'enum_mismatch', field: 'reformulated_elements[1].element' }, findings: [],
+      } },
+    } }];
+  await page.goto('/experiments/' + definition.stableId + '/runs/' + run.id);
+  await expect(page.getByRole('region', { name: 'Experiment flow', exact: true })).toContainText('example-frozen-model (inference)');
+  await expect(page.getByText('Validation: enum_mismatch at reformulated_elements[1].element.', { exact: true })).toBeVisible();
+  await expect(page.locator('.continuation-guidance')).toContainText('Independent cases may continue after preflight');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('diagram follows the chosen revision and does not invent a missing workflow manifest', async ({ page }) => {
+  const { definition } = await fixture(page);
+  const later = structuredClone(definition);
+  later.revision = '2'; later.generation = 2;
+  later.workflow.version = '99.0.0';
+  later.units[0].stepSettings = { review: { binding: { binding_id: 'example-later-model', provider: 'inference' } } };
+  await page.route('**/api/experiments', route => route.fulfill({ json: { experiments: [later, definition] } }));
+  await page.goto('/experiments/' + definition.stableId + '?revision=1');
+  const flow = page.getByRole('region', { name: 'Experiment flow', exact: true });
+  await expect(flow.getByRole('list', { name: 'Diagram workflow steps' }).getByRole('listitem')).toHaveText([
+    'Score prompt', 'Infer context', 'Optional model review and rewrite',
+  ]);
+  await page.goto('/experiments/' + definition.stableId + '?revision=2');
+  await expect(flow).toContainText('example-later-model (inference)');
+  await expect(flow).toContainText('Workflow manifest unavailable for this exact revision.');
+  await expect(flow.getByRole('list', { name: 'Diagram workflow steps' })).toHaveText('Workflow order unknown');
+});
 
 for (const [id, title] of [['prompt-rewrite', 'Rewrite review'], ['prompt-clarify', 'Clarification review']]) {
   test(`${id} displays the pre-Bench sequence and submits the review model`, async ({ page }) => {
@@ -115,6 +177,7 @@ for (const [reviewState, label] of [['reply_invalid', 'Review failed: invalid re
       } }];
       await page.goto('/experiments/' + definition.stableId + '/runs/' + run.id);
       await expect(page.getByText(label, { exact: true })).toBeVisible();
+      if (reviewState === 'reply_invalid') await expect(page.getByText('Detailed validation cause: unknown (not recorded by this core).', { exact: true })).toBeVisible();
       await expect(page.getByText('Workflow failed. Retained measurements are partial evidence; this attempt is not a valid completed review.', { exact: true })).toBeVisible();
       await expect(page.getByRole('list', { name: 'Recorded workflow steps' }).getByRole('listitem')).toHaveText([
         'diagnose: succeeded', 'context: succeeded', 'review: failed',

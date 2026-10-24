@@ -79,6 +79,19 @@ errors are technical failures, including historical rows recorded as succeeded.
 A valid review without a rewrite can succeed while after measurements are absent.
 
 Inspect ordered workflow steps, missing evaluators, errors and cleanup holds.
+Use the experiment/run flow diagram to understand the selected variant and
+evaluator order; it shows planned wiring, while receipts prove execution.
+For an invalid review, inspect the safe `validationIssue` when present. An
+absent detail remains unknown; do not retrieve raw model text to fill it.
+
+For robustness qualification, use one case and one variant per run. The candidate
+client's `continuation` object is shared with the API: continue to the next
+unsubmitted independent pair only for `continue_independent_case`, after fresh
+preflight and a clear global queue. `stop` requires inspection. Keep all failed
+attempts and private receipts in the cohort; never count skipped work as covered.
+`replayAllowed` is always false. This decision does not change failure exit codes
+or prove the next model ready. See `docs/bench/experiment-flow.md` for the boundary.
+
 Never clear a hold or replay an uncertain model operation automatically. A
 `cancel` acknowledgement is not confirmed remote stop; observe terminal state and
 cleanup. Operator reconciliation requires evidence of the actual remote stop.

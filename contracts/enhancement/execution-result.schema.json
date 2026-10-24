@@ -1102,6 +1102,37 @@
       "title": "ReformulatedElement",
       "type": "object"
     },
+    "ReviewValidationIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "invalid_json",
+            "schema_mismatch",
+            "enum_mismatch",
+            "missing_field",
+            "extra_field",
+            "text_bound",
+            "collection_bound",
+            "empty_review",
+            "rewrite_too_long"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "field": {
+          "pattern": "^(reply|notes|reformulated_prompt|findings(?:\\[[0-9]{1,4}\\](?:\\.(?:aspect|severity|why|suggestion))?)?|reformulated_elements(?:\\[[0-9]{1,4}\\](?:\\.(?:element|original|suggested))?)?)$",
+          "title": "Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "field"
+      ],
+      "title": "ReviewValidationIssue",
+      "type": "object"
+    },
     "StageTiming": {
       "additionalProperties": false,
       "properties": {
@@ -1341,6 +1372,17 @@
           "default": "Commentary and rewrites come from a local model; they are suggestions, not metrics, and may be wrong. The deterministic cues above are what was actually detected.",
           "title": "Caveat",
           "type": "string"
+        },
+        "validation_issue": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReviewValidationIssue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1632,7 +1674,7 @@
       "type": "string"
     },
     "core_version": {
-      "default": "0.3.3",
+      "default": "0.3.6",
       "title": "Core Version",
       "type": "string"
     },

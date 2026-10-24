@@ -11,6 +11,10 @@ tested local changes from deployed capability.
 The [client and export guide](client.md) documents the candidate JSON CLI,
 durable submission receipts, read-only preflight and private analysis tables.
 
+The [experiment flow guide](experiment-flow.md) diagrams each robustness
+experiment and documents the candidate interactive diagram, safe review rejection
+details and evidence-based continuation of independent cases.
+
 The [gateway failure and recovery guide](gateway-failure-recovery.md) explains
 the content-free transport diagnostics released in core 0.3.5 and reconciliation
 for uncertain evaluator calls, including runs with generation disabled.
@@ -18,7 +22,9 @@ for uncertain evaluator calls, including runs with generation disabled.
 The [robustness qualification suite](robustness-experiment.md) defines 240 planned
 case/variant attempts, an initial smoke selection, expected missing-data states,
 offline fault coverage, and explicit runtime acceptance gates. Revision 4 is
-prepared against released core 0.3.5 with the same 15 smoke and 240 main attempts.
+published against released core 0.3.5: all 15 smoke attempts succeed technically;
+the main cohort stops at five successes, one invalid review and two skipped
+attempts, leaving 232 unsubmitted. It does not qualify the full matrix.
 Revision 3 preserves its partial core 0.3.4 result as a separate cohort.
 Revision 2 retains the failed core 0.3.3 smoke; revision 1 retains its original
 core 0.3.2 artifact and history.

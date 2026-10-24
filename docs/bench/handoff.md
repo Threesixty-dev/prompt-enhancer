@@ -5,16 +5,20 @@ is an explicitly authored synthetic prompt plus optional supplied context.
 Session ingestion, arbitrary workflow graphs and downstream coding-task success
 are outside this handoff.
 
-Handoff status: **not yet qualified for independent operation**. The failure
-reporting correction, client and export described below are local source candidates. A reviewed
-release, deployed qualification and an unaided user walkthrough are still
-required. Passing tests establishes their stated coverage, not absence of bugs.
+Handoff status: **not yet qualified for independent operation**. Reviewed core
+0.3.5 and the Bench deployment have partial live qualification. The new flow
+diagrams, continuation guidance and core 0.3.6 rejection details are source
+candidates. Their review, release/deployment, complete qualification and an
+unaided user walkthrough remain required. Passing tests establishes their stated
+coverage, not absence of bugs.
 
 ## First run in the UI
 
 1. Open Bench through the operator-provided private access gateway. Select an
    experiment and its exact revision; check the workflow, core image and evaluator
-   profile. Request access from the operator if the session is unavailable.
+   profile. The candidate **Experiment flow** diagram explains each variant's
+   evaluator order, workflow steps and output branches. Request access from the
+   operator if the session is unavailable.
 2. Choose **New run**. Select input cases and variants. The attempt count is
    selected cases multiplied by selected variants. Before/after columns do not
    add attempts. Start with one case and one variant.
@@ -46,7 +50,7 @@ analysis cohort and retain the effective settings with the private results.
 | Review `ok` with a candidate | A structured review and rewrite passed the response contract. | Inspect measurements and assertions. Valid structure does not establish quality. |
 | Review `ok` without a candidate | Valid advice with no proposed rewrite. | After measurements are absent; deltas and applicable assertions are unknown. Do not invent a candidate or a zero score. |
 | Review `no_active_model` or `skipped` | The optional review did not run. | Use the diagnostics as diagnostics; do not count a completed model review. |
-| Review `reply_invalid` | The response failed the review contract. | Treat as a technical failure; inspect the model/policy binding before a deliberate rerun. |
+| Review `reply_invalid` | The response failed the review contract. | Treat as a technical failure; inspect the safe validation reason/path when recorded and the continuation guidance. Historical detailed causes remain unknown. |
 | Review `model_error` | The configured model call failed definitively. | Operator checks the provider route, readiness and credentials privately. |
 | Execution `uncertain` / Bench `interrupted` | Completion or cleanup could not be confirmed. | No automatic retry. Resolve any cleanup/reconciliation hold first. |
 | Assertion `failed` | A measured result missed a declared threshold. | An experimental finding; do not relabel it as infrastructure failure. |
@@ -64,6 +68,13 @@ attempts `skipped`; it persists the result before releasing core retention and
 confirms owned-container cleanup. A later deliberate run may proceed once holds
 are clear. Historical rows are not rewritten; the candidate UI flags a recorded
 success that contains a failed review.
+
+The proposed core 0.3.6 adds safe validation details and the Bench candidate adds
+shared continuation guidance. A settled invalid response can permit the next
+independent case after preflight and a clear queue. It remains a failed attempt,
+and is never automatically replayed. Use one case/variant pair per run for the
+next qualification; uncertainty and infrastructure failures still stop it.
+See [experiment flow](experiment-flow.md) for the three diagrams and full rules.
 
 The measurement dictionary is in [evaluator coverage](evaluator-coverage.md).
 Workflow diagnostics can guide generation. Independent harness judgments cannot.

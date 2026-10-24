@@ -2,6 +2,7 @@ import { node, schemaField, validateForm } from './forms.js';
 import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary, variationOverview, variantDescription } from './overview.js';
 import { filterToolbar, hasFilters, historyCharts, historyPath, readFilters, statsPreview } from './history.js';
 import { metricsTable } from './metrics.js';
+import { experimentFlow } from './flow.js';
 
 const $ = id => document.getElementById(id);
 const json = value => JSON.stringify(value, null, 2);
@@ -180,7 +181,7 @@ function experimentPage(d) {
   grid.append(strategyBox, prompts); overview.append(grid, labeledValue('Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision, 'p', 'hint'), evidence('Experiment definition', d, 'definition'));
   const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Runs'), node('span', 'Runs for revision ' + d.revision, 'hint'));
   const list = node('div'); list.id = 'runs'; const history = historyFrame();
-  $('page-content').replaceChildren(variationOverview(d), overview, heading, history.preview, history.filters, list, history.pagination); renderHistory();
+  $('page-content').replaceChildren(experimentFlow(d, workflowManifest(d.workflow)), variationOverview(d), overview, heading, history.preview, history.filters, list, history.pagination); renderHistory();
 }
 
 function renderRun(r) {
@@ -194,13 +195,16 @@ function renderRun(r) {
     } else if (terminal.has(r.status) && !r.cleanup_pending && !r.reconciliation_required) actions.append(link('Rerun with changes', newRunPath(definition, r.id), 'button'));
     intro.append(actions, metadata([['Run', r.id], ['Enhancer version', r.effective.enhancerVersion], ['Correlation', r.correlation_id], r.error_code ? ['Error', r.error_code] : null, r.cleanup_pending ? ['Cleanup', 'Unconfirmed: execution slot held'] : null]), modelSummary(r.effective), evidence('Effective run settings', r.effective, 'effective'), evidence('Run history', r.events, 'events'));
     if (r.effective.workflow) intro.append(workflowOverview(r.effective.workflow));
+    if (r.continuation) intro.append(node('p', r.continuation.decision === 'continue_independent_case'
+      ? 'Independent cases may continue after preflight and a clear queue. This does not retry this run or qualify its model output.'
+      : 'Continue only after inspection: ' + r.continuation.reason.replaceAll('_', ' ') + '.', 'hint continuation-guidance'));
     if (r.reconciliation_required) {
       const form = node('form'); form.append(node('p', 'Verify that all remote consumer and evaluator operations have stopped before releasing the execution slot.', 'hint'));
       const label = node('label', 'Reconciliation evidence reference'); label.htmlFor = 'reconcile-reference'; const reference = node('input'); reference.id = 'reconcile-reference'; reference.required = true; reference.pattern = '[A-Za-z0-9][A-Za-z0-9._-]{0,95}';
       const confirm = node('button', 'Confirm remote stopped', 'secondary'); confirm.type = 'submit'; confirm.disabled = Boolean(r.cleanup_pending); form.append(label, reference, confirm);
       form.onsubmit = async event => { event.preventDefault(); confirm.disabled = true; try { await api('/api/runs/' + encodeURIComponent(r.id) + '/reconcile', { remoteStopped: true, evidenceReference: reference.value }); confirm.blur(); await refresh(); } catch (error) { tell(error.message); confirm.disabled = false; } }; intro.append(form);
     }
-    fragment.append(intro, variationOverview(r.effective, { attempts: r.attempts, onAttempt: attempt => {
+    fragment.append(intro, experimentFlow(r.effective, workflowManifest(r.effective.workflow)), variationOverview(r.effective, { attempts: r.attempts, onAttempt: attempt => {
       const target = document.getElementById(attemptAnchor(attempt.id)); target?.scrollIntoView({ block: 'start' }); target?.focus({ preventScroll: true });
     } }));
     for (const [index, attempt] of r.attempts.entries()) {
@@ -226,6 +230,11 @@ function renderRun(r) {
           const review = node('section');
           const labels = { ok: 'Valid review', reply_invalid: 'Review failed: invalid response', model_error: 'Review failed: model request failed', no_active_model: 'Review skipped: no model configured', skipped: 'Review skipped' };
           review.append(node('h3', 'Workflow review'), node('p', labels[workflow.review.state] || 'Review state: ' + workflow.review.state));
+          if (workflow.review.state === 'reply_invalid') {
+            const issue = workflow.review.validation_issue;
+            review.append(node('p', issue ? 'Validation: ' + issue.reason + ' at ' + issue.field + '.'
+              : 'Detailed validation cause: unknown (not recorded by this core).', 'review-validation'));
+          }
           if (workflow.review.notes) review.append(node('p', workflow.review.notes));
           for (const finding of workflow.review.findings || []) review.append(node('p', finding.severity + ': ' + finding.why + ' ' + finding.suggestion));
           if (!attempt.result.enhanced_prompt) review.append(node('p', failed

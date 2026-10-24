@@ -21,12 +21,18 @@ interrupted during embedding evaluation; 100 pairs have not started. Remote-stop
 evidence and all partial results are preserved. The complete matrix and
 independent onboarding are not qualified.
 
-Revision 4 is prepared with `autoRun: false` for released core 0.3.5. It retains
-the same 15 smoke and 240 main attempts, with at most four attempts per standard
-run and one per boundary run. This is a fresh artifact cohort: the 139 successful
-revision-3 pairs remain historical evidence, not completed revision-4 coverage.
-Definition review/publication, worker/relay rollout and fresh qualification
-remain required.
+Revision 4 is published with `autoRun: false` for released core 0.3.5. Its 15
+smoke attempts succeed technically. The main cohort stops after five successes,
+one completed invalid review and two skipped attempts; 232 pairs remain
+unsubmitted. The worker/relay rollout and partial UI/API/export checks pass.
+This is a separate artifact cohort: revision-3 successes do not complete its
+coverage. Full qualification and independent onboarding remain open.
+
+The [flow and diagnostics candidate](experiment-flow.md) adds diagrams for every
+experiment, safe rejection details and independent-case continuation guidance.
+Its next qualification uses one case/variant pair per run, preserving every
+failure and stopping on uncertainty or infrastructure failure. Core 0.3.6
+publication and new immutable experiment pins remain review gates.
 
 Core 0.3.3 default was built from reviewed main
 `52dff00e5057fa2c64810e5ee36a24afdad56c03`. Publish Core completed its offline
@@ -477,6 +483,35 @@ enhancement-bench preflight \
 Use `run` with the same selection and a fresh private `--receipt` only when
 execution is authorized. Place receipts, raw results and exports outside the
 repository. They remain sensitive derived data even without prompt text.
+
+## Revision-4 live result - 2026-10-24
+
+Owner-approved PRs #86/#87 and Publish Experiments `40118091066` deliver all
+three revision-4 definitions. The separately approved worker/relay rollout is
+verified before execution. All 15 smoke attempts succeed technically across six
+runs, with 600 UI metric cells matching the API and complete private export hash
+and JSON/CSV checks. Unknown and abstained measurements remain explicit.
+
+The main cohort completes five attempts and rejects one structured Prompt Check
+review. Two siblings are skipped and 232 pairs remain unsubmitted. The response
+is valid JSON but violates the enum at `reformulated_elements[1].element`.
+The formal response schema is present in the actual ACP dynamic context and the
+configured suffix is installed. This is a completed invalid response; its raw
+text is excluded from this record. The rejected attempt retains before evidence,
+workflow receipts and the failure without inventing after measurements.
+
+All 240 rendered main metric cells match the API, bringing this cohort to 840
+checked cells across eight smoke/main runs. Its stopped main export verifies
+all hashes and JSON/CSV cells: two runs, eight attempts, 60 metric rows, 16
+assertion rows, 20 timing rows and one error. Main assertion outcomes are two
+passed, two unknown, one failed and three not evaluated. Main readings are 72
+known, 14 unknown and four abstained, with no evaluator execution errors.
+
+The retained consumer operation finishes and is cleaned. Queue, cleanup and
+reconciliation holds are clear; no active core container remains. No attempt is
+replayed. Smoke and main remain separate cohorts, and the 240-attempt matrix is
+not qualified. The next source candidate is documented in
+[experiment flow and review diagnostics](experiment-flow.md).
 
 ## Offline fault coverage and evidence
 

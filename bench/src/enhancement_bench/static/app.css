@@ -58,6 +58,26 @@ small { display: block; margin-top: 5px; }
 .strategy-summary { padding: 10px 0; border-top: 1px solid var(--line); }
 .strategy-summary p { margin: 4px 0; }
 .revision-field { max-width: 240px; }
+.experiment-flow > select { max-width: 420px; }
+.experiment-flow-figure { margin: 22px 0 0; }
+.experiment-flow-figure figcaption { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+.flow-card { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 18px; background: #f7faf9; overflow-wrap: anywhere; }
+.flow-card h3 { margin-bottom: 8px; }
+.flow-card p { margin: 6px 0; font-size: 13px; }
+.flow-sequence { list-style: none; padding: 0; margin: 0; }
+.flow-sequence > li::before, .flow-recovery::before { content: "\2193"; display: block; text-align: center; font-size: 25px; color: var(--teal); line-height: 36px; }
+.flow-sequence > li > .flow-card { border-left: 4px solid var(--teal); }
+.flow-evaluators { display: flex; flex-wrap: wrap; gap: 12px 24px; padding-left: 20px; margin: 14px 0 0; }
+.flow-evaluators li { flex: 1 1 145px; font-size: 13px; padding-right: 12px; }
+.flow-evaluators span { display: block; color: var(--muted); font-size: 12px; margin-top: 5px; }
+.flow-logic { margin: 14px 0; padding-left: 22px; font-size: 14px; line-height: 1.8; }
+.flow-branches { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; margin-top: 14px; }
+.flow-success { background: #eef8f3; border-color: #c4e1d2; }
+.flow-neutral { background: #f2f4f6; }
+.flow-failure { background: #fff7f4; border-color: #e8cfc3; }
+.flow-recovery { position: relative; margin-top: 36px; background: #fffaf0; }
+.flow-recovery::before { position: absolute; top: -37px; left: 0; right: 0; }
+.review-validation { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .run-card { width: 100%; display: grid; grid-template-columns: 1fr auto auto; gap: 18px; align-items: center; margin: 8px 0; text-align: left; text-decoration: none; background: white; color: #17272f; border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
 .run-card .meta { margin: 8px 0 0; gap: 5px 16px; }
 .run-pagination { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 16px; }

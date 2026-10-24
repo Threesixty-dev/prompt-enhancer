@@ -19,6 +19,7 @@ from .errors import BenchError
 from .history import RunFilters, RunStatus
 from .protocol import Contracts
 from .store import Store
+from .analysis import continuation_decision
 
 
 class ReconcileInput(StrictModel):
@@ -90,7 +91,7 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
 
     @app.get("/assets/{name}")
     def asset(name: str):
-        if name not in {"app.js", "app.css", "forms.js", "overview.js", "history.js", "metrics.js"}:
+        if name not in {"app.js", "app.css", "forms.js", "overview.js", "history.js", "metrics.js", "flow.js"}:
             raise BenchError("not_found", 404)
         return FileResponse(static / name)
 
@@ -148,7 +149,8 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
 
     @app.get("/api/runs/{run_id}")
     def run(run_id: str):
-        return store.run(run_id)
+        value = store.run(run_id)
+        return value | {"continuation": continuation_decision(value)}
 
     def validate_plan(value: RunPlan):
         from .definitions import effective_settings
