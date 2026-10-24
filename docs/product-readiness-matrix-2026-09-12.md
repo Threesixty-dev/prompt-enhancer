@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Bench deployment readiness candidate - 2026-10-24
+
+The [readiness correction](bench/continuous-deployment.md#readiness-verification-correction---2026-10-24)
+retains controller image-health checks and adds a dependent authenticated Bench
+revision check using existing publication credentials. It removes container-log
+access from the deployment workflow. Both jobs must pass; a started container
+alone is not success. The 123 affected synthetic/loopback deployment tests cover
+credential destinations, wrong/cached/malformed responses and consecutive health.
+Owner review, promotion and hosted verification remain open. R26 and W02/W07
+acceptance statuses remain unchanged.
+
 ## NLI input admission candidate - 2026-10-24
 
 The [bounded input correction](bench/nli-input-admission.md) prepares core

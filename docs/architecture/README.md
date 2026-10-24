@@ -2,6 +2,11 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 24 [Bench readiness correction](../bench/continuous-deployment.md#readiness-verification-correction---2026-10-24)
+uses separate controller-health and authenticated Bench-revision checks. Bounded
+synthetic and loopback evidence supplements R26/W02/W07; review and hosted
+verification remain open, and acceptance statuses are unchanged.
+
 The October 24 [NLI input admission candidate](../bench/nli-input-admission.md)
 adds exact local paired-token checks and explicit unknown readings for oversized
 inputs. Its synthetic tests and offline packaged probe supplement MA18/W03/W05/W07;
