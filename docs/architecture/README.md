@@ -2,6 +2,14 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 24 [core 0.3.5 qualification revision](../bench/robustness-experiment.md#revision-4-task-card---2026-10-24)
+records reviewed release, offline verification, registration and API deployment.
+Three revision-4 definitions preserve the matrix while pinning the verified
+artifact. Canonical validation, 240 semantic requests and 58 synthetic tests
+supplement MA18/W02/W03/W05/W07. Definition reviews, worker/relay rollout, fresh
+qualification and independent onboarding remain open; acceptance statuses and
+the partial core 0.3.4 cohort are preserved.
+
 The October 24 [gateway recovery candidate](../bench/gateway-failure-recovery.md)
 follows a preserved 139-of-240 partial qualification. Proposed core 0.3.5 retains
 safe transport categories; Bench holds uncertain evaluator-only operations.
