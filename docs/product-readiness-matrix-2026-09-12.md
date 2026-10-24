@@ -1,5 +1,22 @@
 # Product feature and readiness matrix
 
+## Core 0.3.3 qualification definitions - 2026-10-24
+
+Core `0.3.3` completed its reviewed release, offline tokenizer/runtime probe and
+catalog registration from main `52dff00`. API deployment `e2ddb7e` passed
+controller health and authenticated serving-revision verification. The protected
+readiness path retains the existing Service Auth policy. These outcomes complete
+the release/deployment prerequisites recorded in the earlier entries; they do
+not qualify worker, relay or evaluator availability.
+
+The [robustness revision-2 task](bench/robustness-experiment.md#revision-2-task-card---2026-10-24)
+pins that artifact while preserving all 240 case/variant combinations. Fifteen
+separate smoke attempts include six oversized NLI checks. All 20 definitions,
+240 new semantic requests and 62 targeted synthetic publication/pipeline/privacy
+tests pass. Named definition reviews, publication, confirmed remote recovery,
+live results, UI/export parity and independent onboarding remain open. MA18 and
+W02/W03/W05/W07 acceptance statuses remain unchanged.
+
 ## Bench deployment readiness candidate - 2026-10-24
 
 The [readiness correction](bench/continuous-deployment.md#readiness-verification-correction---2026-10-24)

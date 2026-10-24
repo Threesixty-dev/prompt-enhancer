@@ -86,7 +86,12 @@ verifies both pins, accepts supported input and returns the oversized-input
 unknown without constructing a gateway client. The probe container is removed.
 This is packaged local evidence; it does not establish live classifier success.
 
-Core `0.3.3` is a candidate until owner review and release verification complete.
+Core `0.3.3` default completed owner-reviewed promotion and release verification
+from main `52dff00e5057fa2c64810e5ee36a24afdad56c03` on 2026-10-24. The release
+verified both tokenizer artifacts, offline runtime identity, cleanup and catalog
+registration. The [robustness suite](robustness-experiment.md) prepares revision
+2 against that exact digest; source review, publication and live qualification
+of those definitions remain separate.
 An existing v2 experiment keeps its original core pin. A new reviewed revision
 must select the new artifact; its results form a separate qualification cohort.
 Earlier successful attempts do not certify the changed artifact. The remote
