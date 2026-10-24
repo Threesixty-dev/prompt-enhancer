@@ -28,11 +28,53 @@ unsubmitted. The worker/relay rollout and partial UI/API/export checks pass.
 This is a separate artifact cohort: revision-3 successes do not complete its
 coverage. Full qualification and independent onboarding remain open.
 
-The [flow and diagnostics candidate](experiment-flow.md) adds diagrams for every
+The [flow and diagnostics release](experiment-flow.md) adds diagrams for every
 experiment, safe rejection details and independent-case continuation guidance.
 Its next qualification uses one case/variant pair per run, preserving every
-failure and stopping on uncertainty or infrastructure failure. Core 0.3.6
-publication and new immutable experiment pins remain review gates.
+failure and stopping on uncertainty or infrastructure failure. Core 0.3.6 is
+released and registered; the API, worker and relay use reviewed source `3b424e8`.
+Three revision-5 definitions are prepared with `autoRun: false`; their source
+and promotion reviews, publication and fresh live qualification remain open.
+
+## Revision-5 task card - 2026-10-24
+
+- Task / atlas: MA18 and W02/W03/W05/W07; qualify the released review diagnostics
+  and deployed experiment diagrams through the same connected pipeline.
+- Approved baseline: develop `5883504`, promoted by #91 to main `3b424e8`.
+  Core publication `40127596404` passes build, offline identity/tokenizer checks,
+  probe cleanup and catalog registration. Deployment `40127562554` passes API
+  image health and two protected serving-revision checks; its first HTTP 404
+  verification is retried independently after confirming local readiness.
+- Worker/relay prerequisite: both use the reviewed API image, share the correct
+  namespace and pass authenticated consumer readiness. API and consumer
+  containers are preserved. Preflight finds no queued/running runs, recovery
+  holds or active cores. Saved image pins and the nonsecret Compose override
+  preserve the desired deployment; private configuration stays outside Git.
+- Allowed changes: three new revision-5 definitions and evidence/operation docs.
+  Only revision, generation, core version and artifact pins change from r4.
+  Cases, variants, workflow identities, model bindings, harness, policies,
+  limits, assertions and the historical cohorts remain unchanged.
+- Matrix: 20 cases x 4 variants x 3 workflows = 240 main attempts, after 15
+  separate smoke attempts. Use one case and one variant in every run, including
+  smoke. Main coverage can continue only when the recorded continuation decision
+  permits an independent pair; completed invalid reviews remain failures.
+  A failed smoke gate, uncertainty, incomplete evidence or infrastructure failure
+  stops admission. Never replay automatically.
+- Evidence: all 29 repository definitions and 240 new semantic requests validate;
+  exact comparison permits only identity/core changes. All 58 existing synthetic
+  publication, binding and connected-pipeline tests pass. The local build-input
+  fingerprint matches the registered receipt; server history ends at generation 4.
+- Remaining gates: specific definition review and promotion, publication, fresh
+  model readiness, all smoke/main outcomes with UI/API/export agreement and
+  independent onboarding. Preparation submits no model work.
+
+Every revision-5 definition pins core `0.3.6`, variant `default`:
+
+- Image digest: `sha256:d72e2736b9e7a7435950116f0e314821c279f2e9ea8add810c3cb49a83c628b4`.
+- Build inputs: `3b19f547f2b87623c3cded5b1e692ec826bc11c257040b8f1ce7e6d6eac35a5f`.
+- Validated source: `3b424e81f23d86bd42ecbe628af791916bb4050a`; action `built`.
+
+## Historical release prerequisites
 
 Core 0.3.3 default was built from reviewed main
 `52dff00e5057fa2c64810e5ee36a24afdad56c03`. Publish Core completed its offline
@@ -450,15 +492,15 @@ steps; creating the files does not authorize either operation.
 2. Import the reviewed definitions through Publish Experiments. Confirm each
    identity and `autoRun: false` acknowledgement before creating runs.
 3. Smoke each workflow on `example-complete`, selecting `concise`, `notes-only`
-   and `diagnostics-only`: nine additional attempts. Then use
-   `nli-boundary-smoke.json` for six additional oversized-input attempts. Keep
+   and `diagnostics-only` separately: nine additional one-pair runs. Split
+   `nli-boundary-smoke.json` into six additional one-pair oversized-input runs. Keep
    all 15 smoke attempts out of the 240-attempt main cohort. Stop on a failed
    smoke gate; do not automatically retry an uncertain operation.
 4. Run the first 17 cases in each workflow: 68 attempts per workflow, 204 total.
-   Split `standard.json` into one case and its four variants per run. The four
-   180-second attempt limits total 720 seconds, leaving headroom within the
-   separate 1,800-second whole-run limit for launch, readiness and cleanup.
-   Preserve each submission receipt; never submit all 68 attempts as one run.
+   Split `standard.json` into one case and one variant per run. Each 180-second
+   attempt leaves headroom within the separate 1,800-second whole-run limit for
+   launch, readiness and cleanup. Preserve each submission receipt and inspect
+   its continuation decision before submitting the next independent pair.
 5. Run the three boundary cases individually per variant/workflow: 36 additional
    attempts. Repeated `--subject`/`--unit` flags or the documented override object
    select the intended pair. This isolates a size-related failure from other pairs.
@@ -467,17 +509,19 @@ steps; creating the files does not authorize either operation.
    retries or duplicate attempts as independent qualification observations.
 
 The standard Bench worker stops after a failed attempt and skips the remainder.
-Skipped attempts are uncovered cases, never passes. Diagnose the failure and
-obtain a reconciled state before an intentional, separately recorded retry or
-smaller selection. Never automatically retry an uncertain provider operation.
+Skipped attempts are uncovered cases, never passes. One-pair runs avoid skipping
+independent cases. Follow the [continuation decision](experiment-flow.md#independent-case-continuation):
+retain completed invalid reviews as failures, and stop for unresolved or uncertain
+work. Reconciliation requires actual remote-stop evidence. Never automatically
+retry a provider operation.
 
 Selections in `experiments/robustness-20261023/` are CLI override objects, not
 additional publishable definitions. For example, after authorized import:
 
 ```sh
 enhancement-bench preflight \
-  --experiment example-robustness-prompt-check-20261023 --revision 4 \
-  --overrides experiments/robustness-20261023/smoke.json
+  --experiment example-robustness-prompt-check-20261023 --revision 5 \
+  --subject example-complete --unit concise
 ```
 
 Use `run` with the same selection and a fresh private `--receipt` only when

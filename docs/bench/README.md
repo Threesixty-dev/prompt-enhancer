@@ -12,7 +12,7 @@ The [client and export guide](client.md) documents the candidate JSON CLI,
 durable submission receipts, read-only preflight and private analysis tables.
 
 The [experiment flow guide](experiment-flow.md) diagrams each robustness
-experiment and documents the candidate interactive diagram, safe review rejection
+experiment and documents the deployed interactive diagram, safe review rejection
 details and evidence-based continuation of independent cases.
 
 The [gateway failure and recovery guide](gateway-failure-recovery.md) explains
@@ -28,6 +28,12 @@ attempts, leaving 232 unsubmitted. It does not qualify the full matrix.
 Revision 3 preserves its partial core 0.3.4 result as a separate cohort.
 Revision 2 retains the failed core 0.3.3 smoke; revision 1 retains its original
 core 0.3.2 artifact and history.
+
+Core 0.3.6 is released and registered, and the API/worker/relay rollout is verified.
+Three revision-5 definitions preserve the matrix and pin that artifact. All 29
+definitions, 240 new semantic requests and 58 focused synthetic tests pass.
+Definition reviews/publication and fresh smoke/main qualification remain open;
+the next cohort uses one case/variant pair per run.
 
 The [NLI input admission candidate](nli-input-admission.md) records the core 0.3.3
 paired-token guard, explicit unavailable readings and offline tokenizer packaging.
