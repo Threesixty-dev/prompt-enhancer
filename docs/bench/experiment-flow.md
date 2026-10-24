@@ -1,5 +1,19 @@
 # Experiment flow and review diagnostics
 
+## Released prerequisites - 2026-10-24
+
+Owner-approved PRs #90/#91 repair the full Bench compatibility gate. Core 0.3.6
+is built, verified offline, cleaned up and registered by publication `40127596404`
+from main `3b424e8`. API deployment `40127562554` passes image health and protected
+serving-revision verification after retrying only the initial HTTP 404 verifier.
+The worker and relay use the same reviewed Bench image, with the correct shared
+namespace and authenticated consumer readiness; API and consumer are preserved.
+
+The [revision-5 task card](robustness-experiment.md#revision-5-task-card---2026-10-24)
+pins the exact receipt while preserving the matrix. Definition review/publication,
+fresh complete qualification and independent onboarding remain open. Source and
+deployment evidence do not establish model effectiveness or full live coverage.
+
 ## Release-gate compatibility repair - 2026-10-24
 
 - Task / atlas: W02/W07; repair the synthetic API/storage/export contract test.

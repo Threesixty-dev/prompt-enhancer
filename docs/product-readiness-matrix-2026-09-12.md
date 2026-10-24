@@ -1,5 +1,18 @@
 # Product feature and readiness matrix
 
+## Core 0.3.6 qualification definitions - 2026-10-24
+
+PRs #90/#91 repair the full Bench compatibility gate. Core 0.3.6 completes reviewed
+publication, offline verification, cleanup and registration. API deployment
+passes image health and protected serving-revision verification; worker/relay
+rollout confirms the reviewed image, shared namespace and consumer readiness.
+The [revision-5 definitions](bench/robustness-experiment.md#revision-5-task-card---2026-10-24)
+preserve the matrix and select the verified artifact. All 29 definitions, 240
+semantic requests and 58 synthetic tests pass. Named definition reviews,
+publication, fresh one-pair smoke/main qualification and independent onboarding
+remain open. Historical results and MA18/W02/W03/W05/W07 acceptance statuses are
+unchanged.
+
 ## Bench release-gate compatibility repair - 2026-10-24
 
 PRs #88/#89 complete source review and promotion. The first deployment and core
