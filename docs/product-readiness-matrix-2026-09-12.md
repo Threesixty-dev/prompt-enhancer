@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Bench release-gate compatibility repair - 2026-10-24
+
+PRs #88/#89 complete source review and promotion. The first deployment and core
+0.3.6 publication stop at full Bench validation before replacing services or
+publishing an image. Three integration tests omit the approved computed
+continuation field from their expected API response. The [repair](bench/experiment-flow.md#release-gate-compatibility-repair---2026-10-24)
+preserves exact stored-data checks and adds HTTP/inspection/export assertions;
+all 412 Bench tests pass locally. Repair review/promotion, hosted validation,
+release/deployment, complete live qualification and independent onboarding remain
+open. W02/W07 evidence expands; acceptance statuses are unchanged.
+
 ## Experiment flow and review diagnostics candidate - 2026-10-24
 
 The [core 0.3.5 live result](bench/robustness-experiment.md#revision-4-live-result---2026-10-24)

@@ -1,5 +1,7 @@
 """New revisions pin workflow/core/evaluation; old rows retain their identity."""
 import copy
+import csv
+import json
 from uuid import uuid4
 
 import pytest
@@ -274,6 +276,8 @@ def test_review_outcome_survives_http_storage_cleanup_and_recovery(store, public
         assert model.calls == (1 if failed else 2)
         result = retained["attempts"][0]["result"]
         assert result["workflow_result"]["review"]["state"] == review_state and result["before"]
+        expected_issue = {"reason": "empty_review", "field": "reply"} if review_state == "reply_invalid" else None
+        assert result["workflow_result"]["review"].get("validation_issue") == expected_issue
         assert result["candidate"] is None and result["enhanced_prompt"] is None and not result["after"]
         assert result["assertion_outcome"] == "not_evaluated"
         assert not retained["cleanup_pending"] and not retained["reconciliation_required"]
@@ -288,15 +292,35 @@ def test_review_outcome_survives_http_storage_cleanup_and_recovery(store, public
             assert store.run(run_id) == retained
     with TestClient(bench_app(Store(store.path), contracts, allowed_repositories=(), origin="http://testserver")) as client:
         response = client.get("/api/runs/" + run_id)
-        assert response.status_code == 200 and response.json() == retained
+        expected_continuation = {"decision": "stop" if failed else "continue_independent_case",
+            "reason": "incomplete_selection" if failed else "completed_successfully", "replayAllowed": False}
+        assert response.status_code == 200
+        assert response.json() == retained | {"continuation": expected_continuation}
+        assert Store(store.path).run(run_id) == retained
     from enhancement_bench.analysis import dataset, inspect_run, validated_run, write_export
     from enhancement_bench.protocol import Contracts
     export_contracts = Contracts.from_payload(contracts.payload())
     checked = validated_run(response.json(), export_contracts)
-    assert inspect_run(checked)["attempts"][0]["reviewState"] == review_state
+    inspection = inspect_run(checked)
+    assert inspection["continuation"] == expected_continuation
+    assert inspection["attempts"][0]["reviewState"] == review_state
+    assert inspection["attempts"][0]["errors"] == [
+        {"code": error["code"], "stage": error["stage"], "validationIssue": expected_issue}
+        for error in result["errors"]]
     analysis = dataset([checked])
     manifest = write_export(tmp_path / "analysis", analysis)
     assert manifest["rowCounts"]["attempts"] == 2
+    assert manifest["rowCounts"]["errors"] == (1 if failed else 0)
+    exported = json.loads((tmp_path / "analysis/analysis.json").read_text())
+    assert exported == analysis
+    with (tmp_path / "analysis/errors.csv").open(newline="") as stream:
+        csv_errors = list(csv.DictReader(stream))
+    assert len(csv_errors) == len(analysis["tables"]["errors"])
+    for error, csv_error in zip(analysis["tables"]["errors"], csv_errors, strict=True):
+        for column, field in (("validation_reason", "reason"), ("validation_field", "field")):
+            expected_value = (expected_issue or {}).get(field)
+            assert error[column] == expected_value
+            assert csv_error[column] == (expected_value or "")
     row = analysis["tables"]["attempts"][0]
     assert row["technical_outcome"] == ("failed" if failed else "succeeded")
     assert row["workflow_step_order"] == [step["step_id"] for step in result["workflow_result"]["steps"]]

@@ -1,5 +1,26 @@
 # Experiment flow and review diagnostics
 
+## Release-gate compatibility repair - 2026-10-24
+
+- Task / atlas: W02/W07; repair the synthetic API/storage/export contract test.
+- Approved baseline: develop `e31ca18`, reviewed in #88 and promoted by #89.
+- Reproduction: deployment `40126241241` and core publication `40126311234`
+  stop at validation; the full Bench suite reports three failures and 409 passes.
+  All failures expect the API response to equal the raw stored run, omitting
+  the approved computed `continuation` field. No service replacement, image
+  publication or core registration occurs in either failed workflow.
+- Scope: the existing three-case integration test and its evidence records.
+  Require exact stored-field equality plus explicit continuation metadata;
+  verify that reading the API leaves storage unchanged. Check safe rejection
+  reason/field across core HTTP, storage, inspection and JSON/CSV export.
+- Evidence: the three repaired cases and the full 412-test Bench suite pass.
+  Success permits independent work; failure with a skipped selection stops.
+  Every case prohibits replay. Empty review reports `empty_review` at `reply`;
+  a model failure has no fabricated validation detail.
+- Remaining gates: owner-reviewed repair and promotion, fresh hosted validation,
+  authorized core 0.3.6 publication, deployment and live qualification.
+  Product behavior, core build inputs and acceptance statuses are unchanged.
+
 ## Task card - 2026-10-24
 
 - Task / atlas: MA18, W02/W03/W05/W07; bounded prompt Bench handoff.
