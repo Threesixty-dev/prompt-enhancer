@@ -7,6 +7,26 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Stale results after connection loss - 2026-10-24
+
+- Task / atlas scope: W05 presentation, based on reviewed develop `ca1af3a`.
+  A failed refresh left previously rendered results visible with only a generic
+  transport error. The failure was reproduced with a synthetic network abort.
+- Candidate: explicitly label retained results as potentially out of date and
+  offer **Reload to reconnect**. A successful manual or automatic refresh clears
+  the notice. Repeated failures preserve keyboard focus on the reconnect button;
+  late failures from an older route cannot replace the current page's notice.
+- Boundary: existing results, metrics, admission receipts, server execution and
+  authentication policy retain their behavior. Reconnection reads the current
+  run and never resubmits it. The running qualification uses its frozen deployment.
+- Evidence: six desktop/mobile checks cover network failure, a gateway HTML
+  response, an expired JSON session, manual/automatic recovery, reload, preserved
+  measurements, focus, viewport width and zero run submissions. Twenty existing
+  navigation/form/polling checks also pass. JavaScript syntax checks pass.
+- Resource / acceptance boundary: one test worker and an owned loopback fixture
+  server with fictional data. Source review, promotion and deployed verification
+  remain required; general workflow and independent onboarding gates stay open.
+
 ## Stats preview and dedicated charts - 2026-10-14
 
 - Task / atlas scope: correct the Bench homepage and experiment run-list
