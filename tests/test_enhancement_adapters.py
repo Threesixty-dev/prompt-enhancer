@@ -79,10 +79,29 @@ def test_consumer_strict_reply(bad):
         parse_candidate(bad, 20000)
 
 
+@pytest.mark.parametrize("operation", [inference, rubric_inference])
+def test_chat_roles_preserve_transport_cause_without_upstream_details(monkeypatch, operation):
+    from test_litellm import Connection, install
+
+    connection = Connection(status=401, data=b"EXAMPLE_PRIVATE_AUTH_RESPONSE")
+    created = install(monkeypatch, connection)
+    item = consumer_request()
+    payload = {"config": config().model_dump(), "credential": "example-invalid-value",
+        "request": item.model_dump(), "generation_context": context_for(item).model_dump(),
+        "subject": {"text": "Fictional widget request"},
+        "spec": {"evaluator_id": "example", "kind": "rubric", "binding_id": "example",
+                 "rubric": "task_definition"}}
+    with pytest.raises(CoreError) as caught:
+        operation(payload)
+    assert caught.value.code == "gateway_http_unauthorized" and caught.value.uncertain
+    assert "EXAMPLE_PRIVATE_AUTH_RESPONSE" not in str(caught.value)
+    assert len(created) == len(connection.requests) == 1 and connection.closed
+
+
 def test_inference_reuses_gateway_adapter_and_requires_complete_reply(monkeypatch):
     from prompt_enhancer.infrastructure import litellm
     sent = []
-    def chat(settings):
+    def chat(settings, **kwargs):
         def complete(model, body):
             sent.append(json.loads(body))
             return 200, json.dumps({"model": "example-model", "choices": [{"finish_reason": "stop",
@@ -105,7 +124,7 @@ def test_workflow_provider_transports_only_prepared_messages_and_preserves_revie
     from prompt_enhancer.infrastructure import litellm
     sent, worker_inputs = [], []
     reply = '{"notes":"Fictional review without a rewrite."}'
-    def chat(settings):
+    def chat(settings, **kwargs):
         def complete(model, body):
             sent.append(json.loads(body))
             return 200, json.dumps({"model": "example-model", "choices": [{"finish_reason": "stop",
@@ -144,7 +163,7 @@ def test_legacy_generation_context_keeps_its_existing_payload_bound():
 def test_rubric_gateway_is_independent_and_applies_only_evaluation_settings(monkeypatch):
     from prompt_enhancer.infrastructure import litellm
     calls = []
-    def chat(settings):
+    def chat(settings, **kwargs):
         assert settings.reasoning_effort == "none"
         def complete(model, body):
             calls.append(json.loads(body))
@@ -167,7 +186,7 @@ def test_rubric_gateway_is_independent_and_applies_only_evaluation_settings(monk
 ])
 def test_rubric_reasoning_or_invalid_reply_stays_unknown(monkeypatch, finish, content):
     from prompt_enhancer.infrastructure import litellm
-    def chat(settings):
+    def chat(settings, **kwargs):
         return lambda *args: (200, json.dumps({"choices": [{"finish_reason": finish,
             "message": {"role": "assistant", "content": content,
                         "reasoning_content": "Fictional reasoning"}}]}).encode(), "application/json")
@@ -204,7 +223,7 @@ def test_gateway_access_binding_resolves_only_named_credentials_and_keeps_unknow
     with pytest.raises(ValueError, match="gateway_access_credential_invalid"):
         _gateway_access(binding, {})
     captured = []
-    def chat(settings):
+    def chat(settings, **kwargs):
         captured.append(settings)
         return lambda *args: (200, json.dumps({"model": "example-model", "choices": [{
             "finish_reason": "stop", "message": {"role": "assistant", "content": '{"label":"present"}'}}]}).encode(), "application/json")
@@ -489,7 +508,7 @@ def test_changed_objective_and_steering_reach_both_worker_adapters(monkeypatch, 
         operation = openhands
     else:
         messages = []
-        def chat(settings):
+        def chat(settings, **kwargs):
             def complete(model, body):
                 messages.append(json.loads(body)["messages"][1]["content"])
                 return 200, json.dumps({"model": "example-model", "choices": [{"finish_reason": "stop",

@@ -83,6 +83,11 @@ Never clear a hold or replay an uncertain model operation automatically. A
 `cancel` acknowledgement is not confirmed remote stop; observe terminal state and
 cleanup. Operator reconciliation requires evidence of the actual remote stop.
 
+Evaluator-only runs can also call remote models. Inspect uncertainty independently
+of generation bindings; historical versions may leave their reconciliation flag
+unset. Use `docs/bench/gateway-failure-recovery.md` for the versioned diagnostic
+categories and recovery limits. A safe error code is not proof of remote stop.
+
 ## Export and report
 
 Use `export` with explicit unique run IDs/receipts and a new private output

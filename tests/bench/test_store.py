@@ -144,6 +144,26 @@ def test_cancel_queued_and_running_are_distinct(store, publication):
     assert store.cancel(second)["events"] == value["events"]
 
 
+@pytest.mark.parametrize("outcome", ["cancelled-before-start", "restart-before-attempt", "failed", "cancelled", "succeeded"])
+def test_confirmed_or_unadmitted_work_does_not_add_reconciliation_hold(store, publication, outcome):
+    first = store.import_publication(publication)["runId"]
+    if outcome == "cancelled-before-start":
+        store.cancel(first)
+    else:
+        run = store.claim()
+        if outcome == "restart-before-attempt":
+            store.recover()
+        else:
+            for attempt in run["attempts"]:
+                store.attempt_started(first, attempt["id"], {"consumer": None})
+                store.attempt_finished(first, attempt["id"], outcome)
+            store.finish(first, outcome)
+        store.cleanup_confirmed(first)
+    assert not store.run(first)["reconciliation_required"]
+    store.enqueue_ui(publication.definition.stableId, publication.definition.revision, Overrides(), str(uuid4()), first)
+    assert store.claim() is not None
+
+
 def test_invalid_overrides_do_not_enqueue(store, publication):
     store.import_publication(publication)
     for overrides in (Overrides(parameters={"unknown": 1}), Overrides(parameters={"timeout_seconds": True}),

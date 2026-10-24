@@ -2,6 +2,13 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 24 [gateway recovery candidate](../bench/gateway-failure-recovery.md)
+follows a preserved 139-of-240 partial qualification. Proposed core 0.3.5 retains
+safe transport categories; Bench holds uncertain evaluator-only operations.
+575 affected tests and ten desktop/mobile checks supplement MA18/W02/W03/W05/W07.
+Review, release, deployment, complete qualification and independent onboarding
+remain open. Historical observations and acceptance statuses are unchanged.
+
 The October 24 [run-deadline reporting candidate](../bench/run-budgets.md)
 preserves the known cancellation cause without releasing uncertain work. Sixteen
 cause/outcome regressions and 64 affected tests supplement MA18/W02/W07. Source

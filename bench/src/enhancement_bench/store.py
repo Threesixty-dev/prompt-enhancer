@@ -313,11 +313,10 @@ class Store:
     def _finish(self, db, run_id, status, error=None, assertion="unknown"):
         if status == "succeeded" and db.execute("SELECT 1 FROM attempts WHERE run_id=? AND status<>'succeeded'", (run_id,)).fetchone():
             raise BenchError("unfinished_attempts_cannot_succeed", 409)
-        # A workflow step binding can start a remote turn without a legacy consumer.
+        # Evaluators can run remotely even when generation is disabled. An
+        # admitted operation's uncertainty must not be inferred from its binding.
         db.execute("""UPDATE runs SET reconciliation_required=1 WHERE id=? AND EXISTS(
-            SELECT 1 FROM attempts WHERE run_id=? AND status IN ('running','interrupted')
-            AND (json_extract(request,'$.consumer') IS NOT NULL
-                OR json_extract(request,'$.workflow_steps.review.binding') IS NOT NULL))""", (run_id, run_id))
+            SELECT 1 FROM attempts WHERE run_id=? AND status IN ('running','interrupted'))""", (run_id, run_id))
         db.execute("UPDATE runs SET status=?,error_code=?,assertion_outcome=?,finished=? WHERE id=?",
                    (status, error, assertion, time.time(), run_id))
         db.execute("UPDATE attempts SET status=?,error_code=?,finished=? WHERE run_id=? AND status='queued'",

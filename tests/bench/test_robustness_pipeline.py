@@ -203,8 +203,61 @@ def test_step_bound_remote_operation_holds_admission_after_uncertain_stop(store,
         store.attempt_finished(first, run["attempts"][0]["id"], "interrupted", error="core_transport_uncertain")
         store.finish(first, "interrupted")
     store.cleanup_confirmed(first)
-    assert bool(store.run(first)["reconciliation_required"]) == (binding is not None)
-    if binding is not None:
-        assert store.claim() is None
-        store.acknowledge_remote_stopped(first, "example-verified-stop-receipt")
+    assert store.run(first)["reconciliation_required"]
+    assert store.claim() is None
+    store.acknowledge_remote_stopped(first, "example-verified-stop-receipt")
+    assert store.claim() is not None
+
+
+@pytest.mark.parametrize("failed_kind", ["embedding", "classifier", "rerank", "rubric"])
+def test_diagnostics_only_evaluator_uncertainty_holds_replay_and_preserves_result(
+        store, contracts, tmp_path, failed_kind):
+    from enhancement_bench.definitions import BenchError
+
+    definition = experiment("rewrite")
+    definition["units"][0]["stepSettings"] = {}
+    store.register_core_image(CoreImage(schemaVersion="core-release/v1", coreVersion=CORE_VERSION,
+        variant="default", image=IMAGE, buildInputSha256="b" * 64, validatedSourceRevision="c" * 40,
+        action="built", runtimeVerified=True))
+    run_id = store.import_publication(Publication.model_validate({
+        "schemaVersion": "bench-publication/v2", "definition": definition}))["runId"]
+    run = store.claim()
+    attempt = run["attempts"][0]
+    payload = contracts.request(run, attempt)
+    request = ExecuteRequest.model_validate(payload)
+    assert request.consumer is None and not request.workflow_steps
+    events = []
+    providers = {spec.binding_id: RecordingEvaluator(spec.kind, events) for spec in request.evaluation.evaluators}
+
+    async def uncertain(subject, spec):
+        events.append(("evaluation", failed_kind, subject.text))
+        raise CoreError("gateway_io_timeout", uncertain=True)
+
+    providers["example-" + failed_kind].evaluate = uncertain
+    store.attempt_started(run_id, attempt["id"], payload)
+    result = asyncio.run(EnhancementEngine({}, providers).execute(request, lambda _: None))
+    wire = result.model_dump(mode="json")
+    contracts.result(wire, payload, CORE_VERSION)
+    assert result.status == "uncertain" and result.errors[0].code == "gateway_io_timeout"
+    assert result.errors[0].stage == "evaluate_original" and result.after == ()
+    kinds = [spec.kind for spec in request.evaluation.evaluators]
+    assert [event[1] for event in events] == kinds[:kinds.index(failed_kind) + 1]
+    store.attempt_finished(run_id, attempt["id"], "interrupted", wire, error="core_uncertain")
+    store.finish(run_id, "interrupted", error="core_uncertain")
+    store.cleanup_confirmed(run_id)
+    assert store.run(run_id)["reconciliation_required"]
+    with pytest.raises(BenchError, match="retry_requires_reconciled"):
+        store.enqueue_ui(definition["stableId"], definition["revision"], Overrides(), str(uuid4()), run_id)
+    store.enqueue_ui(definition["stableId"], definition["revision"], Overrides(), str(uuid4()))
+    assert store.claim() is None
+    store.acknowledge_remote_stopped(run_id, "example-confirmed-evaluator-stop")
+    retained = store.run(run_id)
+    assert retained["status"] == "interrupted" and retained["attempts"][0]["result"] == wire
+    tables = dataset([validated_run(retained, contracts)])
+    assert tables["tables"]["errors"][0]["code"] == "gateway_io_timeout"
+    assert tables["tables"]["errors"][0]["stage"] == "evaluate_original"
+    assert not tables["tables"]["errors"][0]["retryable"]
+    write_export(tmp_path / "export", tables)
+    with (tmp_path / "export" / "errors.csv").open() as stream:
+        assert list(csv.DictReader(stream))[0]["code"] == "gateway_io_timeout"
     assert store.claim() is not None

@@ -32,7 +32,7 @@ class InferenceRerankEvaluation:
     def __init__(self, config: RerankEvaluatorConfig, credential: SecretStr, *, gateway_access=None):
         self.config, self.credential = config, credential
         self.gateway_access = gateway_access
-        self.provenance = Provenance(provider="litellm", adapter_version="litellm-rerank.v1",
+        self.provenance = Provenance(provider="litellm", adapter_version="litellm-rerank.v2",
             model=config.model, model_revision=config.model_revision, model_license=config.model_license,
             tokenizer_revision=config.tokenizer_revision, metric_version="pair-relevance.v1",
             identity_source="configured")

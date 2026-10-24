@@ -102,6 +102,25 @@ def test_invalid_input_is_rejected_before_connect(monkeypatch, adapter, body):
     assert not connection.connected
 
 
+@pytest.mark.parametrize("kind,operation", [
+    ("embedding", embedding_inference), ("classifier", nli_inference),
+    ("rerank", rerank_inference),
+])
+def test_evaluator_connection_failure_keeps_safe_cause_without_replay(monkeypatch, kind, operation):
+    monkeypatch.setattr(gateway_nli, "input_too_long", lambda *args: False)
+    connection = Connection()
+    def failed_connect():
+        raise TimeoutError("EXAMPLE_PRIVATE_NETWORK_DETAIL")
+    connection.connect = failed_connect
+    created = install(monkeypatch, connection)
+    with pytest.raises(CoreError) as caught:
+        operation(payload(kind))
+    assert caught.value.code == "gateway_connect_timeout"
+    assert caught.value.uncertain is True
+    assert "EXAMPLE_PRIVATE" not in str(caught.value)
+    assert len(created) == 1 and connection.requests == [] and connection.closed
+
+
 def test_vectors_respect_indexes_and_stay_out_of_result(monkeypatch):
     response = {"model": "example-alias", "data": [
         {"index": 1, "embedding": [3., 4.]}, {"index": 0, "embedding": [1., 0.]}]}
@@ -129,7 +148,7 @@ def classifier_reply():
 
 def test_native_nli_keeps_categorical_result_without_inventing_identity(monkeypatch):
     monkeypatch.setattr(gateway_nli, "input_too_long", lambda *args: False)
-    monkeypatch.setattr(litellm, "LiteLLMNli", lambda settings:
+    monkeypatch.setattr(litellm, "LiteLLMNli", lambda settings, **kwargs:
         lambda *args: (200, json.dumps(classifier_reply()).encode(), "application/json"))
     result = nli_inference(payload("classifier"))
     assert result["metric"]["label"] == "entailment" and result["metric"]["value"] is None
@@ -145,7 +164,7 @@ def test_native_nli_keeps_categorical_result_without_inventing_identity(monkeypa
 ])
 def test_nli_partial_duplicate_tied_or_malformed_scores_are_unknown(monkeypatch, reply):
     monkeypatch.setattr(gateway_nli, "input_too_long", lambda *args: False)
-    monkeypatch.setattr(litellm, "LiteLLMNli", lambda settings:
+    monkeypatch.setattr(litellm, "LiteLLMNli", lambda settings, **kwargs:
         lambda *args: (200, json.dumps(reply).encode(), "application/json"))
     result = nli_inference(payload("classifier"))
     assert result["metric"]["state"] == "unknown" and result["metric"]["label"] is None
@@ -262,7 +281,7 @@ def test_core_executes_all_evaluator_types_before_and_after_one_workflow(monkeyp
         "unknown" if oversized_nli else "not_comparable")
     for side in (result.before, result.after):
         nli = next(e for e in side if e.kind == "classifier")
-        assert nli.provenance.adapter_version == "litellm-nli.v2"
+        assert nli.provenance.adapter_version == "litellm-nli.v3"
         if oversized_nli:
             assert nli.metrics[0].state == "unknown" and nli.metrics[0].reason == "input_too_long"
             assert nli.metrics[0].value is None and nli.metrics[0].label is None
