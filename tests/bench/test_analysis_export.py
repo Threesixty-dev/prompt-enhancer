@@ -9,7 +9,7 @@ import os
 from jsonschema import Draft202012Validator
 import pytest
 
-from enhancement_bench.analysis import analysis_schema, dataset, inspect_run, project_run, validated_run, write_export
+from enhancement_bench.analysis import analysis_schema, continuation_decision, dataset, inspect_run, project_run, validated_run, write_export
 from enhancement_bench.errors import BenchError
 from enhancement_bench.private_io import read_json, write_json
 from test_client_worker import make_worker
@@ -38,6 +38,90 @@ def metric_pair(run):
     right.update(state="known", value=0.5, label=None)
     delta.update(state="comparable", value=0.5, reason="same_evaluator")
     return result, left, right, delta
+
+
+def invalid_review_run(run):
+    run['attempts'] = run['attempts'][:1]
+    run['effective']['subjects'] = run['effective']['subjects'][:1]
+    run['effective']['units'] = run['effective']['units'][:1]
+    run.update(status='failed', error_code='core_failed')
+    attempt = run['attempts'][0]
+    attempt['status'] = 'failed'
+    result = attempt['result']
+    result.update(status='failed', candidate=None, enhanced_prompt=None, after=[], deltas=[],
+        consumer_provenance={'provider': 'inference', 'model': 'example-model'},
+        errors=[{'code': 'workflow_review_reply_invalid', 'stage': 'generate', 'retryable': False}],
+        workflow_result={'steps': [{'step_id': step, 'status': status, 'implementation': 'example-step.v1'} for step, status in
+            [('diagnose', 'succeeded'), ('context', 'succeeded'), ('review', 'failed')]],
+            'review': {'state': 'reply_invalid', 'validation_issue': {
+                'reason': 'enum_mismatch', 'field': 'reformulated_elements[1].element'}}})
+    return result
+
+
+def test_invalid_review_diagnostic_matches_inspection_json_and_csv(completed, tmp_path):
+    invalid_review_run(completed)
+    report = inspect_run(completed)
+    assert report['continuation'] == {'decision': 'continue_independent_case',
+        'reason': 'completed_invalid_review', 'replayAllowed': False}
+    assert report['attempts'][0]['errors'][0]['validationIssue'] == {
+        'reason': 'enum_mismatch', 'field': 'reformulated_elements[1].element'}
+    value = dataset([completed])
+    assert value['schemaVersion'] == 'bench-analysis/v2'
+    Draft202012Validator(analysis_schema()).validate(value)
+    write_export(tmp_path / 'analysis', value)
+    row = value['tables']['errors'][0]
+    assert row['validation_reason'] == 'enum_mismatch'
+    assert row['validation_field'] == 'reformulated_elements[1].element'
+    with (tmp_path / 'analysis/errors.csv').open() as stream:
+        exported = next(csv.DictReader(stream))
+    assert exported['validation_reason'] == row['validation_reason']
+    assert exported['validation_field'] == row['validation_field']
+
+
+@pytest.mark.parametrize('defect', ['cleanup', 'reconciliation', 'timeout', 'running', 'missing_result',
+    'missing_provenance', 'extra_error', 'evaluator_error', 'candidate', 'after', 'missing_before', 'contradiction', 'skipped'])
+def test_independent_continuation_requires_complete_safe_evidence(completed, defect):
+    result = invalid_review_run(completed)
+    if defect in {'cleanup', 'reconciliation'}:
+        completed[defect + ('_pending' if defect == 'cleanup' else '_required')] = 1
+    elif defect == 'timeout': completed['error_code'] = 'run_deadline_exceeded'
+    elif defect == 'running': completed['status'] = 'running'
+    elif defect == 'missing_result': completed['attempts'][0]['result'] = None
+    elif defect == 'missing_provenance': result['consumer_provenance'] = None
+    elif defect == 'extra_error': result['errors'].append({'code': 'remote_execution_unconfirmed', 'stage': 'generate'})
+    elif defect == 'evaluator_error': result['before'][0]['metrics'][0]['state'] = 'execution_error'
+    elif defect == 'candidate': result['candidate'] = {'example': True}
+    elif defect == 'after': result['after'] = copy.deepcopy(result['before'])
+    elif defect == 'missing_before': result['before'] = []
+    elif defect == 'contradiction': completed['status'] = 'succeeded'
+    elif defect == 'skipped': completed['attempts'].append({'status': 'skipped', 'result': None})
+    assert continuation_decision(completed)['decision'] == 'stop'
+
+
+def test_historical_review_diagnostic_remains_unknown(completed):
+    result = invalid_review_run(completed)
+    del result['workflow_result']['review']['validation_issue']
+    row = project_run(completed)['errors'][0]
+    assert row['validation_reason'] is row['validation_field'] is None
+
+
+def test_completed_success_allows_independent_cases_without_replay(completed):
+    assert continuation_decision(completed) == {'decision': 'continue_independent_case',
+        'reason': 'completed_successfully', 'replayAllowed': False}
+
+
+@pytest.mark.parametrize('defect', ['missing_before', 'missing_after', 'missing_attempt', 'missing_hold',
+    'malformed_result', 'malformed_metrics', 'contradictory_error'])
+def test_incomplete_or_malformed_success_does_not_advise_continuation(completed, defect):
+    result = completed['attempts'][0]['result']
+    if defect == 'missing_before': result['before'] = []
+    elif defect == 'missing_after': result['after'] = []
+    elif defect == 'missing_attempt': completed['attempts'].pop()
+    elif defect == 'missing_hold': del completed['cleanup_pending']
+    elif defect == 'malformed_result': completed['attempts'][0]['result'] = ['example-invalid']
+    elif defect == 'malformed_metrics': result['before'][0]['metrics'] = None
+    elif defect == 'contradictory_error': completed['error_code'] = 'core_failed'
+    assert continuation_decision(completed)['decision'] == 'stop'
 
 
 def row_for(run):

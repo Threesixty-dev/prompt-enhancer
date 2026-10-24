@@ -159,7 +159,7 @@ or compute cross-run averages automatically.
 The new output directory contains:
 
 - `manifest.json`: `bench-export/v1`, exact run IDs, row counts and file hashes.
-- `analysis.json`: typed `bench-analysis/v1` tables, with nulls preserved.
+- `analysis.json`: typed `bench-analysis/v2` tables, with nulls preserved.
 - `analysis.schema.json` and `README.md`: schema and the bundled data dictionary.
 - `runs.csv`, `attempts.csv`, `metrics.csv`, `assertions.csv`, `timings.csv` and
   `errors.csv`: table views with documented join keys.
@@ -171,6 +171,12 @@ stay null, not zero. Use `pair_eligible` and `comparison_scope`, then group by t
 configuration fields described in the bundled dictionary. Report missing and
 excluded counts with conclusions. Assertion and execution pass rates have
 different denominators.
+
+Analysis v2 adds nullable `validation_reason` and `validation_field` to `errors`.
+They contain only the core's allowlisted review rejection category and schema
+path; historical results retain null. Existing analysis v1 exports remain
+unchanged. Use each export's manifest and bundled schema rather than assuming
+the latest table shape.
 
 Exports omit prompt/context text, rewrites, review notes, target text, raw policy
 instructions and credentials. They retain sensitive derived data, model
@@ -184,6 +190,22 @@ private too. Windows ACL qualification is still required. `manifest.json` is
 written last: a directory without it is incomplete, including after a process
 crash. Use a fresh path after inspecting any incomplete output. File permissions,
 hashes and absent text fields do not make these files safe for public upload.
+
+## Continuing independent cases
+
+The candidate `inspect` result and `GET /api/runs/{id}` share a `continuation`
+object: `decision`, `reason`, and `replayAllowed` (always false). It allows
+`continue_independent_case` only for a settled success or a confirmed completed
+invalid review with complete before evidence and no cleanup/reconciliation hold.
+Other technical failures, skipped selections, missing or contradictory evidence
+return `stop`. This guidance does not change `wait` exit codes, waive preflight,
+verify global model readiness or authorize a retry.
+
+For the next robustness qualification, submit one case and one variant per run,
+keeping a private receipt for each pair. After inspection, preflight the next
+unsubmitted pair and confirm the global queue and holds are clear. Keep failed
+attempts in the cohort. See [experiment flow](experiment-flow.md) for diagrams
+and the exact continuation boundary.
 
 ## Implementation task card - 2026-10-23
 

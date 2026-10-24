@@ -1,5 +1,25 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Explain experiment flows and completed review rejection
+
+Reviewed PRs #86/#87, definition publication and the approved worker/relay rollout
+complete revision-4 prerequisites. Its 15 smoke attempts succeed technically;
+the main cohort stops with five successes, one invalid review, two skipped and
+232 unsubmitted pairs. All 840 smoke/main UI cells and private exports match
+their API records. The response schema reached ACP; strict rejection of a nested
+enum is correct. The completed operation is cleaned and the queue is clear.
+See the [preserved result](bench/robustness-experiment.md#revision-4-live-result---2026-10-24).
+
+The [flow/diagnostics task card](bench/experiment-flow.md) starts from approved
+develop `2e76634`. It proposes core 0.3.6 with allowlisted rejection reason/path,
+Bench inspection/API continuation guidance, analysis v2 error columns and
+definition-driven diagrams for Check, Clarify and Rewrite. One case/variant per
+run allows independent coverage after a confirmed invalid response; uncertain
+or incomplete evidence still stops and never authorizes replay. All 301 core
+and 229 distinct Bench tests plus 38 desktop/mobile checks pass. Source review,
+core publication, deployment, fresh complete qualification and independent
+onboarding remain open. MA18/W02/W03/W05/W07 acceptance statuses are unchanged.
+
 ## 2026-10-24 - Release core 0.3.5 and prepare qualification revision 4
 
 Owner-approved PRs #84/#85 merge the gateway diagnostics and evaluator recovery

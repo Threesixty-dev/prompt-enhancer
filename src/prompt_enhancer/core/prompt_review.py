@@ -11,6 +11,7 @@ from pydantic import Field, SecretStr, ValidationError, field_validator
 from ..domain import StrictModel
 from ..application.model_reply import model_json_object
 from .prompt_evaluation import PromptMetricReading, LanguageDetector
+from .review_validation import ReviewValidationIssue, schema_issue
 
 class ReviewRequestLike(Protocol):
     prior_messages: tuple[PromptCheckMessage, ...]
@@ -212,24 +213,32 @@ def _commentary_input(
 def parse_commentary_reply(text: object, *, prompt_chars: int) -> ModelCommentary | None:
     """Reject malformed suggestions; never manufacture labels, reasons or text."""
 
+    return validate_commentary_reply(text, prompt_chars=prompt_chars)[0]
+
+
+def validate_commentary_reply(text: object, *, prompt_chars: int) -> tuple[ModelCommentary | None, ReviewValidationIssue | None]:
+    """Return the first safe rejection reason while preserving strict acceptance."""
+
     data = model_json_object(text)
-    if data is None or type(prompt_chars) is not int or prompt_chars < 0:
-        return None
+    if data is None:
+        return None, ReviewValidationIssue(reason="invalid_json", field="reply")
+    if type(prompt_chars) is not int or prompt_chars < 0:
+        return None, ReviewValidationIssue(reason="schema_mismatch", field="reply")
     try:
         reply = _CommentaryReply.model_validate(data, strict=True)
-    except ValidationError:
-        return None
+    except ValidationError as error:
+        return None, schema_issue(error)
     if reply.reformulated_prompt is not None and len(reply.reformulated_prompt) > max(prompt_chars * 2 + 2_000, 200):
-        return None
+        return None, ReviewValidationIssue(reason="rewrite_too_long", field="reformulated_prompt")
     if not (reply.findings or reply.reformulated_prompt or reply.reformulated_elements or reply.notes):
-        return None
+        return None, ReviewValidationIssue(reason="empty_review", field="reply")
     return ModelCommentary(
         state="ok",
         findings=tuple(sorted(reply.findings, key=lambda finding: _SEVERITY_ORDER[finding.severity])),
         reformulated_prompt=reply.reformulated_prompt,
         reformulated_elements=tuple(reply.reformulated_elements),
         notes=reply.notes,
-    )
+    ), None
 
 def infer_context(
     prompt_text: str, prior: tuple[PromptCheckMessage, ...], readings: tuple[PromptMetricReading, ...],

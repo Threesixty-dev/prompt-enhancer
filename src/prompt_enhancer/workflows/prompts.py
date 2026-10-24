@@ -11,7 +11,7 @@ from pydantic import Field, model_validator
 from ..core.clarification import clarify_prompt
 from ..core.prompt_evaluation import PROMPT_METRIC_KEYS
 from ..core.prompt_review import (
-    ModelCommentary, _CommentaryReply, _commentary_input, infer_context, parse_commentary_reply,
+    ModelCommentary, _CommentaryReply, _commentary_input, infer_context, validate_commentary_reply,
 )
 from ..core.prompt_rewrite import REWRITE_INSTRUCTION, parse_candidate
 from ..enhancement.contracts import (
@@ -134,9 +134,11 @@ class PromptWorkflowRunner:
                         raise
                     review = ModelCommentary(state="model_error", prompt_version=call.policy_version)
                 else:
-                    review = parse_commentary_reply(response.text, prompt_chars=len(text)) or ModelCommentary(state="reply_invalid")
+                    parsed, issue = validate_commentary_reply(response.text, prompt_chars=len(text))
+                    review = parsed or ModelCommentary(state="reply_invalid")
                     provenance, output = response.provenance, review.reformulated_prompt
-                    review = WorkflowCommentary.model_validate(review.model_dump() | {"model_alias": provenance.model, "prompt_version": call.policy_version,
+                    review = WorkflowCommentary.model_validate(review.model_dump() | {"validation_issue": issue,
+                        "model_alias": provenance.model, "prompt_version": call.policy_version,
                         "model_revision": provenance.model_revision, "model_license": provenance.model_license,
                         "adapter_version": provenance.adapter_version,
                         "inference_provider": "litellm" if binding.provider == "inference" else "openhands_acp",

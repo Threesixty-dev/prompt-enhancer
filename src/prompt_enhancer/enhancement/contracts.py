@@ -8,6 +8,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 from . import CORE_VERSION, PROTOCOL_VERSION
 from ..core.prompt_evaluation import PromptMetricReading
 from ..core.prompt_review import ContextInference, ModelCommentary
+from ..core.review_validation import ReviewValidationIssue
 
 Identifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")]
 
@@ -291,6 +292,7 @@ class WorkflowStepReceipt(WireModel):
 
 class WorkflowCommentary(ModelCommentary):
     inference_provider: Literal["local", "litellm", "openhands_acp"] = "local"
+    validation_issue: ReviewValidationIssue | None = None
 
 
 class WorkflowReceipt(WireModel):

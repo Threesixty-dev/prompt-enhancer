@@ -22,6 +22,7 @@ def test_client_deep_links_serve_the_shell(store, contracts, path):
         assert response.headers["Cache-Control"] == "no-store"
         assert client.get("/assets/forms.js").status_code == 200
         assert client.get("/assets/overview.js").status_code == 200
+        assert client.get("/assets/flow.js").status_code == 200
         assert client.get("/assets/missing.js").status_code == 404
 
 
@@ -62,6 +63,21 @@ def test_api_gateway_origin_validation_and_private_errors(store, publication, co
         assert response.json()["effective"]["subjects"][0]["text"] == publication.definition.subjects[0].text
         assert response.headers["Cache-Control"] == "no-store"
         assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+        assert response.json()["continuation"]["decision"] == "stop"
+
+
+def test_completed_api_run_and_inspection_share_continuation(store, publication, contracts, result_template):
+    from enhancement_bench.analysis import inspect_run
+    from test_client_worker import make_worker
+
+    run_id = store.import_publication(publication)["runId"]
+    worker, _, _ = make_worker(store, contracts, result_template)
+    worker.step()
+    with client_for(store, contracts) as client:
+        value = client.get(f"/api/runs/{run_id}").json()
+    assert value["continuation"] == inspect_run(store.run(run_id))["continuation"]
+    assert value["continuation"] == {"decision": "continue_independent_case",
+        "reason": "completed_successfully", "replayAllowed": False}
 
 
 @pytest.mark.parametrize("headers", [{}, {"Origin": "null"}, {"Origin": "https://example.com"}])

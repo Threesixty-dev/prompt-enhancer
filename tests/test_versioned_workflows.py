@@ -21,6 +21,21 @@ from prompt_enhancer.workflows.session_links import SessionLinksWorkflow
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize('workflow_id,version', [('prompt-check', '1.1.0'), ('prompt-rewrite', '2.1.0'), ('prompt-clarify', '2.1.0')])
+def test_invalid_review_enum_retains_safe_diagnostic_and_partial_evidence(workflow_id, version):
+    model = Model(json.dumps({'reformulated_elements': [
+        {'element': 'goal', 'suggested': 'Example goal.'},
+        {'element': 'ambiguity', 'suggested': 'EXAMPLE_RAW_RESPONSE_CANARY'},
+    ]}))
+    result = asyncio.run(engine(model).execute(request(workflow_id, version=version), lambda _: None))
+    assert result.status == 'failed' and result.errors[0].code == 'workflow_review_reply_invalid'
+    assert result.workflow_result.review.validation_issue.model_dump() == {
+        'reason': 'enum_mismatch', 'field': 'reformulated_elements[1].element'}
+    assert [step.status for step in result.workflow_result.steps] == ['succeeded', 'succeeded', 'failed']
+    assert result.before and not result.after and not result.deltas and result.candidate is None
+    assert 'EXAMPLE_RAW_RESPONSE_CANARY' not in result.model_dump_json()
+
+
 def request(workflow_id="prompt-rewrite", *, version="1.1.0", **changes):
     definition = next(item for item in WORKFLOWS if item.workflow_id == workflow_id and item.version == version)
     value = json.loads((ROOT / "contracts/enhancement/examples/script-request.json").read_text())
