@@ -10,9 +10,10 @@ focused Bench tests, privacy scanning and JavaScript syntax validation. Coolify
 builds the image once from a commit-pinned Git context using its host Docker layer
 cache. There is no image registry, package publication or registry credential.
 Coolify v4.3.23's service-application API replaces only `bench-api` with
-`compose up --no-deps --build`. Two fresh local readiness receipts must report
-the source commit baked into the image while Coolify reports the API healthy. The Action does not wait for the
-broad desktop quality workflow.
+`compose up --no-deps --build`. The deployment job checks the exact image and
+container health. A dependent job then makes two fresh authenticated requests to
+Bench and verifies its baked source revision. Both jobs must succeed. The Action
+does not wait for the broad desktop quality workflow.
 
 ## Configuration
 
@@ -23,6 +24,8 @@ broad desktop quality workflow.
 | `BENCH_COOLIFY_API_UUID` | Repository variable | Its `bench-api` application |
 | `COOLIFY_TOKEN` | `production` environment secret | Existing scoped management access |
 | `COOLIFY_ACCESS_CLIENT_ID`, `COOLIFY_ACCESS_CLIENT_SECRET` | `production` environment secrets | Controller gateway access |
+| `BENCH_DELIVERY_URL` | Existing `bench-publication` variable | Protected Bench HTTPS origin |
+| `BENCH_CF_ACCESS_CLIENT_ID`, `BENCH_CF_ACCESS_CLIENT_SECRET` | Existing `bench-publication` environment secrets | Bench gateway access for read-only readiness checks |
 
 One-time setup: add this build configuration to the existing `bench-api` Compose
 entry, substituting the public repository and initial full commit SHA. Preserve
@@ -47,28 +50,30 @@ fails deployment instead of guessing a source configuration. The build context
 and revision argument must reference the same variable. The host must be able to
 fetch the public repository and the pinned base images and dependencies.
 
-## Readiness through the controller
+## Readiness through separate credential boundaries
 
-The public gateway policy is unchanged. Deployment makes no request to the public
-Bench origin and does not use the Experiment publication gateway credentials.
-The existing container healthcheck requests `/health/ready` over loopback. After
-a successful local request, the API emits only `BENCH_READY_V1`, its baked source
-commit and a millisecond timestamp. Remote requests, rejected requests and builds
-without a full commit SHA cannot produce a receipt. No request data is logged.
+The `production` job uses controller credentials only. It requires two consecutive
+observations of the selected API image with `running:healthy` status. It reads
+resource metadata without requesting container logs or sensitive-read privileges.
 
-The Action checks the exact API application's image setting and `running:healthy`
-status, then requests at most 20 log lines through Coolify's existing authenticated
-service-application API. It accepts only complete, strictly formatted receipts
-for the expected source revision, created after deployment began and within 90
-seconds of the current time (with five seconds of forward clock tolerance).
-Two distinct receipts across healthy observations are required; replaying one
-line cannot pass. An unhealthy observation resets the consecutive-check count.
-Controller and host clocks must be synchronized. Raw log bodies are never printed
-or saved as artifacts. Controller redirects and authorization failures fail early.
+The dependent `bench-publication` job uses the same protected Bench origin and
+gateway credentials as the existing publication workflows. Controller credentials
+are absent from this job. It performs only `GET /health/ready`, requiring two
+consecutive JSON responses with `ready: true`, schema `bench.v1` and the exact
+expected source revision. Each request has a unique query value and requests
+cache revalidation; responses must declare `no-store` and have no positive cache
+age. The response size is bounded to 4096 bytes. Response bodies and credentials
+are never printed or saved as artifacts.
 
-This proves the local API responds from the expected image. It does not claim to
-test the public gateway/browser path. No authentication policy, public exposure,
-credential, application token or host terminal access is added.
+Both checks have a five-minute observation limit. An unhealthy observation resets
+the consecutive count. Redirects and authorization failures fail immediately;
+TLS verification and the existing gateway policy remain required. A verifier-only
+retry observes the existing deployment without starting another build.
+
+This proves image health and the serving revision through the authenticated Bench
+HTTP path. It does not qualify the worker, a model, or a browser interaction. The
+existing local readiness log receipt remains available for bounded operator
+diagnostics but is not an Action dependency.
 
 ## Scope and failure recovery
 
@@ -78,8 +83,8 @@ Backend changes reconciled in the integration are retained in source; a future
 worker/consumer release must still use the corresponding deployment recipe.
 Replacing the worker also requires replacing its relay.
 
-A queued build is not success. If the exact revision is not healthy within five
-minutes the Action fails. Inspect the selected container privately; correct source
+A queued build is not success. If either bounded health check fails, the Action
+fails even if the container already started. Inspect the selected container privately; correct source
 or container health configuration, then rerun the Action. No automatic rollback or volume
 deletion occurs. To roll back code, revert through the normal PR flow and deploy
 the resulting main commit. A manual dispatch from another branch cannot deploy.
@@ -89,3 +94,18 @@ layers stay cached between builds; UI edits do not reinstall unchanged packages.
 The Action does not rebuild model weights, the consumer or the desktop application.
 For local packaging checks, `scripts/smoke_bench_image.py` still exercises a built
 image with an empty synthetic database; it is not a redundant deployment build.
+
+## Readiness verification correction - 2026-10-24
+
+- Task / atlas scope: bounded deployment verification, R26 and W02/W07.
+- Baseline: reviewed develop `68761fc`; the core 0.3.3 promotion is a separate PR.
+- Reproduction: controller log access can return HTTP 403 after a deployment
+  starts successfully. A valid deployment token need not permit sensitive logs.
+- Change: retain image-health checks and verify the serving revision through the
+  existing protected Bench readiness API with credentials scoped to its job.
+- Evidence: 123 affected deployment tests pass across the main and focused
+  loopback runs. They cover wrong revisions, malformed/oversized/cached responses,
+  consecutive health, access denial, redirect isolation and workflow dependencies.
+- Boundaries: no model run, token change or permission expansion. Source review,
+  promotion and hosted verification of the revised workflow remain open; general
+  release and real-model acceptance statuses are unchanged.

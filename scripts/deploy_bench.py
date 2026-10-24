@@ -1,19 +1,22 @@
 """Deploy only the Bench API Compose application through the Coolify API.
 
-No runtime configuration or log bodies are printed. Existing controller access
-verifies fresh local readiness receipts and container health without changing the
-public gateway. Redirects and proxies are disabled.
+No runtime configuration or log bodies are read or printed. Controller metadata
+verifies the selected container; the protected Bench readiness endpoint verifies
+the serving revision with separate gateway credentials. Redirects and proxies
+are disabled.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
 import time
 import urllib.error
 import urllib.request
+from uuid import uuid4
 
 from deploy_coolify import HTTP_CLIENT_HEADERS, NoRedirect, access_headers, checked_url, controller_json
 
@@ -79,42 +82,50 @@ def deploy(env, client):
     return started_ms
 
 
-def ready_receipt(env, client, *, not_before_ms, now_ms):
-    url, headers, current = inspect_target(env, client)
-    if current.get("image") != image_ref(env) or current.get("status") != "running:healthy":
-        return None
-    result = controller_json(client, url + "/logs?lines=20", headers)
-    logs = result.get("logs")
-    if not isinstance(logs, str):
-        return None
-    receipts = []
-    for line in logs.splitlines():
-        match = re.fullmatch(r"BENCH_READY_V1 revision=([a-f0-9]{40}) time_ms=([0-9]{13})", line)
-        if match and match[1] == revision(env):
-            timestamp = int(match[2])
-            if max(not_before_ms, now_ms - 90_000) <= timestamp <= now_ms + 5_000:
-                receipts.append(timestamp)
-    return max(receipts, default=None)
+def controller_ready(env, client):
+    _, _, current = inspect_target(env, client)
+    return current.get("image") == image_ref(env) and current.get("status") == "running:healthy"
 
 
-def verify(env, client, *, not_before_ms=None, monotonic=time.monotonic,
-           sleep=time.sleep, wall_time_ns=time.time_ns):
-    controller(env)
-    if not_before_ms is None:
-        not_before_ms = wall_time_ns() // 1_000_000
-    deadline, consecutive, last_receipt = monotonic() + 300, 0, None
+def bench_connection(env):
+    revision(env)
+    origin = checked_url(env.get("BENCH_DELIVERY_URL", ""), webhook=False)
+    return origin, {**HTTP_CLIENT_HEADERS, **access_headers(env, "BENCH_CF", required=True),
+                    "Cache-Control": "no-cache"}
+
+
+def bench_ready(env, client):
+    origin, headers = bench_connection(env)
+    # A unique request plus no-store responses avoids accepting cached readiness.
+    request = urllib.request.Request(origin + "/health/ready?check=" + uuid4().hex, headers=headers)
+    with client.open(request, timeout=30) as response:
+        if (response.status != 200
+                or response.headers.get("Content-Type", "").split(";", 1)[0] != "application/json"
+                or "no-store" not in {p.strip() for p in response.headers.get("Cache-Control", "").lower().split(",")}
+                or response.headers.get("Age", "0") != "0"):
+            return False
+        payload = response.read(4097)
+    if len(payload) > 4096:
+        return False
+    try:
+        result = json.loads(payload)
+    except ValueError:
+        return False
+    return (isinstance(result, dict) and result.get("ready") is True
+            and result.get("schemaVersion") == "bench.v1" and result.get("revision") == revision(env))
+
+
+def verify(env, client, *, public=False, monotonic=time.monotonic, sleep=time.sleep):
+    bench_connection(env) if public else controller(env)
+    check = bench_ready if public else controller_ready
+    deadline, consecutive = monotonic() + 300, 0
     while monotonic() < deadline:
         try:
-            receipt = ready_receipt(env, client, not_before_ms=not_before_ms,
-                                    now_ms=wall_time_ns() // 1_000_000)
-            if receipt is None:
-                consecutive = 0
-            elif last_receipt is None or receipt > last_receipt:
-                consecutive += 1
-                last_receipt = receipt
-                if consecutive >= 2:
-                    print("The expected Bench source revision passed two fresh local health checks.")
-                    return
+            consecutive = consecutive + 1 if check(env, client) else 0
+            if consecutive >= 2:
+                print("The expected Bench source revision passed two protected readiness checks." if public
+                      else "The expected Bench image passed two controller health checks.")
+                return
         except urllib.error.HTTPError as error:
             if error.code in {301, 302, 303, 307, 308, 401, 403, 404}:
                 raise
@@ -127,7 +138,7 @@ def verify(env, client, *, not_before_ms=None, monotonic=time.monotonic,
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["check-controller", "deploy", "verify"])
+    parser.add_argument("mode", choices=["check-controller", "deploy", "verify", "verify-bench"])
     mode = parser.parse_args(argv).mode
     try:
         client = opener()
@@ -135,10 +146,10 @@ def main(argv=None):
             inspect_target(os.environ, client)
             print("The configured target is the Bench API container.")
         elif mode == "deploy":
-            started_ms = deploy(os.environ, client)
-            verify(os.environ, client, not_before_ms=started_ms)
-        else:
+            deploy(os.environ, client)
             verify(os.environ, client)
+        else:
+            verify(os.environ, client, public=mode == "verify-bench")
     except urllib.error.HTTPError as error:
         # Status is useful for policy diagnosis; URLs, headers and bodies are not.
         print(f"Bench deployment step failed: {mode} (HTTP {error.code}).", file=sys.stderr)
