@@ -10,6 +10,7 @@ from pydantic import SecretStr, model_validator
 from .adapters import ConsumerConfig, _access_payload
 from .contracts import Evaluation, Evaluator, Metric, Provenance, Subject
 from .ports import CoreError
+from .nli_tokenizer import input_too_long
 from .process import run_worker
 from ..infrastructure.text_models.manifests import TEXT_MODEL_MANIFESTS, TextModelTask
 
@@ -36,7 +37,7 @@ class InferenceClassifierEvaluation:
     def __init__(self, config: ClassifierEvaluatorConfig, credential: SecretStr, *, gateway_access=None):
         self.config, self.credential = config, credential
         self.gateway_access = gateway_access
-        self.provenance = Provenance(provider="litellm", adapter_version="litellm-nli.v1",
+        self.provenance = Provenance(provider="litellm", adapter_version="litellm-nli.v2",
             model=config.model, model_revision=config.model_revision, model_license=config.model_license,
             tokenizer_revision=config.tokenizer_revision, metric_version="typed-text.v1",
             identity_source="configured")
@@ -89,6 +90,8 @@ def nli_inference(payload):
     spec, subject = Evaluator.model_validate(payload["spec"]), Subject.model_validate(payload["subject"])
     if spec.kind != "classifier" or spec.generation is not None:
         raise CoreError("evaluator_kind_mismatch")
+    if input_too_long(TEXT_MODEL_MANIFESTS[config.manifest_key], subject.text, spec.target):
+        return {"metric": Metric(key="nli.label", state="unknown", reason="input_too_long").model_dump()}
     settings = LiteLLMSettings(base_url=config.endpoint, model=config.model,
         credential=SecretStr(payload["credential"]), model_revision=config.model_revision,
         model_license=config.model_license, **payload.get("gateway_access", {}))

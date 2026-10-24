@@ -52,6 +52,7 @@ analysis cohort and retain the effective settings with the private results.
 | Assertion `failed` | A measured result missed a declared threshold. | An experimental finding; do not relabel it as infrastructure failure. |
 | Assertion `unknown` / `not_evaluated` | Required comparison evidence is unavailable / checks were not run. | Exclude from pass-rate denominators and report the exclusion count and reason. |
 | Metric `known` with numeric zero | A measured zero. | Retain zero in eligible numeric calculations. |
+| Metric `unknown` / `input_too_long` | The pinned evaluator cannot accept the complete input; it was not invoked for that reading. | Report the exclusion and reason. Select a reviewed compatible evaluator or explicitly revise the experiment input; do not silently truncate or impute a score. |
 | Metric `unknown`, `abstained`, `not_applicable`, `execution_error`, or missing | Distinct reasons a numeric value is unavailable. | Report coverage and reasons; never impute zero. |
 | Categorical metric | A label, with a before/after transition when both are known. | Count labels/transitions; do not compute a numeric delta. |
 

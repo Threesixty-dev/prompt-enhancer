@@ -2961,9 +2961,13 @@ desktop = [
 dev = [
     { name = "huggingface-hub" },
     { name = "pytest" },
+    { name = "tokenizers" },
 ]
 enhancement-acp = [
     { name = "openhands-sdk", marker = "python_full_version >= '3.12'" },
+]
+enhancement-tokenizers = [
+    { name = "tokenizers" },
 ]
 models = [
     { name = "accelerate" },
@@ -2995,11 +2999,13 @@ requires-dist = [
     { name = "regex", specifier = "==2026.7.19" },
     { name = "safetensors", marker = "extra == 'models'", specifier = ">=0.8,<1" },
     { name = "sentencepiece", marker = "extra == 'models'", specifier = ">=0.2.2,<1" },
+    { name = "tokenizers", marker = "extra == 'dev'", specifier = "==0.22.2" },
+    { name = "tokenizers", marker = "extra == 'enhancement-tokenizers'", specifier = "==0.22.2" },
     { name = "torch", marker = "extra == 'models'", specifier = ">=2.8,<2.9" },
     { name = "transformers", marker = "extra == 'models'", specifier = ">=4.57.6,<5" },
     { name = "uvicorn", specifier = ">=0.35,<1" },
 ]
-provides-extras = ["enhancement-acp", "dev", "models", "desktop"]
+provides-extras = ["enhancement-tokenizers", "enhancement-acp", "dev", "models", "desktop"]
 
 [[package]]
 name = "propcache"

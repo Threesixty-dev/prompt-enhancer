@@ -6,10 +6,11 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 ARG ENHANCEMENT_WITH_MODELS=0
 RUN if [ "$ENHANCEMENT_WITH_MODELS" = "1" ]; then \
-      uv sync --frozen --no-dev --extra enhancement-acp --extra models --no-editable; \
+      uv sync --frozen --no-dev --extra enhancement-acp --extra enhancement-tokenizers --extra models --no-editable; \
     elif [ "$ENHANCEMENT_WITH_MODELS" = "0" ]; then \
-      uv sync --frozen --no-dev --extra enhancement-acp --no-editable; \
+      uv sync --frozen --no-dev --extra enhancement-acp --extra enhancement-tokenizers --no-editable; \
     else exit 1; fi
+RUN .venv/bin/python -m prompt_enhancer.enhancement.nli_tokenizer --stage
 
 FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS runtime
 WORKDIR /opt/enhancement
