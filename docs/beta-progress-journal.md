@@ -1,5 +1,17 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Repair the full Bench compatibility gate
+
+Owner-approved PRs #88/#89 merge the flow diagrams and review diagnostics.
+Deployment `40126241241` and core publication `40126311234` stop before runtime
+changes: the full Bench suite finds three stale response-equality expectations
+missed by the earlier 229-test selection. The [bounded repair](bench/experiment-flow.md#release-gate-compatibility-repair---2026-10-24)
+retains exact stored-result equality, separately asserts computed continuation,
+and verifies safe rejection details through HTTP, storage, inspection and
+JSON/CSV export. All 412 Bench tests pass locally. Repair review/promotion,
+hosted validation, the authorized core 0.3.6 publication, deployment and complete
+live qualification remain open. Acceptance statuses are unchanged.
+
 ## 2026-10-24 - Explain experiment flows and completed review rejection
 
 Reviewed PRs #86/#87, definition publication and the approved worker/relay rollout
