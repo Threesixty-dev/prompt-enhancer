@@ -1,5 +1,6 @@
 import copy
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -146,6 +147,71 @@ def test_cleanup_failure_holds_admission_until_recovery(store, publication, cont
     runtime.fail_cleanup = False
     worker.reconcile()
     assert not store.run(run_id)["cleanup_pending"]
+
+
+@pytest.mark.parametrize("terminal", ["uncertain", "cancelled", "timed_out", "failed"])
+@pytest.mark.parametrize("trigger", ["deadline", "user", "user_crosses_deadline", "core"])
+def test_run_deadline_cause_preserves_core_result_and_recovery_state(
+        store, publication, contracts, result_template, monkeypatch, terminal, trigger):
+    import enhancement_bench.worker as worker_module
+
+    first = copy.deepcopy(publication.definition.units[-1])
+    sibling = copy.deepcopy(first)
+    sibling.id = "example-pending"
+    publication.definition.units = [first, sibling]
+    run_id = store.import_publication(publication)["runId"]
+    worker, core, runtime = make_worker(store, contracts, result_template, run_seconds=1)
+    clock = SimpleNamespace(value=0.0)
+    monkeypatch.setattr(worker_module, "time", SimpleNamespace(
+        monotonic=lambda: clock.value, sleep=lambda seconds: None))
+    core.keep_running = True
+    handle = core.handle
+    delayed_cancellation = False
+
+    def complete_after_cancellation(request):
+        nonlocal delayed_cancellation
+        response = handle(request)
+        path = request.url.path
+        if path == "/v1/executions":
+            if trigger == "deadline":
+                clock.value = 2.0
+            elif trigger.startswith("user"):
+                store.cancel(run_id)
+        if (trigger == "user_crosses_deadline" and core.cancelled and not delayed_cancellation
+                and request.method == "GET" and not path.endswith("/result")):
+            delayed_cancellation = True
+            clock.value = 2.0
+            return response
+        if (path.startswith("/v1/executions") and request.method != "DELETE"
+                and not path.endswith("/cancel") and (core.cancelled or trigger == "core")):
+            value = response.json()
+            value["status"] = terminal
+            if path.endswith("/result"):
+                value["errors"] = [{"code": "remote_execution_unconfirmed", "stage": "generate",
+                                    "retryable": False, "operation_id": None}] if terminal == "uncertain" else []
+            else:
+                value.update(stage="finished", result_available=True)
+            return httpx.Response(response.status_code, json=value)
+        return response
+
+    worker.client_factory = lambda endpoint, c: CoreClient(
+        endpoint, c, transport=httpx.MockTransport(complete_after_cancellation))
+    assert worker.step()
+    run = store.run(run_id)
+    expected_status = {"uncertain": "interrupted", "timed_out": "failed"}.get(terminal, terminal)
+    assert run["status"] == expected_status
+    assert run["error_code"] == ("run_deadline_exceeded" if trigger == "deadline" else "core_" + terminal)
+    assert run["attempts"][0]["status"] == expected_status
+    assert run["attempts"][0]["result"]["status"] == terminal
+    assert run["attempts"][1]["status"] == ("cancelled" if terminal == "cancelled" else "skipped")
+    assert bool(run["reconciliation_required"]) == (terminal == "uncertain")
+    assert not run["cleanup_pending"]
+    assert len(core.requests) == len(core.deleted) == len(runtime.cleaned) == 1
+    assert len(core.cancelled) == (0 if trigger == "core" else 1)
+    assert delayed_cancellation == (trigger == "user_crosses_deadline")
+    if terminal == "uncertain":
+        assert run["attempts"][0]["result"]["errors"][0]["code"] == "remote_execution_unconfirmed"
+        assert not worker.step()
 
 
 def test_uncertain_result_keeps_hold_when_retention_delete_fails(store, publication, contracts, result_template):

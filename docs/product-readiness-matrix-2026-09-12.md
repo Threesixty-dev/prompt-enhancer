@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Whole-run deadline reporting candidate - 2026-10-24
+
+The [bounded reporting correction](bench/run-budgets.md) retains the known cause
+of worker-initiated deadline cancellation while preserving uncertain core
+results, attempt dispositions and reconciliation requirements. Four failing-before
+regressions and 64 passing worker/storage/export tests provide bounded evidence,
+including user cancellation that crosses the deadline without being mislabeled.
+The current run remains on its frozen worker; source review, deployment, complete
+qualification and independent onboarding remain open. MA18/W02/W07 acceptance
+statuses are unchanged.
+
 ## Core 0.3.4 partial qualification and stale-result candidate - 2026-10-24
 
 The [revision-3 live result](bench/robustness-experiment.md#revision-3-live-result---2026-10-24)

@@ -1,5 +1,21 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Preserve the whole-run deadline cause
+
+The [deadline reporting candidate](bench/run-budgets.md) starts from reviewed
+develop `ca1af3a`. A frozen qualification run reaches its 1,800-second whole-run
+limit after 56 successful attempts, but the reported core uncertainty obscures
+why cancellation began. Confirmed stop permits deliberate recovery in smaller
+batches while preserving that interrupted history.
+
+The worker candidate records its deadline cancellation cause while preserving
+the core result, attempt status, cleanup and reconciliation hold. Four cases
+fail before the fix; all 64 affected worker/storage/export tests pass afterward,
+including 16 deadline/user/core cause and terminal-outcome regressions. Client
+and operator guidance now distinguish whole-run, attempt and observation limits.
+Source review, worker deployment, complete qualification and independent
+onboarding remain open. No acceptance status changes.
+
 ## 2026-10-24 - Qualify smoke, preserve a main interruption and clarify stale results
 
 PRs #79/#80 and Publish Experiments `40098767343` deliver revision 3 with exact

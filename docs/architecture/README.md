@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 24 [run-deadline reporting candidate](../bench/run-budgets.md)
+preserves the known cancellation cause without releasing uncertain work. Sixteen
+cause/outcome regressions and 64 affected tests supplement MA18/W02/W07. Source
+review, worker deployment and independent onboarding remain open; the running
+qualification keeps its frozen deployment. Acceptance statuses are unchanged.
+
 The October 24 [partial qualification](../bench/robustness-experiment.md#revision-3-live-result---2026-10-24)
 records 15 successful technical smoke attempts and verified UI/export evidence,
 followed by a preserved main-run interruption and confirmed remote-stop recovery.
