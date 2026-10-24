@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 24 [run-deadline reporting candidate](../bench/run-budgets.md)
+preserves the known cancellation cause without releasing uncertain work. Sixteen
+cause/outcome regressions and 64 affected tests supplement MA18/W02/W07. Source
+review, worker deployment and independent onboarding remain open; the running
+qualification keeps its frozen deployment. Acceptance statuses are unchanged.
+
 The October 24 [core 0.3.4 qualification revision](../bench/robustness-experiment.md#revision-3-task-card---2026-10-24)
 records the reviewed ACP correction's completed release and registration. New
 revision-3 definitions preserve the cases and settings while pinning that exact

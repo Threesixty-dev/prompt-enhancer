@@ -118,6 +118,7 @@ class Worker:
                 progress = client.submit(request)
                 sequence, cancellation_deadline = -1, None
                 timed_out = False
+                deadline_cancelled = False
                 while True:
                     if progress["sequence"] < sequence:
                         raise BenchError("core_progress_regressed")
@@ -127,8 +128,10 @@ class Worker:
                         break
                     now = time.monotonic()
                     timed_out = timed_out or now >= deadline
-                    if (self._cancel_requested(run["id"]) or timed_out) and cancellation_deadline is None:
+                    cancel_requested = self._cancel_requested(run["id"])
+                    if (cancel_requested or timed_out) and cancellation_deadline is None:
                         client.cancel(request)
+                        deadline_cancelled = timed_out and not cancel_requested
                         cancellation_deadline = now + self.cancel_seconds
                     if cancellation_deadline is not None and now >= cancellation_deadline:
                         raise BenchError("core_cancellation_unconfirmed")
@@ -145,7 +148,7 @@ class Worker:
                 client.forget(request)
                 if status != "succeeded":
                     state = status
-                    code = "core_" + result["status"]
+                    code = "run_deadline_exceeded" if deadline_cancelled else "core_" + result["status"]
                     break
                 if timed_out:
                     state, code = "failed", "run_deadline_exceeded"

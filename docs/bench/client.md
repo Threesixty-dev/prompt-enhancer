@@ -65,6 +65,12 @@ liveness, provider authentication and model readiness explicitly remain
 `unverified`. Preflight makes no model call, queues no run, reserves no capacity
 and cannot guarantee later execution. Resolve rejected settings before admission.
 
+Preflight does not check the worker's whole-run deadline. Read
+[run budgets](run-budgets.md) before selecting a large batch. The current worker
+default is 1,800 seconds for the entire run, independently of each attempt's
+timeout. Split selections and keep a receipt for each run; allow startup and
+cleanup headroom within the verified deployed limit.
+
 `--subject` and `--unit` may be repeated. `--overrides authored-overrides.json`
 accepts the API's overrides object, including supported parameter/model/policy
 settings. Do not select the same field both in that file and with a selection

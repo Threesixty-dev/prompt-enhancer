@@ -38,6 +38,12 @@ requests and registered artifact only. Worker, provider authentication and model
 readiness remain unverified. A successful API request does not qualify an
 embedding, rerank or generation route.
 
+Check the deployed whole-run budget before batching. It is independent of each
+attempt's timeout, and preflight does not verify that the batch fits. Split work
+into bounded selections with private receipts, leaving headroom for startup and
+cleanup. Use `docs/bench/run-budgets.md`; never increase timeouts to conceal an
+unexplained interruption or replay an uncertain attempt without confirmed stop.
+
 Keep generation and evaluator bindings separate. Resolve aliases through approved
 metadata; never invent an alias, digest, revision or license. A v2 revision fixes
 the workflow, core image and harness evaluation. Selecting a different pin needs
