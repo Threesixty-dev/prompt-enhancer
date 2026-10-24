@@ -14,6 +14,24 @@ from pydantic import Field
 from ..domain import StrictModel
 
 
+INFERENCE_TRANSPORT_ERROR_CODES = frozenset({
+    "gateway_request_invalid", "gateway_tls_failed", "gateway_connect_timeout",
+    "gateway_connect_failed", "gateway_io_timeout", "gateway_io_failed",
+    "gateway_protocol_error", "gateway_http_redirect", "gateway_http_unauthorized",
+    "gateway_http_forbidden", "gateway_http_rate_limited", "gateway_http_client_error",
+    "gateway_http_server_error", "gateway_http_unexpected_status",
+    "gateway_route_mismatch", "gateway_response_too_large",
+})
+
+
+class InferenceTransportError(Exception):
+    """A fixed diagnostic category, never an upstream message or response."""
+
+    def __init__(self, code: str):
+        self.code = code if code in INFERENCE_TRANSPORT_ERROR_CODES else "gateway_protocol_error"
+        super().__init__(self.code)
+
+
 class InferenceModel(StrictModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
     name: str = Field(min_length=1, max_length=120)

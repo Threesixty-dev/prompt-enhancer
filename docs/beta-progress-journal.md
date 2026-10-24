@@ -1,5 +1,23 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Preserve evaluator transport diagnostics and hold uncertain work
+
+Bounded recovery reaches 139 successful unique pairs of the 240-attempt core
+0.3.4 matrix. The next diagnostics-only Rewrite pair stops during embedding
+evaluation; 100 pairs remain unstarted. The actual transport cause is unknown.
+Matching stable model-host completion counters support stopped-state evidence;
+the private export and all 5,612 main UI/API cell comparisons are verified.
+The earlier 600 smoke cells remain separate. No uncertain work is replayed.
+
+PRs #81/#82 are owner-reviewed and promoted through #83. A separate
+[recovery candidate](bench/gateway-failure-recovery.md), based on develop
+`9cd3016`, proposes core 0.3.5 with allowlisted diagnostics across the process
+boundary and a Bench hold independent of generation bindings. Nine regressions
+fail before correction. All 575 affected tests and ten desktop/mobile checks
+pass afterward. Private upstream details remain excluded and earlier results
+remain immutable. Source review, release, deployment, complete qualification
+and independent onboarding remain open; acceptance statuses are unchanged.
+
 ## 2026-10-24 - Preserve the whole-run deadline cause
 
 The [deadline reporting candidate](bench/run-budgets.md) starts from reviewed

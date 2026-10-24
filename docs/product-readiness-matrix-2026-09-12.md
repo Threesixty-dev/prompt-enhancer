@@ -1,5 +1,20 @@
 # Product feature and readiness matrix
 
+## Evaluator transport and recovery candidate - 2026-10-24
+
+The [bounded recovery result](bench/robustness-experiment.md#revision-3-bounded-recovery-stop---2026-10-24)
+retains 139 successful unique pairs, one interrupted embedding pair and 100
+unstarted pairs. All 5,612 main and 600 separate smoke UI cells match the API;
+private exports preserve typed states. The actual embedding transport cause is
+unknown, and the evaluator-only run exposes a missing reconciliation hold.
+
+The [core 0.3.5 candidate](bench/gateway-failure-recovery.md) preserves safe
+failure categories and adds the missing hold. Nine failing-before regressions,
+575 passing affected tests and ten desktop/mobile checks support source review.
+PRs #81/#82 are promoted through #83; the new correction still requires review,
+release and deployment. Fresh qualification and independent onboarding remain
+open. MA18/W02/W03/W05/W07 acceptance statuses are unchanged.
+
 ## Whole-run deadline reporting candidate - 2026-10-24
 
 The [bounded reporting correction](bench/run-budgets.md) retains the known cause
