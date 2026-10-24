@@ -2,6 +2,13 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 24 [core 0.3.3 qualification revision](../bench/robustness-experiment.md#revision-2-task-card---2026-10-24)
+records the completed release/deployment prerequisites and prepares immutable
+definitions for the 240-attempt matrix with separate NLI boundary smoke checks.
+Bounded definition and synthetic integration evidence supplements MA18/W07;
+review, confirmed recovery, live qualification and independent onboarding remain
+open. The frozen observation and acceptance statuses remain unchanged.
+
 The October 24 [Bench readiness correction](../bench/continuous-deployment.md#readiness-verification-correction---2026-10-24)
 uses separate controller-health and authenticated Bench-revision checks. Bounded
 synthetic and loopback evidence supplements R26/W02/W07; review and hosted

@@ -8,44 +8,67 @@ stored results, and analysis. It is a finite regression and boundary matrix;
 passing it does not prove that every possible input or infrastructure failure is
 covered. It is not a study of developer ability or a universal quality score.
 
-The definitions are prepared with `autoRun: false`. No live attempt from this
-suite has run. Local validation proves structure and orchestration with synthetic
+Revision 2 is prepared with `autoRun: false` for core 0.3.3. No live attempt from
+this revision has run. Local validation proves structure and orchestration with synthetic
 providers, not current authentication, model availability, latency or model
 quality. Independent data-scientist onboarding remains a separate handoff gate.
 
-Core 0.3.2 default was built from main
-`3327aaa94e142176544be5a7f8e34fef04747ed7`. Its release passed offline runtime
-identity and cleanup checks. The verified receipt was subsequently registered
-through the existing Bench API with HTTP 202 after the Action's delivery step
-failed. The running Bench API passed two loopback health checks at that source
-revision. The Actions deployment verification encountered HTTP 403; automated
-deployment verification and release delivery still need operational follow-up.
-These observations do not qualify the worker, relay or external model bindings.
+Core 0.3.3 default was built from reviewed main
+`52dff00e5057fa2c64810e5ee36a24afdad56c03`. Publish Core completed its offline
+runtime identity, pinned-tokenizer, cleanup and catalog-registration gates.
+The API deployment at `e2ddb7eab1bfd2eda357f95e89701b6440ae372e` passed controller
+health and two authenticated serving-revision checks after the protected
+readiness path was admitted by the existing gateway policy. These observations
+do not qualify the worker, relay or external model bindings.
 
-The suite's recovery tests exposed a Bench Store bug: an uncertain operation
-with only a review-step binding did not retain the reconciliation hold. This
-candidate fixes both lost-acknowledgement and worker-restart paths. Review and
-deploy this Store change to both API and worker before running the suite; the
-API revision observed above predates it. API deployment alone does not replace
-the worker. This Bench fix does not change the core 0.3.2 image.
+The immutable revision-1 files and their core 0.3.2 pins remain available. Their
+historical results do not qualify the changed core. Revision 2 changes only the
+revision/generation identity, core version, image digest and build fingerprint;
+the cases, workflow pins, harness, policies, limits and assertions stay identical.
 
-All definitions pin:
+Every revision-2 definition pins:
 
-- Core version: `0.3.2`, variant `default`.
-- Image digest: `sha256:ab11919803f58daf32ba5a0c77cbddfa6545d8c2ce801c08a57de8931bca8c89`.
-- Build inputs: `47d6c7dd0ac6228063f05508be67128c171431bc99b475b5e438228562bd8021`.
+- Core version: `0.3.3`, variant `default`.
+- Image digest: `sha256:da56d2680f948f385fd12a215c32e0fcd2c27f771d9324778b639ece2b96852e`.
+- Build inputs: `1738e11e26756c24167a83f6c918d81eaa73aae5de64da2ffffdcbc3de17d8b1`.
+
+## Revision-2 task card - 2026-10-24
+
+- Task / atlas scope: qualify the released NLI input guard through the fixed
+  prompt workflows; MA18 and W02/W03/W05/W07.
+- Approved source baseline: develop `0b0b36d`; core release from main `52dff00`
+  and verified API deployment `e2ddb7e` are completed prerequisites.
+- Observable outcome: a new immutable cohort tests the complete connected
+  pipeline and makes oversized NLI unknowns explicit in results, UI and exports.
+- Allowed changes: three new revision-2 definitions, one boundary-smoke selection
+  and qualification/evidence documentation. Runtime code, original revisions,
+  cases, workflow/harness pins, policies, limits and assertions stay unchanged.
+- Positive, negative, recovery and privacy checks: canonical identity/schema
+  validation, all effective core requests, exact r1/r2 field comparison, existing
+  synthetic publication/pipeline/privacy tests and repository privacy scanning.
+- Completion boundary: local definition validation and review readiness here;
+  live acceptance additionally requires confirmed recovery, published definitions,
+  all smoke/main attempts, ordered receipts and UI/API/export agreement.
+- Resource bound: 15 smoke attempts followed by 240 main attempts; existing
+  180-second per-attempt limits apply. Stop on technical failure or uncertainty;
+  no automatic uncertain retries. No live attempts are submitted during preparation.
+- Owner decisions: named source and promotion merges remain review gates.
+  Definition publication and the bounded run are authorized; actual remote-stop
+  evidence is still required before resolving an earlier operation's hold.
+- Result: the local evidence below supports review; source publication and live
+  qualification remain pending. No model or temporary service is started here.
 
 ## Design
 
 | Definition under `experiments/` | Workflow | Cases | Variants | Attempts |
 | --- | --- | ---: | ---: | ---: |
-| `example-robustness-prompt-check-20261023-r1.json` | `prompt-check` 1.1.0 | 20 | 4 | 80 |
-| `example-robustness-prompt-rewrite-20261023-r1.json` | `prompt-rewrite` 2.1.0 | 20 | 4 | 80 |
-| `example-robustness-prompt-clarify-20261023-r1.json` | `prompt-clarify` 2.1.0 | 20 | 4 | 80 |
+| `example-robustness-prompt-check-20261023-r2.json` | `prompt-check` 1.1.0 | 20 | 4 | 80 |
+| `example-robustness-prompt-rewrite-20261023-r2.json` | `prompt-rewrite` 2.1.0 | 20 | 4 | 80 |
+| `example-robustness-prompt-clarify-20261023-r2.json` | `prompt-clarify` 2.1.0 | 20 | 4 | 80 |
 | Total | Three separately pinned workflow revisions | 20 shared | 4 shared | 240 |
 
-All stable IDs are the filename without `-r1.json`; revision is `1`, generation
-is `1`. Workflow definition digests come from the authoritative catalog. Each
+All stable IDs are the filename without `-r2.json`; revision is `2`, generation
+is `2`. Workflow definition digests come from the authoritative catalog. Each
 attempt uses one subject and one variant; before/after are not extra attempts.
 There is one observation per pair, so stochastic stability and statistical
 effectiveness cannot be inferred from this qualification matrix.
@@ -123,6 +146,23 @@ evaluator may apply its own tokenizer limit. The two maximum-size cases must
 not be reported as proof that the review model saw all input. Requirements beyond
 these boundaries remain a limitation for the handoff until explicitly resolved.
 
+### NLI boundary smoke for revision 2
+
+`nli-boundary-smoke.json` selects the 7,000-character case with `concise` and
+`diagnostics-only`: two attempts per workflow, six additional attempts in a
+separate smoke cohort. The pinned mDeBERTa tokenizer counts the complete pair
+against its 512-token limit. This input must produce `nli.label` state `unknown`,
+reason `input_too_long`, and null value/label before generation. Embedding,
+rerank and rubric evaluation must still complete or explicitly report their
+own justified measurement state; an execution error fails this smoke gate.
+
+An actual rewritten candidate is checked independently. If it fits, its NLI
+label can be measured; if it is still too long, the same explicit unknown is
+expected. A missing candidate has no after evaluation. Inspect complete ordered
+receipts and UI/export reasons. The local admission tests prove that oversized
+pairs construct no gateway client. Claim live absence of an upstream NLI call
+only when content-free upstream request evidence also confirms it.
+
 ## Acceptance and missing data
 
 The two shared numeric assertions require nonnegative deltas for
@@ -159,14 +199,19 @@ Use the tracked `operate-bench-experiment` skill and [client guide](client.md).
 Publishing these definitions and running live models are subsequent explicit
 steps; creating the files does not authorize either operation.
 
-1. Verify the deployed API/worker include the step-binding recovery fix, then
+1. Resolve any existing remote-operation hold using model-host stop evidence
+   before reconciliation or inference. Verify the deployed API/worker include
+   the step-binding recovery fix, then
    verify API contracts, worker/relay identity, exact registered
    core artifact, all five bindings and required model provenance. Definition
    validation and API preflight cannot establish model readiness.
 2. Import the reviewed definitions through Publish Experiments. Confirm each
    identity and `autoRun: false` acknowledgement before creating runs.
 3. Smoke each workflow on `example-complete`, selecting `concise`, `notes-only`
-   and `diagnostics-only`: nine additional attempts, kept out of the main cohort.
+   and `diagnostics-only`: nine additional attempts. Then use
+   `nli-boundary-smoke.json` for six additional oversized-input attempts. Keep
+   all 15 smoke attempts out of the 240-attempt main cohort. Stop on a failed
+   smoke gate; do not automatically retry an uncertain operation.
 4. Run the first 17 cases in each workflow: 68 attempts per workflow, 204 total.
    Use the supplied `standard.json` selection. Preserve the submission receipt.
 5. Run the three boundary cases individually per variant/workflow: 36 additional
@@ -186,7 +231,7 @@ additional publishable definitions. For example, after authorized import:
 
 ```sh
 enhancement-bench preflight \
-  --experiment example-robustness-prompt-check-20261023 --revision 1 \
+  --experiment example-robustness-prompt-check-20261023 --revision 2 \
   --overrides experiments/robustness-20261023/smoke.json
 ```
 
@@ -223,7 +268,7 @@ These tests do not qualify actual network loss, machine reboot, GPU exhaustion,
 disk exhaustion, Windows ACLs, sustained concurrency or real provider rate limits.
 Such drills need an explicitly isolated environment and separate run evidence.
 
-Local evidence for this candidate: 17 definitions pass canonical identity/schema
+Original revision-1 local evidence: 17 definitions pass canonical identity/schema
 validation; all 240 new requests pass core semantic validation; 28 new offline
 tests pass. The affected Bench/core/workflow/gateway test selection passes 427
 tests, including an owned-loopback CLI journey run with loopback permission.
@@ -231,3 +276,13 @@ The privacy scanner passes, and the core build fingerprint remains identical to
 the released 0.3.2 artifact. Source/test evidence supplements MA18/W02/W05/W07 without changing
 the frozen architecture acceptance statuses. Live effectiveness and UI/runtime
 qualification remain unmeasured until the authorized run and inspection.
+
+Revision-2 local evidence on 2026-10-24: all 20 repository definitions pass
+canonical validation and all 240 revision-2 requests pass core semantic
+validation. Exact comparison against r1 permits only the revision, generation,
+core version and core-build fields. The current core build fingerprint matches
+the released artifact. Selection checks establish nine ordinary and six NLI
+boundary smoke attempts, then 204 standard and 36 isolated boundary attempts.
+All 62 targeted publication, synthetic pipeline and privacy tests pass. These
+are local checks; no revision-2 model execution or UI/export qualification is
+claimed by this evidence.
