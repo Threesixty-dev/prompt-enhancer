@@ -21,6 +21,13 @@ interrupted during embedding evaluation; 100 pairs have not started. Remote-stop
 evidence and all partial results are preserved. The complete matrix and
 independent onboarding are not qualified.
 
+Revision 4 is prepared with `autoRun: false` for released core 0.3.5. It retains
+the same 15 smoke and 240 main attempts, with at most four attempts per standard
+run and one per boundary run. This is a fresh artifact cohort: the 139 successful
+revision-3 pairs remain historical evidence, not completed revision-4 coverage.
+Definition review/publication, worker/relay rollout and fresh qualification
+remain required.
+
 Core 0.3.3 default was built from reviewed main
 `52dff00e5057fa2c64810e5ee36a24afdad56c03`. Publish Core completed its offline
 runtime identity, pinned-tokenizer, cleanup and catalog-registration gates.
@@ -244,17 +251,60 @@ categories and a hold for uncertain evaluator-only attempts. Core publication,
 worker deployment, a fresh pinned qualification cohort and independent onboarding
 remain open. The preserved core 0.3.4 result remains partial and unclassified.
 
+## Revision-4 task card - 2026-10-24
+
+PRs #84/#85 complete the reviewed gateway failure and evaluator recovery
+correction. Publish Core `40116214512` builds core `0.3.5` default from main
+`62e0d4ebb1f0e369104e66f68e388d631ae515df`. Its offline core/protocol and tokenizer
+probe, cleanup and catalog registration pass. The build fingerprint matches the
+reviewed source. API deployment `40116199747` passes image health and protected
+serving-revision verification; only the failed verification job is repeated
+after an initial HTTP 404. The worker and relay have separate rollout gates.
+
+Each revision-4 definition pins:
+
+- Core version: `0.3.5`, variant `default`.
+- Image digest: `sha256:bc2c15ffa2fc72d8d0bb0b7e5adf5090980fa9ba4a70165f080803dc05582d8b`.
+- Build inputs: `3495ea8ff63309e2dae127c922bc09e02f49a778cb9359dba8fdcd909e39fc01`.
+
+Task scope and gates:
+
+- Task / atlas scope: qualify the released gateway diagnostics and evaluator
+  recovery correction through the unchanged matrix; MA18 and W02/W03/W05/W07.
+- Approved baseline: develop `a4924f6`; released core source is the reviewed main
+  promotion above, whose tree equals the approved correction.
+- Allowed changes: three new immutable definitions and evidence/navigation
+  documentation. Earlier definitions, results and uncertain failure causes remain.
+- Comparison: exact r3/r4 equality except revision, generation, enhancer version,
+  image and build fingerprint. Workflow pins, subjects, units, bindings, harness,
+  policies, limits, assertions and smoke selections remain identical.
+- Identity evidence: read-only Bench metadata contains revisions/generations 1,
+  2 and 3 for all three stable IDs and no 4. Check again at publication.
+- Validation: all 26 definitions and 240 new semantic requests pass; 58 existing
+  synthetic publication, unit-binding and pipeline tests pass. No live model call
+  is made by these checks, and they do not qualify the new artifact on the worker.
+- Resource bound: 15 separate smoke attempts, then 204 standard attempts in
+  batches of at most four and 36 isolated boundary attempts. The 180-second
+  attempt and 1,800-second run limits stay unchanged. Stop on technical failure
+  or uncertainty and preserve every admission receipt.
+- Completion boundary: named definition reviews, publication, verified
+  worker/relay rollout, preflight, live smoke/main runs and UI/API/export parity
+  remain separate gates. Independent data-scientist onboarding remains open.
+- Owner decisions: core 0.3.5 release is approved and complete. Definition
+  publication and bounded execution authorization remain in force, subject to
+  their specific source/promotion reviews and confirmed execution prerequisites.
+
 ## Design
 
 | Definition under `experiments/` | Workflow | Cases | Variants | Attempts |
 | --- | --- | ---: | ---: | ---: |
-| `example-robustness-prompt-check-20261023-r3.json` | `prompt-check` 1.1.0 | 20 | 4 | 80 |
-| `example-robustness-prompt-rewrite-20261023-r3.json` | `prompt-rewrite` 2.1.0 | 20 | 4 | 80 |
-| `example-robustness-prompt-clarify-20261023-r3.json` | `prompt-clarify` 2.1.0 | 20 | 4 | 80 |
+| `example-robustness-prompt-check-20261023-r4.json` | `prompt-check` 1.1.0 | 20 | 4 | 80 |
+| `example-robustness-prompt-rewrite-20261023-r4.json` | `prompt-rewrite` 2.1.0 | 20 | 4 | 80 |
+| `example-robustness-prompt-clarify-20261023-r4.json` | `prompt-clarify` 2.1.0 | 20 | 4 | 80 |
 | Total | Three separately pinned workflow revisions | 20 shared | 4 shared | 240 |
 
-All stable IDs are the filename without `-r3.json`; revision is `3`, generation
-is `3`. Workflow definition digests come from the authoritative catalog. Each
+All stable IDs are the filename without `-r4.json`; revision is `4`, generation
+is `4`. Workflow definition digests come from the authoritative catalog. Each
 attempt uses one subject and one variant; before/after are not extra attempts.
 There is one observation per pair, so stochastic stability and statistical
 effectiveness cannot be inferred from this qualification matrix.
@@ -420,7 +470,7 @@ additional publishable definitions. For example, after authorized import:
 
 ```sh
 enhancement-bench preflight \
-  --experiment example-robustness-prompt-check-20261023 --revision 3 \
+  --experiment example-robustness-prompt-check-20261023 --revision 4 \
   --overrides experiments/robustness-20261023/smoke.json
 ```
 

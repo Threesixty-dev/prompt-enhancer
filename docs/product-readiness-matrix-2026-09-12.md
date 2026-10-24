@@ -1,5 +1,21 @@
 # Product feature and readiness matrix
 
+## Core 0.3.5 qualification definitions - 2026-10-24
+
+PRs #84/#85 complete the owner-reviewed recovery correction. Core `0.3.5`
+publication, offline identity/tokenizer verification, cleanup and registration
+pass; API deployment passes image-health and protected source-revision checks.
+The [revision-4 definitions](bench/robustness-experiment.md#revision-4-task-card---2026-10-24)
+retain the fixed matrix and change only identity and core artifact pins. All 26
+definitions and 240 new semantic requests validate; 58 synthetic publication,
+binding and pipeline tests pass. These are preparation and artifact gates, not
+live qualification of the new build.
+
+Definition reviews/publication, worker/relay rollout, 15 smoke and 240 fresh main
+attempts with UI/API/export parity, and independent onboarding remain open.
+The partial core 0.3.4 cohort stays separate. MA18/W02/W03/W05/W07 acceptance
+statuses are unchanged.
+
 ## Evaluator transport and recovery candidate - 2026-10-24
 
 The [bounded recovery result](bench/robustness-experiment.md#revision-3-bounded-recovery-stop---2026-10-24)
