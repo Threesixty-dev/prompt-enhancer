@@ -9,6 +9,7 @@ import uuid
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 
+from ..application.inference import InferenceTransportError
 from ..infrastructure.text_models.manifests import TEXT_MODEL_MANIFESTS, TextModelTask
 from .contracts import Evaluation, Evaluator, ExecuteRequest, GenerationContext, Identifier, Metric, ModelCall, Provenance, Subject, WireModel
 from .ports import Candidate, CoreError
@@ -95,7 +96,7 @@ class ProcessConsumer:
         self.gateway_access = gateway_access
         self.provider = config.provider
         self.provenance = Provenance(provider=config.provider,
-            adapter_version="openhands-acp-1.49.1.v5" if config.provider == "openhands_acp" else "litellm-chat-v1",
+            adapter_version="openhands-acp-1.49.1.v5" if config.provider == "openhands_acp" else "litellm-chat-v2",
             model=config.model, model_revision=config.model_revision,
             model_license=config.model_license, tokenizer_revision=config.tokenizer_revision,
             rubric_version="enhancement-rewrite.v2", identity_source="configured",
@@ -193,9 +194,16 @@ def _access_payload(access):
 
 
 def gateway_transport(adapter, settings, config):
-    if config.gateway_model_id is not None:
-        return adapter(settings, expected_route_id=config.gateway_model_id)
-    return adapter(settings)
+    transport = adapter(settings, expected_route_id=config.gateway_model_id, report_failures=True)
+
+    def invoke(alias, body):
+        try:
+            return transport(alias, body)
+        except InferenceTransportError as exc:
+            # A diagnostic category does not confirm remote execution stopped.
+            raise CoreError(exc.code, uncertain=True) from None
+
+    return invoke
 
 
 def reported_gateway_model(response, config):
@@ -216,7 +224,7 @@ class InferenceRubricEvaluation:
             raise CoreError("rubric_gateway_provider_unsupported")
         self.config, self.credential = config, credential
         self.gateway_access = gateway_access
-        self.provenance = Provenance(provider="litellm", adapter_version="litellm-rubric.v2",
+        self.provenance = Provenance(provider="litellm", adapter_version="litellm-rubric.v3",
             model=config.model, model_revision=config.model_revision, model_license=config.model_license,
             tokenizer_revision=config.tokenizer_revision, rubric_version="structured-rubric.v1",
             metric_version="typed-text.v1", identity_source="configured",

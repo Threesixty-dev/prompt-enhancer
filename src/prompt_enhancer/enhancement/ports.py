@@ -6,6 +6,7 @@ from typing import Protocol
 
 from .contracts import Evaluation, Evaluator, ExecuteRequest, GenerationContext, ModelCall, Provenance, Subject
 from ..core.errors import CoreError
+from ..application.inference import INFERENCE_TRANSPORT_ERROR_CODES
 
 
 # Only these package-owned diagnostics may cross the worker boundary.
@@ -16,7 +17,7 @@ WORKER_ERROR_CODES = frozenset({
     "remote_cleanup_unconfirmed", "worker_input_too_large",
     "evaluator_model_mismatch",
     "nli_tokenizer_unavailable", "nli_tokenization_failed",
-})
+}) | INFERENCE_TRANSPORT_ERROR_CODES
 
 
 @dataclass(frozen=True)

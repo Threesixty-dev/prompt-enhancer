@@ -32,7 +32,7 @@ class InferenceEmbeddingEvaluation:
     def __init__(self, config: EmbeddingEvaluatorConfig, credential: SecretStr, *, gateway_access=None):
         self.config, self.credential = config, credential
         self.gateway_access = gateway_access
-        self.provenance = Provenance(provider="litellm", adapter_version="litellm-embedding.v1",
+        self.provenance = Provenance(provider="litellm", adapter_version="litellm-embedding.v2",
             model=config.model, model_revision=config.model_revision, model_license=config.model_license,
             tokenizer_revision=config.tokenizer_revision,
             metric_version=f"plain-text-cosine-{config.dimensions}.v1", identity_source="configured")

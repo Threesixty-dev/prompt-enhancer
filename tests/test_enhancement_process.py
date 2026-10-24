@@ -6,6 +6,7 @@ import sys
 
 import pytest
 
+from prompt_enhancer.application.inference import INFERENCE_TRANSPORT_ERROR_CODES
 from prompt_enhancer.enhancement.ports import CoreError
 from prompt_enhancer.enhancement.process import run_worker
 
@@ -22,7 +23,7 @@ def test_worker_failure_is_sanitized():
     ("remote_cleanup_unconfirmed", True, "remote_cleanup_unconfirmed"),
     ("fictional private exception", False, "provider_failed"),
     ({"fictional": "exception"}, True, "remote_execution_unconfirmed"),
-])
+] + [(code, True, code) for code in sorted(INFERENCE_TRANSPORT_ERROR_CODES)])
 def test_worker_preserves_only_allowlisted_codes(monkeypatch, code, uncertain, expected):
     original = asyncio.create_subprocess_exec
     async def replace(*args, **kwargs):
@@ -34,6 +35,22 @@ def test_worker_preserves_only_allowlisted_codes(monkeypatch, code, uncertain, e
         asyncio.run(run_worker({}, remote=True))
     assert caught.value.code == expected
     assert caught.value.uncertain is uncertain
+
+
+@pytest.mark.parametrize("code", sorted(INFERENCE_TRANSPORT_ERROR_CODES))
+def test_child_serializes_only_safe_transport_category(monkeypatch, capsys, code):
+    import io
+    from types import SimpleNamespace
+    from prompt_enhancer.enhancement import worker
+
+    def fail(payload):
+        raise CoreError(code, uncertain=True)
+    monkeypatch.setattr(worker, "inference", fail)
+    monkeypatch.setattr(worker.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(b'{"operation":"inference"}')))
+    worker.main()
+    output = capsys.readouterr()
+    assert json.loads(output.out) == {"error": code, "uncertain": True}
+    assert output.err == ""
 
 
 def test_worker_environment_has_no_inherited_credentials(monkeypatch):

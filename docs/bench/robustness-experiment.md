@@ -15,11 +15,11 @@ adapter correction are recorded below. Independent data-scientist onboarding
 remains a separate handoff gate.
 
 Revision 3 is published with `autoRun: false` for released core 0.3.4. Its 15
-smoke attempts pass the technical gate. The first main run stops after 56
-successful attempts and a run-deadline cancellation during NLI; 11 sibling
-attempts are skipped and the other 172 planned attempts never start. Remote stop is verified
-and the hold is reconciled, while the interrupted result remains preserved.
-The complete matrix and independent onboarding are not qualified.
+smoke attempts pass the technical gate. Bounded recovery after the first run's
+deadline reaches 139 of 240 successful unique pairs. One Rewrite pair is now
+interrupted during embedding evaluation; 100 pairs have not started. Remote-stop
+evidence and all partial results are preserved. The complete matrix and
+independent onboarding are not qualified.
 
 Core 0.3.3 default was built from reviewed main
 `52dff00e5057fa2c64810e5ee36a24afdad56c03`. Publish Core completed its offline
@@ -206,6 +206,43 @@ clear run-deadline reporting and independent onboarding remain open. Continue
 with at most four attempts per run, retaining the successful prefix and explicit
 retry lineage for the interrupted/skipped selection. The revised batching plan
 changes no experiment, model, core pin or per-attempt limit.
+
+## Revision-3 bounded recovery stop - 2026-10-24
+
+After confirmed recovery from the original run deadline, standard runs contain
+one case and at most four variants. All 68 standard Check and all 68 standard
+Clarify pairs succeed technically. Three variants in the first Rewrite batch
+succeed; the diagnostics-only variant stops during embedding evaluation before
+generation. This leaves 139 successful unique pairs, one current interrupted
+pair and 100 unstarted pairs. Historical rows include the original interruption
+and skipped siblings: 139 succeeded, two interrupted and eleven skipped across
+22 stored runs. Historical replaced attempts do not increase unique coverage.
+
+The new run lasts about 111 seconds, well below the 1,800-second run budget.
+There is no user cancellation. Core 0.3.4 records an uncertain `evaluator_failed`
+at `evaluate_original`. Its transport synthesizes the same failure for network,
+TLS, HTTP-status, route and response-limit errors, so the actual cause is unknown.
+It is not evidence that an upstream HTTP request returned 502 or was rejected.
+The evaluation key's metadata remains enabled, unexpired and within budget.
+
+Two fresh model-host observations have matching, stable embedding request and
+response counters, all HTTP 200, on the same running service. They establish
+completion of accepted requests at observation time. They do not identify the
+lost exchange. The run's reconciliation flag is incorrectly clear because it
+has no generation binding. No attempt is replayed after this interruption.
+
+All 5,612 rendered main-cohort metric cells agree with the API; the separate
+smoke cohort adds 600. The final private stopped export passes manifest hashes
+and every JSON/CSV cell comparison: 22 runs, 152 attempts, 1,403 metric rows,
+304 assertion rows, two errors and 489 timing rows. The successful unique-pair
+assertion outcomes remain distinct: 35 passed, seven failed and 97 unknown.
+Their 2,090 readings contain 1,502 known, 394 unknown and 194 abstained values.
+
+PRs #81/#82 are reviewed and promoted through #83. The separate
+[gateway recovery candidate](gateway-failure-recovery.md) proposes safe failure
+categories and a hold for uncertain evaluator-only attempts. Core publication,
+worker deployment, a fresh pinned qualification cohort and independent onboarding
+remain open. The preserved core 0.3.4 result remains partial and unclassified.
 
 ## Design
 

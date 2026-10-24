@@ -11,7 +11,7 @@ import threading
 from urllib.parse import urlsplit
 
 from ..config import LiteLLMSettings
-from ..application.inference import InferenceModel, InferenceStream
+from ..application.inference import InferenceModel, InferenceStream, InferenceTransportError
 from ..application.runtime_cancellation import (
     current_runtime_cancellation, raise_if_runtime_cancelled,
 )
@@ -42,9 +42,11 @@ class _PrivateHTTPSConnection(http.client.HTTPSConnection):
 class LiteLLMChat:
     _path = "/v1/chat/completions"
 
-    def __init__(self, settings: LiteLLMSettings, *, expected_route_id: str | None = None) -> None:
+    def __init__(self, settings: LiteLLMSettings, *, expected_route_id: str | None = None,
+                 report_failures: bool = False) -> None:
         self._settings = settings
         self._expected_route_id = expected_route_id
+        self._report_failures = report_failures
 
     def __call__(self, alias: str, body: bytes) -> tuple[int, bytes, str]:
         reply = self._request(alias, body, stream=False)
@@ -52,6 +54,11 @@ class LiteLLMChat:
 
     def open_chat(self, alias: str, body: bytes) -> InferenceStream:
         return self._request(alias, body, stream=True)
+
+    def _failure(self, code: str) -> InferenceStream:
+        if self._report_failures:
+            raise InferenceTransportError(code) from None
+        return InferenceStream(502, "application/json", b"{}")
 
     def _prepare_payload(self, payload: dict, *, stream: bool) -> dict | None:
         if not isinstance(payload.get("messages"), list):
@@ -66,21 +73,20 @@ class LiteLLMChat:
 
     def _request(self, alias: str, body: bytes, *, stream: bool) -> InferenceStream:
         config = self._settings
-        failure = InferenceStream(502, "application/json", b"{}")
         if alias != config.model:
-            return failure
+            return self._failure("gateway_request_invalid")
         raise_if_runtime_cancelled()
         try:
             if len(body) > MAX_STREAM_BYTES:
-                return failure
+                return self._failure("gateway_request_invalid")
             payload = json.loads(body)
             if not isinstance(payload, dict):
-                return failure
+                return self._failure("gateway_request_invalid")
             payload = self._prepare_payload(payload, stream=stream)
             if payload is None:
-                return failure
+                return self._failure("gateway_request_invalid")
         except (ValueError, TypeError):
-            return failure
+            return self._failure("gateway_request_invalid")
         url = urlsplit(config.base_url)
         context = ssl.create_default_context()
         pin = None
@@ -102,6 +108,7 @@ class LiteLLMChat:
         cancellation = current_runtime_cancellation()
         retained = False
         active_socket = None
+        connected = False
 
         def cancel():
             finished.set()
@@ -133,6 +140,7 @@ class LiteLLMChat:
 
         try:
             connection.connect()
+            connected = True
             active_socket = connection.sock
             raise_if_runtime_cancelled()
             if hasattr(connection.sock, "settimeout"):
@@ -141,7 +149,7 @@ class LiteLLMChat:
             if pin is not None:
                 actual = hashlib.sha256(connection.sock.getpeercert(binary_form=True)).digest()
                 if not hmac.compare_digest(pin, actual):
-                    return failure
+                    return self._failure("gateway_tls_failed")
             headers = {
                 "Host": url.netloc,
                 "User-Agent": "prompt-enhancer-bench/1.0",
@@ -157,12 +165,19 @@ class LiteLLMChat:
             response = connection.getresponse()
             # Never follow redirects or propagate gateway errors/headers.
             if response.status != 200:
-                return failure
+                code = {401: "gateway_http_unauthorized", 403: "gateway_http_forbidden",
+                        429: "gateway_http_rate_limited"}.get(response.status)
+                if code is None:
+                    code = ("gateway_http_redirect" if 300 <= response.status < 400 else
+                            "gateway_http_client_error" if 400 <= response.status < 500 else
+                            "gateway_http_server_error" if 500 <= response.status < 600 else
+                            "gateway_http_unexpected_status")
+                return self._failure(code)
             if self._expected_route_id is not None and (
                 not hasattr(response, "getheader")
                 or response.getheader("x-litellm-model-id") != self._expected_route_id
             ):
-                return failure
+                return self._failure("gateway_route_mismatch")
             content_type = response.getheader("Content-Type", "application/json") if hasattr(response, "getheader") else "application/json"
             if stream and "text/event-stream" in content_type:
                 def lines():
@@ -186,12 +201,21 @@ class LiteLLMChat:
                 return InferenceStream(200, "text/event-stream", lines=lines(), cancel=finish)
             data = response.read(MAX_RESPONSE_BYTES + 1)
             if len(data) > MAX_RESPONSE_BYTES:
-                return failure
+                return self._failure("gateway_response_too_large")
             raise_if_runtime_cancelled()
             return InferenceStream(200, "application/json", data)
-        except (OSError, ValueError, http.client.HTTPException):
+        except ssl.SSLError:
             raise_if_runtime_cancelled()
-            return failure
+            return self._failure("gateway_tls_failed")
+        except TimeoutError:
+            raise_if_runtime_cancelled()
+            return self._failure("gateway_io_timeout" if connected else "gateway_connect_timeout")
+        except OSError:
+            raise_if_runtime_cancelled()
+            return self._failure("gateway_io_failed" if connected else "gateway_connect_failed")
+        except (ValueError, http.client.HTTPException):
+            raise_if_runtime_cancelled()
+            return self._failure("gateway_protocol_error")
         finally:
             if not retained:
                 finish()

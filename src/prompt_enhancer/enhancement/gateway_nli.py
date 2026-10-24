@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import SecretStr, model_validator
 
-from .adapters import ConsumerConfig, _access_payload
+from .adapters import ConsumerConfig, _access_payload, gateway_transport
 from .contracts import Evaluation, Evaluator, Metric, Provenance, Subject
 from .ports import CoreError
 from .nli_tokenizer import input_too_long
@@ -37,7 +37,7 @@ class InferenceClassifierEvaluation:
     def __init__(self, config: ClassifierEvaluatorConfig, credential: SecretStr, *, gateway_access=None):
         self.config, self.credential = config, credential
         self.gateway_access = gateway_access
-        self.provenance = Provenance(provider="litellm", adapter_version="litellm-nli.v2",
+        self.provenance = Provenance(provider="litellm", adapter_version="litellm-nli.v3",
             model=config.model, model_revision=config.model_revision, model_license=config.model_license,
             tokenizer_revision=config.tokenizer_revision, metric_version="typed-text.v1",
             identity_source="configured")
@@ -95,7 +95,7 @@ def nli_inference(payload):
     settings = LiteLLMSettings(base_url=config.endpoint, model=config.model,
         credential=SecretStr(payload["credential"]), model_revision=config.model_revision,
         model_license=config.model_license, **payload.get("gateway_access", {}))
-    status, data, _ = LiteLLMNli(settings)(config.model, json.dumps({
+    status, data, _ = gateway_transport(LiteLLMNli, settings, config)(config.model, json.dumps({
         "premise": subject.text, "hypothesis": spec.target, "model_revision": config.model_revision}).encode())
     if status != 200:
         raise CoreError("evaluator_failed", uncertain=True)
