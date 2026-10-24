@@ -14,10 +14,12 @@ smoke selections and main matrix have not started. The failure and proposed
 adapter correction are recorded below. Independent data-scientist onboarding
 remains a separate handoff gate.
 
-Revision 3 is prepared with `autoRun: false` for released core 0.3.4. Only the
-revision/generation identity and exact core artifact pin change from revision 2.
-No revision-3 definition has been published or run. The source correction and
-release are complete; fresh smoke qualification remains required.
+Revision 3 is published with `autoRun: false` for released core 0.3.4. Its 15
+smoke attempts pass the technical gate. The first main run stops after 56
+successful attempts and one uncertain NLI evaluation; 11 sibling attempts are
+skipped and the other 172 planned attempts never start. Remote stop is verified
+and the hold is reconciled, while the interrupted result remains preserved.
+The complete matrix and independent onboarding are not qualified.
 
 Core 0.3.3 default was built from reviewed main
 `52dff00e5057fa2c64810e5ee36a24afdad56c03`. Publish Core completed its offline
@@ -157,6 +159,45 @@ Task scope and gates:
 - Owner decisions: core 0.3.4 publication is authorized and complete; experiment
   publication/run authorization is retained, subject to specific source and
   promotion reviews. Independent data-scientist onboarding remains open.
+
+## Revision-3 live result - 2026-10-24
+
+PRs #79/#80 publish the three definitions through main `cc8eb26`; Publish
+Experiments `40098767343` succeeds. Live metadata agrees with the released image
+digest and build fingerprint. All nine ordinary and six NLI boundary smoke
+attempts pass ordered-step, input/result-correlation, evaluator-coverage and
+cleanup checks. The exact synthetic ACP operation contains the formal schema
+and records adapter `openhands-acp-1.49.1.v5`.
+
+All 600 rendered smoke metric cells agree with the API. Both smoke exports pass
+manifest hashes and every JSON/CSV cell comparison. The 210 recorded readings
+include 170 known and 40 unknown values: 18 diagnostic-task exclusions, seven
+unobserved-requirement readings, eight unobserved-constraint readings, six NLI
+input-limit exclusions and one invalid rubric response. That rubric reading is
+a measurement gap. Assertion outcomes are separate: two passed, one failed and
+12 unknown. No score is substituted for an unavailable reading.
+
+The main Prompt Check run completes 56 attempts, then stops on the markup case's
+concise variant before generation. Deterministic and embedding evaluation return;
+the next NLI worker reports `remote_execution_unconfirmed`. Eleven remaining
+attempts in that run are skipped. The controller stops before any clarification,
+rewrite or isolated boundary main run. The preserved private export contains 68
+attempts, 567 metric rows, one error, 136 assertion rows and 197 timing rows, with
+verified hashes and JSON/CSV parity. The cohort remains interrupted.
+
+Two fresh model-host observations show equal nonstreaming NLI request/response
+counts, all HTTP 200, on the same previously verified server build. They support
+explicit reconciliation; cleanup and reconciliation holds are then clear. The
+exact synthetic input also passes the released tokenizer in an offline container
+and fits its input limit. These observations do not establish the original cause:
+the stored generic error does not identify the underlying worker cause. No
+failed attempt is replayed, and the remaining matrix is not started.
+
+Browser-session expiry also exposes an ambiguous stale-result notice. The
+[UI candidate](client-navigation.md#stale-results-after-connection-loss---2026-10-24)
+adds explicit stale state and reconnection guidance. It is source-tested only;
+the qualification's deployment remains frozen. Complete main-matrix evidence,
+the worker failure diagnosis and independent onboarding remain open.
 
 ## Design
 

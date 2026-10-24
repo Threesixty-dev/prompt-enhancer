@@ -1,5 +1,22 @@
 # Product feature and readiness matrix
 
+## Core 0.3.4 partial qualification and stale-result candidate - 2026-10-24
+
+The [revision-3 live result](bench/robustness-experiment.md#revision-3-live-result---2026-10-24)
+records completed definition publication, 15 technically successful smoke
+attempts, formal ACP schema delivery, 600 UI/API cell comparisons and verified
+private exports. One invalid rubric reading remains an explicit measurement gap.
+The main matrix stops after 56 successful attempts and one uncertain NLI worker
+operation. The other 183 planned attempts are uncovered. Confirmed remote-stop
+evidence clears the hold without changing the interrupted historical outcome;
+the underlying worker cause remains unproven.
+
+The [stale-result UI candidate](bench/client-navigation.md#stale-results-after-connection-loss---2026-10-24)
+adds an explicit warning and reconnection control. A failing-before reproduction,
+six new recovery checks and 20 existing browser checks support source review.
+Deployment, complete main qualification, failure diagnosis and independent
+onboarding remain open. MA18 and W02/W03/W05/W07 acceptance statuses are unchanged.
+
 ## Core 0.3.4 qualification definitions - 2026-10-24
 
 The ACP correction is reviewed and promoted through PRs #77/#78. Core `0.3.4`
