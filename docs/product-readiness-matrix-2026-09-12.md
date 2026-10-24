@@ -1,5 +1,20 @@
 # Product feature and readiness matrix
 
+## Experiment flow and review diagnostics candidate - 2026-10-24
+
+The [core 0.3.5 live result](bench/robustness-experiment.md#revision-4-live-result---2026-10-24)
+completes 15 smoke attempts, then stops main coverage at five successes, one
+completed invalid review, two skipped and 232 unsubmitted pairs. All 840 checked
+UI/API cells and private exports agree. ACP schema delivery and remote cleanup
+are verified; the rejected nested enum remains a technical failure.
+
+The [source candidate](bench/experiment-flow.md) adds safe reason/path diagnostics
+in proposed core 0.3.6, shared independent-case continuation guidance, analysis v2
+error columns and per-experiment diagrams from saved settings. All 301 affected
+core tests, 229 distinct Bench tests and 38 desktop/mobile checks pass. Review,
+release/deployment, fresh complete qualification and independent onboarding remain
+open. MA18/W02/W03/W05/W07 acceptance statuses are unchanged.
+
 ## Core 0.3.5 qualification definitions - 2026-10-24
 
 PRs #84/#85 complete the owner-reviewed recovery correction. Core `0.3.5`

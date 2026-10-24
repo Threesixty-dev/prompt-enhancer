@@ -8,7 +8,7 @@
       "type": "string"
     },
     "core_version": {
-      "default": "0.3.3",
+      "default": "0.3.6",
       "title": "Core Version",
       "type": "string"
     },

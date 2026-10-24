@@ -340,7 +340,7 @@ def test_cli_subprocess_journey_over_owned_loopback_without_checkout_cwd(store, 
         assert command("inspect", "--receipt", str(receipt))["status"] == "succeeded"
         exported = command("export", "--receipt", str(receipt), "--output", str(tmp_path / "analysis"))
         assert exported["rowCounts"]["metrics"] == 12
-        assert command("schema", "analysis")["properties"]["schemaVersion"]["const"] == "bench-analysis/v1"
+        assert command("schema", "analysis")["properties"]["schemaVersion"]["const"] == "bench-analysis/v2"
     finally:
         server.should_exit = True
         thread.join(timeout=5)

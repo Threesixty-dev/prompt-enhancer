@@ -1,4 +1,4 @@
-# Private Bench analysis export v1
+# Private Bench analysis export - analysis v2
 
 Start with `manifest.json`. Its presence marks a completed export. It lists exact
 run IDs, table row counts, and SHA-256 fingerprints of the other files. This is
@@ -25,6 +25,13 @@ anonymous. Keep the directory private; do not upload it as diagnostic evidence.
 | `assertions.csv` | `run_id`, `attempt_id`, `position` | Each declared assertion, its threshold, recorded observation and outcome. |
 | `timings.csv` | `run_id`, `attempt_id`, `stage` | Recorded stage durations in seconds. No missing duration is replaced by zero. |
 | `errors.csv` | `run_id`, `attempt_id`, `stage`, `code` | Recorded execution errors; `retryable` is source metadata, not an instruction to rerun. |
+
+The manifest remains `bench-export/v1`; its `analysisVersion` is
+`bench-analysis/v2`. Compared with analysis v1, the errors table adds nullable
+`validation_reason` and `validation_field`. These carry an allowlisted category
+and schema path for an invalid review, never the rejected value or response.
+Null means that the detail was not recorded, including historical results.
+Use the bundled schema for every export; older exports are not rewritten.
 
 Run `created_seconds`, `started_seconds` and `finished_seconds` are Unix timestamps
 in seconds. Missing timestamps stay null. No total duration, token usage or cost
