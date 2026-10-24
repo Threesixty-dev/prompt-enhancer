@@ -1,5 +1,22 @@
 # Beta progress journal: published handoff
 
+## 2026-10-24 - Release core 0.3.6 and prepare qualification revision 5
+
+Owner-approved PRs #90/#91 repair the three missed compatibility expectations.
+The full 412-test Bench gate now passes locally and in the release/deployment
+workflows. Core publication `40127596404` builds, verifies offline, cleans up and
+registers core 0.3.6 from main `3b424e8`. Deployment `40127562554` passes API health
+and protected revision checks after a verifier-only retry for its initial HTTP
+404. Worker/relay replacement preserves the API and consumer, joins the correct
+namespace and passes authenticated consumer readiness with no active work.
+
+The [revision-5 definitions](bench/robustness-experiment.md#revision-5-task-card---2026-10-24)
+change only identity/core pins. All 29 definitions, 240 semantic requests and 58
+focused synthetic tests pass. Fifteen smoke attempts precede the same 240 main
+pairs, with one pair per run and explicit continuation checks. Definition reviews,
+publication, fresh live qualification and independent onboarding remain open.
+Historical cohorts and MA18/W02/W03/W05/W07 acceptance statuses are unchanged.
+
 ## 2026-10-24 - Repair the full Bench compatibility gate
 
 Owner-approved PRs #88/#89 merge the flow diagrams and review diagnostics.
