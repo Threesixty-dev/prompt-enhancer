@@ -8,6 +8,14 @@ cause/outcome regressions and 64 affected tests supplement MA18/W02/W07. Source
 review, worker deployment and independent onboarding remain open; the running
 qualification keeps its frozen deployment. Acceptance statuses are unchanged.
 
+The October 24 [partial qualification](../bench/robustness-experiment.md#revision-3-live-result---2026-10-24)
+records 15 successful technical smoke attempts and verified UI/export evidence,
+followed by a preserved main-run interruption and confirmed remote-stop recovery.
+The [stale-result UI candidate](../bench/client-navigation.md#stale-results-after-connection-loss---2026-10-24)
+adds explicit reconnection guidance with synthetic desktop/mobile coverage.
+These supplement MA18/W05/W07; complete qualification, source/deployment review
+and independent onboarding remain open. Acceptance statuses are unchanged.
+
 The October 24 [core 0.3.4 qualification revision](../bench/robustness-experiment.md#revision-3-task-card---2026-10-24)
 records the reviewed ACP correction's completed release and registration. New
 revision-3 definitions preserve the cases and settings while pinning that exact

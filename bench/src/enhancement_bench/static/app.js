@@ -9,7 +9,7 @@ const badge = value => node('span', value || 'unknown', 'badge ' + (value || 'un
 const tell = message => { $('notice').textContent = message; };
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted', 'superseded']);
 let connected = false, experiments = [], runs = [], routeEpoch = 0;
-let activeRoute, definition, runSchema, runPage, polling = false, refreshVersion = 0;
+let activeRoute, definition, runSchema, runPage, polling = false, refreshVersion = 0, refreshFailed = false;
 const snapshots = new WeakMap();
 
 async function api(path, body) {
@@ -89,7 +89,14 @@ function pageHeading(title, description, crumbs = [], actions = []) {
 }
 function refreshButton() {
   const button = node('button', 'Refresh', 'secondary'); button.id = 'refresh';
-  button.onclick = async () => { button.disabled = true; try { await refresh(); tell('Up to date.'); } catch (error) { tell(error.message); } finally { button.disabled = false; } }; return button;
+  button.onclick = async () => { button.disabled = true; try { if (await refresh()) tell('Up to date.'); } finally { button.disabled = false; } }; return button;
+}
+function markResultsStale() {
+  if (refreshFailed) return;
+  refreshFailed = true;
+  const reconnect = node('button', 'Reload to reconnect', 'secondary');
+  reconnect.type = 'button'; reconnect.onclick = () => location.reload();
+  $('notice').replaceChildren(node('span', 'Refresh failed. Displayed results may be out of date. '), reconnect);
 }
 function navigate(href) {
   history.pushState(null, '', href); window.scrollTo(0, 0); void loadRoute(true);
@@ -313,7 +320,7 @@ function newRunPage(d, source) {
 }
 
 async function loadRoute(focus = false) {
-  const epoch = ++routeEpoch; connected = false; tell('');
+  const epoch = ++routeEpoch; connected = false; refreshFailed = false; tell('');
   try {
     activeRoute = parseRoute();
     if (activeRoute.kind === 'missing') throw new Error('Page not found.');
@@ -375,19 +382,26 @@ async function loadRoute(focus = false) {
   }
 }
 async function refresh() {
-  if (!connected || activeRoute?.kind === 'new') return;
+  if (!connected || activeRoute?.kind === 'new') return false;
   const epoch = routeEpoch, route = activeRoute, version = ++refreshVersion;
-  const [a, b, r, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, ['list', 'experiment', 'stats'].includes(route.kind) ? api(historyPath(route, { api: true, before: route.before })) : null]);
-  if (epoch !== routeEpoch || version !== refreshVersion) return;
-  experiments = a.experiments; runs = b?.runs || [];
-  if (page) { runPage = page; if (route.kind === 'stats') renderStats(); else renderHistory(); }
-  if (route.kind === 'list') renderExperiments();
-  if (route.kind === 'run') renderRun(r);
+  try {
+    const [a, b, r, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, ['list', 'experiment', 'stats'].includes(route.kind) ? api(historyPath(route, { api: true, before: route.before })) : null]);
+    if (epoch !== routeEpoch || version !== refreshVersion) return false;
+    experiments = a.experiments; runs = b?.runs || [];
+    if (page) { runPage = page; if (route.kind === 'stats') renderStats(); else renderHistory(); }
+    if (route.kind === 'list') renderExperiments();
+    if (route.kind === 'run') renderRun(r);
+    if (refreshFailed) { refreshFailed = false; tell('Up to date.'); }
+    return true;
+  } catch {
+    if (epoch === routeEpoch && version === refreshVersion) markResultsStale();
+    return false;
+  }
 }
 setInterval(async () => {
   if (document.hidden || polling || !connected || activeRoute?.kind === 'new') return;
   polling = true;
-  try { await refresh(); } catch (error) { tell(error.message); } finally { polling = false; }
+  try { await refresh(); } finally { polling = false; }
 }, 3000);
 if (location.pathname === '/') history.replaceState(null, '', '/experiments');
 void loadRoute();

@@ -16,6 +16,29 @@ and operator guidance now distinguish whole-run, attempt and observation limits.
 Source review, worker deployment, complete qualification and independent
 onboarding remain open. No acceptance status changes.
 
+## 2026-10-24 - Qualify smoke, preserve a main interruption and clarify stale results
+
+PRs #79/#80 and Publish Experiments `40098767343` deliver revision 3 with exact
+core 0.3.4 pins. All 15 smoke attempts pass technical checks; all 600 rendered
+metric cells agree with the API, and private exports retain typed values and
+explicit missingness. The live ACP system event includes the formal schema.
+
+The [main result](bench/robustness-experiment.md#revision-3-live-result---2026-10-24)
+stops after 56 successful attempts when the whole-run deadline cancels NLI.
+Eleven siblings are skipped; 172 later attempts never start. Fresh model-host
+completion evidence permits reconciliation, and the historical interruption and
+verified partial export remain preserved. Offline tokenization accepts the input;
+the deployed 1,800-second run limit and 1,801-second run duration establish
+the cancellation cause. The 68-attempt batch exceeded that independent budget.
+Future standard batches contain at most one case and four variants.
+
+An expired browser session leaves old results visible with a generic fetch
+error. A separate source candidate labels them stale, offers reconnection and
+recovers without submitting a run. The network-abort regression fails before
+the correction; six new desktop/mobile checks and 20 existing browser checks
+pass. Source review and deployment remain open. No main attempt is replayed,
+and no general acceptance or independent onboarding gate is closed.
+
 ## 2026-10-24 - Release core 0.3.4 and prepare qualification revision 3
 
 PRs #77 and #78 complete the reviewed ACP schema correction. Publish Core run
