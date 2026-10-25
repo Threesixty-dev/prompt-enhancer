@@ -206,8 +206,9 @@ Existing experiment pins and recorded results remain immutable.
 Restart converts active runs to interrupted; it never resumes agent turns.
 Queued runs remain queued. An owned container is removed and its absence checked
 before admission resumes. An unconfirmed remote consumer turn requires explicit
-operator reconciliation with a short evidence reference and confirmation that
-the remote operation stopped. The UI then permits a fresh retry. This records an
+operator confirmation that the remote operation stopped. Bench generates the
+confirmation record and timestamp automatically; the UI requires no typed
+reference. The UI then permits a fresh retry. This records an
 operator attestation, not an automatically verified model success.
 
 The bench retains complete results in its private volume until the operator

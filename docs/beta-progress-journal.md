@@ -16,6 +16,30 @@ remain protected. The actual failed attempt's later release and workspace
 cleanup are confirmed and recovery is recorded without replay. Source review,
 consumer rollout and fresh qualification remain open; acceptance is unchanged.
 
+## 2026-10-25 - Record recovery confirmation without a typed reference
+
+From reviewed develop `f8492d1`, the owner-approved
+[confirmation change](bench/recovery-ui.md#confirmation-without-manual-bookkeeping---2026-10-25)
+removes manual audit-label entry. The server records one opaque confirmation
+reference with the run and time; repeated requests preserve that first record.
+Existing API clients may still supply a validated reference. Actual remote-stop
+verification, explicit acknowledgement, same-origin JSON and confirmed local
+cleanup remain required. Historical results and the no-replay policy are retained.
+
+All 442 Bench tests and 22 affected desktop/mobile checks pass using synthetic
+fixtures and owned loopback processes. The receipt-persistence regression failed
+before the change. Negative checks retain request rejection and cleanup guards;
+browser checks verify checkbox gating, no text entry and retained failure details.
+Source review, promotion and deployment remain open; no new core release or
+worker update is needed for this form change. W02/W05/W07 acceptance is unchanged.
+
+Separately, owner-approved PRs #98/#99 deployed the preceding recovery UI at main
+`a0967c8`. Deployment `40179897463` builds successfully; only the failed revision
+verifier is retried after its first HTTP 404, and the serving revision is verified.
+Live inspection confirms the primary timeout, evaluation stage, global hold and
+local cleanup state. Remote completion and worker cleanup-retry rollout remain
+unconfirmed. No recovery hold is cleared and no experiment is replayed.
+
 ## 2026-10-25 - Make recovery actionable and expose execution causes
 
 The [Bench recovery candidate](bench/recovery-ui.md), from develop `233b49d`,

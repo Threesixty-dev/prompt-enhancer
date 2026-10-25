@@ -3,7 +3,7 @@
 import copy
 import json
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -156,6 +156,49 @@ def test_api_global_hold_and_primary_cause_are_content_free_and_keep_history(sto
         assert recovered["failure"] == detail["failure"] and recovered["attempts"] == retained["attempts"]
         assert not client.get("/api/recovery").json()["blocked"]
         assert recovered["recovery"] == inspect_run(store.run(run_id))["recovery"]
+
+
+def test_stop_confirmation_creates_one_durable_receipt_without_manual_reference(store, publication, contracts, clock):
+    run_id = interrupted(store, publication, contracts)
+    with client_for(store, contracts) as client:
+        path = f"/api/runs/{run_id}/reconcile"
+        body = {"remoteStopped": True}
+        assert client.post(path, json=body, headers=ORIGIN).status_code == 409
+        store.cleanup_confirmed(run_id)
+        before = store.run(run_id)
+        response = client.post(path, json=body, headers=ORIGIN)
+        assert response.status_code == 200
+        receipt = client.get(f"/api/runs/{run_id}").json()["recovery"]["reconciliation"]
+        assert receipt["run_id"] == run_id and receipt["created"] == clock.value
+        prefix, identifier = receipt["evidence_reference"].rsplit("-", 1)
+        assert prefix == "operator-confirmation"
+        assert UUID(identifier).hex == identifier
+        clock.value += 20
+        assert client.post(path, json=body, headers=ORIGIN).status_code == 200
+    reopened = Store(store.path).run(run_id)
+    assert reopened["reconciliation"] == receipt
+    assert sum(e["state"] == "operator_confirmed_remote_stopped" for e in reopened["events"]) == 1
+    assert reopened["attempts"] == before["attempts"] and reopened["effective"] == before["effective"]
+    assert reopened["status"] == before["status"] and reopened["error_code"] == before["error_code"]
+    assert recovery_summary(reopened)["remoteCompletion"] == "operator_confirmed"
+    assert recovery_summary(reopened)["automaticReplay"] is False
+
+
+@pytest.mark.parametrize("headers,body,status", [
+    ({}, {"remoteStopped": True}, 403),
+    (ORIGIN, {}, 422),
+    (ORIGIN, {"remoteStopped": False}, 422),
+    (ORIGIN, {"remoteStopped": True, "force": True}, 422),
+    (ORIGIN, {"remoteStopped": True, "evidenceReference": ""}, 400),
+])
+def test_generated_receipt_does_not_waive_confirmation_or_boundaries(store, publication, contracts, headers, body, status):
+    run_id = interrupted(store, publication, contracts)
+    store.cleanup_confirmed(run_id)
+    before = store.run(run_id)
+    with client_for(store, contracts) as client:
+        response = client.post(f"/api/runs/{run_id}/reconcile", json=body, headers=headers)
+        assert response.status_code == status
+    assert store.run(run_id) == before
 
 
 @pytest.mark.parametrize("headers,body,status", [({}, {}, 403), (ORIGIN, {"force": True}, 422)])
