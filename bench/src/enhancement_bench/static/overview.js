@@ -95,6 +95,10 @@ export function variationOverview(settings, { attempts, onAttempt } = {}) {
   let ordinal = 0;
   for (const subject of settings.subjects) {
     const row = node('tr'), name = node('th'); name.scope = 'row'; name.append(node('strong', subject.id), node('span', subject.text, 'case-preview')); row.append(name);
+    const prompt = node('details', undefined, 'prompt-disclosure case-prompt'); prompt.dataset.key = 'case:' + subject.id;
+    const toggle = node('summary'); toggle.append(node('span', 'Expand prompt', 'prompt-expand'), node('span', 'Collapse prompt', 'prompt-collapse'));
+    const full = node('div', subject.text, 'case-full'); full.tabIndex = 0; full.setAttribute('aria-label', 'Full prompt for ' + subject.id);
+    prompt.append(toggle, full); name.append(prompt);
     for (const unit of settings.units) {
       ordinal++;
       const cell = node('td'), attempt = recorded.get(JSON.stringify([subject.id, unit.id]));
