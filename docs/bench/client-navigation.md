@@ -7,6 +7,41 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Run labels show the selected scope - 2026-10-25
+
+- Task / atlas / gate: selected-run labels, bounded W05/B10 presentation.
+  Reviewed source baseline: develop `b22f92f`, following PRs #100/#101.
+- Reproduction / outcome: history used the full experiment title as each run's
+  headline, so a one-pair run appeared to execute the full matrix. A run now
+  shows its workflow, selected case and selected variant; larger selections
+  show their case/variant counts. The selected attempt count appears directly
+  below. The parent experiment retains its title and is explicitly labelled;
+  the result page separately labels the full experiment matrix.
+- Allowed files / implementation: Bench configuration projection, UI helpers
+  and run rendering, synthetic history/browser tests and evidence documentation.
+  The read-only history projection adds bounded subject IDs from the immutable
+  effective snapshot. Run headings and history share one label formatter.
+- Preserved contracts: stored definitions, snapshots, results, execution,
+  recovery and metrics are unchanged. There is no migration, new dependency,
+  experiment revision or core release. Older responses without case IDs use
+  known counts; missing configuration remains unknown and never borrows cases
+  from an experiment's defaults.
+- Checks / completion criterion: 105 affected backend tests and 50 desktop/mobile
+  checks pass. Coverage includes one-pair and multi-pair selections, different
+  selections of the same experiment, missing historical metadata, 80-character
+  identifiers, restart persistence, content exclusion, keyboard navigation,
+  refresh, revision scope, reruns and viewport width. JavaScript syntax,
+  privacy, atlas generation and whitespace checks pass.
+- Evidence / resource bound: synthetic integration and installed-Chrome browser
+  checks; one browser worker and owned loopback fixture servers. An initial
+  fixture used the wrong context field; another incorrectly included detail
+  payloads in history. Both fixtures were corrected to the existing API contract.
+  The sandbox denied loopback binding; the same bounded checks then ran with
+  permission to start their owned local servers.
+- Result / owner decisions: candidate prepared for source review, promotion and
+  API/UI deployment. Runtime verification remains separate. No experiment was
+  executed or reconciled for this repair; general W05/B10 acceptance is unchanged.
+
 ## Stale results after connection loss - 2026-10-24
 
 - Task / atlas scope: W05 presentation, based on reviewed develop `ca1af3a`.
@@ -148,6 +183,13 @@ this does not implement or accept the general workflow engine gates.
   retries of the same submitted settings.
 - `/experiments/{id}/runs/{runId}` shows that run's status, attempts and results.
   Rerun with changes opens the form; it does not immediately execute a run.
+
+Run titles describe the saved selection, for example
+`Prompt Check / example-sparse / concise`, with
+`Selected: 1 case / 1 variant / 1 attempt` underneath. A selection with multiple
+cases or variants uses counts for those dimensions. The full experiment's title
+is parent metadata, and its complete matrix is labelled separately on results.
+These display labels are computed on read, so existing runs receive them too.
 
 The server serves the shell at these exact routes, so reloads and deep links
 work. Browser Back/Forward and modified link clicks retain normal navigation.

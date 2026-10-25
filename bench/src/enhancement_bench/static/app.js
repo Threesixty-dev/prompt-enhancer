@@ -1,5 +1,5 @@
 import { node, schemaField, validateForm } from './forms.js';
-import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary, variationOverview, variantDescription } from './overview.js';
+import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary, runLabel, variationOverview, variantDescription } from './overview.js';
 import { filterToolbar, hasFilters, historyCharts, historyPath, readFilters, statsPreview } from './history.js';
 import { metricsTable } from './metrics.js';
 import { experimentFlow } from './flow.js';
@@ -153,11 +153,11 @@ function renderHistory() {
       const d = experiments.find(item => item.stableId === r.stable_id && item.revision === r.revision);
       const card = link(undefined, runPath(r), 'run-card');
       const title = node('div');
-      title.append(node('strong', global ? d?.title || r.stable_id : (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run'), metadata([
-        ['Experiment', r.stable_id], ['Revision', r.revision], ['Run', r.id.slice(0, 8)],
+      title.append(node('strong', runLabel(r), 'run-title'), metadata([
+        ['Experiment', d?.title || r.stable_id], ['Revision', r.revision], ['Run', r.id.slice(0, 8)],
         (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run',
       ]));
-      title.append(node('p', countLabel(r.configuration || {}), 'hint run-subtitle'), modelSummary(r.configuration));
+      title.append(node('p', 'Selected: ' + countLabel(r.configuration || {}), 'hint run-subtitle'), modelSummary(r.configuration));
       if (r.failure) title.append(node('p', 'Execution issue: ' + r.failure.code + (r.failure.stage ? ' / ' + r.failure.stage : ''), 'run-error'));
       if (terminal.has(r.status) && (r.cleanup_pending || r.reconciliation_required)) title.append(node('p', 'Recovery required - queue paused', 'run-error'));
       card.append(title, badge(r.status), labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
@@ -210,7 +210,7 @@ function renderRun(r) {
       const cancel = node('button', r.cancel_requested ? 'Cancellation requested' : 'Cancel run', 'danger'); cancel.disabled = Boolean(r.cancel_requested);
       cancel.onclick = async () => { cancel.disabled = true; try { await api('/api/runs/' + encodeURIComponent(r.id) + '/cancel', {}); await refresh(); } catch (error) { tell(error.message); cancel.disabled = false; } }; actions.append(cancel);
     } else if (terminal.has(r.status) && !r.cleanup_pending && !r.reconciliation_required) actions.append(link('Rerun with changes', newRunPath(definition, r.id), 'button'));
-    intro.append(actions, metadata([['Run', r.id], ['Enhancer version', r.effective.enhancerVersion], ['Correlation', r.correlation_id], r.error_code ? ['Error', r.error_code] : null, r.cleanup_pending ? ['Cleanup', 'Unconfirmed: execution slot held'] : null]), modelSummary(r.effective), evidence('Effective run settings', r.effective, 'effective'), evidence('Run history', r.events, 'events'));
+    intro.append(actions, metadata([['Run', r.id], ['Enhancer version', r.effective.enhancerVersion], ['Correlation', r.correlation_id], r.error_code ? ['Error', r.error_code] : null, r.cleanup_pending ? ['Cleanup', 'Unconfirmed: execution slot held'] : null]), metadata([['Full experiment matrix', countLabel(definition)]]), modelSummary(r.effective), evidence('Effective run settings', r.effective, 'effective'), evidence('Run history', r.events, 'events'));
     if (r.effective.workflow) intro.append(workflowOverview(r.effective.workflow));
     if (r.continuation) intro.append(node('p', r.continuation.decision === 'continue_independent_case'
       ? 'Independent cases may continue after preflight and a clear queue. This does not retry this run or qualify its model output.'
@@ -388,7 +388,7 @@ async function loadRoute(focus = false) {
         runPage = page; if (route.kind === 'stats') statsPage(definition); else experimentPage(definition);
       }
       if (route.kind === 'run') {
-        pageHeading('Run ' + source.id.slice(0, 8), definition.title + ' / revision ' + source.revision, [[definition.title, experimentPath(definition)], ['Results']], [refreshButton()]);
+        pageHeading(runLabel(source), 'Selected: ' + countLabel(source.effective) + ' / revision ' + source.revision, [[definition.title, experimentPath(definition)], ['Results']], [refreshButton()]);
         const detail = node('section'); detail.id = 'run-detail'; $('page-content').replaceChildren(detail); renderRun(source);
       }
       if (route.kind === 'new') {

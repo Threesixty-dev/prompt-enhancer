@@ -89,6 +89,7 @@ def test_run_cards_use_saved_model_overrides_without_content(store, publication)
     assert row["id"] == run_id
     assert row["configuration"] == {
         "enhancerVersion": "0.1.0", "caseCount": 1,
+        "subjectIds": [publication.definition.subjects[0].id],
         "units": [{"id": "consumer", "strategy": "consumer.rewrite.v1", "consumerBinding": {
             "binding_id": "example-overridden-model", "provider": "inference"}}],
         "evaluatorProfile": {"evaluators": [{"evaluator_id": "prompt", "kind": "deterministic", "binding_id": "deterministic.v1"}]},
