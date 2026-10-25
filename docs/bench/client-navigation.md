@@ -22,6 +22,12 @@ this does not implement or accept the general workflow engine gates.
   All 32 affected desktop/mobile checks, syntax and privacy checks pass.
 - Boundary: source review and API/UI deployment remain pending. Inputs,
   results, execution and W05/B10 acceptance are unchanged.
+- Follow-up: expansion deployed through PRs #109/#110. From reviewed develop
+  `d3db087`, the owner-requested styling refinement makes the shared disclosure
+  a small muted text control with no fill or border, a smaller plus/minus and
+  a hover underline. Keyboard focus remains visible. All four focused
+  desktop/mobile expansion checks and JavaScript syntax checks pass.
+  This CSS-only refinement awaits source promotion and API/UI deployment.
 
 ## Compact attempt prompt details - 2026-10-25
 
