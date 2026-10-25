@@ -15,6 +15,31 @@ def enqueue(store, publication, **overrides):
     return store.enqueue_ui(publication.definition.stableId, publication.definition.revision, Overrides(**overrides), str(uuid4()))
 
 
+def test_history_names_selected_cases_without_rewriting_snapshots_or_exposing_content(store, publication, contracts):
+    from enhancement_bench.store import Store
+
+    subjects = [subject.model_dump() for subject in publication.definition.subjects]
+    subjects.append({"id": "example-selected", "text": "EXAMPLE_PRIVATE_PROMPT",
+                     "context": [{"role": "user", "content": "EXAMPLE_PRIVATE_CONTEXT"}]})
+    definition = changed(publication, title="Example experiment - 2 cases x 2 variants", subjects=subjects, autoRun=False)
+    store.import_publication(definition)
+    run_id = enqueue(store, definition, subjectIds=["example-selected"], unitIds=["consumer"],
+                     unitSteering={"consumer": {"instructions": "EXAMPLE_PRIVATE_STEERING"}})
+    original = store.run(run_id)
+    reopened = Store(store.path)
+    with client_for(reopened, contracts) as client:
+        row = client.get("/api/runs").json()["runs"][0]
+        selected = row["configuration"]
+        assert selected["subjectIds"] == ["example-selected"]
+        assert selected["caseCount"] == 1
+        assert [unit["id"] for unit in selected["units"]] == ["consumer"]
+        assert "EXAMPLE_PRIVATE" not in json.dumps(row)
+    assert reopened.run(run_id) == original
+    assert original["effective"]["title"] == definition.definition.title
+    assert len(original["attempts"]) == 1
+    assert len(reopened.definitions()[0]["subjects"]) == 2
+
+
 def test_filters_apply_before_pagination_and_summary_covers_all_matching_runs(store, publication, contracts):
     store.import_publication(changed(publication, autoRun=False))
     store.import_publication(changed(publication, stableId="example-other", autoRun=False))

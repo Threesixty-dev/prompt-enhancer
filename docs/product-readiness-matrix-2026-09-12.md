@@ -1,5 +1,17 @@
 # Product feature and readiness matrix
 
+## Bench run titles and selected scope - 2026-10-25
+
+The [selected-run label candidate](bench/client-navigation.md#run-labels-show-the-selected-scope---2026-10-25)
+uses saved workflow/case/variant metadata for run headlines and labels the
+selected count separately from the full experiment matrix. Additive history
+metadata excludes prompt/context content; immutable definitions, results and
+execution behavior are preserved. All 105 affected backend tests and 50
+desktop/mobile checks pass, covering historical fallback, restart, navigation,
+refresh and viewport width. Source review, promotion and API/UI deployment remain
+open. This requires no core release or model execution and leaves W05/B10
+acceptance unchanged.
+
 ## Consumer subscriber release correction - 2026-10-25
 
 The [consumer retention candidate](bench/consumer-retention.md#finished-subscriber-release---2026-10-25)

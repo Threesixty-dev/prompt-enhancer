@@ -282,6 +282,7 @@ def configuration_summary(effective: dict) -> dict:
     summary = {
         "enhancerVersion": effective["enhancerVersion"],
         "caseCount": len(effective["subjects"]),
+        "subjectIds": [subject["id"] for subject in effective["subjects"]],
         "units": units,
         "evaluatorProfile": {"evaluators": [
             {key: evaluator.get(key) for key in ("evaluator_id", "kind", "binding_id")}
