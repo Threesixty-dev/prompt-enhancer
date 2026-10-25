@@ -1,5 +1,18 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Name Bench runs by their saved selections
+
+The [run-label candidate](bench/client-navigation.md#run-labels-show-the-selected-scope---2026-10-25)
+replaces the full experiment title in run headlines with the workflow and
+selected case/variant, or counts for larger selections. Selected attempt counts
+and the full experiment matrix are explicitly separate. History receives only
+bounded subject IDs from the saved snapshot; prompt/context content remains
+excluded and stored definitions/results remain unchanged. All 105 affected
+backend tests and 50 desktop/mobile checks pass with synthetic fixtures,
+including missing metadata, restart, navigation, refresh and long identifiers.
+Source review, promotion and API/UI deployment remain open. No new core artifact,
+experiment execution or recovery action is needed; W05/B10 acceptance is unchanged.
+
 ## 2026-10-25 - Reproduce and correct consumer subscriber cleanup
 
 After owner-attested recovery and the reviewed worker/consumer/relay rollout,

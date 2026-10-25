@@ -15,6 +15,18 @@ export function countLabel(settings) {
   return attempts === null ? 'Attempt count unknown' : `${count(cases, 'case')} \u00b7 ${count(variants, 'variant')} \u00b7 ${count(attempts, 'attempt')}`;
 }
 
+export function runLabel(run) {
+  const settings = run.effective || run.configuration;
+  if (!settings) return 'Run ' + run.id.slice(0, 8);
+  const { cases, variants } = dimensions(settings);
+  const subjectIds = settings.subjects?.map(subject => subject.id) ?? settings.subjectIds;
+  const workflow = settings.workflow?.workflow_id;
+  const name = { 'prompt-check': 'Prompt Check', 'prompt-rewrite': 'Prompt Rewrite', 'prompt-clarify': 'Prompt Clarify' }[workflow] || workflow || 'Run';
+  const selectedCase = cases === 1 && subjectIds?.length === 1 ? subjectIds[0] : cases == null ? 'Cases unknown' : count(cases, 'case');
+  const selectedVariant = variants === 1 ? settings.units[0].id : variants == null ? 'Variants unknown' : count(variants, 'variant');
+  return [name, selectedCase, selectedVariant].join(' \u00b7 ');
+}
+
 export function generationLabel(settings, unit) {
   if (unit.strategy === 'script.clarify.v1') return 'No model (packaged script)';
   if (!unit.strategy?.startsWith('consumer.') && unit.strategy !== 'prompt.check.v1') return 'Unknown';
