@@ -29,11 +29,15 @@ Revision 3 preserves its partial core 0.3.4 result as a separate cohort.
 Revision 2 retains the failed core 0.3.3 smoke; revision 1 retains its original
 core 0.3.2 artifact and history.
 
-Core 0.3.6 is released and registered, and the API/worker/relay rollout is verified.
-Three revision-5 definitions preserve the matrix and pin that artifact. All 29
-definitions, 240 new semantic requests and 58 focused synthetic tests pass.
-Definition reviews/publication and fresh smoke/main qualification remain open;
-the next cohort uses one case/variant pair per run.
+The published revision-5 cohort on core 0.3.6 completes 15 technical smoke
+successes and 209 main attempts: 200 successes, eight invalid reviews and one
+interrupted embedding request. A recovery hold preserves 31 unsubmitted pairs.
+Core 0.3.7 is released and registered, and its API/UI revision is verified.
+Three [revision-6 definitions](robustness-experiment.md#revision-6-task-card---2026-10-25)
+preserve the matrix and pin that artifact. All 32 definitions, 240 new semantic
+requests and 58 focused synthetic tests pass. Definition review/publication,
+confirmed recovery, coordinated worker/consumer/relay rollout, fresh one-pair
+smoke/main qualification and independent onboarding remain open.
 
 The [NLI input admission candidate](nli-input-admission.md) records the core 0.3.3
 paired-token guard, explicit unavailable readings and offline tokenizer packaging.

@@ -1,5 +1,20 @@
 # Consumer failure reporting
 
+## Release status - 2026-10-25
+
+Owner-approved PRs #94/#95 complete source review and promotion. Core 0.3.7
+passes publication, offline runtime identity/tokenizer verification, probe cleanup
+and Bench registration. The successful publication retry reuses the immutable
+image built by the first attempt. API/UI deployment verifies the reviewed main
+revision through both controller health and protected readiness checks.
+
+The consumer, worker and relay still use the frozen qualification deployment.
+Their coordinated rollout requires actual stop evidence for the revision-5
+embedding interruption. The [revision-6 preparation](robustness-experiment.md#revision-6-task-card---2026-10-25)
+pins the verified release without altering the matrix or submitting model work.
+Release completion does not establish deployed consumer compatibility or complete
+live qualification; acceptance statuses remain unchanged.
+
 ## Task card - 2026-10-25
 
 - Scope: MA18 and W02/W03/W05/W07, from reviewed develop `b3d42e7`.
