@@ -1,5 +1,14 @@
 # Product feature and readiness matrix
 
+## Expand matrix prompt previews - 2026-10-25
+
+Run variations now exposes per-case Expand prompt / Collapse prompt controls
+across experiment, setup and result pages. Full text remains exact and keyboard
+reachable in a scroll area; refresh preserves expansion. A failing-before
+synthetic regression covers the controls and accidental-submit prevention.
+All 32 affected desktop/mobile checks, syntax and privacy checks pass.
+Source review and API/UI deployment remain pending; W05/B10 acceptance is unchanged.
+
 ## Compact attempt prompt details - 2026-10-25
 
 The deployed matrix preview did not bound the separate original/enhanced

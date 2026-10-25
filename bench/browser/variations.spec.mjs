@@ -136,6 +136,42 @@ test('long attempt prompts stay compact and expand independently across refresh'
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('case previews expand in the matrix on experiment, setup and result pages', async ({ page }) => {
+  const { definition, run } = await fixture(page);
+  const text = 'Fictional example prompt.\n'.repeat(850) + 'EXAMPLE_CASE_TAIL';
+  definition.subjects[0].text = text;
+  run.effective.subjects[0].text = text;
+  let submissions = 0;
+  page.on('request', request => { if (request.method() === 'POST') submissions++; });
+  const base = '/experiments/' + definition.stableId;
+  for (const path of [base + '?revision=1', base + '/runs/new?revision=1', base + '/runs/' + run.id]) {
+    await page.goto(path);
+    const row = matrix(page).getByRole('rowheader').filter({ hasText: definition.subjects[0].id });
+    const summary = row.locator('summary');
+    await expect(row.getByText('Expand prompt', { exact: true })).toBeVisible();
+    await expect(row.locator('.case-full')).toBeHidden();
+    await summary.focus(); await page.keyboard.press('Enter');
+    await expect(row.getByText('Collapse prompt', { exact: true })).toBeVisible();
+    await expect(row.locator('.case-preview')).toBeHidden();
+    await expect(row.locator('.case-full')).toBeVisible();
+    expect(await row.locator('.case-full').textContent()).toBe(text);
+    expect((await row.locator('.case-full').boundingBox()).height).toBeLessThanOrEqual(384);
+    await expect(matrix(page).getByRole('rowheader').nth(1).locator('.case-full')).toBeHidden();
+    if (path.endsWith(run.id)) {
+      run.attempts[0].status = 'failed';
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      await expect(matrix(page).getByRole('link', { name: /Attempt 1:/ })).toContainText('failed');
+      await expect(row.locator('.case-full')).toBeVisible();
+    }
+    await summary.focus(); await page.keyboard.press('Space');
+    await expect(row.getByText('Expand prompt', { exact: true })).toBeVisible();
+    await expect(row.locator('.case-full')).toBeHidden();
+    expect((await row.locator('.case-preview').boundingBox()).height).toBeLessThan(60);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  expect(submissions).toBe(0);
+});
+
 test('run cards preserve saved model choices and counts independently of experiment defaults', async ({ page }) => {
   const { definition, run, configuration } = await fixture(page, { consumer: true });
   configuration.caseCount = 1; configuration.units = [configuration.units[1]];

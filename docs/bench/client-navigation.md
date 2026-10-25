@@ -7,6 +7,22 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Expand prompts in the variations matrix - 2026-10-25
+
+- Scope / baseline: W05/B10 presentation, reviewed develop `fe1cb67`.
+- Reproduction: attempt details could expand, but the clipped prompt in the
+  Run variations matrix had no expansion control of its own.
+- Change: each case now has explicit Expand prompt / Collapse prompt controls
+  on experiment, run setup and result pages. Full text uses a focusable scroll
+  area. Expansion remains independent per case and survives run refresh.
+  Matrix and attempt-detail disclosure controls share a visible button outline.
+- Evidence: a synthetic regression fails before the repair and covers all three
+  page types, keyboard controls, exact full text, independent state, refresh,
+  mobile width and zero accidental run submissions.
+  All 32 affected desktop/mobile checks, syntax and privacy checks pass.
+- Boundary: source review and API/UI deployment remain pending. Inputs,
+  results, execution and W05/B10 acceptance are unchanged.
+
 ## Compact attempt prompt details - 2026-10-25
 
 - Scope / baseline: W05/B10 presentation, reviewed develop `2ba83f1`.

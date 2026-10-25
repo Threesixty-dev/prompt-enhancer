@@ -1,5 +1,15 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Add expansion beside matrix prompt previews
+
+The matrix preview still lacked its own expansion control after the attempt
+detail repair. Each case now offers Expand prompt / Collapse prompt directly
+in Run variations on experiment, setup and result pages. Full text is scrollable
+and keyboard reachable; run refresh preserves the chosen expansion. Shared
+button styling also makes attempt-detail controls visible. A synthetic
+regression and all 32 affected browser checks pass without submitting runs. Source review
+and API/UI deployment remain pending; W05/B10 acceptance is unchanged.
+
 ## 2026-10-25 - Correct the missed attempt prompt details
 
 The earlier matrix-preview repair deployed through #105/#106, but left attempt
