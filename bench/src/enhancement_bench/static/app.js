@@ -388,7 +388,7 @@ async function loadRoute(focus = false) {
         runPage = page; if (route.kind === 'stats') statsPage(definition); else experimentPage(definition);
       }
       if (route.kind === 'run') {
-        pageHeading(runLabel(source), 'Selected: ' + countLabel(source.effective) + ' / revision ' + source.revision, [[definition.title, experimentPath(definition)], ['Results']], [refreshButton()]);
+        pageHeading(runLabel(source), 'Selected: ' + countLabel(source.effective) + ' / revision ' + source.revision, [[definition.title, experimentPath(definition)], ['Results']], [link('View experiment', experimentPath(definition), 'button secondary'), refreshButton()]);
         const detail = node('section'); detail.id = 'run-detail'; $('page-content').replaceChildren(detail); renderRun(source);
       }
       if (route.kind === 'new') {

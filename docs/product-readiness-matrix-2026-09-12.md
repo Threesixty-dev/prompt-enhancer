@@ -1,5 +1,13 @@
 # Product feature and readiness matrix
 
+## Compact Bench previews and experiment navigation - 2026-10-25
+
+Run variations now limits prompt previews to three lines with an ellipsis.
+Run results link directly to their saved experiment revision. All 38 affected
+desktop/mobile checks and a separate long synthetic prompt preview pass. Full
+prompt details remain available. Source review and API/UI deployment
+are pending; this presentation change leaves W05/B10 acceptance unchanged.
+
 ## Bench run titles and selected scope - 2026-10-25
 
 The [selected-run label candidate](bench/client-navigation.md#run-labels-show-the-selected-scope---2026-10-25)
