@@ -7,6 +7,21 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Compact prompt previews and experiment navigation - 2026-10-25
+
+- Scope / baseline: W05/B10 presentation, reviewed develop `2de0075`.
+- Change: Run variations limits each prompt preview to three lines with an
+  ellipsis. The shared style covers experiment details, run setup and run results;
+  complete prompts remain available in the existing prompt details. Run results
+  also provide a **View experiment** action beside Refresh, linked to the saved
+  experiment revision even when a newer revision is available.
+- Evidence: 38 desktop/mobile navigation, run-label and variation checks pass,
+  including keyboard activation of the revision-preserving link. A separate
+  synthetic preview with more than 20,000 characters shows three visible lines
+  at desktop and mobile widths; a short prompt remains fully visible.
+- Boundary: UI presentation and navigation; source review and API/UI deployment remain pending.
+  Experiment inputs, stored results and W05/B10 acceptance are unchanged.
+
 ## Run labels show the selected scope - 2026-10-25
 
 - Task / atlas / gate: selected-run labels, bounded W05/B10 presentation.

@@ -159,7 +159,7 @@ fieldset { min-width: 0; }
 .variation-matrix tr > :last-child { border-right: 0; }
 .variation-matrix tbody tr:last-child > * { border-bottom: 0; }
 .variation-matrix tbody tr:has(a:hover, a:focus-visible) { background: #edf8f5; }
-.case-preview { display: block; font-weight: 400; font-size: 12px; line-height: 1.6; margin-top: 8px; overflow-wrap: anywhere; }
+.case-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; max-height: 4.8em; overflow: hidden; font-weight: 400; font-size: 12px; line-height: 1.6; margin-top: 8px; overflow-wrap: anywhere; }
 .attempt-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 72px; padding: 12px; background: #f1f6f5; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: #17272f; }
 a.attempt-cell:hover { border-color: var(--teal); }
 .attempt-cell[data-status=succeeded] { background: #e3f3ed; border-color: #9dcebf; }
