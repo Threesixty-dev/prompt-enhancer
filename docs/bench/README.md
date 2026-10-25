@@ -8,6 +8,11 @@ Start with the [handoff guide](handoff.md) for the UI journey, result-state
 dictionary, AI client contract and remaining qualification gates. It distinguishes
 tested local changes from deployed capability.
 
+The [recovery UI candidate](recovery-ui.md) makes queue blockers, failure causes
+and next actions explicit. It adds bounded worker cleanup retries and retains
+operator confirmation for uncertain remote requests. Source evidence does not
+establish deployed recovery or resolve a missing historical request identity.
+
 The [client and export guide](client.md) documents the candidate JSON CLI,
 durable submission receipts, read-only preflight and private analysis tables.
 

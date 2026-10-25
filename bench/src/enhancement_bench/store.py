@@ -13,6 +13,7 @@ from pathlib import Path
 from .definitions import CoreImage, Definition, Overrides, Publication, canonical, configuration_summary, definition_payload, effective_settings, fingerprint
 from .errors import BenchError
 from .history import RunFilters, model_options, predicate, summarize
+from .recovery import failure_summary
 
 TERMINAL = {"succeeded", "failed", "cancelled", "interrupted", "superseded"}
 
@@ -215,6 +216,7 @@ class Store:
 
     def runs(self, limit: int = 100, *, before: str | None = None, filters: RunFilters | None = None) -> list[dict]:
         with self.connection() as db:
+            db.execute("BEGIN")
             return self._runs(db, limit, before, filters or RunFilters())
 
     def run_history(self, limit: int, before: str | None, filters: RunFilters) -> dict:
@@ -241,11 +243,47 @@ class Store:
         for row in rows:
             item = dict(row)
             item["configuration"] = configuration_summary(json.loads(item.pop("effective")))
+            item["failure"] = self._failure_summary(db, item)
             result.append(item)
         return result
 
+    def _failure_summary(self, db, run):
+        # Project only diagnostics; history does not load prompts or model replies.
+        row = db.execute("""SELECT id,subject_id,unit_id,position,status,error_code,
+            json_object('stage',json_extract(progress,'$.stage')) AS progress,
+            json_object('errors',json_extract(result,'$.errors'),
+                        'workflow_result',json_object('review',json_object('state',
+                            json_extract(result,'$.workflow_result.review.state')))) AS result
+            FROM attempts WHERE run_id=? AND (status IN ('failed','interrupted')
+                OR json_array_length(json_extract(result,'$.errors'))>0
+                OR json_extract(result,'$.workflow_result.review.state') IN ('reply_invalid','model_error'))
+            ORDER BY position LIMIT 1""", (run["id"],)).fetchone()
+        attempts = []
+        if row:
+            item = dict(row)
+            for key in ("result", "progress"):
+                item[key] = json.loads(item[key])
+            attempts.append(item)
+        return failure_summary(run | {"attempts": attempts})
+
+    def recovery_queue(self):
+        with self.connection() as db:
+            db.execute("BEGIN")
+            where = "status NOT IN ('queued','running') AND (cleanup_pending=1 OR reconciliation_required=1)"
+            total = db.execute("SELECT COUNT(*) FROM runs WHERE " + where).fetchone()[0]
+            rows = db.execute("SELECT id,stable_id,revision,status,error_code,started,finished,cleanup_pending,reconciliation_required FROM runs WHERE "
+                              + where + " ORDER BY created,id LIMIT 100").fetchall()
+            blockers = []
+            for row in rows:
+                item = dict(row)
+                item["failure"] = self._failure_summary(db, item)
+                blockers.append(item)
+            return {"schemaVersion": "bench-recovery-queue/v1", "blocked": bool(total),
+                    "total": total, "truncated": total > len(blockers), "runs": blockers}
+
     def run(self, run_id: str) -> dict:
         with self.connection() as db:
+            db.execute("BEGIN")
             row = db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
             if row is None:
                 raise BenchError("run_not_found", 404)
@@ -258,6 +296,9 @@ class Store:
                     item[key] = json.loads(item[key]) if item[key] is not None else None
                 result["attempts"].append(item)
             result["events"] = [dict(e) for e in db.execute("SELECT * FROM events WHERE run_id=? ORDER BY sequence", (run_id,))]
+            for key, table in (("cleanup_check", "cleanup_checks"), ("reconciliation", "reconciliations")):
+                receipt = db.execute("SELECT * FROM " + table + " WHERE run_id=?", (run_id,)).fetchone()
+                result[key] = dict(receipt) if receipt else None
         return result
 
     def claim(self) -> dict | None:
@@ -347,8 +388,57 @@ class Store:
 
     def cleanup_confirmed(self, run_id: str):
         with self.transaction() as db:
-            db.execute("UPDATE runs SET cleanup_pending=0 WHERE id=?", (run_id,))
-            self._event(db, run_id, "cleanup_confirmed")
+            changed = db.execute("UPDATE runs SET cleanup_pending=0 WHERE id=? AND cleanup_pending=1", (run_id,)).rowcount
+            db.execute("UPDATE cleanup_checks SET state='confirmed',checked_at=?,next_check=NULL,error_code=NULL WHERE run_id=?",
+                       (time.time(), run_id))
+            if changed:
+                self._event(db, run_id, "cleanup_confirmed")
+
+    def cleanup_failed(self, run_id, code):
+        allowed = {"container_operation_unconfirmed", "container_operation_failed", "container_response_too_large",
+                   "container_ownership_mismatch", "container_cleanup_unconfirmed"}
+        code = code if code in allowed else "container_cleanup_unconfirmed"
+        with self.transaction() as db:
+            now = time.time()
+            db.execute("INSERT OR IGNORE INTO cleanup_checks VALUES(?,1,NULL,NULL,NULL,'pending')", (run_id,))
+            count = db.execute("SELECT attempts FROM cleanup_checks WHERE run_id=?", (run_id,)).fetchone()[0]
+            next_check = now + (5 if count < 2 else 30) if count < 3 and code != "container_ownership_mismatch" else None
+            db.execute("UPDATE cleanup_checks SET state='failed',checked_at=?,next_check=?,error_code=? WHERE run_id=?",
+                       (now, next_check, code, run_id))
+            self._event(db, run_id, "cleanup_check_failed", code)
+
+    def claim_cleanup_check(self):
+        with self.transaction() as db:
+            now = time.time()
+            db.execute("""UPDATE cleanup_checks SET state='failed',next_check=NULL,error_code='container_cleanup_unconfirmed'
+                WHERE state='checking' AND attempts>=3 AND next_check<=?""", (now,))
+            row = db.execute("""SELECT r.id,r.container_name FROM runs r LEFT JOIN cleanup_checks c ON c.run_id=r.id
+                WHERE r.cleanup_pending=1 AND r.status NOT IN ('queued','running')
+                AND (c.run_id IS NULL OR (c.next_check<=? AND c.attempts<3))
+                ORDER BY r.created LIMIT 1""", (now,)).fetchone()
+            if row is None:
+                return None
+            # Reserve before Docker. A restart retains the attempt count and cooldown.
+            db.execute("""INSERT INTO cleanup_checks VALUES(?,1,?,?,NULL,'checking')
+                ON CONFLICT(run_id) DO UPDATE SET attempts=attempts+1,state='checking',checked_at=excluded.checked_at,
+                next_check=excluded.next_check""", (row["id"], now, now + 120))
+            self._event(db, row["id"], "cleanup_check_started")
+            return dict(row)
+
+    def request_cleanup_check(self, run_id):
+        with self.transaction() as db:
+            row = db.execute("SELECT status,cleanup_pending FROM runs WHERE id=?", (run_id,)).fetchone()
+            if row is None:
+                raise BenchError("run_not_found", 404)
+            if row["status"] not in TERMINAL or not row["cleanup_pending"]:
+                raise BenchError("cleanup_retry_not_required", 409)
+            check = db.execute("SELECT next_check,attempts,state FROM cleanup_checks WHERE run_id=?", (run_id,)).fetchone()
+            if check is None or (check["next_check"] is not None and check["attempts"] < 3):
+                return
+            if check["state"] == "checking" and check["next_check"] is not None and check["next_check"] > time.time():
+                return
+            db.execute("UPDATE cleanup_checks SET attempts=0,state='pending',next_check=? WHERE run_id=?", (time.time(), run_id))
+            self._event(db, run_id, "cleanup_check_requested")
 
     def acknowledge_remote_stopped(self, run_id: str, evidence_reference: str):
         import re

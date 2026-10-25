@@ -1,5 +1,19 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Make recovery actionable and expose execution causes
+
+The [Bench recovery candidate](bench/recovery-ui.md), from develop `233b49d`,
+puts the primary error and stage in history and above run results, and links
+global queue blockers across filters. Guided recovery distinguishes local cleanup
+from remote stop, retains operator evidence and never replays interrupted work.
+Cleanup failures now retry in the worker loop with a durable three-check budget,
+cooldowns and ownership validation; exhausted checks require explicit attention.
+All 436 Bench tests and 28 desktop/mobile checks pass. The browser suite uses
+installed Chrome after the standalone Playwright browser executable is absent.
+Only synthetic fixtures and owned loopback processes are used. Source review,
+API/UI and worker rollout, hosted recovery and independent onboarding remain open.
+The existing remote hold and MA18/W02/W05/W07 acceptance statuses are unchanged.
+
 ## 2026-10-25 - Release core 0.3.7 and prepare qualification revision 6
 
 Owner-approved PRs #94/#95 merge the typed ACP failure correction. Publication

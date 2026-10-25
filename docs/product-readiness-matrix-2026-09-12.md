@@ -1,5 +1,17 @@
 # Product feature and readiness matrix
 
+## Bench recovery and explicit failure UI - 2026-10-25
+
+The [recovery candidate](bench/recovery-ui.md) surfaces primary causes/stages,
+global blockers and guided stop confirmation. The worker retries owned-container
+cleanup with a persistent three-check budget, cooldowns and ownership checks,
+without replaying attempts or inferring remote completion. All 436 Bench tests
+and 28 desktop/mobile recovery, evaluator-failure and reconnection checks pass.
+Database initialization, restart, failed cleanup, explicit reconciliation and
+unchanged results are covered with synthetic data. API/UI and worker deployment,
+hosted recovery and independent onboarding remain open. Historical requests
+without completion evidence remain held. MA18/W02/W05/W07 acceptance is unchanged.
+
 ## Core 0.3.7 qualification definitions - 2026-10-25
 
 Owner-reviewed PRs #94/#95 complete the ACP failure-reporting source promotion.

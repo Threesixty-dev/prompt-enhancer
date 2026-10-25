@@ -78,6 +78,14 @@ small { display: block; margin-top: 5px; }
 .flow-recovery { position: relative; margin-top: 36px; background: #fffaf0; }
 .flow-recovery::before { position: absolute; top: -37px; left: 0; right: 0; }
 .review-validation { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.execution-issue, .recovery-panel { padding: 24px; margin-bottom: 20px; border-radius: var(--radius); overflow-wrap: anywhere; }
+.execution-issue { background: #fff3f3; border: 1px solid #e8bdc0; border-left: 4px solid #a33d43; }
+.recovery-panel { background: #fffaf0; border: 1px solid #e2cf9d; border-left: 4px solid #957120; }
+.execution-issue p, .recovery-panel p { margin: 8px 0; }
+.recovery-panel form { margin-top: 20px; }
+.recovery-panel .check-option { margin: 14px 0; }
+.recovery-panel li { margin: 10px 0; }
+.run-error { color: #99363e; font-size: 13px; font-weight: 600; }
 .run-card { width: 100%; display: grid; grid-template-columns: 1fr auto auto; gap: 18px; align-items: center; margin: 8px 0; text-align: left; text-decoration: none; background: white; color: #17272f; border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
 .run-card .meta { margin: 8px 0 0; gap: 5px 16px; }
 .run-pagination { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 16px; }

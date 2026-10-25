@@ -79,6 +79,10 @@ errors are technical failures, including historical rows recorded as succeeded.
 A valid review without a rewrite can succeed while after measurements are absent.
 
 Inspect ordered workflow steps, missing evaluators, errors and cleanup holds.
+Inspect the shared `failure` and `recovery` summaries when available. The recovery
+UI candidate's `GET /api/recovery` reports global blockers beyond the current
+history filter. Local cleanup retries are bounded and preserve remote holds;
+follow `nextAction` and [recovery guidance](../../../docs/bench/recovery-ui.md).
 Use the experiment/run flow diagram to understand the selected variant and
 evaluator order; it shows planned wiring, while receipts prove execution.
 For an invalid review, inspect the safe `validationIssue` when present. An
@@ -92,7 +96,7 @@ attempts and private receipts in the cohort; never count skipped work as covered
 `replayAllowed` is always false. This decision does not change failure exit codes
 or prove the next model ready. See `docs/bench/experiment-flow.md` for the boundary.
 
-Never clear a hold or replay an uncertain model operation automatically. A
+Never clear a remote-stop hold or replay an uncertain model operation automatically. A
 `cancel` acknowledgement is not confirmed remote stop; observe terminal state and
 cleanup. Operator reconciliation requires evidence of the actual remote stop.
 

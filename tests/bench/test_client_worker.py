@@ -137,7 +137,10 @@ def test_uncertain_delivery_never_replays_and_blocks_next_consumer(store, public
         assert len(core.cancelled) == 1
 
 
-def test_cleanup_failure_holds_admission_until_recovery(store, publication, contracts, result_template):
+def test_cleanup_failure_holds_admission_until_recovery(store, publication, contracts, result_template, monkeypatch):
+    import enhancement_bench.store as storage
+    now = [1000.0]
+    monkeypatch.setattr(storage, "time", SimpleNamespace(time=lambda: now[0]))
     run_id = store.import_publication(publication)["runId"]
     worker, _, runtime = make_worker(store, contracts, result_template)
     runtime.fail_cleanup = True
@@ -145,7 +148,8 @@ def test_cleanup_failure_holds_admission_until_recovery(store, publication, cont
     assert store.run(run_id)["cleanup_pending"]
     assert not worker.step()
     runtime.fail_cleanup = False
-    worker.reconcile()
+    now[0] += 5
+    worker.step()
     assert not store.run(run_id)["cleanup_pending"]
 
 

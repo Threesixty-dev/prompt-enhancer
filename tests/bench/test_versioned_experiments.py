@@ -295,7 +295,9 @@ def test_review_outcome_survives_http_storage_cleanup_and_recovery(store, public
         expected_continuation = {"decision": "stop" if failed else "continue_independent_case",
             "reason": "incomplete_selection" if failed else "completed_successfully", "replayAllowed": False}
         assert response.status_code == 200
-        assert response.json() == retained | {"continuation": expected_continuation}
+        from enhancement_bench.recovery import failure_summary, recovery_summary
+        assert response.json() == retained | {"continuation": expected_continuation,
+            "failure": failure_summary(retained), "recovery": recovery_summary(retained)}
         assert Store(store.path).run(run_id) == retained
     from enhancement_bench.analysis import dataset, inspect_run, validated_run, write_export
     from enhancement_bench.protocol import Contracts
