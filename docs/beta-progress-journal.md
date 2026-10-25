@@ -10,6 +10,12 @@ button styling also makes attempt-detail controls visible. A synthetic
 regression and all 32 affected browser checks pass without submitting runs. Source review
 and API/UI deployment remain pending; W05/B10 acceptance is unchanged.
 
+Follow-up: PRs #109/#110 deployed the expansion controls. The owner requested
+less prominent styling; from develop `d3db087`, shared controls now use compact
+muted text with no border or background. Four focused desktop/mobile expansion
+checks and syntax checks pass. This CSS-only refinement awaits promotion and
+deployment; expansion behavior and W05/B10 acceptance are unchanged.
+
 ## 2026-10-25 - Correct the missed attempt prompt details
 
 The earlier matrix-preview repair deployed through #105/#106, but left attempt
