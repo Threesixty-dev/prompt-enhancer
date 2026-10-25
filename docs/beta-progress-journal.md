@@ -1,5 +1,22 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Release core 0.3.7 and prepare qualification revision 6
+
+Owner-approved PRs #94/#95 merge the typed ACP failure correction. Publication
+`40145584966`, attempt 2, reuses the initially built image, verifies its offline
+identity and cleanup, and confirms core 0.3.7 registration. API deployment
+`40145554980`, attempt 2, verifies main `9c64198`; only the failed readiness job
+is retried after its initial external HTTP 404. No worker/consumer/relay rollout
+or model execution follows while the revision-5 recovery hold remains unresolved.
+
+The [revision-6 definitions](bench/robustness-experiment.md#revision-6-task-card---2026-10-25)
+change only identity/core pins. All 32 definitions, 240 semantic requests and 58
+focused synthetic tests pass; deployed history ends at generation 5. The plan
+retains 15 smoke attempts and 240 main pairs, one pair per run, with
+`autoRun: false`. Definition reviews/publication, actual remote-stop evidence, coordinated
+rollout, fresh live qualification and independent onboarding remain open.
+Historical cohorts and MA18/W02/W03/W05/W07 acceptance statuses are unchanged.
+
 ## 2026-10-25 - Preserve partial qualification and classify ACP failures
 
 The [revision-5 cohort](bench/robustness-experiment.md#revision-5-partial-live-result---2026-10-25)

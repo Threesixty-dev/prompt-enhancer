@@ -1,5 +1,18 @@
 # Product feature and readiness matrix
 
+## Core 0.3.7 qualification definitions - 2026-10-25
+
+Owner-reviewed PRs #94/#95 complete the ACP failure-reporting source promotion.
+Core 0.3.7 is published, verified offline with confirmed probe cleanup, and
+registered. API/UI deployment passes image health and protected serving-revision
+checks. The [revision-6 definitions](bench/robustness-experiment.md#revision-6-task-card---2026-10-25)
+preserve the matrix and select that immutable artifact. All 32 definitions, 240
+semantic requests and 58 synthetic tests pass; revision 6 is unused in deployed
+history. Definition reviews/publication, actual remote-stop recovery, coordinated
+worker/consumer/relay rollout, fresh live qualification and independent onboarding
+remain open. The revision-5 cohort remains held at 209 main attempts, and
+MA18/W02/W03/W05/W07 acceptance statuses are unchanged.
+
 ## ACP failure reporting and partial qualification - 2026-10-25
 
 The [revision-5 live cohort](bench/robustness-experiment.md#revision-5-partial-live-result---2026-10-25)
