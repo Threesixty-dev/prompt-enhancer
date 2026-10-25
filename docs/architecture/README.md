@@ -2,6 +2,13 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 25 [core 0.3.7 qualification revision](../bench/robustness-experiment.md#revision-6-task-card---2026-10-25)
+records completed source promotion, immutable publication/registration and API/UI
+revision verification. Three new definitions preserve the matrix; 32 definitions,
+240 semantic requests and 58 synthetic tests pass. Recovery, coordinated
+worker/consumer/relay rollout, definition review/publication, fresh qualification
+and independent onboarding remain open; acceptance statuses are unchanged.
+
 The October 25 [consumer failure candidate](../bench/consumer-failure-reporting.md)
 records a versioned ACP compatibility correction, 612 affected tests, 14
 desktop/mobile checks and packaged startup/pinned-SDK probes. The separate revision-5

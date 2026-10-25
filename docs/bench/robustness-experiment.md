@@ -30,11 +30,58 @@ coverage. Full qualification and independent onboarding remain open.
 
 The [flow and diagnostics release](experiment-flow.md) adds diagrams for every
 experiment, safe rejection details and independent-case continuation guidance.
-Its next qualification uses one case/variant pair per run, preserving every
-failure and stopping on uncertainty or infrastructure failure. Core 0.3.6 is
-released and registered; the API, worker and relay use reviewed source `3b424e8`.
-Three revision-5 definitions are prepared with `autoRun: false`; their source
-and promotion reviews, publication and fresh live qualification remain open.
+Revision 5 uses one case/variant pair per run, preserving every failure and
+stopping on uncertainty or infrastructure failure. Its released core is 0.3.6;
+the worker and relay retain reviewed source `3b424e8` during the recovery hold.
+The separately updated API/UI serves source `9c64198`.
+The published revision-5 cohort completes its smoke gate and stops at 209 of
+240 main attempts, as recorded below. Core 0.3.7 is now released and registered;
+revision-6 definitions preserve the matrix for a separate qualification after
+confirmed recovery and the coordinated worker/consumer/relay rollout.
+
+## Revision-6 task card - 2026-10-25
+
+- Task / atlas: MA18 and W02/W03/W05/W07; qualify the released ACP failure
+  reporting through the existing connected experiment pipeline.
+- Approved baseline: develop `7fde4b4`, promoted by owner-reviewed #95 to main
+  `9c64198`. Core publication `40145584966`, attempt 2, verifies and registers
+  core 0.3.7. Its first attempt builds and verifies the image but fails delivery;
+  the successful retry reuses the identical immutable digest. Probe cleanup is
+  confirmed. API deployment `40145554980`, attempt 2, verifies the same main
+  revision after a verifier-only retry of the initial external HTTP 404.
+- Runtime boundary: worker, consumer and relay replacement remains blocked by
+  the revision-5 embedding recovery hold. Current model readiness and an empty
+  Bench queue do not prove that the interrupted remote request stopped. The
+  available request-log service returns HTTP 503; the scoped audit query has no
+  matching completion evidence. Do not reconcile, replay or replace services
+  until actual stop evidence is recorded.
+- Allowed changes: three new revision-6 definitions and release/operation evidence.
+  Only revision, generation, core version and artifact pins change from r5.
+  Cases, variants, workflow identities, bindings, harness, policies, limits and
+  assertions remain unchanged. Every historical cohort keeps its original pins.
+- Matrix: 20 cases x 4 variants x 3 workflows = 240 main attempts, after 15
+  separate smoke attempts. Use one case and one variant per run. Preserve all
+  failures; continue only when the shared continuation decision permits a new
+  independent pair. Never replay an uncertain attempt automatically.
+- Validation: all 32 repository definitions and 240 new semantic requests pass;
+  exact comparison permits only identity/core changes. All 58 existing synthetic
+  publication, binding and connected-pipeline tests pass. The source build-input
+  fingerprint matches the registered receipt. Deployed history ends at revision
+  and generation 5; revision 6 is unused. `autoRun: false` preserves explicit
+  admission after runtime verification.
+- Remaining gates: specific definition review/promotion and publication,
+  confirmed remote-stop recovery, coordinated worker/consumer/relay deployment,
+  authenticated `bench-acp-failure.v1` readiness and command selection, fresh
+  model smoke/main qualification with UI/API/export agreement, and independent
+  onboarding. No new model work is submitted during preparation. Acceptance
+  statuses remain unchanged.
+
+Every revision-6 definition pins core `0.3.7`, variant `default`:
+
+- Image digest: `sha256:31a4c0b96395dc9ecaa9d628b1df831c31dd798b00f5d138bca84f72f98885f9`.
+- Build inputs: `5b27b1d1ae8d779cea3dd8dfe1ef1f2dcec36ea2974634f8a0de945ed6e364ed`.
+- Validated source: `9c64198280eec0dc86461f54aa14a96a83e66c81`; action `reused`
+  after the initial build. The release does not qualify actual model execution.
 
 ## Revision-5 task card - 2026-10-24
 
