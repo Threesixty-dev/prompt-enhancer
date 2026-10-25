@@ -95,3 +95,20 @@ def test_access_configuration_rejects_partial_or_unsafe_credentials(client_id, s
     with pytest.raises(ValueError, match="gateway_access_credential_invalid"):
         create_app("https://gateway.example.invalid/v1", access_client_id=client_id,
                    access_client_secret=secret)
+
+
+@pytest.mark.parametrize("status,code", [(400, "client_error"), (401, "unauthorized"),
+    (403, "forbidden"), (429, "rate_limited"), (500, "server_error"), (503, "server_error")])
+def test_relay_preserves_http_failure_status_without_forwarding_private_body(status, code):
+    received = []
+    def upstream(request):
+        received.append(request)
+        return httpx.Response(status, json={"error": {"message": "example-private-provider-diagnostic"}})
+    app = create_app("https://gateway.example.invalid/v1", transport=httpx.MockTransport(upstream))
+    with TestClient(app) as client:
+        response = client.post("/v1/responses", json={"model": "example-model"},
+            headers={"Authorization": "Bearer example-token"})
+    assert response.status_code == status
+    assert response.json() == {"error": {"code": "gateway_http_" + code, "message": "gateway_http_" + code}}
+    assert "example-private" not in response.text
+    assert len(received) == 1

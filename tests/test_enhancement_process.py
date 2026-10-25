@@ -21,9 +21,12 @@ def test_worker_failure_is_sanitized():
     ("nli_tokenizer_unavailable", False, "nli_tokenizer_unavailable"),
     ("nli_tokenization_failed", False, "nli_tokenization_failed"),
     ("remote_cleanup_unconfirmed", True, "remote_cleanup_unconfirmed"),
+    ("consumer_failure_protocol_unavailable", False, "consumer_failure_protocol_unavailable"),
     ("fictional private exception", False, "provider_failed"),
     ({"fictional": "exception"}, True, "remote_execution_unconfirmed"),
-] + [(code, True, code) for code in sorted(INFERENCE_TRANSPORT_ERROR_CODES)])
+] + [(code, True, code) for code in sorted(INFERENCE_TRANSPORT_ERROR_CODES)]
+  + [("consumer_upstream_" + category, True, "consumer_upstream_" + category)
+     for category in ("connection", "access", "limit", "request", "service", "unknown")])
 def test_worker_preserves_only_allowlisted_codes(monkeypatch, code, uncertain, expected):
     original = asyncio.create_subprocess_exec
     async def replace(*args, **kwargs):

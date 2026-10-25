@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 
+import httpx
 from jsonschema import Draft202012Validator
 import pytest
 
@@ -76,6 +77,53 @@ def test_invalid_review_diagnostic_matches_inspection_json_and_csv(completed, tm
         exported = next(csv.DictReader(stream))
     assert exported['validation_reason'] == row['validation_reason']
     assert exported['validation_field'] == row['validation_field']
+
+
+@pytest.mark.parametrize("category", ["connection", "access", "limit", "request", "service", "unknown"])
+def test_consumer_failure_keeps_cause_and_hold_through_storage_and_export(
+        store, publication, contracts, result_template, tmp_path, category):
+    publication.definition.units = publication.definition.units[-1:]
+    run_id = store.import_publication(publication)["runId"]
+    worker, core, runtime = make_worker(store, contracts, result_template)
+    handle = core.handle
+    code = "consumer_upstream_" + category
+
+    def failed_response(request):
+        response = handle(request)
+        if request.url.path.startswith("/v1/executions") and request.method != "DELETE":
+            value = response.json()
+            value["status"] = "uncertain"
+            if request.url.path.endswith("/result"):
+                value.update(candidate=None, enhanced_prompt=None, after=[], deltas=[],
+                    assertions=[], assertion_outcome="not_evaluated",
+                    errors=[{"code": code, "stage": "generate", "retryable": False}],
+                    workflow_result=None)
+            else:
+                value.update(stage="finished", result_available=True)
+            return httpx.Response(response.status_code, json=value)
+        return response
+
+    from enhancement_bench.client import CoreClient
+    worker.client_factory = lambda endpoint, c: CoreClient(
+        endpoint, c, transport=httpx.MockTransport(failed_response))
+    assert worker.step()
+    run = validated_run(store.run(run_id), contracts)
+    assert run["status"] == "interrupted" and run["reconciliation_required"]
+    assert not run["cleanup_pending"] and len(runtime.cleaned) == 1
+    assert not worker.step() and len(core.requests) == 1
+    report = inspect_run(run)
+    assert report["continuation"] == {"decision": "stop", "reason": "recovery_required", "replayAllowed": False}
+    assert report["attempts"][0]["errors"][0]["code"] == code
+    value = dataset([run])
+    Draft202012Validator(analysis_schema()).validate(value)
+    row = value["tables"]["errors"][0]
+    assert row["code"] == code and row["stage"] == "generate"
+    assert row["validation_reason"] is row["validation_field"] is None
+    write_export(tmp_path / "analysis", value)
+    with (tmp_path / "analysis/errors.csv").open() as stream:
+        exported = next(csv.DictReader(stream))
+    assert exported["code"] == code and exported["stage"] == "generate"
+    assert exported["validation_reason"] == exported["validation_field"] == ""
 
 
 @pytest.mark.parametrize('defect', ['cleanup', 'reconciliation', 'timeout', 'running', 'missing_result',
