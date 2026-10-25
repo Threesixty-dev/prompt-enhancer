@@ -30,6 +30,16 @@ def gateway_url(value: str) -> str:
     return value.rstrip("/")
 
 
+def gateway_failure(status):
+    category = {401: "unauthorized", 403: "forbidden", 429: "rate_limited"}.get(status)
+    if category is None:
+        category = ("redirect" if 300 <= status < 400 else "client_error" if 400 <= status < 500
+                    else "server_error" if 500 <= status < 600 else "unexpected_status")
+    code = "gateway_http_" + category
+    return JSONResponse({"error": {"code": code, "message": code}},
+        status if 400 <= status < 600 else 502, headers={"Cache-Control": "no-store"})
+
+
 def create_app(endpoint: str, *, transport=None, access_client_id=None, access_client_secret=None):
     endpoint = gateway_url(endpoint)
     access_headers = {}
@@ -84,7 +94,7 @@ def create_app(endpoint: str, *, transport=None, access_client_id=None, access_c
             if response.status_code != 200:
                 await response.aclose()
                 slots.release()
-                return JSONResponse({"error": {"code": "gateway_request_failed"}}, 502)
+                return gateway_failure(response.status_code)
         except (httpx.HTTPError, ValueError):
             if response is not None:
                 await response.aclose()

@@ -1,5 +1,6 @@
 """Static consumer startup/authentication only; no model or provider-account access."""
 
+import argparse
 import json
 import subprocess
 import time
@@ -12,6 +13,9 @@ def run(args, capture=False):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--consumer-image", default="local/enhancement-consumer:validation")
+    args = parser.parse_args()
     name = "enhancement-consumer-smoke-" + uuid.uuid4().hex[:12]
     try:
         result = run(["run", "-d", "--name", name, "--label", "enhancement-bench.test=static-consumer",
@@ -22,7 +26,7 @@ def main():
                       "--env", "BENCH_LITELLM_TOKEN=example-gateway-token-not-a-secret",
                       "--env", "BENCH_LITELLM_URL=https://gateway.example.com/v1",
                       "--env", "BENCH_CONSUMER_MODEL=example-qualified-model",
-                      "local/enhancement-consumer:validation"])
+                      args.consumer_image])
         if result.returncode:
             raise RuntimeError
         ready = False
@@ -45,7 +49,18 @@ def main():
         versions = json.loads(checks.stdout)
         assert "0.156.0" in versions["codex"]
         assert "1.10.0" in versions["acp"]
+        guard = run(["exec", name, "python3", "-c",
+            "import json,subprocess,urllib.request; from pathlib import Path; "
+            "r=urllib.request.Request('http://127.0.0.1:8000/api/bench/retention',headers={'X-Session-API-Key':'example-consumer-token-not-a-secret'}); "
+            "assert json.load(urllib.request.urlopen(r,timeout=2))['failure_guard']=='bench-acp-failure.v1'; "
+            "assert subprocess.check_output(['/opt/bench-consumer/bin/codex-acp','--version'],text=True).strip()=='@agentclientprotocol/codex-acp 1.10.0'; "
+            "processes=[p for p in Path('/proc').glob('[0-9]*/cmdline') if b'consumer_retention:create_app' in p.read_bytes().split(b'\\0')]; "
+            "assert len(processes)==1; environment=(processes[0].parent/'environ').read_bytes().split(b'\\0'); "
+            "assert any(v.startswith(b'PATH=/opt/bench-consumer/bin:') for v in environment)"])
+        if guard.returncode:
+            raise RuntimeError("consumer_guard_selection_failed")
         print(json.dumps({"scope": "static_consumer_startup", "ready": True, "versions": versions,
+                          "failure_guard": "bench-acp-failure.v1", "guard_path_selected": True,
                           "model_call_performed": False, "provider_account_access": False}))
     finally:
         result = run(["rm", "--force", name])

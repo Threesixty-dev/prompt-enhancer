@@ -2,6 +2,13 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 25 [consumer failure candidate](../bench/consumer-failure-reporting.md)
+records a versioned ACP compatibility correction, 612 affected tests, 14
+desktop/mobile checks and packaged startup/pinned-SDK probes. The separate revision-5
+cohort stops at 209 main attempts with verified partial UI/export evidence.
+Review, release/deployment, recovery, complete qualification and independent
+onboarding remain open; MA18/W02/W03/W05/W07 acceptance statuses are unchanged.
+
 The October 24 [core 0.3.5 qualification revision](../bench/robustness-experiment.md#revision-4-task-card---2026-10-24)
 records reviewed release, offline verification, registration and API deployment.
 Three revision-4 definitions preserve the matrix while pinning the verified
