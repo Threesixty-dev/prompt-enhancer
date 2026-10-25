@@ -1,0 +1,11 @@
+{
+  "subjectIds": [
+    "example-nested-json-contract"
+  ],
+  "unitIds": [
+    "concise",
+    "structured",
+    "notes-only",
+    "diagnostics-only"
+  ]
+}

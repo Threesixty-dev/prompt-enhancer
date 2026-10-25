@@ -1,5 +1,17 @@
 # Product feature and readiness matrix
 
+## Short semantic edge experiment definitions - 2026-10-25
+
+The [semantic edge suite](bench/semantic-edge-experiments.md) adds three planned
+experiments with 12 synthetic cases and four existing variants each, preserving
+core 0.3.7 and operational settings. The 144 main attempts and 12 separate smoke
+attempts have explicit semantic review criteria, selection manifests and flow
+diagrams. All 35 definitions, 144 generated requests, 42 affected tests and local
+publication-envelope preparation pass; read-only metadata confirms unused new
+identities and baseline pin parity. Definitions have `autoRun: false`. Review,
+publication, runtime readiness and execution remain pending. This authoring
+evidence does not establish semantic success or change MA18/W05/W07 acceptance.
+
 ## Expand matrix prompt previews - 2026-10-25
 
 Run variations now exposes per-case Expand prompt / Collapse prompt controls
