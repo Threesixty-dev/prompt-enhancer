@@ -25,7 +25,7 @@ from .recovery import failure_summary, recovery_summary
 
 class ReconcileInput(StrictModel):
     remoteStopped: Literal[True]
-    evidenceReference: str
+    evidenceReference: str | None = None
 
 
 def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tuple[str, ...],

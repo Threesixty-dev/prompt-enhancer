@@ -19,7 +19,7 @@ async function recoveryFixture(page, { cleanup = false } = {}) {
     run.recovery = { nextAction: cleanup ? (state.requested ? 'wait_for_cleanup' : 'retry_cleanup') : 'confirm_remote_stop',
       cleanupCheck: cleanup ? { attempts: state.requested ? 0 : 3, checked_at: 1792800000,
         next_check: state.requested ? 1792800100 : null, error_code: 'container_operation_unconfirmed' } : null,
-      reconciliation: state.confirmed ? { evidence_reference: 'example-verified-stop', created: 1792800200 } : null };
+      reconciliation: state.confirmed ? { evidence_reference: 'operator-confirmation-00000000000040008000000000000001', created: 1792800200 } : null };
     run.attempts[0].status = 'interrupted'; run.attempts[0].result.status = 'uncertain';
     run.attempts[0].result.errors = [{ code: 'gateway_io_timeout', stage: 'evaluate_original', retryable: false }];
     state.run = run;
@@ -60,20 +60,28 @@ test('timeout cause and unresolved recovery are prominent across pages and filte
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('remote reconciliation requires evidence and explicit confirmation and retains failure', async ({ page }) => {
+test('remote stop confirmation needs no typing and retains its automatic record and failure', async ({ page }) => {
   const state = await recoveryFixture(page);
+  const recovery = page.getByRole('region', { name: 'Run recovery', exact: true });
+  await expect(recovery.getByRole('textbox')).toHaveCount(0);
+  await expect(recovery).toContainText('Bench saves this confirmation with the run and time automatically');
   const button = page.getByRole('button', { name: 'Confirm remote stopped', exact: true });
-  await button.click(); expect(state.mutations).toHaveLength(0);
-  await page.getByLabel('Reconciliation evidence reference', { exact: true }).fill('example-verified-stop');
-  await button.click(); expect(state.mutations).toHaveLength(0);
-  await page.getByRole('checkbox', { name: 'I verified that the affected remote operations finished or stopped.' }).check();
+  const acknowledgement = page.getByRole('checkbox', { name: 'I verified that the affected remote operations finished or stopped.' });
+  await expect(button).toBeDisabled();
+  await acknowledgement.check();
+  await expect(button).toBeEnabled();
+  await acknowledgement.uncheck();
+  await expect(button).toBeDisabled();
+  expect(state.mutations).toHaveLength(0);
+  await acknowledgement.check();
   await button.click();
   await expect(page.getByRole('heading', { name: 'Recovery recorded', exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Run recovery', exact: true })).toContainText('example-verified-stop');
+  await expect(recovery).toContainText('Confirmation record: operator-confirmation-00000000000040008000000000000001');
+  await expect(recovery).toContainText('Stopped - operator confirmed');
   await expect(page.getByRole('region', { name: 'Execution issue', exact: true })).toContainText('gateway_io_timeout');
   await expect(page.getByRole('region', { name: 'Queue recovery', exact: true })).toBeHidden();
   await expect(page.getByRole('link', { name: 'Rerun with changes', exact: true })).toBeVisible();
-  expect(state.mutations).toEqual([{ action: 'reconcile', body: { remoteStopped: true, evidenceReference: 'example-verified-stop' } }]);
+  expect(state.mutations).toEqual([{ action: 'reconcile', body: { remoteStopped: true } }]);
 });
 
 test('bounded cleanup retry is distinct from remote stop or execution replay', async ({ page }) => {
@@ -81,6 +89,8 @@ test('bounded cleanup retry is distinct from remote stop or execution replay', a
   const recovery = page.getByRole('region', { name: 'Run recovery', exact: true });
   await expect(recovery).toContainText('3 / 3');
   await expect(recovery).toContainText('container_operation_unconfirmed');
+  await expect(page.getByRole('button', { name: 'Confirm remote stopped', exact: true })).toBeDisabled();
+  await page.getByRole('checkbox', { name: 'I verified that the affected remote operations finished or stopped.' }).check();
   await expect(page.getByRole('button', { name: 'Confirm remote stopped', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Retry container cleanup', exact: true }).click();
   await expect(recovery).toContainText('Next cleanup check:');
