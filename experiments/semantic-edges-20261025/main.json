@@ -1,0 +1,22 @@
+{
+  "subjectIds": [
+    "example-latest-user-revision",
+    "example-assistant-claim-not-authority",
+    "example-rule-example-conflict",
+    "example-negation-with-exception",
+    "example-empty-null-zero-false",
+    "example-nested-json-contract",
+    "example-unit-conversion-boundary",
+    "example-missing-referenced-artifact",
+    "example-explicit-scope-exclusion",
+    "example-locale-number-ambiguity",
+    "example-relevant-context-baseline",
+    "example-irrelevant-context-added"
+  ],
+  "unitIds": [
+    "concise",
+    "structured",
+    "notes-only",
+    "diagnostics-only"
+  ]
+}

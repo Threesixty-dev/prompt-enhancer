@@ -1,5 +1,20 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Prepare short semantic edge experiments
+
+From reviewed develop `46b3026`, the [semantic edge suite](bench/semantic-edge-experiments.md)
+adds three definition-only experiments for Prompt Check, Clarify and Rewrite.
+Twelve shared synthetic cases and four existing variants yield 144 planned main
+attempts; a separate nested-JSON smoke selection yields 12 attempts. Existing
+core 0.3.7 pins, model bindings, policies, budgets and assertions are preserved.
+Per-case semantic criteria complement the two numeric nonregression assertions;
+each experiment has a flow diagram. All 35 definitions, 144 generated requests,
+42 affected tests and local publication-envelope preparation pass. A read-only
+metadata check confirms unused new identities and matching baseline core pins.
+These are authoring checks, not model qualification. Source review/publication
+and live execution remain pending; no run or recovery operation is submitted.
+MA18/W05/W07 acceptance remains unchanged.
+
 ## 2026-10-25 - Add expansion beside matrix prompt previews
 
 The matrix preview still lacked its own expansion control after the attempt
