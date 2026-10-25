@@ -105,12 +105,16 @@ try:
                 thread.join(timeout=2)
                 assert not thread.is_alive(), 'sdk_subscriber_thread_still_running'
                 assert client.get(native).json()['execution_status'] == 'finished'
-                assert client.get(native + '/events/search').json()['items']
                 assert all(entry.name == '.git' for entry in directory.iterdir())
                 if (directory / '.git').is_dir():
                     shutil.rmtree(directory / '.git')
                 directory.rmdir()
-                assert client.post(retained + '/retain').json()['cleanup_confirmed'] is True
+                receipt = client.post(retained + '/retain')
+                assert receipt.status_code == 200, 'workspace_cleanup_not_acknowledged'
+                assert receipt.json()['cleanup_confirmed'] is True
+                # Native history inspection can reopen an idle event service;
+                # inspect only after the core's release/cleanup/retain sequence.
+                assert client.get(native + '/events/search').json()['items']
                 results.append({'guarded': guarded, 'live_subscriber_preserved': True,
                     'stopped_subscriber_released': True, 'native_history_retained': True,
                     'workspace_cleanup_confirmed': True})
