@@ -93,8 +93,15 @@ class Retention:
                 raise HTTPException(409, "conversation_not_bench_owned")
             event_service = service._event_services.get(conversation_id)
             if event_service is not None:
-                # Never cancel work or discard a subscribed/uncertain runtime.
                 deadline = time.monotonic() + 2
+                if event_service.has_external_subscribers():
+                    # SDK 1.49.1 checks its stop flag only after receiving an
+                    # event. Wake stopped clients without detaching live ones.
+                    try:
+                        await asyncio.wait_for(event_service._publish_state_update(), timeout=2)
+                    except TimeoutError:
+                        raise HTTPException(409, "conversation_still_active") from None
+                # Never cancel work or discard a subscribed/uncertain runtime.
                 while not event_service.is_idle_evictable():
                     if time.monotonic() >= deadline:
                         raise HTTPException(409, "conversation_still_active")

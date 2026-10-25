@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Consumer subscriber release correction - 2026-10-25
+
+The [consumer retention candidate](bench/consumer-retention.md#finished-subscriber-release---2026-10-25)
+addresses a reproduced SDK 1.49.1 websocket shutdown defect. The first
+revision-6 smoke completed before evaluations but failed generation cleanup;
+its failure and measurements remain preserved, and subsequent remote cleanup
+is confirmed. All 48 affected tests and two isolated real-SDK variants pass,
+including refusal for a live subscriber. Source review, consumer rollout,
+fresh qualification and independent onboarding remain open. No core release
+or experiment revision is needed; W02/W05/W07 acceptance is unchanged.
+
 ## Bench recovery and explicit failure UI - 2026-10-25
 
 The [recovery candidate](bench/recovery-ui.md) surfaces primary causes/stages,

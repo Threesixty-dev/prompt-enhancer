@@ -80,4 +80,5 @@ jobs:
           docker build -f deployment/bench/Dockerfile.consumer -t local/enhancement-consumer:validation .
           bench/.venv/bin/python tests/bench/consumer_smoke.py
           bench/.venv/bin/python tests/bench/acp_failure_smoke.py
+          bench/.venv/bin/python tests/bench/retention_lifecycle_smoke.py
           bench/.venv/bin/python tests/bench/relay_smoke.py

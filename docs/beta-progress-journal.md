@@ -1,5 +1,21 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Reproduce and correct consumer subscriber cleanup
+
+After owner-attested recovery and the reviewed worker/consumer/relay rollout,
+the first revision-6 smoke completed its before evaluations but failed with
+`remote_cleanup_unconfirmed`. A reproduced SDK defect leaves a finished
+conversation subscribed: its websocket stop flag is checked only on the next
+received event. An isolated synthetic ACP test reproduces HTTP 409 release
+failures with and without the error guard. The
+[candidate correction](bench/consumer-retention.md#finished-subscriber-release---2026-10-25)
+publishes current state within the existing bound, allowing a stopped client
+to disconnect while keeping all release checks. All 48 affected tests pass;
+both real-SDK fixtures release in under 0.1 seconds while live subscribers
+remain protected. The actual failed attempt's later release and workspace
+cleanup are confirmed and recovery is recorded without replay. Source review,
+consumer rollout and fresh qualification remain open; acceptance is unchanged.
+
 ## 2026-10-25 - Make recovery actionable and expose execution causes
 
 The [Bench recovery candidate](bench/recovery-ui.md), from develop `233b49d`,
