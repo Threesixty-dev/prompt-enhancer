@@ -20,6 +20,13 @@ The [experiment flow guide](experiment-flow.md) diagrams each robustness
 experiment and documents the deployed interactive diagram, safe review rejection
 details and evidence-based continuation of independent cases.
 
+The [semantic edge suite](semantic-edge-experiments.md) prepares three new
+experiments with 12 short cases and four existing variants each. It covers
+instruction precedence, conflicting requirements, exact values, nested output
+contracts and context perturbations, with per-case semantic review criteria and
+one flow diagram per experiment. Its 144 main attempts and 12 separate smoke
+attempts are planned only; definitions have `autoRun: false`.
+
 The [gateway failure and recovery guide](gateway-failure-recovery.md) explains
 the content-free transport diagnostics released in core 0.3.5 and reconciliation
 for uncertain evaluator calls, including runs with generation disabled.
