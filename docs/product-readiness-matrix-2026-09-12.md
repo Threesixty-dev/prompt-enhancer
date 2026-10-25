@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Explicit Bench quality assertions - 2026-10-25
+
+The [assertion presentation candidate](bench/client-navigation.md#explicit-quality-assertions---2026-10-25)
+exposes failed quality checks ahead of run diagrams and prompts, with links to
+their attempts and visible expected/observed values. History and variations
+separately label execution and assertion outcomes. Recorded judgments, numeric
+precision and unavailable states are preserved. All 116 affected desktop/mobile
+checks and 27 API checks pass, with synthetic visual review and syntax/privacy/
+atlas/whitespace checks. Source review and API/UI deployment remain pending;
+this presentation evidence leaves W05/B10 acceptance unchanged.
+
 ## Short semantic edge experiment definitions - 2026-10-25
 
 The [semantic edge suite](bench/semantic-edge-experiments.md) adds three planned

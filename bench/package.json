@@ -3,6 +3,6 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": {"check": "node --check src/enhancement_bench/static/app.js && node --check src/enhancement_bench/static/forms.js && node --check src/enhancement_bench/static/overview.js && node --check src/enhancement_bench/static/history.js && node --check src/enhancement_bench/static/metrics.js && node --check src/enhancement_bench/static/flow.js", "test:browser": "playwright test"},
+  "scripts": {"check": "node --check src/enhancement_bench/static/app.js && node --check src/enhancement_bench/static/forms.js && node --check src/enhancement_bench/static/overview.js && node --check src/enhancement_bench/static/history.js && node --check src/enhancement_bench/static/metrics.js && node --check src/enhancement_bench/static/assertions.js && node --check src/enhancement_bench/static/flow.js", "test:browser": "playwright test"},
   "devDependencies": {"@playwright/test": "1.61.1"}
 }

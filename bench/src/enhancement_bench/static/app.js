@@ -2,6 +2,7 @@ import { node, schemaField, validateForm } from './forms.js';
 import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary, runLabel, variationOverview, variantDescription } from './overview.js';
 import { filterToolbar, hasFilters, historyCharts, historyPath, readFilters, statsPreview } from './history.js';
 import { metricsTable } from './metrics.js';
+import { assertionOutcome, attemptAssertions, qualitySummary } from './assertions.js';
 import { experimentFlow } from './flow.js';
 import { failurePanel, recoveryBanner, recoveryPanel } from './recovery.js';
 
@@ -173,7 +174,10 @@ function renderHistory() {
       title.append(node('p', 'Selected: ' + countLabel(r.configuration || {}), 'hint run-subtitle'), modelSummary(r.configuration));
       if (r.failure) title.append(node('p', 'Execution issue: ' + r.failure.code + (r.failure.stage ? ' / ' + r.failure.stage : ''), 'run-error'));
       if (terminal.has(r.status) && (r.cleanup_pending || r.reconciliation_required)) title.append(node('p', 'Recovery required - queue paused', 'run-error'));
-      card.append(title, badge(r.status), labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
+      const outcomes = node('div', undefined, 'run-outcomes');
+      const execution = node('div'); execution.append(node('span', 'Execution: ', 'hint'), badge(r.status));
+      outcomes.append(execution, assertionOutcome(r.assertion_outcome));
+      card.append(title, outcomes, labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
       fragment.append(card);
     }
     if (!runPage.runs.length) fragment.append(node('p', hasFilters(activeRoute) ? 'No runs match these filters. Adjust or reset the filters to see more runs.' : activeRoute.before ? 'No older runs on this page. Return to the newest runs.' : global ? 'No runs yet. Choose an experiment below to start a run.' : 'No runs yet for this revision. Start a run to compare its units.', 'empty'));
@@ -218,7 +222,8 @@ function renderRun(r) {
   const container = $('run-detail'); if (!container || document.activeElement?.closest('#run-detail form')) return;
   patch(container, r, () => {
     const fragment = document.createDocumentFragment(), intro = node('section', undefined, 'surface');
-    const actions = node('div', undefined, 'actions'); actions.append(badge(r.status), node('strong', 'Assertions:', 'hint meta-label'), badge(r.assertion_outcome));
+    const actions = node('div', undefined, 'actions');
+    const execution = node('div'); execution.append(node('strong', 'Execution: ', 'hint meta-label'), badge(r.status)); actions.append(execution);
     if (['queued', 'running'].includes(r.status)) {
       const cancel = node('button', r.cancel_requested ? 'Cancellation requested' : 'Cancel run', 'danger'); cancel.disabled = Boolean(r.cancel_requested);
       cancel.onclick = async () => { cancel.disabled = true; try { await api('/api/runs/' + encodeURIComponent(r.id) + '/cancel', {}); await refresh(); } catch (error) { tell(error.message); cancel.disabled = false; } }; actions.append(cancel);
@@ -231,14 +236,16 @@ function renderRun(r) {
     const failure = failurePanel(r.failure), recovery = recoveryPanel(r, api, refresh, tell);
     if (failure) fragment.append(failure);
     if (recovery) fragment.append(recovery);
-    fragment.append(intro, experimentFlow(r.effective, workflowManifest(r.effective.workflow)), variationOverview(r.effective, { attempts: r.attempts, onAttempt: attempt => {
+    const showAttempt = attempt => {
       const target = document.getElementById(attemptAnchor(attempt.id)); target?.scrollIntoView({ block: 'start' }); target?.focus({ preventScroll: true });
-    } }));
+    };
+    fragment.append(qualitySummary(r, showAttempt), intro, experimentFlow(r.effective, workflowManifest(r.effective.workflow)), variationOverview(r.effective, { attempts: r.attempts, onAttempt: showAttempt }));
     for (const [index, attempt] of r.attempts.entries()) {
       const panel = node('article', undefined, 'run-panel'), unit = r.effective.units.find(u => u.id === attempt.unit_id), subject = r.effective.subjects.find(s => s.id === attempt.subject_id);
       panel.dataset.attempt = attempt.id; panel.id = attemptAnchor(attempt.id); panel.tabIndex = -1;
       const title = node('div', undefined, 'run-heading'); title.append(node('h2', 'Attempt ' + ((attempt.position ?? index) + 1) + ': ' + unit.title + ' / ' + subject.id), badge(attempt.status));
       panel.append(title, metadata([['Strategy', unit.strategy], ['Generation model alias', generationLabel(r.effective, unit)], ['Stage', attempt.progress ? attempt.progress.stage : 'Not started']]));
+      panel.append(attemptAssertions(attempt, unit));
       const comparison = node('div', undefined, 'comparison');
       comparison.append(promptColumn('Original prompt', subject.text, 'prompt', attempt.id + ':original'), promptColumn('Enhanced prompt', attempt.result?.enhanced_prompt ?? 'No enhanced prompt available.', 'prompt candidate', attempt.id + ':enhanced', attempt.result?.enhanced_prompt != null));
       panel.append(comparison);
