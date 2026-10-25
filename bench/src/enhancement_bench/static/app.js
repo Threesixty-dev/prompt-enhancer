@@ -52,6 +52,19 @@ function disclosure(title, content, key) {
   const element = node('details'); if (key) element.dataset.key = key;
   element.append(node('summary', title), content); return element;
 }
+function promptColumn(label, text, className, key, expandable = true) {
+  const column = node('div', undefined, 'prompt-column'), preview = node('div', undefined, className);
+  const characters = Array.from(text);
+  preview.append(node('span', characters.slice(0, 240).join('') + (characters.length > 240 ? '\u2026' : ''), 'prompt-preview'));
+  column.append(node('h3', label), preview);
+  if (expandable) {
+    const details = disclosure('', node('div', text, className + ' prompt-full'), key);
+    details.className = 'prompt-disclosure';
+    details.querySelector('summary').append(node('span', 'Show full ' + label.toLowerCase(), 'prompt-expand'), node('span', 'Show less ' + label.toLowerCase(), 'prompt-collapse'));
+    column.append(details);
+  }
+  return column;
+}
 const evidence = (title, value, key) => disclosure(title, node('pre', json(value)), key);
 const workflowManifest = reference => reference && runSchema?.workflows?.find(item =>
   item.workflow_id === reference.workflow_id && item.version === reference.version && item.definition_sha256 === reference.definition_sha256);
@@ -227,7 +240,7 @@ function renderRun(r) {
       const title = node('div', undefined, 'run-heading'); title.append(node('h2', 'Attempt ' + ((attempt.position ?? index) + 1) + ': ' + unit.title + ' / ' + subject.id), badge(attempt.status));
       panel.append(title, metadata([['Strategy', unit.strategy], ['Generation model alias', generationLabel(r.effective, unit)], ['Stage', attempt.progress ? attempt.progress.stage : 'Not started']]));
       const comparison = node('div', undefined, 'comparison');
-      for (const [label, text, cls] of [['Original prompt', subject.text, 'prompt'], ['Enhanced prompt', attempt.result?.enhanced_prompt ?? 'No enhanced prompt available.', 'prompt candidate']]) { const column = node('div'); column.append(node('h3', label), node('div', text, cls)); comparison.append(column); }
+      comparison.append(promptColumn('Original prompt', subject.text, 'prompt', attempt.id + ':original'), promptColumn('Enhanced prompt', attempt.result?.enhanced_prompt ?? 'No enhanced prompt available.', 'prompt candidate', attempt.id + ':enhanced', attempt.result?.enhanced_prompt != null));
       panel.append(comparison);
       if (attempt.result?.workflow_result) {
         const workflow = attempt.result.workflow_result;

@@ -1,5 +1,14 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Correct the missed attempt prompt details
+
+The earlier matrix-preview repair deployed through #105/#106, but left attempt
+prompt details fully expanded. A long synthetic input reproduces a panel more
+than 6,500 pixels tall. Original and enhanced details now use compact previews
+and independent native disclosures, preserving full text and expansion across
+refresh. The failing-before regression and all 40 affected browser checks pass. Source
+review and API/UI deployment remain pending; W05/B10 acceptance is unchanged.
+
 ## 2026-10-25 - Compact Bench previews and link runs to experiments
 
 From reviewed develop `2de0075`, Run variations uses three-line prompt previews

@@ -1,5 +1,14 @@
 # Product feature and readiness matrix
 
+## Compact attempt prompt details - 2026-10-25
+
+The deployed matrix preview did not bound the separate original/enhanced
+attempt details. A failing-before long synthetic prompt regression now passes
+on desktop and mobile: previews stay compact, full text remains exact, and
+independent expansion survives refresh. All 40 affected browser checks pass.
+Source review and API/UI deployment
+remain pending; inputs/results and W05/B10 acceptance are unchanged.
+
 ## Compact Bench previews and experiment navigation - 2026-10-25
 
 Run variations now limits prompt previews to three lines with an ellipsis.
