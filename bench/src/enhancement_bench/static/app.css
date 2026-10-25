@@ -102,6 +102,12 @@ small { display: block; margin-top: 5px; }
 .comparison > div { min-width: 0; }
 .prompt { background: #f5f8f8; border: 1px solid var(--line); padding: 18px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: 14px; }
 .prompt.candidate { border-color: #b6dcd5; background: #edf8f5; }
+.prompt-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; max-height: 4.95em; overflow: hidden; }
+.prompt-disclosure { border-top: 0; padding: 4px 0 0; }
+.prompt-disclosure > summary { min-height: 44px; padding: 12px 0; }
+.prompt-disclosure .prompt-collapse, .prompt-disclosure[open] .prompt-expand { display: none; }
+.prompt-disclosure[open] .prompt-collapse { display: inline; }
+.prompt-column:has(> .prompt-disclosure[open]) > .prompt { display: none; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; background: #f5f8f8; border-radius: 8px; padding: 16px; max-height: 420px; overflow: auto; }
 details { border-top: 1px solid var(--line); padding: 14px 0; }
 summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 4px 0; }
