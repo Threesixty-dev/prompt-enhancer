@@ -1,4 +1,5 @@
 import { node } from './forms.js';
+import { assertionOutcome, attemptAssertionState } from './assertions.js';
 
 const join = values => [...new Set(values)].join(' / ');
 const count = (n, label) => `${n} ${label}${n === 1 ? '' : 's'}`;
@@ -106,8 +107,12 @@ export function variationOverview(settings, { attempts, onAttempt } = {}) {
       const number = attempt ? (attempt.position == null ? attempts.indexOf(attempt) : attempt.position) + 1 : ordinal;
       content.append(node('strong', `Attempt ${number}`), node('span', attempts ? attempt?.status || 'Not recorded' : 'Planned', 'attempt-state'));
       if (attempt) {
+        const outcome = assertionOutcome(attemptAssertionState(attempt));
+        content.querySelector('.attempt-state').textContent = 'Execution: ' + attempt.status;
+        content.append(outcome);
         content.href = '#' + attemptAnchor(attempt.id); content.dataset.status = attempt.status;
-        content.setAttribute('aria-label', `Attempt ${number}: ${subject.id}, ${unit.title}, ${attempt.status}`);
+        content.dataset.assertionOutcome = outcome.dataset.outcome;
+        content.setAttribute('aria-label', `Attempt ${number}: ${subject.id}, ${unit.title}, execution: ${attempt.status}, ${outcome.textContent}`);
         content.onclick = event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onAttempt?.(attempt); } };
       }
       cell.append(content); row.append(cell);

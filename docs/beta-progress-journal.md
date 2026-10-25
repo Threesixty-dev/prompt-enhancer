@@ -1,5 +1,18 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Make Bench quality assertions explicit
+
+The [assertion presentation candidate](bench/client-navigation.md#explicit-quality-assertions---2026-10-25)
+adds a prominent run summary and failed-check links, plus per-attempt rules,
+thresholds, exact recorded observations and before/after context. History and
+variation cells label execution and assertion outcomes independently. Unknown,
+unevaluated and unrecorded checks remain distinct, and the UI does not recalculate
+outcomes. All 116 affected desktop/mobile checks and 27 API checks pass;
+synthetic desktop/mobile previews were inspected. Syntax, privacy, atlas and
+whitespace checks pass. Source review, publication and API/UI deployment remain
+pending. No model calls, metric changes or core release are needed; W05/B10
+acceptance is unchanged.
+
 ## 2026-10-25 - Prepare short semantic edge experiments
 
 From reviewed develop `46b3026`, the [semantic edge suite](bench/semantic-edge-experiments.md)

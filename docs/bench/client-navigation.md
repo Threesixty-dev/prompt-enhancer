@@ -7,6 +7,44 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Explicit quality assertions - 2026-10-25
+
+- Task / atlas / gate: `bench-assertion-visibility`, bounded W05/B10 presentation.
+  Approved source baseline: reviewed develop `6a9c9be`.
+- Reproduction / outcome: individual assertion rules and observations were
+  available only in collapsed result JSON. History and matrix cells emphasized
+  successful execution even when a recorded quality assertion failed. Readers
+  now see execution and assertion outcomes independently in both places.
+- Allowed files / implementation: Bench static rendering, its explicit asset
+  allowlist, synthetic browser/API checks and evidence documentation. A shared
+  assertion renderer adds a prominent run summary before diagrams and settings,
+  with failed-check links to the affected attempts. Each attempt exposes every
+  configured check, evaluator, metric, expected rule, threshold, recorded outcome,
+  observed value and before/after context before its prompts and model details.
+- Preserved contracts: the UI reads recorded outcomes without recalculating
+  pass/fail. Thresholds and numeric observations retain their precision, including
+  zero and tiny negative values. Unknown, not evaluated, not recorded and no
+  assertions configured remain distinct. Missing candidate, abstention and
+  incompatible evaluator identities use existing measurement explanations.
+  Missing detailed failure evidence remains visible as a limitation.
+- Checks / completion criterion: 116 affected desktop/mobile checks and 27 API
+  checks pass with synthetic fixtures. Coverage includes successful execution
+  with failed quality, both supported operators, exact zero, small changes,
+  unavailable readings, absent results/configuration, reordered checks, escaped
+  text, refresh, preserved disclosures, keyboard links, mobile width and no
+  accidental submissions. Existing navigation, workflow, history and recovery
+  checks pass. JavaScript syntax, privacy, atlas and whitespace checks pass.
+- Evidence / resource bound: browser and API integration evidence, one browser
+  worker and owned loopback fixture servers. Synthetic desktop/mobile previews
+  were inspected outside the repository. Initial server startup was blocked by
+  the sandbox's loopback restriction; the same checks ran with that permission.
+  A pending-state label and CSS ordering were refined before final verification.
+- Result / owner decisions: local candidate prepared for review; source
+  publication, promotion and API/UI deployment remain pending. No core release,
+  metric change, model request, experiment rerun or recovery action is required.
+  Stored results and W05/B10 acceptance are unchanged; owned test servers stop
+  after their checks.
+
 ## Expand prompts in the variations matrix - 2026-10-25
 
 - Scope / baseline: W05/B10 presentation, reviewed develop `fe1cb67`.

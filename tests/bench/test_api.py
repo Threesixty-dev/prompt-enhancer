@@ -23,6 +23,7 @@ def test_client_deep_links_serve_the_shell(store, contracts, path):
         assert client.get("/assets/forms.js").status_code == 200
         assert client.get("/assets/overview.js").status_code == 200
         assert client.get("/assets/flow.js").status_code == 200
+        assert client.get("/assets/assertions.js").status_code == 200
         assert client.get("/assets/missing.js").status_code == 404
 
 
