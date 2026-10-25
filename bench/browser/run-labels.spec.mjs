@@ -24,6 +24,9 @@ async function fixture(page, { cases = 1, variants = 1 } = {}) {
 
 test('single-pair run names and scope agree across history, details and refresh', async ({ page }) => {
   const { definition, run } = await fixture(page);
+  await page.route('**/api/experiments', route => route.fulfill({ json: { experiments: [
+    { ...definition, revision: '7', title: 'Newer example revision' }, definition,
+  ] } }));
   const title = 'Prompt Check \u00b7 example-sparse \u00b7 concise';
   for (const path of ['/experiments', '/experiments/' + definition.stableId + '?revision=6']) {
     await page.goto(path);
@@ -43,6 +46,13 @@ test('single-pair run names and scope agree across history, details and refresh'
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const experiment = page.getByRole('link', { name: 'View experiment', exact: true });
+  await expect(experiment).toHaveAttribute('href', '/experiments/' + definition.stableId + '?revision=6');
+  await experiment.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(new RegExp('/experiments/' + definition.stableId + '\\?revision=6$'));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(definition.title);
+  await expect(page.getByLabel('Revision', { exact: true })).toHaveValue('6');
 });
 
 test('different selections from one experiment have distinct titles', async ({ page }) => {

@@ -1,5 +1,14 @@
 # Beta progress journal: published handoff
 
+## 2026-10-25 - Compact Bench previews and link runs to experiments
+
+From reviewed develop `2de0075`, Run variations uses three-line prompt previews
+with an ellipsis. A **View experiment** action opens the run's saved experiment
+revision. All 38 affected desktop/mobile checks pass, including keyboard
+navigation when a newer revision exists; a separate long synthetic preview
+confirms compact rows at both sizes. Full prompt details remain
+available. Source review and API/UI deployment are pending; W05/B10 stays open.
+
 ## 2026-10-25 - Name Bench runs by their saved selections
 
 The [run-label candidate](bench/client-navigation.md#run-labels-show-the-selected-scope---2026-10-25)
