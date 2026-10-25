@@ -1,5 +1,16 @@
 # Product feature and readiness matrix
 
+## Separate Bench experiment and run pages with progress - 2026-10-26
+
+The [experiment and run page candidate](bench/client-navigation.md#separate-experiment-and-run-pages-with-attempt-progress---2026-10-26)
+shows experiments as single-column cards, with each experiment's runs on its
+own page. Cross-experiment history remains available on `/runs`. Both tile types
+show count-based progress. Experiment totals cover all revisions and pages;
+stopped runs retain partial progress when work was skipped, cancelled or
+interrupted. All 445 synthetic Bench tests and 126 desktop/mobile browser
+checks cover navigation and progress states.
+Source review and API/UI deployment remain pending; W05 acceptance is unchanged.
+
 ## Explicit Bench quality assertions - 2026-10-25
 
 The [assertion presentation candidate](bench/client-navigation.md#explicit-quality-assertions---2026-10-25)

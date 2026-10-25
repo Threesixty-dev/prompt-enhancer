@@ -67,6 +67,40 @@ def test_filters_apply_before_pagination_and_summary_covers_all_matching_runs(st
         assert client.get("/assets/history.js").status_code == 200
 
 
+def test_attempt_progress_groups_all_matching_runs_without_counting_skipped_work(store, publication, contracts):
+    first_definition = changed(publication, autoRun=False)
+    second_definition = changed(publication, stableId="example-other", autoRun=False)
+    store.import_publication(first_definition)
+    store.import_publication(second_definition)
+    completed = enqueue(store, first_definition, unitIds=["script"])
+    partial = enqueue(store, first_definition)
+    unrelated = enqueue(store, second_definition, unitIds=["script"])
+    with store.transaction() as db:
+        db.execute("UPDATE attempts SET status='succeeded' WHERE run_id=?", (completed,))
+        db.execute("UPDATE attempts SET status='failed' WHERE run_id=? AND unit_id='script'", (partial,))
+        db.execute("UPDATE attempts SET status='skipped' WHERE run_id=? AND unit_id='consumer'", (partial,))
+        db.execute("UPDATE attempts SET status='succeeded' WHERE run_id=?", (unrelated,))
+        db.execute("UPDATE runs SET status='succeeded' WHERE id IN (?,?)", (completed, unrelated))
+        db.execute("UPDATE runs SET status='failed' WHERE id=?", (partial,))
+    with client_for(store, contracts) as client:
+        page = client.get("/api/runs", params={"summary": "true", "limit": 1}).json()
+        progress = {row["stableId"]: row for row in page["summary"]["experimentProgress"]}
+        assert progress["example-widget"] == {"stableId": "example-widget", "runCount": 2, "finished": 2, "total": 3}
+        assert progress["example-other"] == {"stableId": "example-other", "runCount": 1, "finished": 1, "total": 1}
+        seen = {}
+        while True:
+            seen.update({row["id"]: row["attemptProgress"] for row in page["runs"]})
+            if not page["nextCursor"]:
+                break
+            page = client.get("/api/runs", params={"summary": "true", "limit": 1, "before": page["nextCursor"]}).json()
+            assert {row["stableId"]: row for row in page["summary"]["experimentProgress"]} == progress
+        assert seen == {completed: {"finished": 1, "total": 1}, partial: {"finished": 1, "total": 2},
+                        unrelated: {"finished": 1, "total": 1}}
+        filtered = client.get("/api/runs", params={"summary": "true", "status": "failed"}).json()
+        assert filtered["summary"]["experimentProgress"] == [
+            {"stableId": "example-widget", "runCount": 1, "finished": 1, "total": 2}]
+
+
 def test_utc_dates_include_whole_end_day_and_exclude_neighbors(store, publication):
     store.import_publication(changed(publication, autoRun=False))
     start = midnight(date(2026, 10, 10))

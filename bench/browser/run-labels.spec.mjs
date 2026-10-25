@@ -28,7 +28,7 @@ test('single-pair run names and scope agree across history, details and refresh'
     { ...definition, revision: '7', title: 'Newer example revision' }, definition,
   ] } }));
   const title = 'Prompt Check \u00b7 example-sparse \u00b7 concise';
-  for (const path of ['/experiments', '/experiments/' + definition.stableId + '?revision=6']) {
+  for (const path of ['/runs', '/experiments/' + definition.stableId + '?revision=6']) {
     await page.goto(path);
     const card = page.locator('.run-card');
     await expect(card.locator('.run-title')).toHaveText(title);
@@ -59,7 +59,7 @@ test('different selections from one experiment have distinct titles', async ({ p
   const { run, runs } = await fixture(page);
   runs.push({ ...run, id: 'example-other-run', configuration: { ...run.configuration,
     subjectIds: ['example-complete'], units: [{ id: 'structured', strategy: 'prompt.check.v1' }] } });
-  await page.goto('/experiments');
+  await page.goto('/runs');
   await expect(page.locator('.run-title')).toHaveText([
     'Prompt Check \u00b7 example-sparse \u00b7 concise',
     'Prompt Check \u00b7 example-complete \u00b7 structured',
@@ -68,7 +68,7 @@ test('different selections from one experiment have distinct titles', async ({ p
 
 test('multi-pair titles use the selected matrix rather than the full definition', async ({ page }) => {
   const { definition, run } = await fixture(page, { cases: 2, variants: 2 });
-  await page.goto('/experiments');
+  await page.goto('/runs');
   await expect(page.locator('.run-title')).toHaveText('Prompt Check \u00b7 2 cases \u00b7 2 variants');
   await expect(page.locator('.run-subtitle')).toHaveText('Selected: 2 cases \u00b7 2 variants \u00b7 4 attempts');
   await page.goto('/experiments/' + definition.stableId + '/runs/' + run.id);
@@ -81,7 +81,7 @@ test('older metadata keeps known counts and never borrows unselected cases', asy
   const { run, runs } = await fixture(page);
   delete run.configuration.subjectIds;
   runs.push({ ...run, id: 'example-missing-run', configuration: undefined });
-  await page.goto('/experiments');
+  await page.goto('/runs');
   await expect(page.locator('.run-title')).toHaveText(['Prompt Check \u00b7 1 case \u00b7 concise', 'Run example-']);
   await expect(page.locator('.run-subtitle')).toHaveText([
     'Selected: 1 case \u00b7 1 variant \u00b7 1 attempt', 'Selected: Attempt count unknown',
@@ -98,9 +98,8 @@ test('legacy runs and long identifiers stay readable without changing experiment
   const subject = 'example-' + 's'.repeat(72), unit = 'example-' + 'v'.repeat(72);
   run.configuration.subjectIds = [subject]; run.configuration.units[0].id = unit;
   run.effective.subjects[0].id = subject; run.effective.units[0].id = unit;
-  await page.goto('/experiments');
+  await page.goto('/runs');
   await expect(page.locator('.run-title')).toHaveText('Run \u00b7 ' + subject + ' \u00b7 ' + unit);
-  await expect(page.locator('.experiment-card h3')).toHaveText(definition.title);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.locator('.run-card').click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Run \u00b7 ' + subject + ' \u00b7 ' + unit);

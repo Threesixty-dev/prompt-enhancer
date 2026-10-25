@@ -11,7 +11,7 @@ const json = value => JSON.stringify(value, null, 2);
 const badge = value => node('span', value || 'unknown', 'badge ' + (value || 'unknown'));
 const tell = message => { $('notice').textContent = message; };
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted', 'superseded']);
-let connected = false, experiments = [], runs = [], routeEpoch = 0;
+let connected = false, experiments = [], routeEpoch = 0;
 let activeRoute, definition, runSchema, runPage, polling = false, refreshVersion = 0, refreshFailed = false;
 const snapshots = new WeakMap();
 const consumerFailureHints = {
@@ -97,6 +97,7 @@ function parseRoute() {
   const segments = location.pathname.split('/').filter(Boolean).map(decodeURIComponent), query = new URLSearchParams(location.search);
   const history = { before: query.get('before'), filters: readFilters(query) };
   if (!segments.length || (segments.length === 1 && segments[0] === 'experiments')) return { kind: 'list', ...history };
+  if (segments.length === 1 && segments[0] === 'runs') return { kind: 'runs', ...history };
   if (segments.length === 1 && segments[0] === 'stats') return { kind: 'stats', ...history };
   if (segments[0] !== 'experiments' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(segments[1] || '')) return { kind: 'missing' };
   const base = { id: segments[1], revision: query.get('revision'), from: query.get('from') };
@@ -134,16 +135,62 @@ document.addEventListener('click', event => {
 });
 window.addEventListener('popstate', () => { void loadRoute(true); });
 
+function progressBar(progress, title) {
+  const box = node('div', undefined, 'attempt-progress');
+  const valid = Number.isInteger(progress?.finished) && Number.isInteger(progress?.total)
+    && progress.finished >= 0 && progress.total > 0 && progress.finished <= progress.total;
+  const caption = valid ? progress.finished + ' of ' + progress.total + ' attempts finished'
+    : progress?.total === 0 ? 'No runs yet' : 'Progress unavailable';
+  const heading = node('div', undefined, 'progress-caption');
+  heading.append(node('span', title), node('strong', valid ? Math.floor(progress.finished / progress.total * 100) + '%' : caption));
+  const track = node('div', undefined, 'progress-track'); track.setAttribute('role', 'progressbar');
+  track.setAttribute('aria-label', title); track.setAttribute('aria-valuetext', caption);
+  if (valid) {
+    track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(progress.total));
+    track.setAttribute('aria-valuenow', String(progress.finished));
+  }
+  const fill = node('span', undefined, 'progress-fill');
+  fill.style.width = valid ? (progress.finished / progress.total * 100) + '%' : '0%';
+  track.append(fill); box.append(heading, track);
+  if (valid) box.append(node('span', caption, 'hint'));
+  return box;
+}
+function runCard(r, d) {
+  const card = link(undefined, runPath(r), 'run-card');
+  const title = node('div');
+  title.append(node('strong', runLabel(r), 'run-title'), metadata([
+    ['Experiment', d?.title || r.stable_id], ['Revision', r.revision], ['Run', r.id.slice(0, 8)],
+    (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run',
+  ]));
+  title.append(node('p', 'Selected: ' + countLabel(r.configuration || {}), 'hint run-subtitle'),
+    modelSummary(r.configuration), progressBar(r.attemptProgress, 'Run progress'));
+  if (r.failure) title.append(node('p', 'Execution issue: ' + r.failure.code + (r.failure.stage ? ' / ' + r.failure.stage : ''), 'run-error'));
+  if (terminal.has(r.status) && (r.cleanup_pending || r.reconciliation_required)) title.append(node('p', 'Recovery required - queue paused', 'run-error'));
+  const outcomes = node('div', undefined, 'run-outcomes');
+  const execution = node('div'); execution.append(node('span', 'Execution: ', 'hint'), badge(r.status));
+  outcomes.append(execution, assertionOutcome(r.assertion_outcome));
+  card.append(title, outcomes, labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
+  return card;
+}
 function renderExperiments() {
   const container = $('experiments'); if (!container) return;
+  const hasProgress = Array.isArray(runPage.summary?.experimentProgress);
+  const progress = new Map((runPage.summary?.experimentProgress || []).map(item => [item.stableId, item]));
   const newest = new Map(); for (const d of experiments) if (!newest.has(d.stableId)) newest.set(d.stableId, d);
-  patch(container, [experiments, runs], () => {
+  patch(container, [experiments, runPage.summary?.experimentProgress], () => {
     const fragment = document.createDocumentFragment();
     for (const d of newest.values()) {
       const card = link(undefined, experimentPath(d), 'experiment-card');
-      const latest = runs.find(r => r.stable_id === d.stableId && r.revision === d.revision);
-      card.append(node('p', d.stableId, 'eyebrow'), node('h3', d.title), metadata([['Revision', d.revision], countLabel(d)]), modelSummary(d));
-      const bottom = node('div', undefined, 'card-bottom'); bottom.append(latest ? badge(latest.status) : node('span', 'No runs yet', 'hint'), node('span', 'Open experiment >', 'card-action')); card.append(bottom); fragment.append(card);
+      const totals = progress.get(d.stableId);
+      const content = node('div');
+      content.append(node('strong', d.title, 'run-title'), metadata([['Experiment', d.stableId], ['Latest revision', d.revision], countLabel(d)]),
+        modelSummary(d));
+      const action = node('div', undefined, 'experiment-card-action');
+      const footer = node('div', undefined, 'experiment-card-footer');
+      footer.append(node('span', totals ? totals.runCount + ' run' + (totals.runCount === 1 ? '' : 's') : hasProgress ? 'No runs yet' : 'Run count unavailable', 'hint'),
+        node('span', 'Open experiment >', 'card-action'));
+      action.append(progressBar(totals || (hasProgress ? { finished: 0, total: 0 } : undefined), 'Experiment progress'), footer);
+      card.append(content, action); fragment.append(card);
     }
     if (!newest.size) fragment.append(node('p', 'No experiments yet. Published experiment definitions will appear here.', 'empty'));
     return fragment;
@@ -160,27 +207,11 @@ function historyFrame() {
   return { filters: filterToolbar(activeRoute, experiments, runPage.modelOptions, navigate), preview, pagination };
 }
 function renderHistory() {
-  const global = activeRoute.kind === 'list', container = $(global ? 'all-runs' : 'runs'); if (!container) return;
+  const global = activeRoute.kind === 'runs', container = $(global ? 'all-runs' : 'runs'); if (!container) return;
   patch(container, [runPage.runs, experiments], () => {
     const fragment = document.createDocumentFragment();
-    for (const r of runPage.runs) {
-      const d = experiments.find(item => item.stableId === r.stable_id && item.revision === r.revision);
-      const card = link(undefined, runPath(r), 'run-card');
-      const title = node('div');
-      title.append(node('strong', runLabel(r), 'run-title'), metadata([
-        ['Experiment', d?.title || r.stable_id], ['Revision', r.revision], ['Run', r.id.slice(0, 8)],
-        (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run',
-      ]));
-      title.append(node('p', 'Selected: ' + countLabel(r.configuration || {}), 'hint run-subtitle'), modelSummary(r.configuration));
-      if (r.failure) title.append(node('p', 'Execution issue: ' + r.failure.code + (r.failure.stage ? ' / ' + r.failure.stage : ''), 'run-error'));
-      if (terminal.has(r.status) && (r.cleanup_pending || r.reconciliation_required)) title.append(node('p', 'Recovery required - queue paused', 'run-error'));
-      const outcomes = node('div', undefined, 'run-outcomes');
-      const execution = node('div'); execution.append(node('span', 'Execution: ', 'hint'), badge(r.status));
-      outcomes.append(execution, assertionOutcome(r.assertion_outcome));
-      card.append(title, outcomes, labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
-      fragment.append(card);
-    }
-    if (!runPage.runs.length) fragment.append(node('p', hasFilters(activeRoute) ? 'No runs match these filters. Adjust or reset the filters to see more runs.' : activeRoute.before ? 'No older runs on this page. Return to the newest runs.' : global ? 'No runs yet. Choose an experiment below to start a run.' : 'No runs yet for this revision. Start a run to compare its units.', 'empty'));
+    for (const r of runPage.runs) fragment.append(runCard(r, experiments.find(item => item.stableId === r.stable_id && item.revision === r.revision)));
+    if (!runPage.runs.length) fragment.append(node('p', hasFilters(activeRoute) ? 'No runs match these filters. Adjust or reset the filters to see more runs.' : activeRoute.before ? 'No older runs on this page. Return to the newest runs.' : global ? 'No runs yet. Choose an experiment to start a run.' : 'No runs yet for this revision. Start a run to compare its units.', 'empty'));
     return fragment;
   });
   patch($('run-pagination'), [activeRoute.before, runPage.nextCursor], () => {
@@ -215,7 +246,8 @@ function experimentPage(d) {
   grid.append(strategyBox, prompts); overview.append(grid, labeledValue('Evaluator profile', d.evaluatorProfile.profile_id + ' / ' + d.evaluatorProfile.revision, 'p', 'hint'), evidence('Experiment definition', d, 'definition'));
   const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Runs'), node('span', 'Runs for revision ' + d.revision, 'hint'));
   const list = node('div'); list.id = 'runs'; const history = historyFrame();
-  $('page-content').replaceChildren(experimentFlow(d, workflowManifest(d.workflow)), variationOverview(d), overview, heading, history.preview, history.filters, list, history.pagination); renderHistory();
+  $('page-content').replaceChildren(heading, history.preview, history.filters, list, history.pagination,
+    experimentFlow(d, workflowManifest(d.workflow)), variationOverview(d), overview); renderHistory();
 }
 
 function renderRun(r) {
@@ -368,24 +400,29 @@ function newRunPage(d, source) {
 async function loadRoute(focus = false) {
   const epoch = ++routeEpoch; connected = false; refreshFailed = false; tell('');
   try {
+    const query = new URLSearchParams(location.search);
+    if (location.pathname === '/experiments' && (query.has('before') || Object.keys(readFilters(query)).length))
+      history.replaceState(null, '', '/runs' + location.search);
     activeRoute = parseRoute();
     if (activeRoute.kind === 'missing') throw new Error('Page not found.');
     const route = activeRoute;
     $('page-content').replaceChildren(node('p', 'Loading...', 'empty'));
-    const globalHistory = !route.id && ['list', 'stats'].includes(route.kind);
-    const [a, b, page, recovery] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, globalHistory ? api(historyPath(route, { api: true, before: route.before })) : null, api('/api/recovery')]);
+    const globalHistory = !route.id && ['list', 'runs', 'stats'].includes(route.kind);
+    const [a, page, recovery] = await Promise.all([api('/api/experiments'), globalHistory ? api(historyPath(route, { api: true, before: route.before })) : null, api('/api/recovery')]);
     if (epoch !== routeEpoch) return;
-    experiments = a.experiments; runs = b?.runs || []; $('workspace').hidden = false;
+    experiments = a.experiments; $('workspace').hidden = false;
     renderRecovery(recovery);
     if (route.kind === 'list') {
-      pageHeading('All runs', 'Runs across all experiments and revisions, newest first.', [], [refreshButton()]);
+      pageHeading('Experiments', 'Open an experiment to see its runs and results.', [], [refreshButton(), link('All runs', '/runs', 'button secondary')]);
+      runPage = page;
+      const cards = node('div', undefined, 'experiment-grid'); cards.id = 'experiments';
+      $('page-content').replaceChildren(cards); renderExperiments();
+    } else if (route.kind === 'runs') {
+      pageHeading('All runs', 'Runs across all experiments and revisions, newest first.', [['All runs']], [refreshButton()]);
       runPage = page;
       const runList = node('section'); runList.id = 'all-runs'; runList.setAttribute('aria-labelledby', 'page-title');
       const history = historyFrame();
-      const heading = node('div', undefined, 'section-heading'); heading.append(node('h2', 'Experiments'));
-      const description = node('p', 'Choose an experiment to review its revisions or start a new run.', 'hint');
-      const cards = node('div', undefined, 'experiment-grid'); cards.id = 'experiments';
-      $('page-content').replaceChildren(history.preview, history.filters, runList, history.pagination, heading, description, cards); renderHistory(); renderExperiments();
+      $('page-content').replaceChildren(history.preview, history.filters, runList, history.pagination); renderHistory();
     } else if (globalHistory && route.kind === 'stats') {
       runPage = page; statsPage();
     } else {
@@ -432,12 +469,11 @@ async function refresh() {
   if (!connected || activeRoute?.kind === 'new') return false;
   const epoch = routeEpoch, route = activeRoute, version = ++refreshVersion;
   try {
-    const [a, b, r, page, recovery] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, ['list', 'experiment', 'stats'].includes(route.kind) ? api(historyPath(route, { api: true, before: route.before })) : null, api('/api/recovery')]);
+    const [a, r, page, recovery] = await Promise.all([api('/api/experiments'), route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, ['list', 'runs', 'experiment', 'stats'].includes(route.kind) ? api(historyPath(route, { api: true, before: route.before })) : null, api('/api/recovery')]);
     if (epoch !== routeEpoch || version !== refreshVersion) return false;
-    experiments = a.experiments; runs = b?.runs || [];
+    experiments = a.experiments;
     renderRecovery(recovery);
-    if (page) { runPage = page; if (route.kind === 'stats') renderStats(); else renderHistory(); }
-    if (route.kind === 'list') renderExperiments();
+    if (page) { runPage = page; if (route.kind === 'stats') renderStats(); else if (route.kind === 'list') renderExperiments(); else renderHistory(); }
     if (route.kind === 'run') renderRun(r);
     if (refreshFailed) { refreshFailed = false; tell('Up to date.'); }
     return true;

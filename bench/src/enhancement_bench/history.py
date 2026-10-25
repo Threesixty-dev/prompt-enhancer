@@ -78,8 +78,16 @@ def summarize(db, filters: RunFilters, where: str, parameters: list) -> dict:
       FROM runs r WHERE {where} AND r.created>=? AND r.created<? GROUP BY day
     """, [*parameters, midnight(start), midnight(end) + 86400])}
     days = [start + timedelta(days=i) for i in range(max(0, (end - start).days + 1))]
+    experiments = [dict(row) for row in db.execute(f"""
+      SELECT r.stable_id AS stableId, COUNT(*) AS runCount,
+        SUM(json_array_length(r.effective,'$.subjects') * json_array_length(r.effective,'$.units')) AS total,
+        SUM((SELECT COUNT(*) FROM attempts a WHERE a.run_id=r.id
+             AND a.status IN ('succeeded','failed'))) AS finished
+      FROM runs r WHERE {where} GROUP BY r.stable_id
+    """, parameters)]
     return {
         "total": totals["total"], "plannedAttempts": totals["attempts"] if totals["total"] else 0,
+        "experimentProgress": experiments,
         "statuses": [{"status": status, "count": counts.get(status, 0)} for status in STATUSES],
         "activity": [{"day": day.isoformat(), "count": activity.get(day.isoformat(), 0)} for day in days],
         "activityFrom": start.isoformat(), "activityTo": end.isoformat(),

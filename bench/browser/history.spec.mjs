@@ -8,6 +8,7 @@ async function fixture(page) {
     id: 'example-history-' + String(index).padStart(3, '0'), stable_id: definition.stableId, revision: '1',
     status: index < 12 ? 'succeeded' : 'failed', origin: index % 2 ? 'ui' : 'gitops',
     created: Date.parse('2026-10-10T12:00:00Z') / 1000 - index, model: 'example-model-a',
+    attemptProgress: { finished: index < 12 ? 4 : 2, total: 4 },
   }));
   const metric = { experiment: definition.stableId, revision: '1', coreVersion: '0.1.0', evaluator: 'prompt', kind: 'deterministic', metric: 'prompt.task_definition_coverage', provenance: { metric_version: 'example-metric-v1', provider: 'deterministic' }, scopeKey: 'example-coverage', strategy: 'consumer.rewrite.v1', generation: { model: 'example-reported-model', model_revision: 'example-version-1' }, variant: 'example-general', model: 'example-model-a', before: .25, after: .75, delta: .5, count: 2, excluded: 1 };
   const comparisons = { groups: [metric, { ...metric, variant: 'example-focused', model: 'example-model-b', before: .5, after: .5, delta: 0, count: 1, excluded: 0 }, { ...metric, scopeKey: 'example-unknown', metric: 'prompt.context_sufficiency', before: null, after: null, delta: null, count: 0, excluded: 3 }], truncated: false };
@@ -20,7 +21,10 @@ const charts = page => page.getByRole('region', { name: 'Run history charts' });
 const preview = page => page.getByRole('region', { name: 'Stats preview' });
 
 test('filters cover full history, persist with pagination and reset the cursor when changed', async ({ page }) => {
-  await fixture(page); await page.goto('/experiments');
+  await fixture(page);
+  await page.goto('/experiments?status=failed');
+  await expect(page).toHaveURL(/\/runs\?status=failed$/);
+  await page.goto('/runs');
   await expect(page.locator('#all-runs .run-card')).toHaveCount(10);
   await expect(preview(page).locator('.preview-totals')).toContainText('24Matching runs');
   await filters(page).getByLabel('Execution status').selectOption('failed');
@@ -32,6 +36,7 @@ test('filters cover full history, persist with pagination and reset the cursor w
   await filters(page).getByRole('button', { name: 'Apply filters' }).click();
   await expect(page.locator('#all-runs .run-card')).toHaveCount(10);
   await expect(preview(page).locator('.preview-totals')).toContainText('12Matching runs');
+  await expect(page.locator('#all-runs .run-card').first().getByRole('progressbar', { name: 'Run progress' })).toHaveAttribute('aria-valuetext', '2 of 4 attempts finished');
   await page.getByRole('link', { name: 'Older runs', exact: true }).click();
   await expect(page.locator('#all-runs .run-card')).toHaveCount(2);
   expect(new URL(page.url()).searchParams.get('status')).toBe('failed');
@@ -44,7 +49,7 @@ test('filters cover full history, persist with pagination and reset the cursor w
   expect(new URL(page.url()).searchParams.has('before')).toBe(false);
   await page.goBack(); await expect(page.locator('#all-runs .run-card')).toHaveCount(2);
   await filters(page).getByRole('link', { name: 'Reset filters' }).click();
-  await expect(page).toHaveURL(/\/experiments$/);
+  await expect(page).toHaveURL(/\/runs$/);
   await expect(preview(page).locator('.preview-totals')).toContainText('24Matching runs');
 });
 
@@ -107,12 +112,12 @@ test('diagnostics-only model labels remain distinct from missing metadata', asyn
 });
 
 test('invalid date range does not navigate or submit, and stale filtered responses cannot replace the page', async ({ page }) => {
-  await fixture(page); await page.goto('/experiments');
+  await fixture(page); await page.goto('/runs');
   await filters(page).getByLabel('Created from (UTC)').fill('2026-10-11');
   await filters(page).getByLabel('Created through (UTC)').fill('2026-10-10');
   await filters(page).getByRole('button', { name: 'Apply filters' }).click();
   await expect(filters(page).getByLabel('Created through (UTC)')).toBeFocused();
-  await expect(page).toHaveURL(/\/experiments$/);
+  await expect(page).toHaveURL(/\/runs$/);
   let release; const gate = new Promise(resolve => { release = resolve; });
   await page.route('**/api/runs?status=failed**', async route => { await gate; await route.fallback(); });
   await filters(page).getByLabel('Created from (UTC)').fill('');
@@ -121,13 +126,14 @@ test('invalid date range does not navigate or submit, and stale filtered respons
   await filters(page).getByRole('button', { name: 'Apply filters' }).click();
   await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
   release();
-  await expect(filters(page).getByLabel('Execution status')).toHaveValue('');
-  await expect(preview(page).locator('.preview-totals')).toContainText('24Matching runs');
+  await expect(page.getByRole('heading', { name: 'Experiments', exact: true })).toBeVisible();
+  await expect(page.locator('#all-runs, .history-filters')).toHaveCount(0);
+  await expect(page.locator('.experiment-card')).toHaveCount(2);
 });
 
 test('compact stats preview precedes list filters and opens a separate filtered stats page', async ({ page }) => {
   const { runs } = await fixture(page);
-  for (const path of ['/experiments', '/experiments/example-widget?revision=1']) {
+  for (const path of ['/runs', '/experiments/example-widget?revision=1']) {
     await page.goto(path);
     await expect(preview(page)).toBeVisible();
     await expect(charts(page)).toHaveCount(0);
@@ -136,7 +142,7 @@ test('compact stats preview precedes list filters and opens a separate filtered 
     expect((await preview(page).boundingBox()).height).toBeLessThan(400);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
-  await page.goto('/experiments?status=failed&model=example-model-a&fromDate=2026-10-10&before=' + runs[21].id);
+  await page.goto('/runs?status=failed&model=example-model-a&fromDate=2026-10-10&before=' + runs[21].id);
   await expect(page.locator('#all-runs .run-card')).toHaveCount(2);
   const listUrl = page.url();
   const allStats = preview(page).getByRole('link', { name: 'View all stats' });

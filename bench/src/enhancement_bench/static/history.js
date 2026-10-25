@@ -11,7 +11,7 @@ export function historyPath(route, { before = null, filters = route.filters, api
   for (const key of keys) if (filters[key] && (api || !route.id || key !== 'experiment')) query.set(key, filters[key]);
   if (api) { query.set('limit', '10'); query.set('summary', 'true'); }
   if (before && !stats) query.set('before', before);
-  const listPath = route.id ? '/experiments/' + encodeURIComponent(route.id) : '/experiments';
+  const listPath = route.id ? '/experiments/' + encodeURIComponent(route.id) : '/runs';
   const path = api ? '/api/runs' : stats ? (route.id ? listPath + '/stats' : '/stats') : listPath;
   return path + (query.size ? '?' + query : '');
 }
