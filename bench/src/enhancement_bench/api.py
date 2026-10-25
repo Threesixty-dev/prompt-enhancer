@@ -92,7 +92,7 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
 
     @app.get("/assets/{name}")
     def asset(name: str):
-        if name not in {"app.js", "app.css", "forms.js", "overview.js", "history.js", "metrics.js", "flow.js", "recovery.js"}:
+        if name not in {"app.js", "app.css", "forms.js", "overview.js", "history.js", "metrics.js", "flow.js", "recovery.js", "assertions.js"}:
             raise BenchError("not_found", 404)
         return FileResponse(static / name)
 

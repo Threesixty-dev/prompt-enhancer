@@ -2,6 +2,13 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 25 [assertion presentation candidate](../bench/client-navigation.md#explicit-quality-assertions---2026-10-25)
+makes quality failures visible in run summaries, attempt details, history and
+variation cells while preserving separate execution states and recorded
+judgments. Synthetic browser/API evidence supplements W05/B10; source review
+and API/UI deployment remain pending. The frozen atlas observation and
+acceptance statuses are unchanged.
+
 The October 25 [consumer release correction](../bench/consumer-retention.md#finished-subscriber-release---2026-10-25)
 reproduces a pinned-SDK websocket shutdown defect after the first revision-6
 smoke attempt. A bounded state notification lets stopped clients disconnect

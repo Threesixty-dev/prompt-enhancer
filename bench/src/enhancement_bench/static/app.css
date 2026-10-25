@@ -98,6 +98,30 @@ small { display: block; margin-top: 5px; }
 .badge.failed { background: #f5dadd; color: #a33d43; }
 .badge.running, .badge.queued { background: #dceaf4; color: #315f86; }
 .badge.interrupted, .badge.unknown { background: #f8e8bd; color: #8b5f12; }
+.run-outcomes { display: grid; justify-items: start; gap: 8px; }
+.assertion-outcome { display: inline-block; width: fit-content; border-radius: 5px; padding: 5px 8px; background: #f0f4f5; color: #4c5f69; font-size: 12px; font-weight: 650; }
+.assertion-outcome[data-outcome=passed] { background: #d9f0eb; color: #176d65; }
+.assertion-outcome[data-outcome=failed] { background: #f5dadd; color: #a33d43; }
+.assertion-outcome[data-outcome=unknown] { background: #f8e8bd; color: #8b5f12; }
+.quality-summary { border-left: 4px solid #829b98; }
+.quality-summary[data-outcome=failed] { border-color: #e8bdc0; border-left-color: #a33d43; background: #fff7f7; }
+.quality-summary h2 { margin-bottom: 12px; }
+.assertion-counts { font-weight: 650; font-variant-numeric: tabular-nums; }
+.assertion-failures { padding-left: 20px; margin-bottom: 0; }
+.assertion-failures li + li { margin-top: 14px; }
+.assertion-failures a { font-weight: 650; }
+.assertion-failure-detail { font-size: 13px; margin: 4px 0; overflow-wrap: anywhere; }
+.attempt-assertions { border-top: 1px solid var(--line); padding-top: 20px; }
+.assertion-checks { list-style: none; display: grid; gap: 12px; padding: 0; margin: 16px 0 24px; }
+.assertion-check { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: #f7faf9; overflow-wrap: anywhere; }
+.assertion-check[data-outcome=failed] { border-color: #e8bdc0; border-left: 4px solid #a33d43; background: #fff7f7; }
+.assertion-check p { margin: 8px 0 0; }
+.assertion-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; font-size: 14px; }
+.assertion-state { font-weight: 650; }
+[data-outcome=failed] > .assertion-heading .assertion-state, .assertion-explanation { color: #99363e; }
+.assertion-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 12px 24px; margin: 16px 0; }
+.assertion-facts dt { font-size: 12px; color: var(--muted); }
+.assertion-facts dd { margin: 4px 0 0; font-weight: 650; font-variant-numeric: tabular-nums; }
 .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0; }
 .comparison > div { min-width: 0; }
 .prompt { background: #f5f8f8; border: 1px solid var(--line); padding: 18px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: 14px; }
@@ -178,6 +202,7 @@ a.attempt-cell:hover { border-color: var(--teal); }
 .attempt-cell[data-status=succeeded] { background: #e3f3ed; border-color: #9dcebf; }
 .attempt-cell[data-status=running] { background: #e4f0fa; border-color: #87b0d0; }
 .attempt-cell[data-status=failed], .attempt-cell[data-status=interrupted] { background: #fff1e8; border-color: #e6b496; }
+.attempt-cell[data-assertion-outcome=failed] { border-color: #b65760; box-shadow: inset 3px 0 #b65760; }
 .attempt-state { font-size: 12px; text-transform: capitalize; }
 .run-panel { scroll-margin-top: 20px; }
 #run-preview > .model-summary { padding: 0 4px; }
@@ -251,6 +276,7 @@ a.attempt-cell:hover { border-color: var(--teal); }
   .surface, .run-panel, .experiment-card { padding: 20px; }
   .run-card { grid-template-columns: 1fr auto; gap: 8px; padding: 18px; }
   .run-card .run-time { grid-column: 1 / -1; }
+  .run-outcomes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; }
   .run-heading { align-items: start; flex-wrap: wrap; }
   .actions { flex-wrap: wrap; }
   .form-actions { flex-wrap: wrap; }
