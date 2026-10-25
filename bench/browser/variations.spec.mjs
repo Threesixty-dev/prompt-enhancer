@@ -96,6 +96,46 @@ test('run matrix follows recorded attempts and exposes generation and both evalu
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('long attempt prompts stay compact and expand independently across refresh', async ({ page }) => {
+  const { definition, run } = await fixture(page);
+  const original = 'Fictional example input. '.repeat(850) + 'EXAMPLE_ORIGINAL_TAIL';
+  const enhanced = 'Fictional example output.\n'.repeat(850) + 'EXAMPLE_ENHANCED_TAIL';
+  run.effective.subjects[0].text = original;
+  run.attempts = [run.attempts[0]];
+  run.attempts[0].result = JSON.parse(await readFile(resultFile, 'utf8'));
+  run.attempts[0].result.enhanced_prompt = enhanced;
+  await page.goto('/experiments/' + definition.stableId + '/runs/' + run.id);
+  const comparison = page.locator('.comparison').first();
+  await expect(comparison).toBeVisible();
+  for (const prompt of await comparison.locator('.prompt').all()) {
+    if (await prompt.isVisible()) expect((await prompt.boundingBox()).height).toBeLessThan(130);
+  }
+  expect((await matrix(page).locator('.case-preview').first().boundingBox()).height).toBeLessThan(60);
+  const originalColumn = comparison.locator(':scope > div').nth(0);
+  const enhancedColumn = comparison.locator(':scope > div').nth(1);
+  await expect(originalColumn.locator('.prompt-preview')).not.toContainText('EXAMPLE_ORIGINAL_TAIL');
+  await expect(enhancedColumn.locator('.prompt-preview')).not.toContainText('EXAMPLE_ENHANCED_TAIL');
+  await expect(originalColumn.locator('.prompt-full')).toBeHidden();
+  await expect(enhancedColumn.locator('.prompt-full')).toBeHidden();
+  const showOriginal = originalColumn.locator('summary');
+  await showOriginal.focus(); await page.keyboard.press('Enter');
+  expect(await originalColumn.locator('.prompt-full').textContent()).toBe(original);
+  await expect(originalColumn.locator('.prompt-full')).toBeVisible();
+  await expect(enhancedColumn.locator('.prompt-full')).toBeHidden();
+  run.attempts[0].status = 'succeeded';
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.locator('#attempt-example-attempt-0 .badge')).toHaveText('succeeded');
+  await expect(originalColumn.locator('.prompt-full')).toBeVisible();
+  await originalColumn.getByText('Show less original prompt', { exact: true }).click();
+  await expect(originalColumn.locator('.prompt-full')).toBeHidden();
+  await enhancedColumn.getByText('Show full enhanced prompt', { exact: true }).click();
+  expect(await enhancedColumn.locator('.prompt-full').textContent()).toBe(enhanced);
+  await expect(enhancedColumn.locator('.prompt-full')).toBeVisible();
+  await enhancedColumn.getByText('Show less enhanced prompt', { exact: true }).click();
+  await expect(enhancedColumn.locator('.prompt-full')).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('run cards preserve saved model choices and counts independently of experiment defaults', async ({ page }) => {
   const { definition, run, configuration } = await fixture(page, { consumer: true });
   configuration.caseCount = 1; configuration.units = [configuration.units[1]];

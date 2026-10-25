@@ -7,6 +7,24 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Compact attempt prompt details - 2026-10-25
+
+- Scope / baseline: W05/B10 presentation, reviewed develop `2ba83f1`.
+- Reproduction: the deployed matrix preview was compact, but attempt details
+  still rendered the entire original and enhanced prompts. A long synthetic
+  prompt reproduced a detail panel more than 6,500 pixels tall.
+- Change: both attempt prompts now start with a bounded, three-line preview.
+  Native disclosures reveal the complete text and allow it to be collapsed
+  again. Original and enhanced expansions are independent and survive refresh;
+  an absent candidate retains the existing unavailable message.
+- Evidence: the new long-prompt regression fails before the repair and passes
+  on desktop and mobile. It checks default height, keyboard expansion, exact
+  original/enhanced text, independent collapse, refresh and viewport width.
+  All 40 affected browser checks, JavaScript syntax and privacy checks pass.
+- Boundary: source review and API/UI deployment remain pending. This changes
+  presentation only; saved inputs, model calls, results and W05/B10 acceptance
+  are unchanged.
+
 ## Compact prompt previews and experiment navigation - 2026-10-25
 
 - Scope / baseline: W05/B10 presentation, reviewed develop `2de0075`.
@@ -19,7 +37,7 @@ this does not implement or accept the general workflow engine gates.
   including keyboard activation of the revision-preserving link. A separate
   synthetic preview with more than 20,000 characters shows three visible lines
   at desktop and mobile widths; a short prompt remains fully visible.
-- Boundary: UI presentation and navigation; source review and API/UI deployment remain pending.
+- Boundary: PRs #105/#106 completed source promotion and verified API/UI deployment.
   Experiment inputs, stored results and W05/B10 acceptance are unchanged.
 
 ## Run labels show the selected scope - 2026-10-25
