@@ -20,6 +20,7 @@ from .history import RunFilters, RunStatus
 from .protocol import Contracts
 from .store import Store
 from .analysis import continuation_decision
+from .recovery import failure_summary, recovery_summary
 
 
 class ReconcileInput(StrictModel):
@@ -91,7 +92,7 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
 
     @app.get("/assets/{name}")
     def asset(name: str):
-        if name not in {"app.js", "app.css", "forms.js", "overview.js", "history.js", "metrics.js", "flow.js"}:
+        if name not in {"app.js", "app.css", "forms.js", "overview.js", "history.js", "metrics.js", "flow.js", "recovery.js"}:
             raise BenchError("not_found", 404)
         return FileResponse(static / name)
 
@@ -150,7 +151,17 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
     @app.get("/api/runs/{run_id}")
     def run(run_id: str):
         value = store.run(run_id)
-        return value | {"continuation": continuation_decision(value)}
+        return value | {"continuation": continuation_decision(value),
+                        "failure": failure_summary(value), "recovery": recovery_summary(value)}
+
+    @app.get("/api/recovery")
+    def recovery():
+        return store.recovery_queue()
+
+    @app.post("/api/runs/{run_id}/cleanup-check", status_code=202)
+    def cleanup_check(run_id: str, value: StrictModel):
+        store.request_cleanup_check(run_id)
+        return {"runId": run_id, "recovery": recovery_summary(store.run(run_id))}
 
     def validate_plan(value: RunPlan):
         from .definitions import effective_settings

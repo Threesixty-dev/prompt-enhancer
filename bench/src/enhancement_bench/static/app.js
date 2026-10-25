@@ -3,6 +3,7 @@ import { attemptAnchor, countLabel, generationLabel, modelEvidence, modelSummary
 import { filterToolbar, hasFilters, historyCharts, historyPath, readFilters, statsPreview } from './history.js';
 import { metricsTable } from './metrics.js';
 import { experimentFlow } from './flow.js';
+import { failurePanel, recoveryBanner, recoveryPanel } from './recovery.js';
 
 const $ = id => document.getElementById(id);
 const json = value => JSON.stringify(value, null, 2);
@@ -134,6 +135,11 @@ function renderExperiments() {
     return fragment;
   });
 }
+function renderRecovery(value) {
+  const container = $('recovery-banner');
+  container.hidden = !value.blocked;
+  patch(container, value, () => recoveryBanner(value, runPath, link));
+}
 function historyFrame() {
   const preview = node('div'); preview.id = 'stats-preview';
   const pagination = node('nav', undefined, 'run-pagination'); pagination.id = 'run-pagination'; pagination.setAttribute('aria-label', 'Run history');
@@ -152,6 +158,8 @@ function renderHistory() {
         (r.origin === 'gitops' ? 'Automatic' : 'Manual') + ' run',
       ]));
       title.append(node('p', countLabel(r.configuration || {}), 'hint run-subtitle'), modelSummary(r.configuration));
+      if (r.failure) title.append(node('p', 'Execution issue: ' + r.failure.code + (r.failure.stage ? ' / ' + r.failure.stage : ''), 'run-error'));
+      if (terminal.has(r.status) && (r.cleanup_pending || r.reconciliation_required)) title.append(node('p', 'Recovery required - queue paused', 'run-error'));
       card.append(title, badge(r.status), labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
       fragment.append(card);
     }
@@ -207,12 +215,9 @@ function renderRun(r) {
     if (r.continuation) intro.append(node('p', r.continuation.decision === 'continue_independent_case'
       ? 'Independent cases may continue after preflight and a clear queue. This does not retry this run or qualify its model output.'
       : 'Continue only after inspection: ' + r.continuation.reason.replaceAll('_', ' ') + '.', 'hint continuation-guidance'));
-    if (r.reconciliation_required) {
-      const form = node('form'); form.append(node('p', 'Verify that all remote consumer and evaluator operations have stopped before releasing the execution slot.', 'hint'));
-      const label = node('label', 'Reconciliation evidence reference'); label.htmlFor = 'reconcile-reference'; const reference = node('input'); reference.id = 'reconcile-reference'; reference.required = true; reference.pattern = '[A-Za-z0-9][A-Za-z0-9._-]{0,95}';
-      const confirm = node('button', 'Confirm remote stopped', 'secondary'); confirm.type = 'submit'; confirm.disabled = Boolean(r.cleanup_pending); form.append(label, reference, confirm);
-      form.onsubmit = async event => { event.preventDefault(); confirm.disabled = true; try { await api('/api/runs/' + encodeURIComponent(r.id) + '/reconcile', { remoteStopped: true, evidenceReference: reference.value }); confirm.blur(); await refresh(); } catch (error) { tell(error.message); confirm.disabled = false; } }; intro.append(form);
-    }
+    const failure = failurePanel(r.failure), recovery = recoveryPanel(r, api, refresh, tell);
+    if (failure) fragment.append(failure);
+    if (recovery) fragment.append(recovery);
     fragment.append(intro, experimentFlow(r.effective, workflowManifest(r.effective.workflow)), variationOverview(r.effective, { attempts: r.attempts, onAttempt: attempt => {
       const target = document.getElementById(attemptAnchor(attempt.id)); target?.scrollIntoView({ block: 'start' }); target?.focus({ preventScroll: true });
     } }));
@@ -348,9 +353,10 @@ async function loadRoute(focus = false) {
     const route = activeRoute;
     $('page-content').replaceChildren(node('p', 'Loading...', 'empty'));
     const globalHistory = !route.id && ['list', 'stats'].includes(route.kind);
-    const [a, b, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, globalHistory ? api(historyPath(route, { api: true, before: route.before })) : null]);
+    const [a, b, page, recovery] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, globalHistory ? api(historyPath(route, { api: true, before: route.before })) : null, api('/api/recovery')]);
     if (epoch !== routeEpoch) return;
     experiments = a.experiments; runs = b?.runs || []; $('workspace').hidden = false;
+    renderRecovery(recovery);
     if (route.kind === 'list') {
       pageHeading('All runs', 'Runs across all experiments and revisions, newest first.', [], [refreshButton()]);
       runPage = page;
@@ -406,9 +412,10 @@ async function refresh() {
   if (!connected || activeRoute?.kind === 'new') return false;
   const epoch = routeEpoch, route = activeRoute, version = ++refreshVersion;
   try {
-    const [a, b, r, page] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, ['list', 'experiment', 'stats'].includes(route.kind) ? api(historyPath(route, { api: true, before: route.before })) : null]);
+    const [a, b, r, page, recovery] = await Promise.all([api('/api/experiments'), route.kind === 'list' ? api('/api/runs') : null, route.kind === 'run' ? api('/api/runs/' + encodeURIComponent(route.runId)) : null, ['list', 'experiment', 'stats'].includes(route.kind) ? api(historyPath(route, { api: true, before: route.before })) : null, api('/api/recovery')]);
     if (epoch !== routeEpoch || version !== refreshVersion) return false;
     experiments = a.experiments; runs = b?.runs || [];
+    renderRecovery(recovery);
     if (page) { runPage = page; if (route.kind === 'stats') renderStats(); else renderHistory(); }
     if (route.kind === 'list') renderExperiments();
     if (route.kind === 'run') renderRun(r);

@@ -1,5 +1,10 @@
 # Bench handoff guide
 
+The [recovery UI candidate](recovery-ui.md) adds explicit error summaries, global
+queue blockers and bounded local cleanup checks. Its guided remote-stop
+confirmation preserves interrupted results. Source tests do not resolve old
+requests without completion evidence or establish deployed recovery.
+
 Use this guide for the fixed prompt workflows in Test Bench. The supported input
 is an explicitly authored synthetic prompt plus optional supplied context.
 Session ingestion, arbitrary workflow graphs and downstream coding-task success

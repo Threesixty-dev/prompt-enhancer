@@ -46,6 +46,11 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE TABLE IF NOT EXISTS reconciliations (
   run_id TEXT PRIMARY KEY REFERENCES runs(id), evidence_reference TEXT NOT NULL, created REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS cleanup_checks (
+  run_id TEXT PRIMARY KEY REFERENCES runs(id), attempts INTEGER NOT NULL,
+  checked_at REAL, next_check REAL, error_code TEXT,
+  state TEXT NOT NULL CHECK(state IN ('pending','checking','failed','confirmed'))
+);
 CREATE TRIGGER IF NOT EXISTS immutable_definition BEFORE UPDATE ON definitions
 BEGIN SELECT RAISE(ABORT, 'immutable_definition'); END;
 CREATE TRIGGER IF NOT EXISTS immutable_run_settings BEFORE UPDATE OF

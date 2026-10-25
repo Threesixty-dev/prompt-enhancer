@@ -16,6 +16,7 @@ from .errors import BenchError
 from .private_io import local_path, write_json, write_new
 from .remote import identifier
 from .store import TERMINAL
+from .recovery import failure_summary, recovery_summary
 
 VERSION = "bench-analysis/v2"
 MAX_EXPORT_ROWS = 50_000
@@ -214,7 +215,8 @@ def inspect_run(run):
         "attemptCounts": dict(Counter(a["status"] for a in attempts)),
         "technicalOutcomes": dict(Counter(a["technicalOutcome"] for a in attempts)),
         "readingStates": {state: states[state] for state in STATES if state != "missing"}, "attempts": attempts,
-        "continuation": continuation_decision(run)}
+        "continuation": continuation_decision(run), "failure": failure_summary(run),
+        "recovery": recovery_summary(run)}
 
 
 def metric_index(result, side, expected):

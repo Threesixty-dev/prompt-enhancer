@@ -94,7 +94,9 @@ readiness or completion check. Use `inspect` or `wait` for current state.
 A fresh receipt means an intentional new run. Never use one to recover an
 ambiguous submission. `--retry-of RUN_ID` denotes a deliberate rerun and requires
 a reconciled terminal source run. There are no implicit transport retries or
-automatic release of cleanup/reconciliation holds.
+automatic replay or inferred remote-stop confirmation. The
+[recovery candidate](recovery-ui.md) adds bounded retries of owned-container
+cleanup and releases only that local hold after confirmed absence.
 
 ### Observation and cancellation
 
@@ -102,6 +104,10 @@ automatic release of cleanup/reconciliation holds.
 Inspection reports recorded status, technical outcome, review state, evaluator
 coverage and assertion outcomes without prompt or rewrite text. Technical
 failure, experimental assertion failure and missing measurements are separate.
+The recovery candidate also exposes `failure` and `recovery` projections with
+cause/stage, separate local/remote states, cleanup checks and stop receipts.
+`GET /api/recovery` identifies global blockers outside the current history filter.
+See the [API contract and limits](recovery-ui.md#api-and-ai-operators).
 
 `wait` observes for 1-3600 seconds (default 300), polling every 0.1-30 seconds
 (default 2). Its timeout stops observation; the run is not cancelled or resubmitted.
