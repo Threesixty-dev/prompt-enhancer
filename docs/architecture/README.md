@@ -2,6 +2,13 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 25 [confirmation change](../bench/recovery-ui.md#confirmation-without-manual-bookkeeping---2026-10-25)
+removes the typed reference and records the operator acknowledgement on the
+server. All 442 Bench tests and 22 affected desktop/mobile checks pass. Actual
+remote-stop verification and local cleanup remain required. PRs #98/#99 deployed
+the preceding UI, while this change still needs review and deployment; worker
+rollout and remote completion remain open. W02/W05/W07 acceptance is unchanged.
+
 The October 25 [recovery UI candidate](../bench/recovery-ui.md) exposes primary
 causes/stages and global queue blockers, and adds bounded, durable worker cleanup
 retries. All 436 Bench tests and 28 desktop/mobile checks pass. Remote-stop

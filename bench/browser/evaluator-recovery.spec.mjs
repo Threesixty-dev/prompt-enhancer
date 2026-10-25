@@ -20,8 +20,9 @@ test('evaluator interruption shows its cause and holds retry without a consumer 
   await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
   await expect(page.getByText('gateway_io_timeout (stage: evaluate_original)', { exact: true })).toBeVisible();
   await expect(page.getByText('Verify that all remote consumer and evaluator operations have stopped before releasing the execution slot.', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Reconciliation evidence reference')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Confirm remote stopped', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Run recovery', exact: true }).getByRole('textbox')).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: 'I verified that the affected remote operations finished or stopped.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Confirm remote stopped', exact: true })).toBeDisabled();
   await expect(page.getByRole('link', { name: 'Rerun with changes', exact: true })).toHaveCount(0);
   const first = page.locator('.run-panel').first();
   await expect(first).toContainText('No enhanced prompt available.');
@@ -56,7 +57,8 @@ for (const [category, hint] of [
     await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
     await expect(page.getByText('consumer_upstream_' + category + ' (stage: generate)', { exact: true })).toBeVisible();
     await expect(page.getByText(hint, { exact: true })).toBeVisible();
-    await expect(page.getByLabel('Reconciliation evidence reference')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Run recovery', exact: true }).getByRole('textbox')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Confirm remote stopped', exact: true })).toBeDisabled();
     await expect(page.getByRole('link', { name: 'Rerun with changes', exact: true })).toHaveCount(0);
     await expect(page.locator('.run-panel').first()).not.toContainText('invalid_json');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

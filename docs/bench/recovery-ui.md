@@ -46,12 +46,13 @@ recorded, run start/interruption times and next action.
 are exhausted or ownership needs operator attention. It does not restart a run
 or model, remove unowned containers, or clear a remote-operation hold.
 
-Remote reconciliation requires a short evidence reference and explicit operator
-confirmation. Confirm actual completion/cancellation on the affected model host.
-Keep tokens, prompts and raw logs out of the field. Local cleanup must already
-be confirmed. The UI retains the reference and confirmation time alongside the
-original failure. Releasing all holds allows queued runs to start; the interrupted
-attempt is never replayed.
+Remote reconciliation requires explicit operator confirmation after checking
+actual completion/cancellation on the affected model host. Local cleanup must
+already be confirmed. There is no text field: Bench creates an opaque confirmation
+record and saves its run ID and timestamp. The button stays disabled until the
+operator checks the acknowledgement. The record identifies that attestation; it
+does not independently verify the remote service. Releasing all holds allows
+queued runs to start; the interrupted attempt is never replayed.
 
 ## Automatic recovery limits
 
@@ -82,8 +83,12 @@ in an endless checking state. Unexpected exceptions become fixed safe diagnostic
   runs without a cleanup hold return 409. Same-origin JSON remains required.
   A 202 is scheduling acknowledgement, not cleanup or worker-liveness proof.
   Inspect the same run afterward.
-- `POST /api/runs/{id}/reconcile` retains its existing operator-attestation
-  contract. The checkbox does not add a second remote verifier.
+- `POST /api/runs/{id}/reconcile` requires `{"remoteStopped": true}` after
+  actual stop verification. Omitting `evidenceReference` creates one durable
+  `operator-confirmation-<id>` record in the same transaction that releases the
+  hold. Duplicate requests preserve the original record and time. Existing
+  clients can still supply a validated reference. This remains an operator
+  attestation; the generated identifier does not prove remote completion.
 
 Existing settings and attempt results are unchanged. `cleanup_checks` is additive,
 optional operational metadata in database schema 3. Older databases gain the table
@@ -104,3 +109,30 @@ explicit stop attestation, retained confirmation, disabled retry and bounded
 cleanup scheduling at desktop/mobile widths. Existing evaluator-failure and
 reconnection checks remain required. Tests use synthetic data and owned loopback
 services; they do not invoke live models or change deployed runs.
+
+## Confirmation without manual bookkeeping - 2026-10-25
+
+- Scope: W02/W05/W07, from reviewed develop `f8492d1` after PRs #98/#99.
+- Reproduction: a required text reference asks the operator to invent an audit
+  label; entering it performs no remote check. The owner explicitly approved
+  removing the typed field while retaining actual stop verification and consent.
+- Change: create the confirmation record transactionally on the server and show
+  it after confirmation. Preserve supplied references for existing API clients.
+- Boundaries: the local-cleanup guard, explicit `remoteStopped: true`, same-origin
+  JSON checks, remote hold, original results and no-replay policy are retained.
+  No schema migration, core release or worker update is needed for this change.
+- Verification: API/store checks cover receipt persistence, duplicate requests,
+  rejected confirmation, cleanup holds and historical reference compatibility.
+  Browser checks cover no text entry, acknowledgement gating and preserved errors
+  on desktop/mobile. All 442 Bench tests and 22 affected desktop/mobile checks
+  pass. Source review, promotion and deployment remain separate.
+
+## Reviewed deployment - 2026-10-25
+
+Owner-approved PRs #98/#99 deployed the preceding error and recovery UI at main
+`a0967c8`. Workflow `40179897463` built successfully; its first revision verifier
+received HTTP 404. Rerunning only that failed job verified the serving revision.
+The live UI showed the primary timeout cause, evaluation stage, global blocker
+and confirmed local cleanup. Remote completion remains unconfirmed. The worker
+cleanup-retry rollout and the confirmation-form change above are still pending;
+no hold was cleared or experiment replayed by this deployment.
