@@ -80,22 +80,21 @@ export function recoveryPanel(run, api, refresh, tell) {
       text('Run started', at(run.started)), text('Interruption recorded', at(run.finished)),
       node('p', 'Next: confirm completion or cancellation of the affected request on its model host. A healthy service, elapsed time, or a later successful request does not establish this request\'s completion.'));
     const form = node('form'); form.append(node('p', 'Verify that all remote consumer and evaluator operations have stopped before releasing the execution slot.', 'hint'));
-    const label = node('label', 'Reconciliation evidence reference'); label.htmlFor = 'reconcile-reference';
-    const reference = node('input'); reference.id = 'reconcile-reference'; reference.required = true; reference.maxLength = 96;
-    reference.pattern = '[A-Za-z0-9][A-Za-z0-9._-]{0,95}'; reference.autocomplete = 'off';
-    const help = node('p', 'Use a short check or ticket ID. Keep credentials, prompts and raw logs out of this field.', 'hint');
-    help.id = 'reconcile-help'; reference.setAttribute('aria-describedby', help.id);
+    form.append(node('p', 'Bench saves this confirmation with the run and time automatically. There is nothing to type.', 'hint'));
     const checked = node('input'); checked.type = 'checkbox'; checked.required = true;
     const acknowledgement = node('label', undefined, 'check-option');
     acknowledgement.append(checked, node('span', 'I verified that the affected remote operations finished or stopped.'));
-    const confirm = node('button', 'Confirm remote stopped', 'secondary'); confirm.type = 'submit'; confirm.disabled = Boolean(run.cleanup_pending);
-    form.append(label, reference, help, acknowledgement, confirm);
+    const confirm = node('button', 'Confirm remote stopped', 'secondary'); confirm.type = 'submit'; confirm.disabled = true;
+    checked.onchange = () => { confirm.disabled = Boolean(run.cleanup_pending) || !checked.checked; };
+    form.append(acknowledgement, confirm);
     form.onsubmit = async event => {
-      event.preventDefault(); confirm.disabled = true;
-      try { await api('/api/runs/' + encodeURIComponent(run.id) + '/reconcile', { remoteStopped: true, evidenceReference: reference.value }); confirm.blur(); await refresh(); }
-      catch (error) { tell(error.message); confirm.disabled = false; }
+      event.preventDefault();
+      if (confirm.disabled || !checked.checked || run.cleanup_pending) return;
+      confirm.disabled = true;
+      try { await api('/api/runs/' + encodeURIComponent(run.id) + '/reconcile', { remoteStopped: true }); confirm.blur(); await refresh(); }
+      catch (error) { tell(error.message); confirm.disabled = Boolean(run.cleanup_pending) || !checked.checked; }
     }; box.append(form);
-  } else if (recovery?.reconciliation) box.append(text('Stop evidence reference', recovery.reconciliation.evidence_reference),
+  } else if (recovery?.reconciliation) box.append(text('Confirmation record', recovery.reconciliation.evidence_reference),
     text('Confirmed at', at(recovery.reconciliation.created)));
   return box;
 }

@@ -8,12 +8,14 @@ and Bench registration. The successful publication retry reuses the immutable
 image built by the first attempt. API/UI deployment verifies the reviewed main
 revision through both controller health and protected readiness checks.
 
-The consumer, worker and relay still use the frozen qualification deployment.
-Their coordinated rollout requires actual stop evidence for the revision-5
-embedding interruption. The [revision-6 preparation](robustness-experiment.md#revision-6-task-card---2026-10-25)
-pins the verified release without altering the matrix or submitting model work.
-Release completion does not establish deployed consumer compatibility or complete
-live qualification; acceptance statuses remain unchanged.
+The subsequent owner-attested recovery permitted the reviewed consumer, worker
+and relay rollout. Runtime image, environment, mount, namespace and authenticated
+readiness checks passed. The first revision-6 smoke reached generation after
+completing its before evaluations, then exposed a separate
+[SDK subscriber cleanup defect](consumer-retention.md#finished-subscriber-release---2026-10-25).
+That failure is preserved and no later smoke/main attempts were submitted.
+Consumer cleanup correction, review/rollout and complete live qualification
+remain open; acceptance statuses are unchanged.
 
 ## Task card - 2026-10-25
 

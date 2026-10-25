@@ -1,5 +1,31 @@
 # Product feature and readiness matrix
 
+## Consumer subscriber release correction - 2026-10-25
+
+The [consumer retention candidate](bench/consumer-retention.md#finished-subscriber-release---2026-10-25)
+addresses a reproduced SDK 1.49.1 websocket shutdown defect. The first
+revision-6 smoke completed before evaluations but failed generation cleanup;
+its failure and measurements remain preserved, and subsequent remote cleanup
+is confirmed. All 48 affected tests and two isolated real-SDK variants pass,
+including refusal for a live subscriber. Source review, consumer rollout,
+fresh qualification and independent onboarding remain open. No core release
+or experiment revision is needed; W02/W05/W07 acceptance is unchanged.
+
+## Bench confirmation without manual bookkeeping - 2026-10-25
+
+The owner-approved [confirmation change](bench/recovery-ui.md#confirmation-without-manual-bookkeeping---2026-10-25)
+removes the typed reference and creates a durable confirmation record on the
+server. Actual remote-stop verification, explicit acknowledgement, confirmed
+local cleanup and no automatic replay remain required. All 442 Bench tests and
+22 affected desktop/mobile checks pass, including persistence, idempotency,
+rejected requests, old-client compatibility and retained execution errors.
+Source review, promotion and deployment of this change remain open.
+
+The preceding error/recovery UI from approved PRs #98/#99 is deployed at main
+`a0967c8`; a verifier-only retry confirms the serving revision after an initial
+HTTP 404. Worker rollout and remote completion remain unconfirmed; no hold was
+cleared or experiment replayed. W02/W05/W07 acceptance statuses are unchanged.
+
 ## Bench recovery and explicit failure UI - 2026-10-25
 
 The [recovery candidate](bench/recovery-ui.md) surfaces primary causes/stages,

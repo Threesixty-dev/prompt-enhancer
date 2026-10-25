@@ -17,7 +17,8 @@ Retention = runpy.run_path(str(Path(__file__).resolve().parents[1]
 
 
 class Service:
-    def __init__(self, root, *, status="finished", active=False, close_fails=False, process_stays=False):
+    def __init__(self, root, *, status="finished", active=False, close_fails=False,
+                 process_stays=False, subscribed=False, closing_subscriber=False):
         self.identifier = uuid4()
         self.conversations_dir = root
         history = root / self.identifier.hex
@@ -27,6 +28,12 @@ class Service:
             workspace=SimpleNamespace(working_dir=f"/tmp/enhancement-{self.identifier}"))
         self.process = SimpleNamespace(returncode=None)
         self.open = True
+        self.subscribed = subscribed
+        self.notifications = 0
+        async def publish_state():
+            self.notifications += 1
+            if closing_subscriber:
+                self.subscribed = False
         async def close(*args):
             if close_fails:
                 raise RuntimeError("example-close-failed")
@@ -34,7 +41,9 @@ class Service:
             if not process_stays:
                 self.process.returncode = 0
         self._event_services = {self.identifier: SimpleNamespace(
-            is_idle_evictable=lambda: not active, __aexit__=close, is_open=lambda: self.open,
+            is_idle_evictable=lambda: not active and not self.subscribed,
+            has_external_subscribers=lambda: self.subscribed,
+            _publish_state_update=publish_state, __aexit__=close, is_open=lambda: self.open,
             stored=object(), get_conversation=lambda: SimpleNamespace(agent=SimpleNamespace(_process=self.process)))}
         self._conversation_records = {self.identifier: SimpleNamespace(stored=None, cached_info=None)}
         self.deleted = []
@@ -67,6 +76,36 @@ def test_completed_history_survives_release_and_retention_controller_restart(tmp
     assert asyncio.run(reloaded.retain(service, service.identifier)) == retained
     # Windows exposes read/write attributes here, not POSIX owner/group modes.
     assert reloaded.path(service.identifier).stat().st_mode & 0o777 == (0o666 if os.name == "nt" else 0o600)
+
+
+def test_release_wakes_a_stopped_sdk_subscriber_without_discarding_history(tmp_path):
+    service = Service(tmp_path / "conversations", subscribed=True, closing_subscriber=True)
+    retention = Retention(tmp_path / "receipts", 7)
+    receipt = asyncio.run(retention.release(service, service.identifier))
+    assert service.notifications == 1 and not service.subscribed
+    assert receipt["runtime_released"] and not receipt["cleanup_confirmed"]
+    assert not service.open and service.process.returncode == 0
+    assert service.deleted == []
+
+
+def test_release_preserves_a_subscriber_that_has_not_requested_stop(tmp_path):
+    service = Service(tmp_path / "conversations", subscribed=True)
+    retention = Retention(tmp_path / "receipts", 7)
+    with pytest.raises(HTTPException, match="conversation_still_active"):
+        asyncio.run(retention.release(service, service.identifier))
+    assert service.notifications == 1 and service.subscribed and service.open
+    assert retention.read(service.identifier) is None and service.deleted == []
+
+
+def test_slow_notification_keeps_release_unconfirmed(tmp_path):
+    service = Service(tmp_path / "conversations", subscribed=True)
+    retention = Retention(tmp_path / "receipts", 7)
+    async def slow_notification():
+        await asyncio.sleep(60)
+    service._event_services[service.identifier]._publish_state_update = slow_notification
+    with pytest.raises(HTTPException, match="conversation_still_active"):
+        asyncio.run(retention.release(service, service.identifier))
+    assert service.open and retention.read(service.identifier) is None
 
 
 def test_windows_receipt_syncs_the_file_without_opening_the_directory(tmp_path, monkeypatch):

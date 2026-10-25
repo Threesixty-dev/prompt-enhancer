@@ -440,10 +440,10 @@ class Store:
             db.execute("UPDATE cleanup_checks SET attempts=0,state='pending',next_check=? WHERE run_id=?", (time.time(), run_id))
             self._event(db, run_id, "cleanup_check_requested")
 
-    def acknowledge_remote_stopped(self, run_id: str, evidence_reference: str):
+    def acknowledge_remote_stopped(self, run_id: str, evidence_reference: str | None = None):
         import re
 
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", evidence_reference):
+        if evidence_reference is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", evidence_reference):
             raise BenchError("invalid_evidence_reference")
         with self.transaction() as db:
             row = db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
@@ -452,6 +452,8 @@ class Store:
             if row["status"] not in TERMINAL or row["cleanup_pending"]:
                 raise BenchError("container_cleanup_required", 409)
             if row["reconciliation_required"]:
+                # Identify the operator's confirmation, not proof from the remote service.
+                evidence_reference = evidence_reference or f"operator-confirmation-{uuid.uuid4().hex}"
                 db.execute("INSERT INTO reconciliations VALUES(?,?,?)", (run_id, evidence_reference, time.time()))
                 db.execute("UPDATE runs SET reconciliation_required=0 WHERE id=?", (run_id,))
                 self._event(db, run_id, "operator_confirmed_remote_stopped")
