@@ -9,6 +9,11 @@ synthetic regression covers the controls and accidental-submit prevention.
 All 32 affected desktop/mobile checks, syntax and privacy checks pass.
 Source review and API/UI deployment remain pending; W05/B10 acceptance is unchanged.
 
+Follow-up: PRs #109/#110 deployed expansion. The owner-requested compact, muted
+text-control refinement passes four focused desktop/mobile expansion checks
+and syntax checks. Its CSS-only source promotion and deployment remain pending;
+keyboard focus, behavior and W05/B10 acceptance are unchanged.
+
 ## Compact attempt prompt details - 2026-10-25
 
 The deployed matrix preview did not bound the separate original/enhanced
