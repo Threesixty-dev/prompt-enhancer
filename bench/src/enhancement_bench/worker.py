@@ -54,9 +54,23 @@ class Worker:
 
     def reconcile(self):
         self.store.recover()
-        for row in self.store.pending_cleanup():
-            self.runtime.cleanup(row["id"], row["container_name"])
-            self.store.cleanup_confirmed(row["id"])
+        self.recover_cleanup()
+
+    def recover_cleanup(self):
+        row = self.store.claim_cleanup_check()
+        if row is not None:
+            self._cleanup(row["id"], row["container_name"])
+
+    def _cleanup(self, run_id, container_name):
+        try:
+            self.runtime.cleanup(run_id, container_name)
+            self.store.cleanup_confirmed(run_id)
+            return True
+        except BenchError as error:
+            self.store.cleanup_failed(run_id, error.code)
+        except Exception:
+            self.store.cleanup_failed(run_id, "container_cleanup_unconfirmed")
+        return False
 
     def serve(self):
         with exclusive_worker(self.store):
@@ -83,6 +97,7 @@ class Worker:
         raise BenchError("core_readiness_timeout")
 
     def step(self) -> bool:
+        self.recover_cleanup()
         if self.admission_check is not None and not self.admission_check():
             return False
         run = self.store.claim()
@@ -167,10 +182,7 @@ class Worker:
         finally:
             if client is not None:
                 client.close()
-            try:
-                self.runtime.cleanup(run["id"], run["container_name"])
-                self.store.cleanup_confirmed(run["id"])
-            except BenchError:
+            if not self._cleanup(run["id"], run["container_name"]):
                 state, code = "interrupted", "container_cleanup_unconfirmed"
             assertion = ("failed" if "failed" in outcomes else "unknown" if "unknown" in outcomes
                          or len(outcomes) != len(run["attempts"]) else "passed" if "passed" in outcomes

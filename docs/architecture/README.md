@@ -2,6 +2,12 @@
 
 Audit date: 2026-10-08. This is a contributor map, not a beta certificate.
 
+The October 25 [recovery UI candidate](../bench/recovery-ui.md) exposes primary
+causes/stages and global queue blockers, and adds bounded, durable worker cleanup
+retries. All 436 Bench tests and 28 desktop/mobile checks pass. Remote-stop
+evidence, review, API/UI and worker rollout, hosted recovery and independent
+onboarding remain separate; MA18/W02/W05/W07 acceptance statuses are unchanged.
+
 The October 25 [core 0.3.7 qualification revision](../bench/robustness-experiment.md#revision-6-task-card---2026-10-25)
 records completed source promotion, immutable publication/registration and API/UI
 revision verification. Three new definitions preserve the matrix; 32 definitions,
