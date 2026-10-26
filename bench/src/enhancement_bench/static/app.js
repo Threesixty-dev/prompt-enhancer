@@ -98,7 +98,7 @@ function parseRoute() {
   const history = { before: query.get('before'), filters: readFilters(query) };
   if (!segments.length || (segments.length === 1 && segments[0] === 'experiments')) return {
     kind: 'list', ...history, search: (query.get('q') || '').trim().slice(0, 120),
-    progressFilter: ['no-runs', 'unfinished', 'finished'].includes(query.get('progress')) ? query.get('progress') : '',
+    progressFilter: ['active', 'no-runs', 'unfinished', 'finished'].includes(query.get('progress')) ? query.get('progress') : '',
   };
   if (segments.length === 1 && segments[0] === 'runs') return { kind: 'runs', ...history };
   if (segments.length === 1 && segments[0] === 'stats') return { kind: 'stats', ...history };
@@ -204,10 +204,14 @@ function runCard(r, d) {
   card.append(title, outcomes, labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
   return card;
 }
-function experimentFilterForm(route, hasProgress) {
+function hasExperimentActivity(rows) {
+  return Array.isArray(rows) && rows.every(item => Number.isInteger(item.queuedRuns) && item.queuedRuns >= 0
+    && Number.isInteger(item.runningRuns) && item.runningRuns >= 0);
+}
+function experimentFilterForm(route, hasProgress, hasActivity) {
   const form = node('form', undefined, 'surface experiment-filters'); form.setAttribute('aria-label', 'Filter experiments');
   const heading = node('div', undefined, 'filter-heading');
-  heading.append(node('h2', 'Filter experiments'), node('span', 'Search titles or IDs and narrow by attempt progress.', 'hint'));
+  heading.append(node('h2', 'Filter experiments'), node('span', 'Search titles or IDs and narrow by run activity or attempt progress.', 'hint'));
   const fields = node('div', undefined, 'experiment-filter-fields');
   const searchField = node('div'), searchLabel = node('label', 'Search experiments'), search = node('input');
   search.id = 'experiment-search'; searchLabel.htmlFor = search.id; search.type = 'search';
@@ -215,8 +219,8 @@ function experimentFilterForm(route, hasProgress) {
   searchField.append(searchLabel, search);
   const progressField = node('div'), progressLabel = node('label', 'Progress'), progress = node('select');
   progress.id = 'experiment-progress-filter'; progressLabel.htmlFor = progress.id; progress.disabled = !hasProgress;
-  for (const [value, title] of [['', 'All experiments'], ['no-runs', 'No runs'], ['unfinished', 'Unfinished attempts'], ['finished', 'All attempts finished']]) {
-    const option = node('option', title); option.value = value; progress.append(option);
+  for (const [value, title] of [['', 'All experiments'], ['active', 'Running or queued'], ['no-runs', 'No runs'], ['unfinished', 'Unfinished attempts'], ['finished', 'All attempts finished']]) {
+    const option = node('option', title); option.value = value; option.disabled = value === 'active' && !hasActivity; progress.append(option);
   }
   progress.value = route.progressFilter;
   progressField.append(progressLabel, progress); fields.append(searchField, progressField);
@@ -228,8 +232,10 @@ function experimentFilterForm(route, hasProgress) {
   form.onsubmit = event => {
     event.preventDefault();
     const query = new URLSearchParams(), text = search.value.trim();
+    const currentSummary = runPage.summary?.experimentProgress;
     if (text) query.set('q', text);
-    if (progress.value && hasProgress) query.set('progress', progress.value);
+    if (progress.value && Array.isArray(currentSummary) && (progress.value !== 'active' || hasExperimentActivity(currentSummary)))
+      query.set('progress', progress.value);
     const href = '/experiments' + (query.size ? '?' + query : '');
     if (href !== location.pathname + location.search) history.pushState(null, '', href);
     activeRoute = parseRoute(); renderExperiments();
@@ -240,18 +246,25 @@ function renderExperiments() {
   const container = $('experiments'); if (!container) return;
   const hasProgress = Array.isArray(runPage.summary?.experimentProgress);
   const progress = new Map((runPage.summary?.experimentProgress || []).map(item => [item.stableId, item]));
+  const hasActivity = hasExperimentActivity(runPage.summary?.experimentProgress);
+  const progressControl = $('experiment-progress-filter');
+  if (progressControl) {
+    progressControl.disabled = !hasProgress;
+    progressControl.querySelector('option[value="active"]').disabled = !hasActivity;
+  }
   const newest = new Map(); for (const d of experiments) if (!newest.has(d.stableId)) newest.set(d.stableId, d);
   const search = activeRoute.search.toLowerCase();
   const visible = [...newest.values()].filter(d => {
     if (search && !(d.title.toLowerCase().includes(search) || d.stableId.toLowerCase().includes(search))) return false;
     if (!hasProgress || !activeRoute.progressFilter) return true;
     const totals = progress.get(d.stableId);
+    if (activeRoute.progressFilter === 'active') return !hasActivity || Boolean(totals && (totals.runningRuns || totals.queuedRuns));
     if (activeRoute.progressFilter === 'no-runs') return !totals;
     if (!totals || totals.total <= 0) return false;
     return activeRoute.progressFilter === 'finished' ? totals.finished === totals.total : totals.finished < totals.total;
   });
   $('experiment-count').textContent = visible.length + ' of ' + newest.size + ' experiment' + (newest.size === 1 ? '' : 's')
-    + (!hasProgress ? ' / progress unavailable' : '');
+    + (!hasProgress ? ' / progress unavailable' : !hasActivity ? ' / run activity unavailable' : '');
   patch(container, [experiments, runPage.summary?.experimentProgress, activeRoute.search, activeRoute.progressFilter], () => {
     const fragment = document.createDocumentFragment();
     for (const d of visible) {
@@ -261,6 +274,16 @@ function renderExperiments() {
       content.append(node('strong', d.title, 'run-title'), metadata([['Experiment', d.stableId], ['Latest revision', d.revision], countLabel(d)]),
         modelSummary(d));
       const action = node('div', undefined, 'experiment-card-action');
+      const activity = node('div', undefined, 'experiment-activity');
+      if (!hasProgress) activity.append(node('span', 'Run activity unavailable', 'hint'));
+      else if (!totals) activity.append(node('span', 'Not started', 'hint'));
+      else if (!hasActivity) activity.append(node('span', 'Run activity unavailable', 'hint'));
+      else if (totals.runningRuns || totals.queuedRuns) {
+        activity.append(node('span', totals.runningRuns ? 'Ongoing' : 'Queued', 'badge ' + (totals.runningRuns ? 'running' : 'queued')));
+        activity.append(node('span', [totals.runningRuns ? totals.runningRuns + ' running' : '',
+          totals.queuedRuns ? totals.queuedRuns + ' queued' : ''].filter(Boolean).join(' / '), 'hint'));
+      } else activity.append(node('span', 'No active runs', 'hint'));
+      action.append(activity);
       const footer = node('div', undefined, 'experiment-card-footer');
       footer.append(node('span', totals ? totals.runCount + ' run' + (totals.runCount === 1 ? '' : 's') : hasProgress ? 'No runs yet' : 'Run count unavailable', 'hint'),
         node('span', 'Open experiment >', 'card-action'));
@@ -497,7 +520,9 @@ async function loadRoute(focus = false) {
       runPage = page;
       const cards = node('div', undefined, 'experiment-grid'); cards.id = 'experiments';
       const count = node('p', undefined, 'hint experiment-count'); count.id = 'experiment-count';
-      $('page-content').replaceChildren(experimentFilterForm(route, Array.isArray(page.summary?.experimentProgress)), count, cards); renderExperiments();
+      const summary = page.summary?.experimentProgress;
+      const hasActivity = hasExperimentActivity(summary);
+      $('page-content').replaceChildren(experimentFilterForm(route, Array.isArray(summary), hasActivity), count, cards); renderExperiments();
     } else if (route.kind === 'runs') {
       pageHeading('All runs', 'Runs across all experiments and revisions, newest first.', [['All runs']], [refreshButton()]);
       runPage = page;

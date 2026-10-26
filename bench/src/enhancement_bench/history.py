@@ -80,6 +80,8 @@ def summarize(db, filters: RunFilters, where: str, parameters: list) -> dict:
     days = [start + timedelta(days=i) for i in range(max(0, (end - start).days + 1))]
     experiments = [dict(row) for row in db.execute(f"""
       SELECT r.stable_id AS stableId, COUNT(*) AS runCount,
+        SUM(CASE WHEN r.status='queued' THEN 1 ELSE 0 END) AS queuedRuns,
+        SUM(CASE WHEN r.status='running' THEN 1 ELSE 0 END) AS runningRuns,
         SUM(json_array_length(r.effective,'$.subjects') * json_array_length(r.effective,'$.units')) AS total,
         SUM((SELECT COUNT(*) FROM attempts a WHERE a.run_id=r.id
              AND a.status IN ('succeeded','failed'))) AS finished

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { historyResponse } from './history-fixture.mjs';
 
 test('experiment search and progress filters retain their URL and top navigation state', async ({ page }) => {
+  let activityAvailable = true;
   const base = JSON.parse(await readFile(new URL('../examples/example-widget.json', import.meta.url), 'utf8'));
   const definitions = [base,
     { ...base, stableId: 'example-other', title: 'Another fictional experiment' },
@@ -14,12 +15,31 @@ test('experiment search and progress filters retain their URL and top navigation
       origin: 'gitops', created: 1, attemptProgress: { finished: 4, total: 4 } },
   ];
   await page.route('**/api/experiments', route => route.fulfill({ json: { experiments: definitions } }));
-  await page.route(/\/api\/runs(?:\?.*)?$/, route => route.fulfill({ json: historyResponse(runs, new URL(route.request().url()).searchParams) }));
+  await page.route(/\/api\/runs(?:\?.*)?$/, route => {
+    const response = historyResponse(runs, new URL(route.request().url()).searchParams);
+    if (!activityAvailable) for (const row of response.summary.experimentProgress) {
+      delete row.queuedRuns; delete row.runningRuns;
+    }
+    return route.fulfill({ json: response });
+  });
   await page.goto('/experiments');
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
   const form = page.getByRole('form', { name: 'Filter experiments' });
   await expect(nav.getByRole('link', { name: 'Experiments' })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('#experiments .experiment-card')).toHaveCount(3);
+  const partialCard = page.locator('#experiments .experiment-card').filter({ hasText: base.title });
+  await expect(partialCard.locator('.experiment-activity')).toContainText('Ongoing');
+  await expect(partialCard.locator('.experiment-activity')).toContainText('1 running');
+  await expect(page.locator('#experiments .experiment-card').filter({ hasText: 'Another fictional experiment' })
+    .locator('.experiment-activity')).toHaveText('No active runs');
+  await expect(page.locator('#experiments .experiment-card').filter({ hasText: 'Unused fictional experiment' })
+    .locator('.experiment-activity')).toHaveText('Not started');
+  await form.getByLabel('Progress').selectOption('active');
+  await form.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page).toHaveURL(/\/experiments\?progress=active$/);
+  await expect(page.locator('#experiments .experiment-card')).toHaveCount(1);
+  await expect(page.locator('#experiments .experiment-card')).toContainText(base.title);
+  await form.getByRole('button', { name: 'Reset filters' }).click();
   await form.getByLabel('Search experiments').fill('OTHER');
   await form.getByLabel('Progress').selectOption('finished');
   await form.getByRole('button', { name: 'Apply filters' }).click();
@@ -49,6 +69,20 @@ test('experiment search and progress filters retain their URL and top navigation
   await form.getByRole('button', { name: 'Reset filters' }).click();
   await expect(page).toHaveURL(/\/experiments$/);
   await expect(page.locator('#experiments .experiment-card')).toHaveCount(3);
+  runs[0].status = 'queued';
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(partialCard.locator('.experiment-activity')).toContainText('Queued');
+  runs[0].status = 'interrupted';
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(partialCard.locator('.experiment-activity')).toHaveText('No active runs');
+  await form.getByLabel('Progress').selectOption('active');
+  await form.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page.getByText('No experiments match these filters. Adjust or reset the filters.')).toBeVisible();
+  await form.getByRole('button', { name: 'Reset filters' }).click();
+  activityAvailable = false;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(partialCard.locator('.experiment-activity')).toHaveText('Run activity unavailable');
+  await expect(form.getByLabel('Progress').locator('option[value="active"]')).toBeDisabled();
   await nav.getByRole('link', { name: 'Stats' }).click();
   await expect(nav.getByRole('link', { name: 'Stats' })).toHaveAttribute('aria-current', 'page');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

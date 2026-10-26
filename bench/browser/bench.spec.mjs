@@ -249,6 +249,7 @@ test('experiments and runs have separate single-column pages with progress', asy
   await expect(experimentCards).toHaveCount(2);
   await expect(page.locator('#all-runs, #runs, .run-card')).toHaveCount(0);
   const widget = experimentCards.filter({ hasText: 'Updated fictional widget request' });
+  await expect(widget.locator('.experiment-activity')).toContainText('Ongoing');
   await expect(widget.getByRole('progressbar', { name: 'Experiment progress' })).toHaveAttribute('aria-valuetext', '29 of 32 attempts finished');
   await expect(widget.locator('.progress-caption strong')).toHaveText('90%');
   await expect(widget.locator('.progress-fill')).toHaveAttribute('style', 'width: 90.625%;');
@@ -274,6 +275,7 @@ test('experiments and runs have separate single-column pages with progress', asy
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(widget.getByRole('progressbar', { name: 'Experiment progress' })).toHaveAttribute('aria-valuenow', '32');
   await expect(widget.locator('.progress-caption strong')).toHaveText('100%');
+  await expect(widget.locator('.experiment-activity')).toHaveText('No active runs');
   await widget.click();
   await expect(page).toHaveURL(/\/experiments\/example-widget\?revision=2$/);
   const revisionRuns = page.locator('#runs .run-card');

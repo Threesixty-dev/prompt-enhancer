@@ -1,13 +1,27 @@
 # Product feature and readiness matrix
 
+## Bench experiment activity - 2026-10-26
+
+The [experiment activity correction](bench/client-navigation.md#experiment-run-activity-on-cards---2026-10-26)
+adds queued/running run counts to the read-only experiment summary and shows
+ongoing, queued, inactive or not-started activity on each experiment tile.
+An active-run filter uses those counts across every revision and history page.
+Incomplete historical attempts never imply ongoing work. All 446 synthetic Bench
+and 130 desktop/mobile browser checks pass; four affected browser checks pass
+again after an unavailable-activity fallback. Syntax, privacy and whitespace
+checks pass; a fictional layout was visually inspected. Source review and API/UI
+deployment remain pending. Stored data and execution are unchanged, and W05
+acceptance is unchanged.
+
 ## Bench experiment filtering and navigation - 2026-10-26
 
 The [Bench navigation follow-up](bench/client-navigation.md#experiment-filters-loading-skeletons-and-top-navigation---2026-10-26)
 adds title/ID and progress filters to the experiment list, route-loading
 skeletons, and top-bar navigation for Experiments, Runs and Stats. Filtering
 uses existing read-only data, keeps missing progress unavailable and retains
-selection in the URL. All 130 synthetic desktop/mobile browser checks pass;
-source review and API/UI deployment remain pending.
+selection in the URL. All 130 synthetic desktop/mobile browser checks pass.
+Reviewed PRs #119/#120 promoted the change to `main` at `68b0627`, and the API
+image and protected revision checks passed after a verifier-only retry.
 This bounded presentation change does not alter W05 acceptance.
 
 ## Separate Bench experiment and run pages with progress - 2026-10-26

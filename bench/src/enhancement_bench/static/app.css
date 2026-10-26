@@ -71,6 +71,8 @@ small { display: block; margin-top: 5px; }
 .skeleton-control { width: 20%; height: 42px; margin-left: auto; }
 @keyframes skeleton-glide { to { background-position-x: -200%; } }
 .experiment-card-action { display: flex; flex-direction: column; justify-content: space-between; align-self: stretch; gap: 18px; border-left: 1px solid var(--line); padding-left: 20px; }
+.experiment-activity { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 25px; }
+.experiment-activity .hint { margin: 0; }
 .experiment-card-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 18px; }
 .card-action { font-size: 13px; color: var(--teal); font-weight: 600; }
 .attempt-progress { margin: 16px 0; min-width: 0; }
