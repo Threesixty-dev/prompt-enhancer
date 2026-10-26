@@ -38,7 +38,7 @@ async function fixture(page) {
 
 test('a successful execution exposes its failed assertion in history, summary and attempt details', async ({ page }) => {
   const data = await fixture(page);
-  await page.goto('/');
+  await page.goto('/runs');
   const card = page.locator('#all-runs .run-card');
   await expect(card).toContainText('Execution: succeeded');
   await expect(card).toContainText('Assertions: Failed');

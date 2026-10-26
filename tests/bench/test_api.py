@@ -9,7 +9,7 @@ ORIGIN = {"Origin": "http://testserver"}
 
 
 @pytest.mark.parametrize("path", [
-    "/experiments", "/experiments/example-widget",
+    "/experiments", "/runs", "/experiments/example-widget",
     "/experiments/example-widget/runs/new",
     "/experiments/example-widget/runs/example-run",
     "/stats", "/experiments/example-widget/stats",

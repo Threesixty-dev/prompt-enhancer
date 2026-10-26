@@ -82,6 +82,7 @@ def create_app(store: Store, contracts: Contracts, *, allowed_repositories: tupl
 
     @app.get("/")
     @app.get("/experiments")
+    @app.get("/runs")
     @app.get("/stats")
     @app.get("/experiments/{experiment_id}")
     @app.get("/experiments/{experiment_id}/stats")
