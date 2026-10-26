@@ -281,7 +281,7 @@ test('experiments and runs have separate single-column pages with progress', asy
   await expect(revisionRuns.first().getByRole('progressbar', { name: 'Run progress' })).toHaveAttribute('aria-valuenow', '4');
   await expect(revisionRuns.first()).toHaveAttribute('href', '/experiments/example-widget/runs/' + runs[0].id);
   await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
-  await page.getByRole('link', { name: 'All runs', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Runs' }).click();
   const cards = page.locator('#all-runs .run-card');
   await expect(page).toHaveURL(/\/runs$/);
   await expect(cards).toHaveCount(10);
@@ -302,7 +302,7 @@ test('experiments and runs have separate single-column pages with progress', asy
 
 test('global run links open results and empty history keeps experiments available', async ({ page }) => {
   await connect(page);
-  await page.getByRole('link', { name: 'All runs', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Runs' }).click();
   await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
   await expect(page.locator('#run-detail')).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Before', exact: true }).first()).toBeVisible();

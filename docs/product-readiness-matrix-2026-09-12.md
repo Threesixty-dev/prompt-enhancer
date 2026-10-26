@@ -1,5 +1,15 @@
 # Product feature and readiness matrix
 
+## Bench experiment filtering and navigation - 2026-10-26
+
+The [Bench navigation follow-up](bench/client-navigation.md#experiment-filters-loading-skeletons-and-top-navigation---2026-10-26)
+adds title/ID and progress filters to the experiment list, route-loading
+skeletons, and top-bar navigation for Experiments, Runs and Stats. Filtering
+uses existing read-only data, keeps missing progress unavailable and retains
+selection in the URL. All 130 synthetic desktop/mobile browser checks pass;
+source review and API/UI deployment remain pending.
+This bounded presentation change does not alter W05 acceptance.
+
 ## Separate Bench experiment and run pages with progress - 2026-10-26
 
 The [experiment and run page candidate](bench/client-navigation.md#separate-experiment-and-run-pages-with-attempt-progress---2026-10-26)
@@ -8,8 +18,9 @@ own page. Cross-experiment history remains available on `/runs`. Both tile types
 show count-based progress. Experiment totals cover all revisions and pages;
 stopped runs retain partial progress when work was skipped, cancelled or
 interrupted. All 445 synthetic Bench tests and 126 desktop/mobile browser
-checks cover navigation and progress states.
-Source review and API/UI deployment remain pending; W05 acceptance is unchanged.
+checks cover navigation and progress states. Reviewed PRs #117/#118 promoted
+the change to `main` at `ff2e735`; container health and protected revision
+verification passed. W05 acceptance is unchanged.
 
 ## Explicit Bench quality assertions - 2026-10-25
 
