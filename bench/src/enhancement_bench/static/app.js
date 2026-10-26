@@ -96,7 +96,10 @@ function patch(container, value, build) {
 function parseRoute() {
   const segments = location.pathname.split('/').filter(Boolean).map(decodeURIComponent), query = new URLSearchParams(location.search);
   const history = { before: query.get('before'), filters: readFilters(query) };
-  if (!segments.length || (segments.length === 1 && segments[0] === 'experiments')) return { kind: 'list', ...history };
+  if (!segments.length || (segments.length === 1 && segments[0] === 'experiments')) return {
+    kind: 'list', ...history, search: (query.get('q') || '').trim().slice(0, 120),
+    progressFilter: ['no-runs', 'unfinished', 'finished'].includes(query.get('progress')) ? query.get('progress') : '',
+  };
   if (segments.length === 1 && segments[0] === 'runs') return { kind: 'runs', ...history };
   if (segments.length === 1 && segments[0] === 'stats') return { kind: 'stats', ...history };
   if (segments[0] !== 'experiments' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(segments[1] || '')) return { kind: 'missing' };
@@ -112,6 +115,35 @@ function pageHeading(title, description, crumbs = [], actions = []) {
   $('breadcrumbs').replaceChildren(link('Experiments', '/experiments'));
   for (const [text, href] of crumbs) { $('breadcrumbs').append(node('span', '/')); $('breadcrumbs').append(href ? link(text, href) : node('span', text)); }
   $('page-actions').replaceChildren(...actions);
+}
+function setTopNav(route) {
+  const section = route.kind === 'stats' ? '/stats' : ['runs', 'run'].includes(route.kind) ? '/runs' : '/experiments';
+  for (const anchor of $('primary-nav').querySelectorAll('a')) {
+    if (anchor.getAttribute('href') === section) anchor.setAttribute('aria-current', 'page');
+    else anchor.removeAttribute('aria-current');
+  }
+}
+function loadingSkeleton(route) {
+  const label = route.kind === 'list' ? 'experiments' : route.kind === 'runs' ? 'runs' : route.kind === 'stats' ? 'stats' : 'experiment';
+  const shell = node('div', undefined, 'loading-shell'); shell.setAttribute('role', 'status');
+  shell.append(node('p', 'Loading ' + label + '...', 'hint loading-label'));
+  const shapes = node('div', undefined, 'skeleton-stack'); shapes.setAttribute('aria-hidden', 'true');
+  if (['list', 'runs', 'stats', 'experiment'].includes(route.kind)) {
+    const toolbar = node('div', undefined, 'skeleton-toolbar');
+    toolbar.append(node('span', undefined, 'skeleton-line skeleton-field'), node('span', undefined, 'skeleton-line skeleton-field'),
+      node('span', undefined, 'skeleton-line skeleton-control'));
+    shapes.append(toolbar);
+  }
+  for (let index = 0; index < (route.kind === 'list' ? 3 : 2); index++) {
+    const card = node('div', undefined, 'skeleton-card');
+    const body = node('div', undefined, 'skeleton-body');
+    body.append(node('span', undefined, 'skeleton-line skeleton-title'), node('span', undefined, 'skeleton-line skeleton-copy'),
+      node('span', undefined, 'skeleton-line skeleton-short'));
+    const side = node('div', undefined, 'skeleton-side');
+    side.append(node('span', undefined, 'skeleton-line skeleton-short'), node('span', undefined, 'skeleton-line skeleton-track'));
+    card.append(body, side); shapes.append(card);
+  }
+  shell.append(shapes); return shell;
 }
 function refreshButton() {
   const button = node('button', 'Refresh', 'secondary'); button.id = 'refresh';
@@ -172,14 +204,57 @@ function runCard(r, d) {
   card.append(title, outcomes, labeledValue('Created', new Date(r.created * 1000).toLocaleString(), 'span', 'hint run-time'));
   return card;
 }
+function experimentFilterForm(route, hasProgress) {
+  const form = node('form', undefined, 'surface experiment-filters'); form.setAttribute('aria-label', 'Filter experiments');
+  const heading = node('div', undefined, 'filter-heading');
+  heading.append(node('h2', 'Filter experiments'), node('span', 'Search titles or IDs and narrow by attempt progress.', 'hint'));
+  const fields = node('div', undefined, 'experiment-filter-fields');
+  const searchField = node('div'), searchLabel = node('label', 'Search experiments'), search = node('input');
+  search.id = 'experiment-search'; searchLabel.htmlFor = search.id; search.type = 'search';
+  search.placeholder = 'Title or experiment ID'; search.maxLength = 120; search.value = route.search;
+  searchField.append(searchLabel, search);
+  const progressField = node('div'), progressLabel = node('label', 'Progress'), progress = node('select');
+  progress.id = 'experiment-progress-filter'; progressLabel.htmlFor = progress.id; progress.disabled = !hasProgress;
+  for (const [value, title] of [['', 'All experiments'], ['no-runs', 'No runs'], ['unfinished', 'Unfinished attempts'], ['finished', 'All attempts finished']]) {
+    const option = node('option', title); option.value = value; progress.append(option);
+  }
+  progress.value = route.progressFilter;
+  progressField.append(progressLabel, progress); fields.append(searchField, progressField);
+  const actions = node('div', undefined, 'experiment-filter-actions');
+  const reset = node('button', 'Reset filters', 'secondary'); reset.type = 'button';
+  reset.onclick = () => { search.value = ''; progress.value = ''; form.requestSubmit(); };
+  const apply = node('button', 'Apply filters'); apply.type = 'submit'; actions.append(reset, apply);
+  form.append(heading, fields, actions);
+  form.onsubmit = event => {
+    event.preventDefault();
+    const query = new URLSearchParams(), text = search.value.trim();
+    if (text) query.set('q', text);
+    if (progress.value && hasProgress) query.set('progress', progress.value);
+    const href = '/experiments' + (query.size ? '?' + query : '');
+    if (href !== location.pathname + location.search) history.pushState(null, '', href);
+    activeRoute = parseRoute(); renderExperiments();
+  };
+  return form;
+}
 function renderExperiments() {
   const container = $('experiments'); if (!container) return;
   const hasProgress = Array.isArray(runPage.summary?.experimentProgress);
   const progress = new Map((runPage.summary?.experimentProgress || []).map(item => [item.stableId, item]));
   const newest = new Map(); for (const d of experiments) if (!newest.has(d.stableId)) newest.set(d.stableId, d);
-  patch(container, [experiments, runPage.summary?.experimentProgress], () => {
+  const search = activeRoute.search.toLowerCase();
+  const visible = [...newest.values()].filter(d => {
+    if (search && !(d.title.toLowerCase().includes(search) || d.stableId.toLowerCase().includes(search))) return false;
+    if (!hasProgress || !activeRoute.progressFilter) return true;
+    const totals = progress.get(d.stableId);
+    if (activeRoute.progressFilter === 'no-runs') return !totals;
+    if (!totals || totals.total <= 0) return false;
+    return activeRoute.progressFilter === 'finished' ? totals.finished === totals.total : totals.finished < totals.total;
+  });
+  $('experiment-count').textContent = visible.length + ' of ' + newest.size + ' experiment' + (newest.size === 1 ? '' : 's')
+    + (!hasProgress ? ' / progress unavailable' : '');
+  patch(container, [experiments, runPage.summary?.experimentProgress, activeRoute.search, activeRoute.progressFilter], () => {
     const fragment = document.createDocumentFragment();
-    for (const d of newest.values()) {
+    for (const d of visible) {
       const card = link(undefined, experimentPath(d), 'experiment-card');
       const totals = progress.get(d.stableId);
       const content = node('div');
@@ -193,6 +268,7 @@ function renderExperiments() {
       card.append(content, action); fragment.append(card);
     }
     if (!newest.size) fragment.append(node('p', 'No experiments yet. Published experiment definitions will appear here.', 'empty'));
+    else if (!visible.length) fragment.append(node('p', 'No experiments match these filters. Adjust or reset the filters.', 'empty'));
     return fragment;
   });
 }
@@ -406,17 +482,22 @@ async function loadRoute(focus = false) {
     activeRoute = parseRoute();
     if (activeRoute.kind === 'missing') throw new Error('Page not found.');
     const route = activeRoute;
-    $('page-content').replaceChildren(node('p', 'Loading...', 'empty'));
+    const loadingTitle = route.kind === 'list' ? 'Experiments' : route.kind === 'runs' ? 'All runs' : route.kind === 'stats' ? 'Run stats' : 'Loading experiment';
+    pageHeading(loadingTitle, ''); setTopNav(route);
+    $('workspace').hidden = false; $('recovery-banner').hidden = true;
+    $('page-content').setAttribute('aria-busy', 'true');
+    $('page-content').replaceChildren(loadingSkeleton(route));
     const globalHistory = !route.id && ['list', 'runs', 'stats'].includes(route.kind);
     const [a, page, recovery] = await Promise.all([api('/api/experiments'), globalHistory ? api(historyPath(route, { api: true, before: route.before })) : null, api('/api/recovery')]);
     if (epoch !== routeEpoch) return;
     experiments = a.experiments; $('workspace').hidden = false;
     renderRecovery(recovery);
     if (route.kind === 'list') {
-      pageHeading('Experiments', 'Open an experiment to see its runs and results.', [], [refreshButton(), link('All runs', '/runs', 'button secondary')]);
+      pageHeading('Experiments', 'Open an experiment to see its runs and results.', [], [refreshButton()]);
       runPage = page;
       const cards = node('div', undefined, 'experiment-grid'); cards.id = 'experiments';
-      $('page-content').replaceChildren(cards); renderExperiments();
+      const count = node('p', undefined, 'hint experiment-count'); count.id = 'experiment-count';
+      $('page-content').replaceChildren(experimentFilterForm(route, Array.isArray(page.summary?.experimentProgress)), count, cards); renderExperiments();
     } else if (route.kind === 'runs') {
       pageHeading('All runs', 'Runs across all experiments and revisions, newest first.', [['All runs']], [refreshButton()]);
       runPage = page;
@@ -455,11 +536,13 @@ async function loadRoute(focus = false) {
         newRunPage(definition, source);
       }
     }
+    $('page-content').setAttribute('aria-busy', 'false');
     connected = true;
     if (focus) $('page-title').focus({ preventScroll: true });
   } catch (error) {
     if (epoch !== routeEpoch) return;
     connected = false;
+    $('page-content').setAttribute('aria-busy', 'false');
     $('workspace').hidden = false;
     pageHeading('Unable to open page', '', [], [link('Back to experiments', '/experiments', 'button secondary')]);
     $('page-content').replaceChildren(node('p', error.status === 401 || error.status === 403 ? 'Your session is unavailable. Reload the page to reconnect through Cloudflare Access.' : error.message, 'empty'));

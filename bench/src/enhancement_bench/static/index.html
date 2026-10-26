@@ -8,7 +8,15 @@
   <script src="/assets/app.js" type="module"></script>
 </head>
 <body>
-  <header><a class="brand" href="/experiments" data-route>Prompt Enhancer <span>Experiment Bench</span></a><span class="private-label">Private workspace</span></header>
+  <header>
+    <a class="brand" href="/experiments" data-route>Prompt Enhancer <span>Experiment Bench</span></a>
+    <nav id="primary-nav" aria-label="Main navigation">
+      <a href="/experiments" data-route>Experiments</a>
+      <a href="/runs" data-route>Runs</a>
+      <a href="/stats" data-route>Stats</a>
+    </nav>
+    <span class="private-label">Private workspace</span>
+  </header>
   <main>
     <p id="notice" role="status" aria-live="polite"></p>
     <div id="workspace" hidden>
