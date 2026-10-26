@@ -85,8 +85,10 @@ def test_attempt_progress_groups_all_matching_runs_without_counting_skipped_work
     with client_for(store, contracts) as client:
         page = client.get("/api/runs", params={"summary": "true", "limit": 1}).json()
         progress = {row["stableId"]: row for row in page["summary"]["experimentProgress"]}
-        assert progress["example-widget"] == {"stableId": "example-widget", "runCount": 2, "finished": 2, "total": 3}
-        assert progress["example-other"] == {"stableId": "example-other", "runCount": 1, "finished": 1, "total": 1}
+        assert progress["example-widget"] == {"stableId": "example-widget", "runCount": 2,
+                                              "queuedRuns": 0, "runningRuns": 0, "finished": 2, "total": 3}
+        assert progress["example-other"] == {"stableId": "example-other", "runCount": 1,
+                                             "queuedRuns": 0, "runningRuns": 0, "finished": 1, "total": 1}
         seen = {}
         while True:
             seen.update({row["id"]: row["attemptProgress"] for row in page["runs"]})
@@ -98,7 +100,34 @@ def test_attempt_progress_groups_all_matching_runs_without_counting_skipped_work
                         unrelated: {"finished": 1, "total": 1}}
         filtered = client.get("/api/runs", params={"summary": "true", "status": "failed"}).json()
         assert filtered["summary"]["experimentProgress"] == [
-            {"stableId": "example-widget", "runCount": 1, "finished": 1, "total": 2}]
+            {"stableId": "example-widget", "runCount": 1, "queuedRuns": 0,
+             "runningRuns": 0, "finished": 1, "total": 2}]
+
+
+def test_experiment_activity_uses_run_status_across_pages_and_keeps_partial_history_inactive(store, publication, contracts):
+    definition = changed(publication, autoRun=False)
+    other = changed(publication, stableId="example-other", autoRun=False)
+    store.import_publication(definition)
+    store.import_publication(other)
+    stopped = enqueue(store, definition)
+    enqueue(store, definition)
+    running = enqueue(store, definition)
+    enqueue(store, other)
+    with store.transaction() as db:
+        db.execute("UPDATE runs SET status='interrupted' WHERE id=?", (stopped,))
+        db.execute("UPDATE runs SET status='running' WHERE id=?", (running,))
+    with client_for(store, contracts) as client:
+        page = client.get("/api/runs", params={"summary": "true", "limit": 1}).json()
+        activity = {row["stableId"]: row for row in page["summary"]["experimentProgress"]}
+        assert activity["example-widget"]["runCount"] == 3
+        assert (activity["example-widget"]["queuedRuns"], activity["example-widget"]["runningRuns"]) == (1, 1)
+        assert (activity["example-other"]["queuedRuns"], activity["example-other"]["runningRuns"]) == (1, 0)
+        while page["nextCursor"]:
+            page = client.get("/api/runs", params={"summary": "true", "limit": 1, "before": page["nextCursor"]}).json()
+            assert {row["stableId"]: row for row in page["summary"]["experimentProgress"]} == activity
+        filtered = client.get("/api/runs", params={"summary": "true", "status": "interrupted"}).json()
+        assert filtered["summary"]["experimentProgress"][0]["runningRuns"] == 0
+        assert filtered["summary"]["experimentProgress"][0]["queuedRuns"] == 0
 
 
 def test_utc_dates_include_whole_end_day_and_exclude_neighbors(store, publication):

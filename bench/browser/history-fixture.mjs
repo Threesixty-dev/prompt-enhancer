@@ -8,9 +8,11 @@ export function historyResponse(runs, query, comparisons = { groups: [], truncat
   const end = start + Number(query.get('limit') || 100), visible = filtered.slice(start, end);
   const groups = new Map();
   for (const run of filtered) {
-    if (!groups.has(run.stable_id)) groups.set(run.stable_id, { stableId: run.stable_id, runCount: 0, finished: 0, total: 0 });
+    if (!groups.has(run.stable_id)) groups.set(run.stable_id, { stableId: run.stable_id, runCount: 0, queuedRuns: 0, runningRuns: 0, finished: 0, total: 0 });
     const group = groups.get(run.stable_id);
     group.runCount++;
+    if (run.status === 'queued') group.queuedRuns++;
+    if (run.status === 'running') group.runningRuns++;
     if (run.attemptProgress && group.total !== null) {
       group.finished += run.attemptProgress.finished;
       group.total += run.attemptProgress.total;
