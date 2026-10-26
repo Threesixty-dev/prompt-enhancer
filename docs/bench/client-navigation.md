@@ -7,6 +7,27 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Experiment filters, loading skeletons and top navigation - 2026-10-26
+
+- Task / atlas / gate: Bench browsing follow-up, bounded W05 presentation.
+  Baseline: reviewed `develop` at `4ab65f0` after the separate-page rollout.
+- Reproduction: experiment cards had no filter controls, the workspace remained
+  hidden while route data loaded, and the top bar had no section navigation.
+- Change: experiment cards filter locally by displayed title or stable ID and
+  by no runs, unfinished attempts or all attempts finished. The selection is
+  URL-backed and survives reload and Back/Forward. Progress choices are disabled
+  when the read-only history summary is unavailable. Route changes show
+  non-interactive skeleton cards with a visible loading label; reduced-motion
+  settings stop their animation. The top bar links Experiments, Runs and Stats
+  and marks the current section on desktop and mobile.
+- Contracts: filtering uses existing definition and count-only history data.
+  No API, database, execution, experiment-definition or metric contract changes.
+  Missing progress stays unavailable rather than implying no runs.
+- Evidence: all 130 synthetic desktop/mobile browser checks pass, including
+  filtering, deep links, navigation and delayed responses. Source review is
+  pending. No live experiment or model ran.
+- Boundary: this follow-up is not deployed; W05 acceptance is unchanged.
+
 ## Separate experiment and run pages with attempt progress - 2026-10-26
 
 - Task / atlas / gate: Bench experiment browsing, bounded W05 presentation.
@@ -30,8 +51,10 @@ this does not implement or accept the general workflow engine gates.
   run labels and assertion outcomes. Existing filtered `/experiments` links
   lead to `/runs` with their query intact. The browser fixture does not
   establish hosted rollout.
-- Boundary: source review and API/UI deployment remain pending. No experiment
-  was run for this presentation change, and W05 acceptance is unchanged.
+- Follow-up: reviewed PRs #117/#118 promoted this change to `main` at
+  `ff2e735`. The API image passed container health and the protected route
+  returned the exact revision on a verifier retry. No experiment was run for
+  this presentation change, and W05 acceptance is unchanged.
 
 ## Explicit quality assertions - 2026-10-25
 
@@ -288,8 +311,12 @@ this does not implement or accept the general workflow engine gates.
 
 ## User journey
 
-- `/experiments` lists experiments in one column. Each tile opens its experiment
-  page and shows progress across all of its runs. No run tiles appear on this page.
+- `/experiments` lists experiments in one column. Search filters displayed
+  titles and stable IDs; a progress filter selects experiments with no runs,
+  unfinished attempts or all attempts finished. Each tile opens its experiment
+  page and shows progress across all of its runs. No run tiles appear here.
+- The top bar links Experiments, Runs and Stats. A route load shows skeleton
+  cards until data arrives; refresh keeps the existing content visible.
 - `/runs` lists runs across every experiment and revision, newest first, with
   ten rows per page. Run tiles open results. Older runs continues the history;
   Newest runs returns to the beginning.

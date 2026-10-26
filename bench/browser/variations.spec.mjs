@@ -181,7 +181,7 @@ test('run cards preserve saved model choices and counts independently of experim
   run.status = 'cancelled'; run.attempts = [];
   await page.goto('/experiments');
   await expect(page.locator('.experiment-card')).toContainText('example-unit-model');
-  await page.getByRole('link', { name: 'All runs', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Runs' }).click();
   const card = page.locator('#all-runs .run-card');
   await expect(card).toContainText('1 case \u00b7 1 variant \u00b7 1 attempt');
   await expect(card).toContainText('example-saved-model');
