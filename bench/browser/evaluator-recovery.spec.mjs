@@ -16,7 +16,7 @@ test('evaluator interruption shows its cause and holds retry without a consumer 
     attempt.result.errors = [{ code: 'gateway_io_timeout', stage: 'evaluate_original', retryable: false }];
     await route.fulfill({ json: run });
   });
-  await page.goto('/');
+  await page.goto('/runs');
   await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
   await expect(page.getByText('gateway_io_timeout (stage: evaluate_original)', { exact: true })).toBeVisible();
   await expect(page.getByText('Verify that all remote consumer and evaluator operations have stopped before releasing the execution slot.', { exact: true })).toBeVisible();
@@ -53,7 +53,7 @@ for (const [category, hint] of [
       attempt.result.errors = [{ code: 'consumer_upstream_' + category, stage: 'generate', retryable: false }];
       await route.fulfill({ json: run });
     });
-    await page.goto('/');
+    await page.goto('/runs');
     await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
     await expect(page.getByText('consumer_upstream_' + category + ' (stage: generate)', { exact: true })).toBeVisible();
     await expect(page.getByText(hint, { exact: true })).toBeVisible();

@@ -91,11 +91,11 @@ test('revision selection scopes run history and experiment status', async ({ pag
   await expect(page.getByLabel('Revision', { exact: true })).toHaveValue('1');
   await expect(page.locator('#runs .run-card')).toHaveAttribute('href', /000000000001$/);
   await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
-  await expect(page.locator('.experiment-card')).toContainText('No runs yet');
+  await expect(page.locator('.experiment-card')).toContainText('2 runs');
   await expect(page.locator('.experiment-card .badge')).toHaveCount(0);
   experiments = experiments.filter(experiment => experiment.revision !== '3');
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.locator('.experiment-card .badge')).toHaveText('succeeded');
+  await expect(page.locator('.experiment-card')).toHaveAttribute('href', /revision=2$/);
 });
 
 test('normal fields create typed overrides and rerun edits preserve saved settings', async ({ page }) => {
@@ -224,7 +224,7 @@ test('late result response cannot replace another page and wrong experiment run 
 });
 
 
-test('all runs precede experiments, include every revision, and paginate without resetting on refresh', async ({ page }) => {
+test('experiments and runs have separate single-column pages with progress', async ({ page }) => {
   const definition = JSON.parse(await readFile(new URL('../examples/example-widget.json', import.meta.url), 'utf8'));
   const experiments = [
     { ...definition, revision: '2', generation: 2, title: 'Updated fictional widget request' },
@@ -236,6 +236,7 @@ test('all runs precede experiments, include every revision, and paginate without
     stable_id: index % 3 === 2 ? 'example-other' : definition.stableId,
     revision: index % 3 === 0 ? '2' : '1',
     status: index === 0 ? 'running' : 'succeeded', origin: index % 2 ? 'ui' : 'gitops', created: 1000 - index,
+    attemptProgress: { finished: index === 0 ? 1 : 4, total: 4 },
   }));
   await page.route('**/api/experiments', route => route.fulfill({ json: { experiments } }));
   await page.route(/\/api\/runs(?:\?.*)?$/, route => {
@@ -243,21 +244,48 @@ test('all runs precede experiments, include every revision, and paginate without
     return route.fulfill({ json: historyResponse(runs, query) });
   });
   await connect(page);
-  const cards = page.locator('#all-runs .run-card');
-  await expect(page.getByRole('heading', { name: 'All runs', exact: true })).toBeVisible();
-  await expect(cards).toHaveCount(10);
-  await expect(cards.nth(0)).toContainText('Updated fictional widget request');
-  await expect(cards.nth(1)).toContainText(title);
-  await expect(cards.nth(2)).toContainText('Another fictional experiment');
-  await expect(cards.nth(2)).toHaveAttribute('href', '/experiments/example-other/runs/' + runs[2].id);
-  expect(await page.evaluate(() => Boolean(document.querySelector('#all-runs').compareDocumentPosition(document.querySelector('#experiments')) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+  const experimentCards = page.locator('#experiments .experiment-card');
+  await expect(page.getByRole('heading', { name: 'Experiments', exact: true })).toBeVisible();
+  await expect(experimentCards).toHaveCount(2);
+  await expect(page.locator('#all-runs, #runs, .run-card')).toHaveCount(0);
+  const widget = experimentCards.filter({ hasText: 'Updated fictional widget request' });
+  await expect(widget.getByRole('progressbar', { name: 'Experiment progress' })).toHaveAttribute('aria-valuetext', '29 of 32 attempts finished');
+  await expect(widget.locator('.progress-caption strong')).toHaveText('90%');
+  await expect(widget.locator('.progress-fill')).toHaveAttribute('style', 'width: 90.625%;');
+  const columns = await experimentCards.evaluateAll(cards => cards.map(card => [card.offsetLeft, card.offsetWidth]));
+  expect(columns[0][0]).toBe(columns[1][0]);
+  expect(columns[0][1]).toBe(columns[1][1]);
+  const layout = await widget.evaluate(card => {
+    const main = card.firstElementChild.getBoundingClientRect();
+    const side = card.lastElementChild.getBoundingClientRect();
+    const progress = card.querySelector('[role="progressbar"]').getBoundingClientRect();
+    return { mainRight: main.right, mainBottom: main.bottom, sideLeft: side.left, sideTop: side.top,
+      progressLeft: progress.left, progressRight: progress.right, sideRight: side.right };
+  });
+  if (page.viewportSize().width > 800) expect(layout.sideLeft).toBeGreaterThanOrEqual(layout.mainRight);
+  else expect(layout.sideTop).toBeGreaterThanOrEqual(layout.mainBottom);
+  expect(layout.progressLeft).toBeGreaterThanOrEqual(layout.sideLeft);
+  expect(layout.progressRight).toBeLessThanOrEqual(layout.sideRight);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.evaluate(() => { window.firstRunCard = document.querySelector('#all-runs .run-card'); });
+  await page.evaluate(() => { window.firstExperimentCard = document.querySelector('.experiment-card'); });
   await page.waitForTimeout(3500);
-  expect(await page.evaluate(() => window.firstRunCard === document.querySelector('#all-runs .run-card'))).toBe(true);
-  runs[0].status = 'succeeded';
+  expect(await page.evaluate(() => window.firstExperimentCard === document.querySelector('.experiment-card'))).toBe(true);
+  runs[0].status = 'succeeded'; runs[0].attemptProgress.finished = 4;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(cards.nth(0).locator('.badge')).toHaveText('succeeded');
+  await expect(widget.getByRole('progressbar', { name: 'Experiment progress' })).toHaveAttribute('aria-valuenow', '32');
+  await expect(widget.locator('.progress-caption strong')).toHaveText('100%');
+  await widget.click();
+  await expect(page).toHaveURL(/\/experiments\/example-widget\?revision=2$/);
+  const revisionRuns = page.locator('#runs .run-card');
+  await expect(revisionRuns).toHaveCount(4);
+  await expect(revisionRuns.first().getByRole('progressbar', { name: 'Run progress' })).toHaveAttribute('aria-valuenow', '4');
+  await expect(revisionRuns.first()).toHaveAttribute('href', '/experiments/example-widget/runs/' + runs[0].id);
+  await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
+  await page.getByRole('link', { name: 'All runs', exact: true }).click();
+  const cards = page.locator('#all-runs .run-card');
+  await expect(page).toHaveURL(/\/runs$/);
+  await expect(cards).toHaveCount(10);
+  await expect(cards.first()).toHaveAttribute('href', '/experiments/example-widget/runs/' + runs[0].id);
   await page.getByRole('link', { name: 'Older runs', exact: true }).click();
   await expect(page).toHaveURL(new RegExp('before=' + runs[9].id + '$'));
   await expect(cards).toHaveCount(2);
@@ -274,12 +302,14 @@ test('all runs precede experiments, include every revision, and paginate without
 
 test('global run links open results and empty history keeps experiments available', async ({ page }) => {
   await connect(page);
+  await page.getByRole('link', { name: 'All runs', exact: true }).click();
   await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
   await expect(page.locator('#run-detail')).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Before', exact: true }).first()).toBeVisible();
   await page.route(/\/api\/runs(?:\?.*)?$/, route => route.fulfill({ json: historyResponse([], new URL(route.request().url()).searchParams) }));
   await page.locator('#breadcrumbs').getByRole('link', { name: 'Experiments', exact: true }).click();
-  await expect(page.locator('#all-runs')).toContainText('No runs yet. Choose an experiment below to start a run.');
+  await expect(page.locator('#all-runs, #runs')).toHaveCount(0);
   await expect(page.locator('.experiment-card')).toBeVisible();
+  await expect(page.locator('.experiment-card').first().getByRole('progressbar', { name: 'Experiment progress' })).toHaveAttribute('aria-valuetext', 'No runs yet');
   await expect(page.getByRole('link', { name: 'Older runs', exact: true })).toHaveCount(0);
 });

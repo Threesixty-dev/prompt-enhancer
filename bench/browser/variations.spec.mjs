@@ -180,11 +180,12 @@ test('run cards preserve saved model choices and counts independently of experim
   run.effective.units = [{ ...run.effective.units[1], consumerBinding: configuration.units[0].consumerBinding }];
   run.status = 'cancelled'; run.attempts = [];
   await page.goto('/experiments');
+  await expect(page.locator('.experiment-card')).toContainText('example-unit-model');
+  await page.getByRole('link', { name: 'All runs', exact: true }).click();
   const card = page.locator('#all-runs .run-card');
   await expect(card).toContainText('1 case \u00b7 1 variant \u00b7 1 attempt');
   await expect(card).toContainText('example-saved-model');
   await expect(card).not.toContainText('example-unit-model');
-  await expect(page.locator('.experiment-card')).toContainText('example-unit-model');
   await expect(card).toContainText('example-judge-model');
   await page.goto('/experiments/' + definition.stableId + '?revision=1');
   await expect(page.locator('#runs .run-card')).toContainText('example-saved-model');

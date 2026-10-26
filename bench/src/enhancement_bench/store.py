@@ -236,13 +236,16 @@ class Store:
                 raise BenchError("invalid_run_cursor")
             where += " AND (r.created,r.id) < (?,?)"
             parameters.extend([cursor["created"], cursor["id"]])
-        rows = db.execute("SELECT r.id,r.correlation_id,r.stable_id,r.revision,r.generation,r.origin,r.retry_of,r.status,r.assertion_outcome,r.cancel_requested,r.cleanup_pending,r.reconciliation_required,r.error_code,r.created,r.started,r.finished,r.effective FROM runs r WHERE "
+        rows = db.execute("SELECT r.id,r.correlation_id,r.stable_id,r.revision,r.generation,r.origin,r.retry_of,r.status,r.assertion_outcome,r.cancel_requested,r.cleanup_pending,r.reconciliation_required,r.error_code,r.created,r.started,r.finished,r.effective,"
+                          "(SELECT COUNT(*) FROM attempts a WHERE a.run_id=r.id AND a.status IN ('succeeded','failed')) AS finished_attempts FROM runs r WHERE "
                           + where + " ORDER BY r.created DESC,r.id DESC LIMIT ?",
                           (*parameters, min(max(limit, 1), 500))).fetchall()
         result = []
         for row in rows:
             item = dict(row)
             item["configuration"] = configuration_summary(json.loads(item.pop("effective")))
+            item["attemptProgress"] = {"finished": item.pop("finished_attempts"),
+                                       "total": item["configuration"]["caseCount"] * len(item["configuration"]["units"])}
             item["failure"] = self._failure_summary(db, item)
             result.append(item)
         return result

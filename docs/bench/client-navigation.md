@@ -7,6 +7,32 @@ admits the request. There is no application token prompt or token storage.
 Affected atlas scope: W05/W06 user journeys, bounded to the standalone bench;
 this does not implement or accept the general workflow engine gates.
 
+## Separate experiment and run pages with attempt progress - 2026-10-26
+
+- Task / atlas / gate: Bench experiment browsing, bounded W05 presentation.
+  Baseline: fetched `origin/develop` at `6fc4a27`.
+- Reproduction: the global page placed a flat, paginated run list before separate
+  experiment tiles. Neither tile type showed how much selected work had finished.
+- Change: `/experiments` presents experiment tiles in one column, with the same
+  full-width card layout as runs. Opening a tile shows that experiment's run
+  history before its definition details. `/runs` retains cross-experiment
+  history, filters and pagination. Experiment cards align model details beside
+  progress and actions on wide screens, then stack those sections on mobile.
+  Both tile types show progress bars. A run counts saved succeeded or failed
+  attempts against its selected case-by-variant total; skipped, cancelled and
+  interrupted attempts do not become finished work. An experiment
+  aggregates its runs across all revisions and pages, including a zero-run state.
+- Contracts: the read-only history response adds count-only progress fields.
+  Stored definitions, run snapshots, statuses, assertion outcomes, execution,
+  admission and recovery remain unchanged. Missing progress stays unavailable.
+- Evidence: all 445 synthetic Bench tests and 126 desktop/mobile browser
+  checks pass for progress, page navigation, filters, pagination, refresh,
+  run labels and assertion outcomes. Existing filtered `/experiments` links
+  lead to `/runs` with their query intact. The browser fixture does not
+  establish hosted rollout.
+- Boundary: source review and API/UI deployment remain pending. No experiment
+  was run for this presentation change, and W05 acceptance is unchanged.
+
 ## Explicit quality assertions - 2026-10-25
 
 - Task / atlas / gate: `bench-assertion-visibility`, bounded W05/B10 presentation.
@@ -262,10 +288,11 @@ this does not implement or accept the general workflow engine gates.
 
 ## User journey
 
-- `/experiments` shows All runs above the experiment cards. Run rows open
-  results; experiment cards open experiment pages. The run list includes every
-  experiment and revision, newest first, with ten rows per page. Older runs
-  continues the history; Newest runs returns to the beginning.
+- `/experiments` lists experiments in one column. Each tile opens its experiment
+  page and shows progress across all of its runs. No run tiles appear on this page.
+- `/runs` lists runs across every experiment and revision, newest first, with
+  ten rows per page. Run tiles open results. Older runs continues the history;
+  Newest runs returns to the beginning.
 - `/experiments/{id}?revision={revision}` shows one revision, its units,
   subjects and runs for that revision. New run opens a separate form.
 - `/stats` and `/experiments/{id}/stats?revision={revision}` show full run
@@ -287,8 +314,8 @@ These display labels are computed on read, so existing runs receive them too.
 The server serves the shell at these exact routes, so reloads and deep links
 work. Browser Back/Forward and modified link clicks retain normal navigation.
 Run identities are checked against the selected experiment and revision. Experiment-page
-run lists and experiment-card status are scoped to the displayed revision;
-a revision with no runs does not inherit another revision's history or status.
+run lists are scoped to the displayed revision; a revision with no runs does not
+inherit another revision's history. Index card progress spans all revisions.
 Late responses from an abandoned page cannot replace the active page.
 
 ## Form contract

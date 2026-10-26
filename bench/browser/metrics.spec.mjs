@@ -37,7 +37,7 @@ test('results distinguish missing, unknown, abstained, ineligible, failed and ca
     }
     await route.fulfill({ json: run });
   });
-  await page.goto('/');
+  await page.goto('/runs');
   await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
   const panel = page.getByRole('region', { name: 'Evaluator measurements' }).first();
   await expect(panel.locator('.measurement-coverage')).toHaveText('Before and after: 9 known \u00b7 2 unknown \u00b7 1 abstained \u00b7 2 not applicable \u00b7 1 evaluation error \u00b7 1 not recorded');

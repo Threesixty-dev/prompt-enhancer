@@ -32,7 +32,7 @@ async function recoveryFixture(page, { cleanup = false } = {}) {
     if (action === 'cleanup-check') state.requested = true;
     await route.fulfill({ status: action === 'cleanup-check' ? 202 : 200, json: {} });
   });
-  await page.goto('/');
+  await page.goto('/runs');
   await page.locator('#all-runs').getByRole('link', { name: /Automatic run/ }).click();
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   return state;
@@ -50,7 +50,7 @@ test('timeout cause and unresolved recovery are prominent across pages and filte
   await expect(recovery).toContainText('automatic remote verification unavailable');
   await expect(recovery).toContainText('never replays');
   await expect(page.getByRole('link', { name: 'Rerun with changes', exact: true })).toHaveCount(0);
-  await page.goto('/experiments?status=succeeded');
+  await page.goto('/runs?status=succeeded');
   const banner = page.getByRole('region', { name: 'Queue recovery', exact: true });
   await expect(banner).toContainText('Queue paused: recovery required');
   await expect(banner).toContainText('gateway_io_timeout');
@@ -106,7 +106,7 @@ test('run list shows the cause alongside recorded execution status', async ({ pa
     value.runs[0].failure = { code: 'gateway_io_timeout', stage: 'evaluate_original' };
     await route.fulfill({ json: value });
   });
-  await page.goto('/');
+  await page.goto('/runs');
   const card = page.locator('#all-runs .run-card').first();
   await expect(card).toContainText('Execution issue: gateway_io_timeout / evaluate_original');
   await expect(card).toContainText('Recovery required - queue paused');
